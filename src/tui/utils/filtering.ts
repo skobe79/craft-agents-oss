@@ -187,9 +187,10 @@ export function resolveCommand(input: string): string {
 
 /**
  * Filter agents by prefix for hint display and resolution
+ * Includes special entries: 'main' (return to main assistant) and 'agent' (open agent menu)
  */
 export function filterAgents(query: string, agents: string[]): FilterMatch<string> {
-  const allAgents = ['main', ...agents];
+  const allAgents = ['main', 'agent', ...agents];
   return filterByPrefix(allAgents, query, a => a);
 }
 
@@ -326,7 +327,7 @@ export function getCommandHint(input: string): HintData {
 export function getAgentHint(query: string, agents: string[]): HintData {
   // Empty @ shows all options
   if (query === '') {
-    const allAgents = ['main', ...agents.slice(0, 3)];
+    const allAgents = ['main', 'agent', ...agents.slice(0, 2)];
     return {
       selected: null,
       description: null,
@@ -340,7 +341,9 @@ export function getAgentHint(query: string, agents: string[]): HintData {
     const first = match.matches[0]!;
     const description = first === 'main'
       ? 'Return to main assistant'
-      : 'Activate sub-agent';
+      : first === 'agent'
+        ? 'Open agent menu'
+        : 'Activate sub-agent';
     return {
       selected: `@${first}`,
       description,

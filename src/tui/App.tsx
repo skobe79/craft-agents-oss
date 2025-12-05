@@ -123,6 +123,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
     reloadAgent,
     resetAgent,
     refreshAgents,
+    fetchAgentTools,
     agentsLoading,
     // MCP auth for sub-agent servers
     pendingMcpAuth,
@@ -240,15 +241,31 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
         }
         break;
       }
-      case 'info':
+      case 'info': {
+        debug('[handleAgentAction.info] activeAgentName:', activeAgentName, 'mcpServers:', activeAgentMcpServers.length);
         if (activeAgentName) {
-          addLocalMessage(`**Active Agent**: @${activeAgentName}`, 'assistant');
+          // Fetch tools from MCP servers
+          const serversWithTools = await fetchAgentTools();
+          let info = `**Active Agent**: @${activeAgentName}`;
+          if (serversWithTools.length > 0) {
+            for (const server of serversWithTools) {
+              info += `\n\n**${server.name}**`;
+              if (server.tools && server.tools.length > 0) {
+                info += `: ${server.tools.join(', ')}`;
+              } else {
+                info += ': (no tools)';
+              }
+            }
+          }
+          debug('[handleAgentAction.info] Adding message:', info);
+          addLocalMessage(info, 'assistant');
         } else {
           addLocalMessage('No sub-agent active. Use @agentname to activate one.', 'status');
         }
         break;
+      }
     }
-  }, [activateAgent, deactivateAgent, reloadAgent, resetAgent, refreshAgents, activeAgentName, addLocalMessage]);
+  }, [activateAgent, deactivateAgent, reloadAgent, resetAgent, refreshAgents, fetchAgentTools, activeAgentName, activeAgentMcpServers, addLocalMessage]);
 
   const handleAgentMenuCancel = useCallback(() => {
     setShowAgentMenu(false);
@@ -401,6 +418,12 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
         if (resolvedAgent === 'main') {
           deactivateAgent();
           addLocalMessage('Returned to main assistant', 'system');
+          return;
+        }
+
+        if (resolvedAgent === 'agent') {
+          // Open the agent menu
+          setShowAgentMenu(true);
           return;
         }
 
@@ -702,7 +725,20 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
 
             if (subCommand === 'info') {
               if (activeAgentName) {
-                addLocalMessage(`**Active Agent**: @${activeAgentName}`, 'assistant');
+                // Fetch tools from MCP servers
+                const serversWithTools = await fetchAgentTools();
+                let info = `**Active Agent**: @${activeAgentName}`;
+                if (serversWithTools.length > 0) {
+                  for (const server of serversWithTools) {
+                    info += `\n\n**${server.name}**`;
+                    if (server.tools && server.tools.length > 0) {
+                      info += `: ${server.tools.join(', ')}`;
+                    } else {
+                      info += ': (no tools)';
+                    }
+                  }
+                }
+                addLocalMessage(info, 'assistant');
               } else {
                 addLocalMessage('No sub-agent active. Use @agentname to activate one.', 'status');
               }
@@ -877,6 +913,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
       reloadAgent,
       resetAgent,
       refreshAgents,
+      fetchAgentTools,
     ]
   );
 

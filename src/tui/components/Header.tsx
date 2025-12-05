@@ -42,12 +42,12 @@ export const Header: React.FC<HeaderProps> = memo(({
     ? mcpUrl.replace(/^https?:\/\//, '').split('/')[0]
     : 'Not connected', [mcpUrl]);
 
-  // Format cost from SDK (already in USD)
+  // Format cost from SDK (already in USD) - round to 2 decimal places
   const costDisplay = useMemo(() => {
     if (costUsd < 0.01) {
-      return `${(costUsd * 100).toFixed(2)}¢`;
+      return `${(costUsd * 100).toFixed(1)}¢`;
     }
-    return `$${costUsd.toFixed(4)}`;
+    return `$${costUsd.toFixed(2)}`;
   }, [costUsd]);
 
   return (
@@ -78,8 +78,7 @@ export const Header: React.FC<HeaderProps> = memo(({
       <Box>
         {contextTokens > 0 && (
           <>
-            <Text dimColor>{formatTokens(contextTokens)} context</Text>
-            <Text dimColor> ({costDisplay})</Text>
+            <Text dimColor>{formatTokens(contextTokens)} ({costDisplay})</Text>
             <Text dimColor> | </Text>
           </>
         )}

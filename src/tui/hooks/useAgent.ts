@@ -16,7 +16,7 @@ import {
 import { CraftMcpClient } from '../../mcp/client.ts';
 import { SubAgentManager } from '../../agents/manager.ts';
 import type { SubAgentDefinition, McpServerConfig } from '../../agents/types.ts';
-import { invalidateDefinition, clearMcpCredentials } from '../../agents/cache.ts';
+import { invalidateDefinition, clearMcpCredentials, loadRegistry } from '../../agents/cache.ts';
 import { CraftOAuth, getMcpBaseUrl } from '../../auth/oauth.ts';
 import { debug } from '../utils/debug.ts';
 
@@ -117,6 +117,7 @@ export interface UseAgentResult {
   reloadAgent: () => Promise<boolean>;
   resetAgent: () => Promise<boolean>;
   refreshAgents: () => Promise<string[] | { error: string }>;
+  fetchAgentTools: () => Promise<McpServerConfig[]>;
   agentsLoading: boolean;
   // MCP auth for sub-agent servers
   pendingMcpAuth: PendingMcpAuthRequest | null;
@@ -250,6 +251,14 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   // Only re-run when workspace ID changes (not on every workspace state update)
   useEffect(() => {
     let cancelled = false;
+
+    // Load cached agents immediately (before async discovery)
+    const cachedRegistry = loadRegistry(workspace.id);
+    if (cachedRegistry && cachedRegistry.agents.length > 0) {
+      const cachedNames = cachedRegistry.agents.map(a => a.name);
+      debug('[useAgent] Loaded cached agents:', cachedNames);
+      setAvailableAgents(cachedNames);
+    }
 
     const initializeAgentManager = async () => {
       setAgentsLoading(true);
@@ -1124,6 +1133,14 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }
   }, [workspace, getMcpToken]);
 
+  // Fetch tools from active agent's MCP servers
+  const fetchAgentTools = useCallback(async (): Promise<McpServerConfig[]> => {
+    if (!activeAgentDefinition || !agentManagerRef.current) {
+      return [];
+    }
+    return agentManagerRef.current.fetchMcpServerTools(activeAgentDefinition);
+  }, [activeAgentDefinition]);
+
   // Derive active agent name from definition
   const activeAgentName = activeAgentDefinition?.name ?? null;
   // Derive active agent MCP servers from definition
@@ -1165,6 +1182,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     reloadAgent,
     resetAgent,
     refreshAgents,
+    fetchAgentTools,
     agentsLoading,
     // MCP auth for sub-agent servers
     pendingMcpAuth,

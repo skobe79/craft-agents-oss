@@ -57,6 +57,8 @@ export interface McpServerConfig {
   requiresAuth?: boolean;
   /** Optional description */
   description?: string;
+  /** Tools available on this server (populated after connection) */
+  tools?: string[];
 }
 
 /**

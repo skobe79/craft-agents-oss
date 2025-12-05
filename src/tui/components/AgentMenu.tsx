@@ -37,7 +37,7 @@ export const AgentMenu: React.FC<AgentMenuProps> = ({
   if (activeAgentName) {
     menuItems.push({
       key: 'clear',
-      label: 'Clear',
+      label: 'Exit',
       desc: 'Return to main assistant',
       action: { type: 'clear' },
     });

@@ -23,6 +23,112 @@ const CALLBACK_PORT = 8914;
 const CALLBACK_PATH = '/oauth/callback';
 const CLIENT_NAME = 'Craft TUI Agent';
 
+// Tokyo Night color palette (matching TUI theme)
+const tokyoNight = {
+  bg: '#1a1b26',
+  fg: '#dcdee8',
+  comment: '#565f89',
+  purple: '#bb9af7',
+  green: '#9ece6a',
+  red: '#f7768e',
+};
+
+// ASCII Craft logo (from Header.tsx WelcomeBanner)
+const CRAFT_LOGO = `  ████████ █████████    ██████   ██████████ ██████████
+██████████ ██████████ ██████████ █████████  ██████████
+██████     ██████████ ██████████ ████████   ██████████
+██████████ ████████   ██████████ ███████      █████
+  ████████ ████  ████ ████  ████ █████        █████`;
+
+/**
+ * Generate a styled OAuth callback page matching TUI aesthetic
+ */
+function generateOAuthPage(options: {
+  title: string;
+  message: string;
+  isSuccess: boolean;
+  autoClose?: boolean;
+  errorDetail?: string;
+}): string {
+  const { title, message, isSuccess, autoClose = false, errorDetail } = options;
+  const titleColor = isSuccess ? tokyoNight.green : tokyoNight.red;
+
+  const countdownScript = autoClose ? `
+    <script>
+      let seconds = 3;
+      const countdown = document.getElementById('seconds');
+      const interval = setInterval(() => {
+        seconds--;
+        if (countdown) countdown.textContent = seconds;
+        if (seconds <= 0) {
+          clearInterval(interval);
+          window.close();
+        }
+      }, 1000);
+    </script>
+  ` : '';
+
+  const countdownHtml = autoClose
+    ? `<p class="countdown">Closing in <span id="seconds">3</span>s...</p>`
+    : '';
+
+  const errorHtml = errorDetail
+    ? `<p class="error-detail">Error: ${errorDetail}</p>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Craft TUI - ${title}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      background-color: ${tokyoNight.bg};
+      color: ${tokyoNight.fg};
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container { text-align: center; padding: 2rem; }
+    .logo {
+      color: ${tokyoNight.purple};
+      font-size: 10px;
+      line-height: 1.2;
+      white-space: pre;
+      margin-bottom: 2rem;
+      font-weight: bold;
+    }
+    @media (min-width: 600px) { .logo { font-size: 14px; } }
+    .title {
+      font-size: 1.5rem;
+      font-weight: bold;
+      margin-bottom: 0.5rem;
+      color: ${titleColor};
+    }
+    .message { color: ${tokyoNight.comment}; margin-bottom: 0.5rem; }
+    .error-detail { color: ${tokyoNight.red}; margin-bottom: 1rem; font-size: 0.875rem; }
+    .countdown { color: ${tokyoNight.comment}; font-size: 0.875rem; }
+    .hint { color: ${tokyoNight.comment}; font-size: 0.75rem; margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <pre class="logo">${CRAFT_LOGO}</pre>
+    <h1 class="title">${title}</h1>
+    <p class="message">${message}</p>
+    ${errorHtml}
+    ${countdownHtml}
+    <p class="hint">Return to terminal to continue</p>
+  </div>
+  ${countdownScript}
+</body>
+</html>`;
+}
+
 // Generate PKCE code verifier and challenge
 function generatePKCE(): { verifier: string; challenge: string } {
   const verifier = randomBytes(32).toString('base64url');
@@ -289,15 +395,12 @@ export class CraftOAuth {
 
           if (error) {
             res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end(`
-              <html>
-                <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                  <h1 style="color: #e53e3e;">Authorization Failed</h1>
-                  <p>Error: ${error}</p>
-                  <p>You can close this window.</p>
-                </body>
-              </html>
-            `);
+            res.end(generateOAuthPage({
+              title: 'Authorization Failed',
+              message: 'You can close this window.',
+              isSuccess: false,
+              errorDetail: error,
+            }));
             clearTimeout(timeout);
             this.stopServer();
             reject(new Error(`OAuth error: ${error}`));
@@ -306,15 +409,11 @@ export class CraftOAuth {
 
           if (state !== expectedState) {
             res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end(`
-              <html>
-                <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                  <h1 style="color: #e53e3e;">Security Error</h1>
-                  <p>State mismatch - possible CSRF attack.</p>
-                  <p>You can close this window.</p>
-                </body>
-              </html>
-            `);
+            res.end(generateOAuthPage({
+              title: 'Security Error',
+              message: 'State mismatch - possible CSRF attack.',
+              isSuccess: false,
+            }));
             clearTimeout(timeout);
             this.stopServer();
             reject(new Error('OAuth state mismatch'));
@@ -323,15 +422,11 @@ export class CraftOAuth {
 
           if (!code) {
             res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end(`
-              <html>
-                <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                  <h1 style="color: #e53e3e;">Authorization Failed</h1>
-                  <p>No authorization code received.</p>
-                  <p>You can close this window.</p>
-                </body>
-              </html>
-            `);
+            res.end(generateOAuthPage({
+              title: 'Authorization Failed',
+              message: 'No authorization code received.',
+              isSuccess: false,
+            }));
             clearTimeout(timeout);
             this.stopServer();
             reject(new Error('No authorization code'));
@@ -340,15 +435,12 @@ export class CraftOAuth {
 
           // Success!
           res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`
-            <html>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1 style="color: #38a169;">Authorization Successful!</h1>
-                <p>You can close this window and return to the terminal.</p>
-                <script>setTimeout(() => window.close(), 2000);</script>
-              </body>
-            </html>
-          `);
+          res.end(generateOAuthPage({
+            title: 'Authorization Successful',
+            message: 'You can close this window and return to the terminal.',
+            isSuccess: true,
+            autoClose: true,
+          }));
 
           clearTimeout(timeout);
           this.stopServer();

@@ -461,6 +461,60 @@ export class SubAgentManager {
     });
   }
 
+  /**
+   * Fetch tools from an MCP server
+   * Creates a temporary connection to list available tools
+   */
+  async fetchMcpServerTools(
+    definition: SubAgentDefinition
+  ): Promise<McpServerConfig[]> {
+    if (!definition.mcpServers || !this.activeAgent.agentId) {
+      return [];
+    }
+
+    const results: McpServerConfig[] = [];
+
+    for (const config of definition.mcpServers) {
+      const name = config.name || this.extractNameFromUrl(config.url);
+      const result: McpServerConfig = { ...config, name };
+
+      try {
+        // Get credentials if auth required
+        let headers: Record<string, string> | undefined;
+        if (config.requiresAuth) {
+          const creds = getServerCredentials(
+            this.workspaceId,
+            this.activeAgent.agentId,
+            name
+          );
+          if (creds) {
+            headers = { Authorization: `Bearer ${creds.accessToken}` };
+          }
+        }
+
+        // Create temporary MCP client to list tools
+        const client = new CraftMcpClient({
+          url: config.url,
+          headers,
+        });
+
+        await client.connect();
+        const tools = await client.listTools();
+        result.tools = tools.map(t => t.name);
+        await client.close();
+
+        debug('[manager.fetchMcpServerTools] Fetched', result.tools.length, 'tools from', name);
+      } catch (err) {
+        debug('[manager.fetchMcpServerTools] Failed to fetch tools from', name, ':', err);
+        result.tools = [];
+      }
+
+      results.push(result);
+    }
+
+    return results;
+  }
+
   // ============================================================
   // Helpers
   // ============================================================
