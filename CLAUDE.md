@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Craft TUI Agent is a Claude Code-like terminal interface for managing Craft documents. It uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) to interact with Claude models and connects to a Craft MCP server for document operations.
+Craft TUI Agent is a Claude Code-like terminal interface for managing Craft documents. It uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) to interact with Claude models and connects to Craft MCP servers for document operations. Supports multiple workspaces with separate conversations and OAuth authentication.
 
 ## Commands
 
@@ -25,65 +25,175 @@ bun run typecheck
 bun link
 ```
 
+**CLI Flags:**
+- `--setup` - Force setup wizard
+- `--url, -u` - Override MCP server URL
+- `--token, -t` - Override bearer token (testing)
+- `--model, -m` - Override model selection
+
+## Project Structure
+
+```
+src/
+├── index.tsx                 # CLI entry point, setup routing
+├── agent/
+│   └── craft-agent.ts        # Claude Agent SDK wrapper
+├── auth/
+│   └── oauth.ts              # OAuth 2.0 with PKCE
+├── config/
+│   ├── env.ts                # Environment validation (legacy)
+│   ├── storage.ts            # Config persistence, multi-workspace
+│   └── preferences.ts        # User preferences (name, timezone, etc.)
+├── mcp/
+│   ├── client.ts             # MCP client & proxy for persistent connections
+│   └── tools.ts              # Tool registry and help formatting
+├── prompts/
+│   └── system.ts             # System prompt with date/time and preferences
+└── tui/
+    ├── App.tsx               # Main app, command routing
+    ├── components/
+    │   ├── AskUserQuestion.tsx   # Interactive question UI for SDK hooks
+    │   ├── Header.tsx            # Status bar (model, workspace, tokens, cost)
+    │   ├── Input.tsx             # Text input with history & file handling
+    │   ├── Messages.tsx          # Message display with streaming
+    │   ├── ModelSelector.tsx     # Model selection UI
+    │   ├── Setup.tsx             # First-run configuration wizard
+    │   ├── Spinner.tsx           # Thinking indicator
+    │   ├── ToolCall.tsx          # Tool execution visualization
+    │   ├── WorkspaceAdd.tsx      # Add new workspace wizard
+    │   ├── WorkspaceRename.tsx   # Rename workspace dialog
+    │   └── WorkspaceSelector.tsx # Workspace switcher
+    ├── hooks/
+    │   ├── useAgent.ts           # Agent state, MCP proxy, streaming
+    │   ├── useElapsedTime.ts     # Track elapsed time during processing
+    │   ├── useHistory.ts         # Command history (arrow keys)
+    │   └── useResize.ts          # Terminal resize handling
+    └── utils/
+        ├── files.ts              # File attachment processing
+        ├── markdown.ts           # Markdown rendering with Shiki
+        ├── terminalProgress.ts   # Progress bar display
+        └── toolStatus.ts         # Tool status tracking
+```
+
 ## Architecture
 
-### Entry Point & Setup Flow
-- `src/index.tsx` - CLI entry point using meow for argument parsing. Renders either the Setup wizard or main App based on stored config.
-- Configuration stored in `~/.craft-agent/config.json` via `src/config/storage.ts`
-- User preferences (name, timezone, etc.) stored separately via `src/config/preferences.ts`
+### Entry Point (`src/index.tsx`)
+- Uses `meow` for CLI argument parsing
+- Enables bracketed paste mode for file drag-drop
+- Routes to Setup wizard or main App based on config
+- Config stored in `~/.craft-agent/config.json`
 
-### Agent Layer
-- `src/agent/craft-agent.ts` - Core agent class (`CraftAgent`) that:
-  - Uses `@anthropic-ai/claude-agent-sdk` for Claude API calls via the `query()` function
-  - Leverages SDK's built-in agentic loop (no manual tool call handling needed)
-  - **Auto compaction**: SDK automatically compresses long conversations to manage context
-  - Session management via `resume` option for conversation continuity
-  - Handles OAuth token refresh for Craft MCP authentication
-  - Converts SDK's `SDKMessage` events to `AgentEvent` for TUI compatibility
-  - Configures Craft MCP server via SDK's `mcpServers` option with HTTP transport
-  - Has a built-in `update_user_preferences` tool via PreToolUse hook
+### Agent Layer (`src/agent/craft-agent.ts`)
+Core `CraftAgent` class that:
+- Uses `@anthropic-ai/claude-agent-sdk` via the `query()` function
+- Leverages SDK's built-in agentic loop (no manual tool call handling)
+- Converts SDK's `SDKMessage` events to `AgentEvent` for TUI compatibility
+- **Session management**: `resume` option for conversation continuity
+- **Auto compaction**: SDK compresses long conversations automatically
+- **MCP Proxy**: Persistent connection for performance, HTTP fallback
+- **Tool permissions**: `PreToolUse` hook for bash command approval
+- **AskUserQuestion**: `canUseTool` callback for interactive questions
+- **Preferences tool**: Built-in `update_user_preferences` via in-process MCP server
 
-### MCP Integration
-- MCP is now handled by the Claude Agent SDK directly
-- `src/mcp/client.ts` - Legacy MCP client (no longer used by agent, kept for /tools command)
-- `src/mcp/tools.ts` - Tool registry and help formatting for Craft MCP tools
-- The SDK connects to the MCP server via `mcpServers: { craft: { type: 'http', url, headers } }`
+**AgentEvent types:** `status`, `text_delta`, `text_complete`, `tool_start`, `tool_result`, `permission_request`, `ask_user`, `error`, `complete`
 
-### TUI Layer (Ink/React)
-- `src/tui/App.tsx` - Main application component, handles slash commands (/help, /tools, /model, /web, /clear, etc.)
-- `src/tui/components/` - UI components (Header, Messages, Input, ToolCall, Setup wizard, Spinner)
-- `src/tui/hooks/useAgent.ts` - React hook that wraps CraftAgent, manages messages state, handles streaming updates with throttling
-- `src/tui/hooks/useHistory.ts` - Command history for up/down arrow navigation
-- `src/tui/utils/files.ts` - File attachment processing (images, PDFs, text files)
-- `src/tui/utils/markdown.ts` - Markdown rendering for terminal using marked + marked-terminal
+### Configuration (`src/config/storage.ts`)
+Multi-workspace support with:
+```typescript
+interface StoredConfig {
+  anthropicApiKey: string;
+  model?: string;
+  workspaces: Workspace[];
+  activeWorkspaceId: string | null;
+}
 
-### System Prompt
-- `src/prompts/system.ts` - Defines the Craft Assistant persona and capabilities, includes current date/time context and user preferences
+interface Workspace {
+  id: string;
+  name: string;
+  mcpUrl: string;
+  oauth?: OAuthCredentials;  // For private servers
+  isPublic?: boolean;        // For public servers
+  sessionId?: string;        // SDK session for continuity
+}
+```
+- Workspace conversations stored in `~/.craft-agent/workspaces/{id}/conversation.json`
+- Auto-migration from legacy single-workspace format
+
+### User Preferences (`src/config/preferences.ts`)
+Stored in `~/.craft-agent/preferences.json`:
+- name, timezone, location, language, notes
+- Embedded in system prompt
+- Updated via `update_user_preferences` tool
+
+### MCP Integration (`src/mcp/`)
+- `CraftMcpProxy`: Persistent connection wrapper with tool caching
+- Creates in-process SDK MCP server via `createSdkMcpServer()`
+- Falls back to HTTP mode if proxy not initialized
+- `tools.ts`: Registry of 32+ Craft tools for `/tools` command
+
+### OAuth (`src/auth/oauth.ts`)
+- Dynamic client registration (no pre-registration)
+- PKCE for security, state for CSRF protection
+- Local callback server on port 8914
+- Automatic token refresh
+
+### TUI Layer (`src/tui/`)
+**App.tsx** - Main component handling:
+- Slash commands: `/help`, `/clear`, `/paste`, `/tools`, `/config`, `/prefs`, `/setup`, `/compact`, `/cost`, `/model`, `/workspace`, `/web`, `/fetch`, `/bash`, `/exit`
+- Modal state (model selector, workspace selector, etc.)
+- Message persistence
+
+**useAgent hook** - State management:
+- MCP proxy initialization on mount/workspace change
+- 50ms throttled streaming updates
+- Token usage tracking (input, output, cache, cost)
+- Permission and question queue handling
+
+**Message types:** `user`, `assistant`, `tool`, `error`, `status`, `system`
+
+### System Prompt (`src/prompts/system.ts`)
+Includes:
+- Current date/time context
+- User preferences
+- Craft environment description (spaces, blocks, smart folders)
+- Available tools and capabilities
 
 ## Key Patterns
 
 ### Streaming Architecture
-The agent uses the Claude Agent SDK's streaming pattern:
-1. `CraftAgent.chat()` calls `query()` from the SDK, which returns an async generator of `SDKMessage`
-2. Messages are converted to `AgentEvent` objects for backward compatibility with the TUI
-3. `useAgent` hook consumes events and updates React state with throttling (50ms) to reduce flickering
-4. The SDK handles the agentic loop internally (tool calls, MCP communication, etc.)
+1. `CraftAgent.chat()` calls `query()` → returns `AsyncGenerator<SDKMessage>`
+2. Events converted to `AgentEvent` objects
+3. `useAgent` hook throttles updates (50ms) to reduce flickering
+4. SDK handles agentic loop (tool calls, MCP communication)
 
-### Auto Compaction
-- The SDK automatically compacts conversation history when it grows too large
-- Compaction events are surfaced as status messages in the TUI
-- Session IDs are preserved to enable `resume` for conversation continuity
+### Tool Permissions
+- `PreToolUse` hook blocks dangerous bash commands by default
+- User approves commands in TUI
+- Session-wide whitelist for approved base commands
+- Dangerous commands (rm, sudo, git push) never auto-allow
 
-### OAuth Flow
-- OAuth handled in `src/auth/oauth.ts` with automatic token refresh
-- Tokens are passed to the SDK via `mcpServers.craft.headers`
-- Supports both authenticated and public MCP servers (controlled by `isPublic` flag in config)
+### MCP Proxy Pattern
+- `CraftMcpProxy` maintains persistent MCP connection
+- Caches tools on initialization
+- Exposes `getSdkServer()` for SDK integration
+- Avoids reconnection overhead on each query
 
-### Message Types
-Messages have types: 'user', 'assistant', 'tool', 'error', 'status', 'system' - rendered differently in the TUI
+### Session Continuity
+- SDK session IDs stored per workspace
+- `resume` option continues previous conversations
+- Session failures clear and start fresh
+- Replayed messages skipped via `isReplay` flag
+
+### Token Counting
+- Tracks: input tokens, output tokens, cache creation, cache read
+- Context tokens = base + cache for next request
+- Cost calculated by SDK (`total_cost_usd`)
 
 ## Tech Stack
+
 - **Runtime**: Bun
-- **TUI**: Ink (React for CLIs)
-- **AI**: @anthropic-ai/claude-agent-sdk (Agent SDK with auto compaction, session management)
-- **MCP**: Handled by Agent SDK via HTTP transport
+- **TUI**: Ink 4.x (React for CLIs)
+- **AI**: @anthropic-ai/claude-agent-sdk
+- **MCP**: @modelcontextprotocol/sdk (via Agent SDK)
+- **Markdown**: marked + marked-terminal + Shiki syntax highlighting
+- **CLI**: meow for argument parsing

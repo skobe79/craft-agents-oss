@@ -104,7 +104,7 @@ const SimpleTextInput: React.FC<{
 
 // Horizontal line for top/bottom borders
 const HorizontalLine: React.FC<{ color: string; columns: number }> = ({ color, columns }) => {
-  const width = Math.max(20, columns - 6);
+  const width = Math.max(20, columns - 2);
   return (
     <Text color={color}>{'─'.repeat(width)}</Text>
   );
@@ -244,13 +244,23 @@ export const Input: React.FC<InputProps> = ({
 
 /**
  * Get hint text for slash commands
+ * NOTE: Keep in sync with primaryCommands in App.tsx
  */
 function getCommandHint(input: string): string {
   const cmd = input.toLowerCase().trim();
 
   if (cmd === '/') {
-    return 'Commands: /help /clear /paste /tools /config /prefs /model /cost /exit';
+    return 'Commands: /help /clear /tools /model /workspace /web /bash /cost /exit';
   }
+
+  // Commands with subcommands
+  const subcommands: Record<string, Record<string, string>> = {
+    '/workspace': {
+      'add': 'Add a new workspace',
+      'rename': 'Rename current workspace',
+      'remove': 'Remove a workspace',
+    },
+  };
 
   const commands: Record<string, string> = {
     '/help': 'Show help and available commands',
@@ -263,14 +273,37 @@ function getCommandHint(input: string): string {
     '/setup': 'Reconfigure API keys and MCP settings',
     '/compact': 'Toggle compact mode for tool output',
     '/model': 'Show or change the Claude model',
+    '/w': 'Switch workspace (shortcut)',
+    '/workspace': 'Switch workspace (add, rename, remove)',
     '/cost': 'Show token usage and estimated cost',
     '/web': 'Toggle web search capability',
     '/fetch': 'Toggle web fetch capability',
-    '/code': 'Toggle code execution capability',
+    '/bash': 'Toggle bash/shell execution',
+    '/debug': 'Show conversation file path',
     '/exit': 'Exit the application',
     '/quit': 'Exit the application',
     '/q': 'Exit the application',
   };
+
+  // Check for subcommand matching (e.g., "/workspace r" -> "rename")
+  const parts = cmd.split(/\s+/);
+  if (parts.length >= 2 && parts[0]) {
+    const baseCmd = parts[0];
+    const subInput = parts[1] || '';
+    const subs = subcommands[baseCmd];
+
+    if (subs) {
+      const subMatches = Object.entries(subs)
+        .filter(([sub]) => sub.startsWith(subInput))
+        .map(([sub, desc]) => `${baseCmd} ${sub}: ${desc}`);
+
+      if (subMatches.length === 1 && subMatches[0]) {
+        return subMatches[0];
+      } else if (subMatches.length > 1 && subMatches.length <= 4) {
+        return subMatches.map(m => m.split(':')[0] || '').join(' | ');
+      }
+    }
+  }
 
   // Find matching commands
   const matches = Object.entries(commands)

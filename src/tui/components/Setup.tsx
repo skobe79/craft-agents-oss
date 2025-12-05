@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
-import { saveConfig, getConfigPath, type StoredConfig } from '../../config/storage.ts';
+import { saveConfig, getConfigPath, generateWorkspaceId, type StoredConfig, type Workspace } from '../../config/storage.ts';
 import { CraftOAuth, getMcpBaseUrl } from '../../auth/oauth.ts';
 
 // Simple text input without cursor animation
@@ -202,9 +202,29 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel }) => {
 
     setStep('testing');
 
-    // Build config based on whether it's public or OAuth
+    // Create initial workspace from the MCP URL
+    const workspaceId = generateWorkspaceId();
+    const initialWorkspace: Workspace = {
+      id: workspaceId,
+      name: 'Default',
+      mcpUrl: mcpUrl,
+      isPublic: isPublicServer,
+      ...(oauthResult && {
+        oauth: {
+          accessToken: oauthResult.accessToken,
+          refreshToken: oauthResult.refreshToken,
+          expiresAt: oauthResult.expiresAt,
+          clientId: oauthResult.clientId,
+          tokenType: oauthResult.tokenType,
+        },
+      }),
+      createdAt: Date.now(),
+    };
+
+    // Build config with workspace
     const config: StoredConfig = {
       anthropicApiKey: apiKey,
+      // Legacy fields (kept for compatibility)
       craftMcpUrl: mcpUrl,
       isPublic: isPublicServer,
       ...(oauthResult && {
@@ -216,6 +236,9 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel }) => {
           tokenType: oauthResult.tokenType,
         },
       }),
+      // Multi-workspace fields
+      workspaces: [initialWorkspace],
+      activeWorkspaceId: workspaceId,
     };
 
     try {

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { randomUUID } from 'crypto';
 
 export interface OAuthCredentials {
   accessToken: string;
@@ -10,13 +11,25 @@ export interface OAuthCredentials {
   tokenType: string;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+  mcpUrl: string;
+  oauth?: OAuthCredentials;
+  isPublic?: boolean;
+  createdAt: number;
+  sessionId?: string;  // SDK session ID for conversation continuity
+}
+
 export interface StoredConfig {
   anthropicApiKey: string;
-  craftMcpUrl: string;
-  // OAuth credentials (when server requires auth)
+  // Legacy fields (kept for migration from single-workspace config)
+  craftMcpUrl?: string;
   oauth?: OAuthCredentials;
-  // Whether the MCP server is public (no auth required)
   isPublic?: boolean;
+  // Multi-workspace fields
+  workspaces: Workspace[];
+  activeWorkspaceId: string | null;
   model?: string;
 }
 
@@ -33,22 +46,101 @@ export function configExists(): boolean {
   return existsSync(CONFIG_FILE);
 }
 
+// Extract a friendly name from MCP URL for migration
+function extractWorkspaceName(mcpUrl: string): string {
+  try {
+    const url = new URL(mcpUrl);
+    // Try to get meaningful name from path (e.g., /links/ABC123/mcp -> ABC123)
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (parts.length >= 2 && parts[0] === 'links' && parts[1]) {
+      return `Workspace ${parts[1].substring(0, 6)}`;
+    }
+    return url.hostname.replace(/^mcp\./, '').split('.')[0] || 'Default';
+  } catch {
+    return 'Default';
+  }
+}
+
+// Migrate legacy single-workspace config to multi-workspace format
+function migrateConfig(rawConfig: Record<string, unknown>): StoredConfig | null {
+  // Check if already migrated (has workspaces array)
+  if (Array.isArray(rawConfig.workspaces)) {
+    return rawConfig as unknown as StoredConfig;
+  }
+
+  // Validate legacy required fields
+  const anthropicApiKey = rawConfig.anthropicApiKey as string | undefined;
+  const craftMcpUrl = rawConfig.craftMcpUrl as string | undefined;
+  const oauth = rawConfig.oauth as OAuthCredentials | undefined;
+  const isPublic = rawConfig.isPublic as boolean | undefined;
+  const model = rawConfig.model as string | undefined;
+
+  if (!anthropicApiKey || !craftMcpUrl) {
+    return null;
+  }
+
+  // Must have either OAuth credentials or be marked as public
+  if (!oauth?.accessToken && !isPublic) {
+    return null;
+  }
+
+  // Create workspace from legacy config
+  const workspace: Workspace = {
+    id: randomUUID(),
+    name: extractWorkspaceName(craftMcpUrl),
+    mcpUrl: craftMcpUrl,
+    oauth,
+    isPublic,
+    createdAt: Date.now(),
+  };
+
+  const migratedConfig: StoredConfig = {
+    anthropicApiKey,
+    // Keep legacy fields for backwards compatibility
+    craftMcpUrl,
+    oauth,
+    isPublic,
+    // New multi-workspace fields
+    workspaces: [workspace],
+    activeWorkspaceId: workspace.id,
+    model,
+  };
+
+  // Save migrated config
+  saveConfig(migratedConfig);
+
+  return migratedConfig;
+}
+
 export function loadStoredConfig(): StoredConfig | null {
   try {
     if (!existsSync(CONFIG_FILE)) {
       return null;
     }
     const content = readFileSync(CONFIG_FILE, 'utf-8');
-    const config = JSON.parse(content) as StoredConfig;
+    const rawConfig = JSON.parse(content) as Record<string, unknown>;
 
-    // Validate required fields
-    if (!config.anthropicApiKey || !config.craftMcpUrl) {
+    // Validate API key exists
+    if (!rawConfig.anthropicApiKey) {
       return null;
     }
 
-    // Must have either OAuth credentials or be marked as public
-    if (!config.oauth?.accessToken && !config.isPublic) {
+    // Migrate if needed and validate
+    const config = migrateConfig(rawConfig);
+    if (!config) {
       return null;
+    }
+
+    // Must have at least one workspace with valid auth
+    if (!config.workspaces || config.workspaces.length === 0) {
+      return null;
+    }
+
+    // Validate active workspace exists and has valid auth
+    const activeWorkspace = config.workspaces.find(w => w.id === config.activeWorkspaceId);
+    if (!activeWorkspace) {
+      // Default to first workspace
+      config.activeWorkspaceId = config.workspaces[0]?.id || null;
     }
 
     return config;
@@ -66,6 +158,15 @@ export function isTokenExpired(config: StoredConfig): boolean {
   return Date.now() + bufferMs >= config.oauth.expiresAt;
 }
 
+// Check if workspace OAuth token needs refresh (with 5 minute buffer)
+export function isWorkspaceTokenExpired(workspace: Workspace): boolean {
+  if (!workspace.oauth?.expiresAt) {
+    return false;
+  }
+  const bufferMs = 5 * 60 * 1000; // 5 minutes
+  return Date.now() + bufferMs >= workspace.oauth.expiresAt;
+}
+
 // Get the access token to use for API calls (empty string for public servers)
 export function getAccessToken(config: StoredConfig): string | null {
   if (config.isPublic) {
@@ -75,6 +176,14 @@ export function getAccessToken(config: StoredConfig): string | null {
     return config.oauth.accessToken;
   }
   return null;
+}
+
+// Get access token for a specific workspace
+export function getWorkspaceAccessToken(workspace: Workspace): string | null {
+  if (workspace.isPublic) {
+    return null;
+  }
+  return workspace.oauth?.accessToken || null;
 }
 
 // Update OAuth tokens after refresh
@@ -97,6 +206,30 @@ export function updateOAuthTokens(
   saveConfig(config);
 }
 
+// Update OAuth tokens for a specific workspace
+export function updateWorkspaceOAuthTokens(
+  workspaceId: string,
+  accessToken: string,
+  refreshToken?: string,
+  expiresAt?: number
+): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+
+  const workspace = config.workspaces.find(w => w.id === workspaceId);
+  if (!workspace || !workspace.oauth) return;
+
+  workspace.oauth.accessToken = accessToken;
+  if (refreshToken) {
+    workspace.oauth.refreshToken = refreshToken;
+  }
+  if (expiresAt) {
+    workspace.oauth.expiresAt = expiresAt;
+  }
+
+  saveConfig(config);
+}
+
 export function saveConfig(config: StoredConfig): void {
   ensureConfigDir();
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
@@ -110,4 +243,200 @@ export function clearConfig(): void {
 
 export function getConfigPath(): string {
   return CONFIG_FILE;
+}
+
+// ============================================
+// Workspace Management Functions
+// ============================================
+
+export function generateWorkspaceId(): string {
+  return randomUUID();
+}
+
+export function getWorkspaces(): Workspace[] {
+  const config = loadStoredConfig();
+  return config?.workspaces || [];
+}
+
+export function getActiveWorkspace(): Workspace | null {
+  const config = loadStoredConfig();
+  if (!config || !config.activeWorkspaceId) {
+    return config?.workspaces[0] || null;
+  }
+  return config.workspaces.find(w => w.id === config.activeWorkspaceId) || config.workspaces[0] || null;
+}
+
+export function setActiveWorkspace(workspaceId: string): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+
+  const workspace = config.workspaces.find(w => w.id === workspaceId);
+  if (!workspace) return;
+
+  config.activeWorkspaceId = workspaceId;
+  saveConfig(config);
+}
+
+export function addWorkspace(workspace: Omit<Workspace, 'id' | 'createdAt'>): Workspace {
+  const config = loadStoredConfig();
+  if (!config) {
+    throw new Error('No config found');
+  }
+
+  const newWorkspace: Workspace = {
+    ...workspace,
+    id: generateWorkspaceId(),
+    createdAt: Date.now(),
+  };
+
+  config.workspaces.push(newWorkspace);
+
+  // If this is the only workspace, make it active
+  if (config.workspaces.length === 1) {
+    config.activeWorkspaceId = newWorkspace.id;
+  }
+
+  saveConfig(config);
+  return newWorkspace;
+}
+
+export function removeWorkspace(workspaceId: string): boolean {
+  const config = loadStoredConfig();
+  if (!config) return false;
+
+  const index = config.workspaces.findIndex(w => w.id === workspaceId);
+  if (index === -1) return false;
+
+  config.workspaces.splice(index, 1);
+
+  // If we removed the active workspace, switch to first available
+  if (config.activeWorkspaceId === workspaceId) {
+    config.activeWorkspaceId = config.workspaces[0]?.id || null;
+  }
+
+  saveConfig(config);
+  return true;
+}
+
+export function getWorkspaceById(workspaceId: string): Workspace | null {
+  const config = loadStoredConfig();
+  if (!config) return null;
+  return config.workspaces.find(w => w.id === workspaceId) || null;
+}
+
+export function renameWorkspace(workspaceId: string, newName: string): boolean {
+  const config = loadStoredConfig();
+  if (!config) return false;
+
+  const workspace = config.workspaces.find(w => w.id === workspaceId);
+  if (!workspace) return false;
+
+  workspace.name = newName.trim();
+  saveConfig(config);
+  return true;
+}
+
+// ============================================
+// Workspace Conversation Persistence
+// ============================================
+
+const WORKSPACES_DIR = join(CONFIG_DIR, 'workspaces');
+
+function ensureWorkspaceDir(workspaceId: string): string {
+  const dir = join(WORKSPACES_DIR, workspaceId);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+// Update workspace session ID
+export function updateWorkspaceSessionId(workspaceId: string, sessionId: string | null): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+
+  const workspace = config.workspaces.find(w => w.id === workspaceId);
+  if (!workspace) return;
+
+  if (sessionId) {
+    workspace.sessionId = sessionId;
+  } else {
+    delete workspace.sessionId;
+  }
+
+  saveConfig(config);
+}
+
+// Stored message format (simplified for persistence)
+export interface StoredMessage {
+  id: string;
+  type: 'user' | 'assistant' | 'tool' | 'error' | 'status' | 'system';
+  content: string;
+  timestamp?: number;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolStatus?: 'pending' | 'executing' | 'completed' | 'error';
+  toolDuration?: number;
+  isError?: boolean;
+}
+
+export interface WorkspaceConversation {
+  messages: StoredMessage[];
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    contextTokens: number;
+    costUsd: number;
+  };
+  savedAt: number;
+}
+
+// Save workspace conversation (messages + token usage)
+export function saveWorkspaceConversation(
+  workspaceId: string,
+  messages: StoredMessage[],
+  tokenUsage: WorkspaceConversation['tokenUsage']
+): void {
+  const dir = ensureWorkspaceDir(workspaceId);
+  const filePath = join(dir, 'conversation.json');
+
+  const conversation: WorkspaceConversation = {
+    messages,
+    tokenUsage,
+    savedAt: Date.now(),
+  };
+
+  writeFileSync(filePath, JSON.stringify(conversation, null, 2), 'utf-8');
+}
+
+// Load workspace conversation
+export function loadWorkspaceConversation(workspaceId: string): WorkspaceConversation | null {
+  const filePath = join(WORKSPACES_DIR, workspaceId, 'conversation.json');
+
+  try {
+    if (!existsSync(filePath)) {
+      return null;
+    }
+    const content = readFileSync(filePath, 'utf-8');
+    return JSON.parse(content) as WorkspaceConversation;
+  } catch {
+    return null;
+  }
+}
+
+// Get workspace data directory path
+export function getWorkspaceDataPath(workspaceId: string): string {
+  return join(WORKSPACES_DIR, workspaceId);
+}
+
+// Clear workspace conversation
+export function clearWorkspaceConversation(workspaceId: string): void {
+  const filePath = join(WORKSPACES_DIR, workspaceId, 'conversation.json');
+  if (existsSync(filePath)) {
+    writeFileSync(filePath, '{}', 'utf-8');
+  }
+
+  // Also clear session ID
+  updateWorkspaceSessionId(workspaceId, null);
 }

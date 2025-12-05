@@ -53,6 +53,23 @@ const formatInputParams = (input?: Record<string, unknown>): string => {
   return truncateText(parts.join(', '), 60);
 };
 
+// Get custom display for specific tools
+const getCustomToolDisplay = (toolName: string, input?: Record<string, unknown>): { name: string; params: string } | null => {
+  if (toolName === 'WebFetch' && input?.url) {
+    return {
+      name: 'Fetching content for',
+      params: truncateText(String(input.url), 60),
+    };
+  }
+  if (toolName === 'WebSearch' && input?.query) {
+    return {
+      name: 'Searching for',
+      params: truncateText(String(input.query), 60),
+    };
+  }
+  return null;
+};
+
 export const ToolCall: React.FC<ToolCallProps> = memo(({
   toolName,
   status,
@@ -87,9 +104,10 @@ export const ToolCall: React.FC<ToolCallProps> = memo(({
 
   const { icon, color } = getStatusDisplay();
 
-  // Format for display
-  const displayName = formatToolName(toolName);
-  const inputParams = formatInputParams(input);
+  // Format for display - check for custom display first
+  const customDisplay = getCustomToolDisplay(toolName, input);
+  const displayName = customDisplay?.name ?? formatToolName(toolName);
+  const inputParams = customDisplay?.params ?? formatInputParams(input);
 
   // Compact view (single line)
   if (compact && !expanded) {

@@ -4,7 +4,7 @@ import { render } from 'ink';
 import meow from 'meow';
 import { App } from './tui/App.tsx';
 import { Setup } from './tui/components/Setup.tsx';
-import { loadStoredConfig, type StoredConfig } from './config/storage.ts';
+import { loadStoredConfig, getActiveWorkspace, type StoredConfig, type Workspace } from './config/storage.ts';
 import type { CraftAgentConfig } from './agent/craft-agent.ts';
 
 const cli = meow(
@@ -105,9 +105,32 @@ const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, forceSetup }) => {
     );
   }
 
+  // Get active workspace
+  const activeWorkspace = getActiveWorkspace();
+  if (!activeWorkspace) {
+    // No workspaces available - need to run setup
+    return (
+      <Setup
+        onComplete={handleSetupComplete}
+        onCancel={handleSetupCancel}
+      />
+    );
+  }
+
   // Build agent config from stored config + CLI overrides
+  // If CLI URL is provided, create a temporary workspace object for it
+  const workspace: Workspace = cliFlags.url
+    ? {
+        id: 'cli-override',
+        name: 'CLI Override',
+        mcpUrl: cliFlags.url,
+        isPublic: true, // Assume public for CLI override
+        createdAt: Date.now(),
+      }
+    : activeWorkspace;
+
   const agentConfig: CraftAgentConfig = {
-    mcpUrl: cliFlags.url || config.craftMcpUrl,
+    workspace,
     // Token can come from CLI flag (for testing) - OAuth tokens are loaded from storage in the agent
     mcpToken: cliFlags.token,
     model: cliFlags.model || config.model,

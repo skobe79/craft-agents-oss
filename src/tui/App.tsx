@@ -4,11 +4,15 @@ import { Header, WelcomeBanner } from './components/Header.tsx';
 import { Messages, type Message } from './components/Messages.tsx';
 import { Input, InputHint } from './components/Input.tsx';
 import { ModelSelector, type Model } from './components/ModelSelector.tsx';
+import { WorkspaceSelector } from './components/WorkspaceSelector.tsx';
+import { WorkspaceAdd } from './components/WorkspaceAdd.tsx';
+import { WorkspaceRename } from './components/WorkspaceRename.tsx';
+import { AskUserQuestion } from './components/AskUserQuestion.tsx';
 import { useAgent } from './hooks/useAgent.ts';
 import { useHistory } from './hooks/useHistory.ts';
 import { useResize } from './hooks/useResize.ts';
 import { formatToolsHelp } from '../mcp/tools.ts';
-import { getConfigPath } from '../config/storage.ts';
+import { getConfigPath, getWorkspaces, setActiveWorkspace, removeWorkspace, renameWorkspace, getWorkspaceDataPath, type Workspace } from '../config/storage.ts';
 import { formatPreferencesDisplay, getPreferencesPath } from '../config/preferences.ts';
 import { formatTokens } from './utils/markdown.ts';
 import { processInputWithFiles, readClipboard, type FileAttachment } from './utils/files.ts';
@@ -26,20 +30,24 @@ const HELP_TEXT = `
   Just type your message and press Enter to chat with Claude.
 
 **Commands**
-  /help      Show this help message
-  /clear     Clear conversation history
-  /paste     Paste files/images from clipboard
-  /tools     List available Craft MCP tools
-  /config    Show current configuration
-  /prefs     Show user preferences
-  /setup     Reconfigure API keys and MCP settings
-  /compact   Toggle compact/expanded tool output
-  /cost      Show token usage and estimated cost
-  /model     Show or change model (e.g., /model opus)
-  /web       Toggle web search capability
-  /fetch     Toggle web fetch capability
-  /code      Toggle code execution capability
-  /exit      Exit the application (or Ctrl+C)
+  /help        Show this help message
+  /clear       Clear conversation history
+  /paste       Paste files/images from clipboard
+  /tools       List available Craft MCP tools
+  /config      Show current configuration
+  /prefs       Show user preferences
+  /setup       Reconfigure API keys and MCP settings
+  /compact     Toggle compact/expanded tool output
+  /cost        Show token usage and estimated cost
+  /model       Show or change model (e.g., /model opus)
+  /workspace   Switch workspace (e.g., /workspace work)
+  /workspace add     Add a new Craft MCP workspace
+  /workspace rename  Rename current workspace
+  /workspace remove  Remove a workspace
+  /web         Toggle web search capability
+  /fetch       Toggle web fetch capability
+  /bash        Toggle bash/shell execution
+  /exit        Exit the application (or Ctrl+C)
 
 **Keyboard Shortcuts**
   Enter      Send message
@@ -64,7 +72,6 @@ const HELP_TEXT = `
   "Search for meeting notes about project X"
   "What's the weather in NYC?" (uses web search)
   "Fetch and summarize https://example.com" (uses web fetch)
-  "Calculate the sum of 1 to 100" (uses code execution)
 `.trim();
 
 export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
@@ -81,11 +88,18 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
     processingStartTime,
     connected,
     tokenUsage,
+    pendingPermission,
+    pendingQuestion,
+    hasExecutingTool,
     sendMessage,
     clearMessages,
     interrupt,
+    respondToPermission,
+    respondToQuestion,
     model,
     setModel,
+    workspace,
+    setWorkspace,
     isWebSearchEnabled,
     setWebSearchEnabled,
     isWebFetchEnabled,
@@ -100,6 +114,10 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
   const [showWelcome, setShowWelcome] = useState(true);
   const [pendingAttachments, setPendingAttachments] = useState<FileAttachment[]>([]);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
+  const [showWorkspaceAdd, setShowWorkspaceAdd] = useState(false);
+  const [showWorkspaceRename, setShowWorkspaceRename] = useState(false);
+  const [pendingRemoveWorkspace, setPendingRemoveWorkspace] = useState<string | null>(null);
 
   // Models list
   const models: Model[] = [
@@ -122,6 +140,63 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
 
   const handleModelCancel = useCallback(() => {
     setShowModelSelector(false);
+  }, []);
+
+  // Workspace handlers
+  const handleWorkspaceSelect = useCallback((workspaceId: string) => {
+    setShowWorkspaceSelector(false);
+    const workspaces = getWorkspaces();
+    const selectedWorkspace = workspaces.find(w => w.id === workspaceId);
+    if (selectedWorkspace) {
+      setActiveWorkspace(workspaceId);
+      setWorkspace(selectedWorkspace);
+    }
+  }, [setWorkspace]);
+
+  const handleWorkspaceCancel = useCallback(() => {
+    setShowWorkspaceSelector(false);
+  }, []);
+
+  const handleWorkspaceAddOpen = useCallback(() => {
+    setShowWorkspaceSelector(false);
+    setShowWorkspaceAdd(true);
+  }, []);
+
+  const handleWorkspaceRenameOpen = useCallback((workspaceId: string) => {
+    setShowWorkspaceSelector(false);
+    // If renaming a different workspace, switch to it first
+    if (workspaceId !== workspace.id) {
+      const workspaces = getWorkspaces();
+      const targetWorkspace = workspaces.find(w => w.id === workspaceId);
+      if (targetWorkspace) {
+        setActiveWorkspace(workspaceId);
+        setWorkspace(targetWorkspace);
+      }
+    }
+    setShowWorkspaceRename(true);
+  }, [workspace.id, setWorkspace]);
+
+  const handleWorkspaceAddComplete = useCallback((newWorkspace: Workspace) => {
+    setShowWorkspaceAdd(false);
+    setActiveWorkspace(newWorkspace.id);
+    setWorkspace(newWorkspace);
+  }, [setWorkspace]);
+
+  const handleWorkspaceAddCancel = useCallback(() => {
+    setShowWorkspaceAdd(false);
+  }, []);
+
+  const handleWorkspaceRenameSubmit = useCallback((newName: string) => {
+    setShowWorkspaceRename(false);
+    const success = renameWorkspace(workspace.id, newName);
+    if (success) {
+      // Update local workspace state with new name
+      setWorkspace({ ...workspace, name: newName });
+    }
+  }, [workspace, setWorkspace]);
+
+  const handleWorkspaceRenameCancel = useCallback(() => {
+    setShowWorkspaceRename(false);
   }, []);
 
   const handlePaste = useCallback(() => {
@@ -199,12 +274,12 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
         // Primary commands for partial matching (order matters for priority)
         const primaryCommands = [
           '/help', '/clear', '/paste', '/tools', '/config', '/prefs',
-          '/setup', '/compact', '/cost', '/model', '/web', '/fetch',
-          '/code', '/exit'
+          '/setup', '/compact', '/cost', '/model', '/workspace', '/web', '/fetch',
+          '/bash', '/debug', '/exit'
         ];
 
         // If not an exact match, try partial matching
-        const aliases = ['/?', '/q', '/quit', '/image', '/preferences', '/websearch', '/webfetch', '/codeexec', '/execute'];
+        const aliases = ['/?', '/q', '/quit', '/image', '/preferences', '/websearch', '/webfetch', '/w'];
         if (!primaryCommands.includes(command) && !aliases.includes(command)) {
           const matches = primaryCommands.filter(cmd => cmd.startsWith(command));
           if (matches.length === 1 && matches[0]) {
@@ -262,7 +337,8 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
               `**Configuration**
 
 - Config file: \`${getConfigPath()}\`
-- MCP URL: \`${config.mcpUrl}\`
+- Workspace: \`${workspace.name}\`
+- MCP URL: \`${workspace.mcpUrl}\`
 - Model: \`${model}\`
 - Compact mode: ${compactMode ? 'On' : 'Off'}
 - Web search: ${isWebSearchEnabled() ? 'On' : 'Off'}
@@ -332,6 +408,91 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             return;
           }
 
+          case '/w':
+          case '/workspace': {
+            const subCommand = parts[1];
+            const workspaces = getWorkspaces();
+
+            if (subCommand === 'add') {
+              setShowWorkspaceAdd(true);
+              return;
+            }
+
+            if (subCommand === 'rename') {
+              setShowWorkspaceRename(true);
+              return;
+            }
+
+            if (subCommand === 'remove') {
+              const nameToRemove = parts.slice(2).join(' ');
+              if (!nameToRemove) {
+                addLocalMessage('Usage: /workspace remove <name>', 'error');
+                return;
+              }
+
+              const workspaceToRemove = workspaces.find(w =>
+                w.name.toLowerCase().includes(nameToRemove.toLowerCase())
+              );
+
+              if (!workspaceToRemove) {
+                addLocalMessage(`Workspace not found: ${nameToRemove}`, 'error');
+                return;
+              }
+
+              if (workspaces.length === 1) {
+                addLocalMessage('Cannot remove the only workspace. Add another workspace first.', 'error');
+                return;
+              }
+
+              // Check if removing active workspace
+              const isActive = workspaceToRemove.id === workspace.id;
+              const removed = removeWorkspace(workspaceToRemove.id);
+
+              if (removed) {
+                // If we removed the active workspace, switch to another
+                if (isActive) {
+                  const remainingWorkspaces = getWorkspaces();
+                  if (remainingWorkspaces.length > 0 && remainingWorkspaces[0]) {
+                    setActiveWorkspace(remainingWorkspaces[0].id);
+                    setWorkspace(remainingWorkspaces[0]);
+                  }
+                }
+              } else {
+                addLocalMessage('Failed to remove workspace', 'error');
+              }
+              return;
+            }
+
+            if (subCommand) {
+              // Parse number selection
+              const num = parseInt(subCommand, 10);
+              if (num >= 1 && num <= workspaces.length) {
+                const selected = workspaces[num - 1];
+                if (selected) {
+                  setActiveWorkspace(selected.id);
+                  setWorkspace(selected);
+                }
+                return;
+              }
+
+              // Find matching workspace (partial match)
+              const matchedWorkspace = workspaces.find(w =>
+                w.name.toLowerCase().includes(subCommand.toLowerCase())
+              );
+
+              if (matchedWorkspace) {
+                setActiveWorkspace(matchedWorkspace.id);
+                setWorkspace(matchedWorkspace);
+              } else {
+                addLocalMessage(`Unknown workspace: ${subCommand}`, 'error');
+              }
+            } else {
+              // Show interactive selector
+              setShowWorkspaceSelector(true);
+            }
+            return;
+          }
+
           case '/web':
           case '/websearch': {
             const newState = !isWebSearchEnabled();
@@ -354,14 +515,22 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             return;
           }
 
-          case '/code':
-          case '/codeexec':
-          case '/execute': {
+          case '/bash': {
             const newState = !isCodeExecutionEnabled();
             setCodeExecutionEnabled(newState);
             addLocalMessage(
-              `Code execution: ${newState ? 'Enabled' : 'Disabled'}`,
+              `Bash execution: ${newState ? 'Enabled' : 'Disabled'}`,
               'system'
+            );
+            return;
+          }
+
+          case '/debug': {
+            const dataPath = getWorkspaceDataPath(workspace.id);
+            const conversationPath = `${dataPath}/conversation.json`;
+            addLocalMessage(
+              `**Debug Info**\n\nWorkspace: ${workspace.name}\nConversation: file://${conversationPath}`,
+              'assistant'
             );
             return;
           }
@@ -406,6 +575,8 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
       showWelcome,
       model,
       setModel,
+      workspace,
+      setWorkspace,
       isWebSearchEnabled,
       setWebSearchEnabled,
       isWebFetchEnabled,
@@ -416,19 +587,39 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
     ]
   );
 
-  // Handle Ctrl+C to interrupt or exit
+  // Handle Ctrl+C to interrupt or exit, and permission responses
   useInput((input, key) => {
+    // Handle permission responses (y/n/a)
+    if (pendingPermission) {
+      if (input.toLowerCase() === 'y') {
+        respondToPermission(true, false);  // Allow once
+        return;
+      } else if (input.toLowerCase() === 'n') {
+        respondToPermission(false, false);  // Deny
+        return;
+      } else if (input.toLowerCase() === 'a') {
+        respondToPermission(true, true);  // Always allow this command
+        return;
+      }
+    }
+
     if (key.ctrl && input === 'c') {
-      if (isProcessing) {
+      if (pendingPermission) {
+        respondToPermission(false, false); // Deny on Ctrl+C
+      } else if (isProcessing) {
         interrupt();
       } else {
         exit();
       }
     }
 
-    // Handle Escape to interrupt
-    if (key.escape && isProcessing) {
-      interrupt();
+    // Handle Escape to interrupt or deny permission
+    if (key.escape) {
+      if (pendingPermission) {
+        respondToPermission(false, false);
+      } else if (isProcessing) {
+        interrupt();
+      }
     }
   });
 
@@ -457,6 +648,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
           streamingText={streamingText}
           status={status}
           processingStartTime={processingStartTime}
+          hasExecutingTool={hasExecutingTool}
           compact={compactMode}
         />
       </Box>
@@ -471,9 +663,64 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
         />
       )}
 
+      {/* Workspace selector overlay */}
+      {showWorkspaceSelector && (
+        <WorkspaceSelector
+          workspaces={getWorkspaces()}
+          currentWorkspaceId={workspace.id}
+          onSelect={handleWorkspaceSelect}
+          onCancel={handleWorkspaceCancel}
+          onAdd={handleWorkspaceAddOpen}
+          onRename={handleWorkspaceRenameOpen}
+        />
+      )}
+
+      {/* Workspace add wizard */}
+      {showWorkspaceAdd && (
+        <WorkspaceAdd
+          onComplete={handleWorkspaceAddComplete}
+          onCancel={handleWorkspaceAddCancel}
+        />
+      )}
+
+      {/* Workspace rename input */}
+      {showWorkspaceRename && (
+        <WorkspaceRename
+          currentName={workspace.name}
+          onSubmit={handleWorkspaceRenameSubmit}
+          onCancel={handleWorkspaceRenameCancel}
+        />
+      )}
+
       {/* Input + Status bar + Header together at bottom */}
       <Box flexDirection="column" width="100%" paddingX={1}>
-        {!showModelSelector && (
+        {/* Permission prompt */}
+        {pendingPermission && (
+          <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} marginBottom={1}>
+            <Text color="yellow" bold>⚠ Permission Required</Text>
+            <Text>Tool: <Text color="cyan">{pendingPermission.toolName}</Text></Text>
+            <Text dimColor>Command: <Text color="white">{pendingPermission.command}</Text></Text>
+            <Box marginTop={1}>
+              <Text>Allow? </Text>
+              <Text color="green" bold>[Y]es</Text>
+              <Text> / </Text>
+              <Text color="red" bold>[N]o</Text>
+              <Text> / </Text>
+              <Text color="blue" bold>[A]lways</Text>
+              <Text dimColor> (for this command)</Text>
+            </Box>
+          </Box>
+        )}
+        {/* AskUserQuestion prompt */}
+        {pendingQuestion && (
+          <Box marginBottom={1}>
+            <AskUserQuestion
+              questions={pendingQuestion.questions}
+              onSubmit={respondToQuestion}
+            />
+          </Box>
+        )}
+        {!showModelSelector && !showWorkspaceSelector && !showWorkspaceAdd && !showWorkspaceRename && !pendingPermission && !pendingQuestion && (
           <Input
             onSubmit={handleSubmit}
             onPaste={handlePaste}
@@ -490,7 +737,8 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
         <Header
           connected={connected}
           model={model}
-          mcpUrl={config.mcpUrl}
+          mcpUrl={workspace.mcpUrl}
+          workspaceName={workspace.name}
           contextTokens={tokenUsage.contextTokens}
           costUsd={tokenUsage.costUsd}
         />

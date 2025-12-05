@@ -2,34 +2,60 @@ export interface ToolStatusInfo {
   message: string;
 }
 
-const BUILTIN_TOOL_STATUS: Record<string, ToolStatusInfo> = {
+// Claude Code-style status messages for tools
+const TOOL_STATUS: Record<string, ToolStatusInfo> = {
+  // SDK built-in tools
+  WebSearch: { message: 'Searching the web' },
+  WebFetch: { message: 'Fetching webpage' },
+  Bash: { message: 'Running command' },
+  BashOutput: { message: 'Reading output' },
+  Read: { message: 'Reading file' },
+  Edit: { message: 'Editing file' },
+  Write: { message: 'Writing file' },
+  Grep: { message: 'Searching code' },
+  Glob: { message: 'Finding files' },
+  MultiEdit: { message: 'Editing files' },
+  NotebookEdit: { message: 'Editing notebook' },
+  // Legacy/lowercase names
   web_search: { message: 'Searching the web' },
-  web_fetch: { message: 'Fetching URL' },
-  code_execution: { message: 'Running Python' },
-  update_user_preferences: { message: 'Updating preferences' },
+  web_fetch: { message: 'Fetching webpage' },
+  code_execution: { message: 'Running code' },
+  // Preferences
+  update_user_preferences: { message: 'Remembering that' },
 };
 
 /**
- * Get a user-friendly status message for a tool
+ * Get a user-friendly status message for a tool (Claude Code style)
  */
 export function getToolStatusMessage(toolName: string): string {
-  // Check built-in tools first
-  const builtin = BUILTIN_TOOL_STATUS[toolName];
-  if (builtin) {
-    return `${builtin.message}...`;
+  // Check known tools first
+  const known = TOOL_STATUS[toolName];
+  if (known) {
+    return `${known.message}...`;
   }
 
-  // Handle MCP tools (mcp__server__toolname or similar patterns)
+  // Handle MCP tools - extract the actual tool name
+  // Format: mcp__servername__toolname or craft__toolname
   if (toolName.includes('__')) {
     const parts = toolName.split('__');
     const actualToolName = parts[parts.length - 1] || toolName;
-    const formattedName = formatToolName(actualToolName);
-    return `Calling ${formattedName}...`;
+    return getToolStatusMessage(actualToolName); // Recursive lookup
   }
 
-  // Default fallback
+  // Format tool name for display
   const formattedName = formatToolName(toolName);
-  return `Calling ${formattedName}...`;
+
+  // Use action-oriented messages based on common patterns
+  const lowerName = toolName.toLowerCase();
+  if (lowerName.includes('search')) return 'Searching...';
+  if (lowerName.includes('get') || lowerName.includes('fetch') || lowerName.includes('read')) return `Reading ${formattedName}...`;
+  if (lowerName.includes('create') || lowerName.includes('add')) return `Creating ${formattedName}...`;
+  if (lowerName.includes('update') || lowerName.includes('edit')) return `Updating ${formattedName}...`;
+  if (lowerName.includes('delete') || lowerName.includes('remove')) return `Removing ${formattedName}...`;
+  if (lowerName.includes('list')) return `Listing ${formattedName}...`;
+
+  // Default fallback
+  return `${formattedName}...`;
 }
 
 /**

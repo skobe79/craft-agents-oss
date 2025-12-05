@@ -24,6 +24,7 @@ export interface MessagesProps {
   streamingText?: string;
   status?: string;
   processingStartTime?: number | null;
+  hasExecutingTool?: boolean;
   compact?: boolean;
 }
 
@@ -33,12 +34,13 @@ export const Messages: React.FC<MessagesProps> = memo(({
   streamingText,
   status,
   processingStartTime,
+  hasExecutingTool = false,
   compact = true,
 }) => {
   // Track elapsed time since processing started
   const elapsed = useElapsedTime({
     startTime: processingStartTime ?? null,
-    enabled: isProcessing && !streamingText,
+    enabled: isProcessing && !streamingText && !hasExecutingTool,
   });
 
   return (
@@ -57,8 +59,8 @@ export const Messages: React.FC<MessagesProps> = memo(({
         <StreamingMessage content={streamingText} />
       )}
 
-      {/* Show thinking indicator when processing but no streaming text yet */}
-      {isProcessing && !streamingText && (
+      {/* Show thinking indicator when processing but no streaming text and no executing tool */}
+      {isProcessing && !streamingText && !hasExecutingTool && (
         <ThinkingIndicator status={status} elapsedMs={elapsed ?? undefined} />
       )}
     </Box>

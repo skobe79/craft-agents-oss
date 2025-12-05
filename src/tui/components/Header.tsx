@@ -6,6 +6,7 @@ export interface HeaderProps {
   connected: boolean;
   model?: string;
   mcpUrl?: string;
+  workspaceName?: string;
   contextTokens?: number;
   costUsd?: number;
 }
@@ -14,6 +15,7 @@ export const Header: React.FC<HeaderProps> = memo(({
   connected,
   model = 'claude-sonnet-4-5-20250929',
   mcpUrl,
+  workspaceName,
   contextTokens = 0,
   costUsd = 0,
 }) => {
@@ -60,6 +62,12 @@ export const Header: React.FC<HeaderProps> = memo(({
           </>
         )}
         <Text color="cyan">{modelDisplay}</Text>
+        {workspaceName && (
+          <>
+            <Text dimColor> | </Text>
+            <Text color="yellow">{workspaceName}</Text>
+          </>
+        )}
       </Box>
     </Box>
   );
@@ -101,11 +109,11 @@ export const StatusLine: React.FC<StatusLineProps> = memo(({
  */
 export const WelcomeBanner: React.FC<{ version?: string }> = memo(({ version = '1.0.0' }) => {
   const logo = [
-    '  ████████ █████████   ███████   ██████████ ██████████',
+    '  ████████ █████████    ██████   ██████████ ██████████',
     '██████████ ██████████ ██████████ █████████  ██████████',
-    '███████    █████████████████████ ████████   ██████████',
-    '██████████ ████████  ███████████ ████████     █████   ',
-    '  ████████ █████████ █████ █████ █████        █████   ',
+    '██████     ██████████ ██████████ ████████   ██████████',
+    '██████████ ████████   ██████████ ███████      █████   ',
+    '  ████████ ████  ████ ████  ████ █████        █████   ',
   ];
 
   return (
