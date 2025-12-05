@@ -78,6 +78,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
     isProcessing,
     streamingText,
     status,
+    processingStartTime,
     connected,
     tokenUsage,
     sendMessage,
@@ -147,6 +148,11 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
     });
   }, []);
 
+  // Clear all attachments (Escape key)
+  const handleClearAttachments = useCallback(() => {
+    setPendingAttachments([]);
+  }, []);
+
   // Handle pasted text (e.g., dragged file paths from terminal)
   const handlePastedText = useCallback((text: string) => {
     // Check if the pasted text contains file paths
@@ -156,7 +162,6 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
       setPendingAttachments(prev => [...prev, ...attachments]);
     }
 
-    // Only show errors (e.g., file too large)
     for (const error of errors) {
       addLocalMessage(error, 'error');
     }
@@ -449,6 +454,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
           isProcessing={isProcessing}
           streamingText={streamingText}
           status={status}
+          processingStartTime={processingStartTime}
           compact={compactMode}
         />
       </Box>
@@ -470,6 +476,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             onSubmit={handleSubmit}
             onPaste={handlePaste}
             onRemoveAttachment={handleRemoveAttachment}
+            onClearAttachments={handleClearAttachments}
             onPastedText={handlePastedText}
             disabled={isProcessing}
             history={history}

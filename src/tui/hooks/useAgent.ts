@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { CraftAgent, type CraftAgentConfig, type AgentEvent } from '../../agent/craft-agent.ts';
 import type { Message } from '../components/Messages.tsx';
 import type { FileAttachment } from '../utils/files.ts';
+import { getToolStatusMessage } from '../utils/toolStatus.ts';
+import { setTerminalProgressIndeterminate, clearTerminalProgress } from '../utils/terminalProgress.ts';
 
 // Throttle streaming updates to reduce flickering
 const STREAMING_THROTTLE_MS = 50;
@@ -17,6 +19,7 @@ export interface UseAgentResult {
   isProcessing: boolean;
   streamingText: string;
   status: string;
+  processingStartTime: number | null;
   connected: boolean;
   error: string | null;
   tokenUsage: TokenUsage;
@@ -38,6 +41,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   const [isProcessing, setIsProcessing] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [status, setStatus] = useState('');
+  const [processingStartTime, setProcessingStartTime] = useState<number | null>(null);
   const [connected, setConnected] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsage>({
@@ -82,6 +86,8 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     ]);
 
     setIsProcessing(true);
+    setProcessingStartTime(Date.now());
+    setTerminalProgressIndeterminate();
     setStreamingText('');
     setStatus('');
     setError(null);
@@ -154,9 +160,10 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
             assistantText = '';
             break;
 
-          case 'tool_start':
-            toolStartTimeRef.current.set(event.toolUseId, Date.now());
-            setStatus(`Calling ${event.toolName}...`);
+          case 'tool_start': {
+            const now = Date.now();
+            toolStartTimeRef.current.set(event.toolUseId, now);
+            setStatus(getToolStatusMessage(event.toolName));
             setMessages((prev) => [
               ...prev,
               {
@@ -166,10 +173,11 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
                 toolInput: event.input,
                 toolStatus: 'executing',
                 content: '',
-                timestamp: Date.now(),
+                timestamp: now,
               },
             ]);
             break;
+          }
 
           case 'tool_result': {
             const startTime = toolStartTimeRef.current.get(event.toolUseId);
@@ -248,7 +256,9 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
         clearTimeout(streamingTimeoutRef.current);
         streamingTimeoutRef.current = null;
       }
+      clearTerminalProgress();
       setIsProcessing(false);
+      setProcessingStartTime(null);
       setStreamingText('');
       setStatus('');
     }
@@ -335,6 +345,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     isProcessing,
     streamingText,
     status,
+    processingStartTime,
     connected,
     error,
     tokenUsage,

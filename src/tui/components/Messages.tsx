@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { ToolCall } from './ToolCall.tsx';
 import { ThinkingIndicator } from './Spinner.tsx';
+import { useElapsedTime } from '../hooks/useElapsedTime.ts';
 
 export interface Message {
   id: string;
@@ -21,6 +22,7 @@ export interface MessagesProps {
   isProcessing: boolean;
   streamingText?: string;
   status?: string;
+  processingStartTime?: number | null;
   compact?: boolean;
 }
 
@@ -29,8 +31,15 @@ export const Messages: React.FC<MessagesProps> = memo(({
   isProcessing,
   streamingText,
   status,
+  processingStartTime,
   compact = true,
 }) => {
+  // Track elapsed time since processing started
+  const elapsed = useElapsedTime({
+    startTime: processingStartTime ?? null,
+    enabled: isProcessing && !streamingText,
+  });
+
   return (
     <Box flexDirection="column">
       {/* Render all messages */}
@@ -49,7 +58,7 @@ export const Messages: React.FC<MessagesProps> = memo(({
 
       {/* Show thinking indicator when processing but no streaming text yet */}
       {isProcessing && !streamingText && (
-        <ThinkingIndicator status={status} />
+        <ThinkingIndicator status={status} elapsedMs={elapsed ?? undefined} />
       )}
     </Box>
   );
@@ -77,6 +86,7 @@ const MessageItem: React.FC<MessageItemProps> = memo(({ message, compact = true 
           result={message.content}
           isError={message.isError}
           duration={message.toolDuration}
+          startTime={message.timestamp}
           compact={compact}
         />
       );

@@ -5,6 +5,7 @@ export interface InputProps {
   onSubmit: (input: string) => void;
   onPaste?: () => void;
   onRemoveAttachment?: () => void;
+  onClearAttachments?: () => void;
   onPastedText?: (text: string) => void;
   disabled?: boolean;
   history?: string[];
@@ -28,6 +29,12 @@ const SimpleTextInput: React.FC<{
       if (disabled) return;
 
       if (key.return) {
+        // Check if the current input looks like a file path
+        if (onPastedText && value.trim() && (value.startsWith('/') || value.startsWith('~/'))) {
+          onPastedText(value.trim());
+          onChange('');
+          return;
+        }
         onSubmit(value);
         return;
       }
@@ -46,34 +53,21 @@ const SimpleTextInput: React.FC<{
         return;
       }
 
-      // Check for multi-character input (indicates paste from terminal)
-      // This happens when terminal pastes text directly or via bracketed paste mode
-      if (input && input.length > 1) {
-        // Strip bracketed paste markers if present: \x1b[200~ (start) and \x1b[201~ (end)
-        let pastedText = input;
-        const bracketStart = '\x1b[200~';
-        const bracketEnd = '\x1b[201~';
-        if (pastedText.startsWith(bracketStart)) {
-          pastedText = pastedText.slice(bracketStart.length);
-        }
-        if (pastedText.endsWith(bracketEnd)) {
-          pastedText = pastedText.slice(0, -bracketEnd.length);
-        }
-        // Also handle case where markers come separately
-        pastedText = pastedText.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
+      // Get printable input
+      if (input && input.length >= 1) {
+        // Strip bracketed paste markers
+        const chars = input.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
+        // Filter to printable characters
+        const printable = chars.split('').filter(c => c.charCodeAt(0) >= 32).join('');
 
-        // This is likely pasted/dragged text - check if it's a file path
-        if (onPastedText && pastedText.trim()) {
-          onPastedText(pastedText.trim());
-        } else if (pastedText) {
-          onChange(value + pastedText);
+        if (printable) {
+          // Check if this is a pasted file path (multi-char input starting with / or ~/)
+          if (onPastedText && printable.length > 1 && (printable.startsWith('/') || printable.startsWith('~/'))) {
+            onPastedText(printable);
+          } else {
+            onChange(value + printable);
+          }
         }
-        return;
-      }
-
-      // Add printable characters
-      if (input && input.length === 1 && input.charCodeAt(0) >= 32) {
-        onChange(value + input);
       }
     },
     { isActive: !disabled }
@@ -119,6 +113,7 @@ export const Input: React.FC<InputProps> = ({
   onSubmit,
   onPaste,
   onRemoveAttachment,
+  onClearAttachments,
   onPastedText,
   disabled = false,
   history = [],
@@ -166,6 +161,17 @@ export const Input: React.FC<InputProps> = ({
       if (input === '\x15' || (key.ctrl && input === 'u')) {
         setValue('');
         setHistoryIndex(-1);
+      }
+
+      // Handle Escape to clear input and attachments (when not processing - App handles interrupt)
+      if (key.escape && !disabled) {
+        if (value.length > 0) {
+          setValue('');
+          setHistoryIndex(-1);
+        }
+        if (onClearAttachments) {
+          onClearAttachments();
+        }
       }
 
       // Handle paste from clipboard

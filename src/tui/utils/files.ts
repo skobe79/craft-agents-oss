@@ -20,6 +20,14 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.tiff': 'image/tiff',
+  '.tif': 'image/tiff',
+  '.ico': 'image/x-icon',
+  '.icns': 'image/x-icns',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
+  '.svg': 'image/svg+xml',
 };
 
 // Text file extensions
@@ -41,12 +49,13 @@ const MAX_TEXT_SIZE = 100 * 1024; // 100KB for text files
  * - Absolute paths (/path/to/file)
  * - Home-relative paths (~/path/to/file)
  * - Quoted paths ("path with spaces")
- * - Multiple paths on the same line
+ * - Shell-escaped paths (/path/to/file\ with\ spaces)
+ * - Paths with spaces ending in .extension
  */
 export function extractFilePaths(input: string): string[] {
   const paths: string[] = [];
 
-  // Match quoted paths first
+  // Match quoted paths first (handles spaces naturally)
   const quotedRegex = /["']([^"']+)["']/g;
   let match;
   while ((match = quotedRegex.exec(input)) !== null) {
@@ -56,7 +65,34 @@ export function extractFilePaths(input: string): string[] {
     }
   }
 
-  // Match unquoted paths (starting with / or ~)
+  // Match shell-escaped paths (backslash before spaces): /path/to/file\ name.ext
+  const escapedRegex = /(?:^|\s)((?:\/|~\/)[^\s"']*(?:\\ [^\s"']*)+)/g;
+  while ((match = escapedRegex.exec(input)) !== null) {
+    let path = match[1];
+    if (path) {
+      // Unescape the path
+      path = path.replace(/\\ /g, ' ');
+      if (!paths.includes(path)) {
+        paths.push(path);
+      }
+    }
+  }
+
+  // Try to match paths with spaces by looking for any file extension
+  // This handles: /Users/test/Screenshot 2024-01-01.png
+  const lines = input.split('\n');
+  for (const line of lines) {
+    // Look for paths that start with / or ~/ and end with any .extension
+    const pathMatch = line.match(/^((?:\/|~\/)[^\n]+?)(\.[a-zA-Z0-9]{1,10})(\s|$)/);
+    if (pathMatch && pathMatch[1] && pathMatch[2]) {
+      const fullPath = pathMatch[1] + pathMatch[2];
+      if (!paths.includes(fullPath)) {
+        paths.push(fullPath);
+      }
+    }
+  }
+
+  // Match simple unquoted paths (no spaces, starting with / or ~)
   const unquotedRegex = /(?:^|\s)((?:\/|~\/)[^\s"']+)/g;
   while ((match = unquotedRegex.exec(input)) !== null) {
     const path = match[1];
@@ -97,6 +133,7 @@ export function resolvePath(filePath: string): string {
 
 /**
  * Determine the type of a file based on extension
+ * Falls back to 'text' for unknown extensions (will try to read as text)
  */
 export function getFileType(filePath: string): 'image' | 'text' | 'pdf' | 'unknown' {
   const ext = extname(filePath).toLowerCase();
@@ -111,7 +148,9 @@ export function getFileType(filePath: string): 'image' | 'text' | 'pdf' | 'unkno
     return 'text';
   }
 
-  return 'unknown';
+  // For unknown extensions, default to 'text' - we'll try to read it as text
+  // Binary files will show garbled content but at least they'll attach
+  return 'text';
 }
 
 /**

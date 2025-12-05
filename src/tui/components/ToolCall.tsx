@@ -1,6 +1,8 @@
 import React, { useState, memo } from 'react';
 import { Box, Text } from 'ink';
 import { formatDuration, truncateText } from '../utils/markdown.ts';
+import { AnimatedSpinner } from './Spinner.tsx';
+import { useElapsedTime } from '../hooks/useElapsedTime.ts';
 
 export interface ToolCallProps {
   toolName: string;
@@ -9,6 +11,7 @@ export interface ToolCallProps {
   result?: string;
   isError?: boolean;
   duration?: number;
+  startTime?: number;
   compact?: boolean;
 }
 
@@ -57,9 +60,16 @@ export const ToolCall: React.FC<ToolCallProps> = memo(({
   result,
   isError = false,
   duration,
+  startTime,
   compact = true,
 }) => {
   const [expanded, setExpanded] = useState(false);
+
+  // Live elapsed time for executing tools
+  const liveElapsed = useElapsedTime({
+    startTime: startTime ?? null,
+    enabled: status === 'executing',
+  });
 
   // Get appropriate icon and color
   const getStatusDisplay = () => {
@@ -87,12 +97,18 @@ export const ToolCall: React.FC<ToolCallProps> = memo(({
       <Box paddingLeft={1}>
         <Box>
           {status === 'executing' ? (
-            <Text color="yellow">◐ </Text>
+            <Box>
+              <AnimatedSpinner color="yellow" />
+              <Text> </Text>
+            </Box>
           ) : (
             <Text color={color}>{icon} </Text>
           )}
           <Text dimColor>{displayName}</Text>
           {inputParams && <Text color="gray"> {inputParams}</Text>}
+          {status === 'executing' && liveElapsed !== null && liveElapsed >= 1000 && (
+            <Text dimColor> ({formatDuration(liveElapsed)})</Text>
+          )}
           {status === 'completed' && duration !== undefined && (
             <Text dimColor> ({formatDuration(duration)})</Text>
           )}
@@ -110,13 +126,16 @@ export const ToolCall: React.FC<ToolCallProps> = memo(({
       {/* Header */}
       <Box>
         {status === 'executing' ? (
-          <Text color="yellow">◐</Text>
+          <AnimatedSpinner color="yellow" />
         ) : (
           <Text color={color}>{icon}</Text>
         )}
         <Text> </Text>
         <Text color="magenta" bold>{displayName}</Text>
-        {duration !== undefined && (
+        {status === 'executing' && liveElapsed !== null && liveElapsed >= 1000 && (
+          <Text dimColor> ({formatDuration(liveElapsed)})</Text>
+        )}
+        {status !== 'executing' && duration !== undefined && (
           <Text dimColor> ({formatDuration(duration)})</Text>
         )}
       </Box>
