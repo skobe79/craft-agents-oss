@@ -1,7 +1,9 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect, useRef } from 'react';
 import { Box, Text } from 'ink';
 import { ToolCall } from './ToolCall.tsx';
 import { ThinkingIndicator } from './Spinner.tsx';
+import { useElapsedTime } from '../hooks/useElapsedTime.ts';
+import { renderMarkdown } from '../utils/markdown.ts';
 
 export interface Message {
   id: string;
@@ -21,6 +23,7 @@ export interface MessagesProps {
   isProcessing: boolean;
   streamingText?: string;
   status?: string;
+  processingStartTime?: number | null;
   compact?: boolean;
 }
 
@@ -29,8 +32,15 @@ export const Messages: React.FC<MessagesProps> = memo(({
   isProcessing,
   streamingText,
   status,
+  processingStartTime,
   compact = true,
 }) => {
+  // Track elapsed time since processing started
+  const elapsed = useElapsedTime({
+    startTime: processingStartTime ?? null,
+    enabled: isProcessing && !streamingText,
+  });
+
   return (
     <Box flexDirection="column">
       {/* Render all messages */}
@@ -49,7 +59,7 @@ export const Messages: React.FC<MessagesProps> = memo(({
 
       {/* Show thinking indicator when processing but no streaming text yet */}
       {isProcessing && !streamingText && (
-        <ThinkingIndicator status={status} />
+        <ThinkingIndicator status={status} elapsedMs={elapsed ?? undefined} />
       )}
     </Box>
   );
@@ -77,6 +87,7 @@ const MessageItem: React.FC<MessageItemProps> = memo(({ message, compact = true 
           result={message.content}
           isError={message.isError}
           duration={message.toolDuration}
+          startTime={message.timestamp}
           compact={compact}
         />
       );
@@ -107,20 +118,48 @@ const UserMessage: React.FC<{ content: string }> = memo(({ content }) => {
   );
 });
 
-// Assistant message - plain text for consistency with streaming
+// Assistant message - renders markdown with Tokyo Night theme
 const AssistantMessage: React.FC<{ content: string }> = memo(({ content }) => {
+  const rendered = renderMarkdown(content);
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
-      <Text>{content}</Text>
+      <Text>{rendered}</Text>
     </Box>
   );
 });
 
-// Streaming message - same style as assistant message with cursor
+// Streaming message - debounced markdown rendering (max 5 times per second)
+const RENDER_DEBOUNCE_MS = 200;
+
 const StreamingMessage: React.FC<{ content: string }> = ({ content }) => {
+  const [renderedContent, setRenderedContent] = useState('');
+  const lastRenderTime = useRef(0);
+  const pendingContent = useRef(content);
+
+  useEffect(() => {
+    pendingContent.current = content;
+
+    const now = Date.now();
+    const timeSinceLastRender = now - lastRenderTime.current;
+
+    if (timeSinceLastRender >= RENDER_DEBOUNCE_MS) {
+      // Render immediately if enough time has passed
+      lastRenderTime.current = now;
+      setRenderedContent(renderMarkdown(content));
+    } else {
+      // Schedule a render after the remaining debounce time
+      const timeoutId = setTimeout(() => {
+        lastRenderTime.current = Date.now();
+        setRenderedContent(renderMarkdown(pendingContent.current));
+      }, RENDER_DEBOUNCE_MS - timeSinceLastRender);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [content]);
+
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
-      <Text>{content}<Text color="blue">▌</Text></Text>
+      <Text>{renderedContent}<Text color="blue">▌</Text></Text>
     </Box>
   );
 };

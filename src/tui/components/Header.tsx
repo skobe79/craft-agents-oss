@@ -6,8 +6,7 @@ export interface HeaderProps {
   connected: boolean;
   model?: string;
   mcpUrl?: string;
-  inputTokens?: number;
-  outputTokens?: number;
+  contextTokens?: number;
   costUsd?: number;
 }
 
@@ -15,8 +14,7 @@ export const Header: React.FC<HeaderProps> = memo(({
   connected,
   model = 'claude-sonnet-4-5-20250929',
   mcpUrl,
-  inputTokens = 0,
-  outputTokens = 0,
+  contextTokens = 0,
   costUsd = 0,
 }) => {
   // Map model IDs to friendly names
@@ -34,12 +32,10 @@ export const Header: React.FC<HeaderProps> = memo(({
     ? mcpUrl.replace(/^https?:\/\//, '').split('/')[0]
     : 'Not connected', [mcpUrl]);
 
-  const totalTokens = inputTokens + outputTokens;
-
   // Format cost from SDK (already in USD)
   const costDisplay = useMemo(() => {
     if (costUsd < 0.01) {
-      return `$${(costUsd * 100).toFixed(2)}¢`;
+      return `${(costUsd * 100).toFixed(2)}¢`;
     }
     return `$${costUsd.toFixed(4)}`;
   }, [costUsd]);
@@ -56,9 +52,9 @@ export const Header: React.FC<HeaderProps> = memo(({
       </Box>
 
       <Box>
-        {totalTokens > 0 && (
+        {contextTokens > 0 && (
           <>
-            <Text dimColor>{formatTokens(totalTokens)} tokens</Text>
+            <Text dimColor>{formatTokens(contextTokens)} context</Text>
             <Text dimColor> ({costDisplay})</Text>
             <Text dimColor> | </Text>
           </>
@@ -105,11 +101,11 @@ export const StatusLine: React.FC<StatusLineProps> = memo(({
  */
 export const WelcomeBanner: React.FC<{ version?: string }> = memo(({ version = '1.0.0' }) => {
   const logo = [
-    '        ██████ ███████    █████   ████████ █████████',
-    '      ████████ ████████ █████████ ████████ █████████',
-    '     ████████  ████████ █████████ ███████  █████████',
-    '      ████████ ███████  █████████ ███████     ████  ',
-    '       ███████ ███████  ████ ████ ████        ████  ',
+    '  ████████ █████████   ███████   ██████████ ██████████',
+    '██████████ ██████████ ██████████ █████████  ██████████',
+    '███████    █████████████████████ ████████   ██████████',
+    '██████████ ████████  ███████████ ████████     █████   ',
+    '  ████████ █████████ █████ █████ █████        █████   ',
   ];
 
   return (

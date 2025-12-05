@@ -1,16 +1,18 @@
 import React, { useState, useCallback, memo, useMemo } from 'react';
-import { Box, Text, useInput, useStdout } from 'ink';
+import { Box, Text, useInput } from 'ink';
 
 export interface InputProps {
   onSubmit: (input: string) => void;
   onPaste?: () => void;
   onRemoveAttachment?: () => void;
+  onClearAttachments?: () => void;
   onPastedText?: (text: string) => void;
   disabled?: boolean;
   history?: string[];
   placeholder?: string;
   attachmentCount?: number;
   attachmentLabel?: string;
+  columns?: number;
 }
 
 // Simple custom text input without cursor animation
@@ -28,6 +30,17 @@ const SimpleTextInput: React.FC<{
       if (disabled) return;
 
       if (key.return) {
+        // Check if the current input looks like a file path (not a slash command)
+        // File paths: /Users/..., ~/Documents/... but NOT /clear, /help, etc.
+        const trimmed = value.trim();
+        const looksLikeFilePath = trimmed.startsWith('~/') ||
+          (trimmed.startsWith('/') && trimmed.length > 2 && trimmed.slice(1).includes('/'));
+
+        if (onPastedText && trimmed && looksLikeFilePath) {
+          onPastedText(trimmed);
+          onChange('');
+          return;
+        }
         onSubmit(value);
         return;
       }
@@ -46,34 +59,24 @@ const SimpleTextInput: React.FC<{
         return;
       }
 
-      // Check for multi-character input (indicates paste from terminal)
-      // This happens when terminal pastes text directly or via bracketed paste mode
-      if (input && input.length > 1) {
-        // Strip bracketed paste markers if present: \x1b[200~ (start) and \x1b[201~ (end)
-        let pastedText = input;
-        const bracketStart = '\x1b[200~';
-        const bracketEnd = '\x1b[201~';
-        if (pastedText.startsWith(bracketStart)) {
-          pastedText = pastedText.slice(bracketStart.length);
-        }
-        if (pastedText.endsWith(bracketEnd)) {
-          pastedText = pastedText.slice(0, -bracketEnd.length);
-        }
-        // Also handle case where markers come separately
-        pastedText = pastedText.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
+      // Get printable input
+      if (input && input.length >= 1) {
+        // Strip bracketed paste markers
+        const chars = input.replace(/\x1b\[200~/g, '').replace(/\x1b\[201~/g, '');
+        // Filter to printable characters
+        const printable = chars.split('').filter(c => c.charCodeAt(0) >= 32).join('');
 
-        // This is likely pasted/dragged text - check if it's a file path
-        if (onPastedText && pastedText.trim()) {
-          onPastedText(pastedText.trim());
-        } else if (pastedText) {
-          onChange(value + pastedText);
-        }
-        return;
-      }
+        if (printable) {
+          // Check if this is a pasted file path (multi-char input with path structure)
+          const looksLikePastedPath = printable.startsWith('~/') ||
+            (printable.startsWith('/') && printable.length > 2 && printable.slice(1).includes('/'));
 
-      // Add printable characters
-      if (input && input.length === 1 && input.charCodeAt(0) >= 32) {
-        onChange(value + input);
+          if (onPastedText && printable.length > 1 && looksLikePastedPath) {
+            onPastedText(printable);
+          } else {
+            onChange(value + printable);
+          }
+        }
       }
     },
     { isActive: !disabled }
@@ -99,10 +102,9 @@ const SimpleTextInput: React.FC<{
   );
 };
 
-// Horizontal line for top/bottom borders - no memo to allow resize updates
-const HorizontalLine: React.FC<{ color: string }> = ({ color }) => {
-  const { stdout } = useStdout();
-  const width = Math.max(20, (stdout?.columns || 80) - 4);
+// Horizontal line for top/bottom borders
+const HorizontalLine: React.FC<{ color: string; columns: number }> = ({ color, columns }) => {
+  const width = Math.max(20, columns - 6);
   return (
     <Text color={color}>{'─'.repeat(width)}</Text>
   );
@@ -119,12 +121,14 @@ export const Input: React.FC<InputProps> = ({
   onSubmit,
   onPaste,
   onRemoveAttachment,
+  onClearAttachments,
   onPastedText,
   disabled = false,
   history = [],
   placeholder,
   attachmentCount = 0,
   attachmentLabel,
+  columns = 80,
 }) => {
   const [value, setValue] = useState('');
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -168,6 +172,17 @@ export const Input: React.FC<InputProps> = ({
         setHistoryIndex(-1);
       }
 
+      // Handle Escape to clear input and attachments (when not processing - App handles interrupt)
+      if (key.escape && !disabled) {
+        if (value.length > 0) {
+          setValue('');
+          setHistoryIndex(-1);
+        }
+        if (onClearAttachments) {
+          onClearAttachments();
+        }
+      }
+
       // Handle paste from clipboard
       // Ctrl+V (ASCII 22 / 0x16) - often intercepted by terminal
       // Ctrl+P (ASCII 16 / 0x10) - alternative that works in more terminals
@@ -184,7 +199,7 @@ export const Input: React.FC<InputProps> = ({
   // Determine placeholder text
   const placeholderText = disabled
     ? 'Thinking...'
-    : placeholder || 'Message craft...';
+    : placeholder || 'Message Craft...';
 
   // Memoize command hint to avoid recalculation
   const commandHint = useMemo(() => {
@@ -202,7 +217,7 @@ export const Input: React.FC<InputProps> = ({
         </Box>
       )}
       {/* Top line */}
-      <HorizontalLine color={lineColor} />
+      <HorizontalLine color={lineColor} columns={columns} />
       {/* Input row */}
       <Box paddingX={1}>
         <InputPrompt disabled={disabled} />
@@ -222,7 +237,7 @@ export const Input: React.FC<InputProps> = ({
         />
       </Box>
       {/* Bottom line */}
-      <HorizontalLine color={lineColor} />
+      <HorizontalLine color={lineColor} columns={columns} />
     </Box>
   );
 };
