@@ -11,6 +11,7 @@ import { WorkspaceRename } from './components/WorkspaceRename.tsx';
 import { ApiKeyChange } from './components/ApiKeyChange.tsx';
 import { AskUserQuestion } from './components/AskUserQuestion.tsx';
 import { McpAuth } from './components/McpAuth.tsx';
+import { HelpPanel } from './components/HelpPanel.tsx';
 import { useAgent } from './hooks/useAgent.ts';
 import { useHistory } from './hooks/useHistory.ts';
 import { useResize } from './hooks/useResize.ts';
@@ -27,59 +28,6 @@ export interface AppProps {
   config: CraftAgentConfig;
   onRequestSetup?: () => void;
 }
-
-const HELP_TEXT = `
-**Craft Document Assistant** - Commands
-
-**Chat**
-  Just type your message and press Enter to chat with Claude.
-
-**Commands**
-  /help        Show this help message
-  /clear       Clear conversation history
-  /paste       Paste files/images from clipboard
-  /tools       List available Craft MCP tools
-  /config      Show current configuration
-  /prefs       Show user preferences
-  /setup       Reconfigure API keys and MCP settings
-  /apikey      Change Anthropic API key
-  /compact     Toggle compact/expanded tool output
-  /cost        Show token usage and estimated cost
-  /model       Show or change model (e.g., /model opus)
-  /workspace   Switch workspace (e.g., /workspace work)
-  /workspace add     Add a new Craft MCP workspace
-  /workspace rename  Rename current workspace
-  /workspace remove  Remove a workspace
-  /web         Toggle web search capability
-  /fetch       Toggle web fetch capability
-  /bash        Toggle bash/shell execution
-  /auth        Authenticate MCP servers for active agent
-  /exit        Exit the application (or Ctrl+C)
-
-**Keyboard Shortcuts**
-  Enter      Send message
-  ↑/↓        Navigate command history
-  Backspace  Remove last attached file (when input is empty)
-  Ctrl+C     Interrupt / Exit
-  Ctrl+U     Clear input line
-  Esc        Interrupt current operation
-
-**Attaching Files**
-  Drag & drop   Drag file into terminal window
-  /paste        Paste from clipboard (Cmd+C a file first)
-  Type path     Include /path/to/file in your message
-
-**Ghostty Users**
-  By default Ghostty uses Ctrl+Shift+V for paste.
-  Add to ~/.config/ghostty/config:
-    keybind = performable:ctrl+v=paste_from_clipboard
-
-**Examples**
-  "Show me today's daily note"
-  "Search for meeting notes about project X"
-  "What's the weather in NYC?" (uses web search)
-  "Fetch and summarize https://example.com" (uses web fetch)
-`.trim();
 
 export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
   const { exit } = useApp();
@@ -135,6 +83,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
   const [staticResetKey, setStaticResetKey] = useState(0); // Incremented on /clear to create fresh Static items
   const [pendingAttachments, setPendingAttachments] = useState<FileAttachment[]>([]);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [showAgentMenu, setShowAgentMenu] = useState(false);
   const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
   const [showWorkspaceAdd, setShowWorkspaceAdd] = useState(false);
@@ -522,7 +471,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
 
           case '/help':
           case '/?':
-            addLocalMessage(HELP_TEXT, 'assistant');
+            setShowHelp(true);
             return;
 
           case '/tools':
@@ -981,7 +930,10 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
 
     // Handle Escape to interrupt or deny permission
     if (key.escape) {
-      if (pendingPermission) {
+      if (showHelp) {
+        setShowHelp(false);
+        setStaticResetKey(k => k + 1);
+      } else if (pendingPermission) {
         respondToPermission(false, false);
       } else if (isProcessing) {
         interrupt();
@@ -995,19 +947,21 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
   return (
     <Box flexDirection="column" width="100%" minHeight={20}>
       {/* Messages area (includes welcome banner as static content) */}
-      <Box flexDirection="column">
-        <Messages
-          resetKey={staticResetKey}
-          messages={allMessages}
-          isProcessing={isProcessing}
-          streamingText={streamingText}
-          status={status}
-          processingStartTime={processingStartTime}
-          hasExecutingTool={hasExecutingTool}
-          compact={compactMode}
-          showWelcome={showWelcome}
-        />
-      </Box>
+      {!showHelp && (
+        <Box flexDirection="column">
+          <Messages
+            resetKey={staticResetKey}
+            messages={allMessages}
+            isProcessing={isProcessing}
+            streamingText={streamingText}
+            status={status}
+            processingStartTime={processingStartTime}
+            hasExecutingTool={hasExecutingTool}
+            compact={compactMode}
+            showWelcome={showWelcome}
+          />
+        </Box>
+      )}
 
       {/* Model selector overlay */}
       {showModelSelector && (
@@ -1017,6 +971,14 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
           onSelect={handleModelSelect}
           onCancel={handleModelCancel}
         />
+      )}
+
+      {/* Help panel overlay */}
+      {showHelp && (
+        <HelpPanel onClose={() => {
+          setShowHelp(false);
+          setStaticResetKey(k => k + 1);
+        }} />
       )}
 
       {/* Agent menu overlay */}
@@ -1106,7 +1068,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             />
           </Box>
         )}
-        {!showModelSelector && !showAgentMenu && !showWorkspaceSelector && !showWorkspaceAdd && !showWorkspaceRename && !showApiKeyChange && !pendingPermission && !pendingQuestion && !pendingMcpAuth && (
+        {!showModelSelector && !showHelp && !showAgentMenu && !showWorkspaceSelector && !showWorkspaceAdd && !showWorkspaceRename && !showApiKeyChange && !pendingPermission && !pendingQuestion && !pendingMcpAuth && (
           <Input
             onSubmit={handleSubmit}
             onPaste={handlePaste}

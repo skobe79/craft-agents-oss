@@ -497,7 +497,14 @@ export class SubAgentManager {
       try {
         // Get credentials if auth required
         let headers: Record<string, string> | undefined;
-        if (config.requiresAuth) {
+
+        // Check for static bearer token first (no credential lookup needed)
+        if (config.bearerToken) {
+          headers = {
+            Authorization: `Bearer ${config.bearerToken}`,
+          };
+          debug('[manager.fetchMcpServerTools] Using static bearer token for', name);
+        } else if (config.requiresAuth) {
           const creds = getServerCredentials(
             this.workspaceId,
             this.activeAgent.agentId,

@@ -188,7 +188,8 @@ function ensureMarkedConfigured(): void {
       href: chalk.cyan,
       showSectionPrefix: false,
       unescape: true,
-      width: currentWidth,
+      reflowText: true,  // Required for width to affect HR
+      width: currentWidth - 2,  // Account for paddingX={1} in Messages.tsx
     })
   );
 }
