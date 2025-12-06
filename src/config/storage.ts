@@ -292,17 +292,6 @@ export function getAuthType(): AuthType {
   return config?.authType || 'api_key';
 }
 
-export function getAuthCredential(): { type: AuthType; value: string } | null {
-  const config = loadStoredConfig();
-  if (!config) return null;
-
-  const authType = config.authType || 'api_key';
-  if (authType === 'oauth_token' && config.claudeOAuthToken) {
-    return { type: 'oauth_token', value: config.claudeOAuthToken };
-  }
-  return { type: 'api_key', value: config.anthropicApiKey };
-}
-
 export function getConfigPath(): string {
   return CONFIG_FILE;
 }

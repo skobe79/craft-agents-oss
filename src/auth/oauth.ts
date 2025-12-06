@@ -23,19 +23,6 @@ const CALLBACK_PORT = 8914;
 const CALLBACK_PATH = '/oauth/callback';
 const CLIENT_NAME = 'Craft TUI Agent';
 
-// ASCII Craft logo (exact copy from Header.tsx WelcomeBanner)
-const CRAFT_LOGO = [
-  '                                                      ',
-  '                                                      ',
-  '  ████████ █████████    ██████   ██████████ ██████████',
-  '██████████ ██████████ ██████████ █████████  ██████████',
-  '██████     ██████████ ██████████ ████████   ██████████',
-  '██████████ ████████   ██████████ ███████      █████   ',
-  '  ████████ ████  ████ ████  ████ █████        █████   ',
-  '                                                      ',
-  '                                                      ',
-].join('\n');
-
 /**
  * Generate a styled OAuth callback page with terminal emulator aesthetic
  * Matches TUI design with Tokyo Night theme

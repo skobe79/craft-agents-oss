@@ -75,10 +75,6 @@ export function setUpdateAgentInstructionsCallback(
   updateAgentInstructionsCallback = callback;
 }
 
-export function getUpdateAgentInstructionsCallback(): ((content: string) => Promise<boolean>) | null {
-  return updateAgentInstructionsCallback;
-}
-
 // Callback for agent instructions reload (set by TUI when agent is active)
 let reloadAgentInstructionsCallback: (() => Promise<boolean>) | null = null;
 

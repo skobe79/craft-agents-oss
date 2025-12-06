@@ -639,34 +639,6 @@ export class SubAgentManager {
   }
 
   /**
-   * Parse blocks from MCP response
-   */
-  private parseBlocks(result: unknown): Array<{
-    id: string | number;
-    content?: string;
-    style?: string;
-    children?: Array<{ id: string | number; content?: string; style?: string; children?: unknown[] }>;
-  }> {
-    const response = result as BlocksResponse;
-    if (!response.content?.[0]?.text) {
-      return [];
-    }
-
-    try {
-      const data = JSON.parse(response.content[0].text);
-      if (data.blocks && Array.isArray(data.blocks)) {
-        return data.blocks;
-      }
-      if (Array.isArray(data)) {
-        return data;
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  }
-
-  /**
    * Extract name from URL hostname
    */
   private extractNameFromUrl(url: string): string {

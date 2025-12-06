@@ -198,19 +198,3 @@ function extractNameFromUrl(url: string): string {
     return 'unknown';
   }
 }
-
-/**
- * Check if a block content looks like it could be MCP config
- * Used for quick filtering before full parsing
- */
-export function isLikelyMcpConfig(content: string): boolean {
-  const trimmed = content.trim();
-
-  // Plain URL
-  if (/^https?:\/\//.test(trimmed)) return true;
-
-  // Has url field
-  if (/\burl\s*[:=]/i.test(trimmed)) return true;
-
-  return false;
-}

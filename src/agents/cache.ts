@@ -87,16 +87,6 @@ export function saveRegistry(workspaceId: string, registry: AgentRegistry): void
   writeFileSync(path, JSON.stringify(registry, null, 2));
 }
 
-/**
- * Clear registry cache for a workspace
- */
-export function clearRegistry(workspaceId: string): void {
-  const path = getRegistryPath(workspaceId);
-  if (existsSync(path)) {
-    unlinkSync(path);
-  }
-}
-
 // ============================================================
 // Definition Cache
 // ============================================================
