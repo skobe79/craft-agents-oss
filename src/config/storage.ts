@@ -49,10 +49,6 @@ export function ensureConfigDir(): void {
   }
 }
 
-export function configExists(): boolean {
-  return existsSync(CONFIG_FILE);
-}
-
 // Extract a friendly name from MCP URL for migration
 function extractWorkspaceName(mcpUrl: string): string {
   try {
@@ -171,15 +167,6 @@ export function loadStoredConfig(): StoredConfig | null {
   }
 }
 
-// Check if OAuth token needs refresh (with 5 minute buffer)
-export function isTokenExpired(config: StoredConfig): boolean {
-  if (!config.oauth?.expiresAt) {
-    return false; // No expiry means it doesn't expire (or unknown)
-  }
-  const bufferMs = 5 * 60 * 1000; // 5 minutes
-  return Date.now() + bufferMs >= config.oauth.expiresAt;
-}
-
 // Check if workspace OAuth token needs refresh (with 5 minute buffer)
 export function isWorkspaceTokenExpired(workspace: Workspace): boolean {
   if (!workspace.oauth?.expiresAt) {
@@ -187,17 +174,6 @@ export function isWorkspaceTokenExpired(workspace: Workspace): boolean {
   }
   const bufferMs = 5 * 60 * 1000; // 5 minutes
   return Date.now() + bufferMs >= workspace.oauth.expiresAt;
-}
-
-// Get the access token to use for API calls (empty string for public servers)
-export function getAccessToken(config: StoredConfig): string | null {
-  if (config.isPublic) {
-    return null; // No auth needed
-  }
-  if (config.oauth?.accessToken) {
-    return config.oauth.accessToken;
-  }
-  return null;
 }
 
 // Get access token for a specific workspace
@@ -210,26 +186,6 @@ export function getWorkspaceAccessToken(workspace: Workspace): string | null {
     return workspace.bearerToken;
   }
   return workspace.oauth?.accessToken || null;
-}
-
-// Update OAuth tokens after refresh
-export function updateOAuthTokens(
-  accessToken: string,
-  refreshToken?: string,
-  expiresAt?: number
-): void {
-  const config = loadStoredConfig();
-  if (!config || !config.oauth) return;
-
-  config.oauth.accessToken = accessToken;
-  if (refreshToken) {
-    config.oauth.refreshToken = refreshToken;
-  }
-  if (expiresAt) {
-    config.oauth.expiresAt = expiresAt;
-  }
-
-  saveConfig(config);
 }
 
 // Update OAuth tokens for a specific workspace
@@ -261,28 +217,12 @@ export function saveConfig(config: StoredConfig): void {
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
 }
 
-export function clearConfig(): void {
-  if (existsSync(CONFIG_FILE)) {
-    writeFileSync(CONFIG_FILE, '{}', 'utf-8');
-  }
-}
-
 export function updateApiKey(newApiKey: string): boolean {
   const config = loadStoredConfig();
   if (!config) return false;
 
   config.anthropicApiKey = newApiKey;
   config.authType = 'api_key';
-  saveConfig(config);
-  return true;
-}
-
-export function updateOAuthToken(newToken: string): boolean {
-  const config = loadStoredConfig();
-  if (!config) return false;
-
-  config.claudeOAuthToken = newToken;
-  config.authType = 'oauth_token';
   saveConfig(config);
   return true;
 }
@@ -367,12 +307,6 @@ export function removeWorkspace(workspaceId: string): boolean {
 
   saveConfig(config);
   return true;
-}
-
-export function getWorkspaceById(workspaceId: string): Workspace | null {
-  const config = loadStoredConfig();
-  if (!config) return null;
-  return config.workspaces.find(w => w.id === workspaceId) || null;
 }
 
 export function renameWorkspace(workspaceId: string, newName: string): boolean {
