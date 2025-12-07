@@ -135,9 +135,9 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
       case 'activate': {
         const result = await activateAgent(action.name);
         if (result === true) {
-          addLocalMessage(`Now chatting with @${action.name}`, 'system');
+          // Message shown by activationComplete() in useAgent
         } else if (result === 'pending_auth') {
-          // Auth flow started - will complete via McpAuth component
+          // Auth flow started - will complete via McpAuth/ApiAuth components
         } else {
           addLocalMessage(`Failed to activate agent: ${action.name}`, 'error');
         }
@@ -440,7 +440,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
         if (resolvedAgent) {
           const activated = await activateAgent(resolvedAgent);
           if (activated) {
-            addLocalMessage(`Now chatting with @${resolvedAgent}`, 'system');
+            // Message shown by activationComplete() in useAgent
             // If there's text after @agent, send it as a message
             const remainingText = rest.join(' ').trim();
             if (remainingText) {
@@ -805,11 +805,10 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             if (subCommand) {
               // Try to activate agent by name
               const activated = await activateAgent(subCommand);
-              if (activated) {
-                addLocalMessage(`Now chatting with @${subCommand}`, 'system');
-              } else {
+              if (!activated) {
                 addLocalMessage(`Agent not found: ${subCommand}`, 'error');
               }
+              // Message shown by activationComplete() in useAgent
               return;
             }
 

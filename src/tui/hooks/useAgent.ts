@@ -829,6 +829,46 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }
   }, []);
 
+  // Complete agent activation - called when ENTIRE setup (extraction + all auth) is done
+  // isFirstTimeSetup: true when extraction happened (show info), false when switching to cached agent
+  const activationComplete = useCallback((
+    definition: SubAgentDefinition,
+    mcpServers: Awaited<ReturnType<SubAgentManager['buildMcpServerConfig']>>,
+    apiServers: ReturnType<SubAgentManager['buildApiServers']>,
+    agentName: string,
+    isFirstTimeSetup: boolean,
+  ) => {
+    const agent = getAgent();
+    agent.setActiveAgentDefinition(definition, mcpServers, apiServers);
+
+    // Set callbacks for agent tools
+    setUpdateAgentInstructionsCallback(async (content: string) => {
+      if (agentManagerRef.current) {
+        return agentManagerRef.current.updateInstructions(content);
+      }
+      return false;
+    });
+    setReloadAgentInstructionsCallback(async () => {
+      if (reloadAgentRef.current) {
+        return reloadAgentRef.current();
+      }
+      return false;
+    });
+
+    // Build activation message - include info only on first-time setup
+    let content = `Now chatting with @${agentName}`;
+    if (isFirstTimeSetup && definition.info && definition.info.length > 0) {
+      content += '\n' + definition.info.map(msg => `• ${msg}`).join('\n');
+    }
+
+    setMessages(prev => [...prev, {
+      id: `activation-${Date.now()}`,
+      type: 'system',
+      content,
+      timestamp: Date.now(),
+    }]);
+  }, [getAgent]);
+
   // Sub-agent functions
   const activateAgent = useCallback(async (name: string): Promise<boolean | 'pending_auth'> => {
     debug('[useAgent.activateAgent] Activating:', name, 'manager exists:', !!agentManagerRef.current);
@@ -907,19 +947,6 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
 
       setActiveAgentDefinition(definition);
 
-      // Show info messages from extraction
-      if (definition.info && definition.info.length > 0) {
-        setMessages(prev => [
-          ...prev,
-          ...definition.info!.map((msg, idx) => ({
-            id: `info-${Date.now()}-${idx}`,
-            type: 'system' as const,
-            content: msg,
-            timestamp: Date.now(),
-          })),
-        ]);
-      }
-
       // Check if any MCP servers need authentication
       const serversNeedingAuth = agentManagerRef.current.getMcpServersNeedingAuth(definition);
       if (serversNeedingAuth.length > 0) {
@@ -951,33 +978,12 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       // No auth needed - complete activation immediately
       const mcpServers = await agentManagerRef.current.buildMcpServerConfig(definition);
       const apiServers = agentManagerRef.current.buildApiServers(definition);
-      debug('[useAgent.activateAgent] Built MCP servers:', Object.keys(mcpServers));
-      debug('[useAgent.activateAgent] Built API servers:', Object.keys(apiServers));
-      debug('[useAgent.activateAgent] definition loaded:', definition.name);
-      debug('[useAgent.activateAgent] instructions length:', definition.instructions?.length || 0);
-      // Ensure CraftAgent exists before setting definition (getAgent creates it if needed)
-      const agent = getAgent();
-      debug('[useAgent.activateAgent] agent created/retrieved via getAgent()');
-      agent.setActiveAgentDefinition(definition, mcpServers, apiServers);
-      debug('[useAgent.activateAgent] setActiveAgentDefinition called on CraftAgent');
-      // Set callback for update_agent_instructions tool
-      setUpdateAgentInstructionsCallback(async (content: string) => {
-        if (agentManagerRef.current) {
-          return agentManagerRef.current.updateInstructions(content);
-        }
-        return false;
-      });
-      // Set callback for reload_agent_instructions tool (uses ref since reloadAgent is defined later)
-      setReloadAgentInstructionsCallback(async () => {
-        if (reloadAgentRef.current) {
-          return reloadAgentRef.current();
-        }
-        return false;
-      });
+      debug('[useAgent.activateAgent] No auth needed, completing activation');
+      activationComplete(definition, mcpServers, apiServers, name, needsExtraction);
       return true;
     }
     return false;
-  }, [getAgent]);
+  }, [getAgent, activationComplete]);
 
   const deactivateAgent = useCallback(() => {
     if (agentManagerRef.current) {
@@ -1075,53 +1081,25 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       return;
     }
 
-    if (success) {
-      // Auth succeeded - complete agent activation with new credentials
-      const mcpServers = await agentManagerRef.current.buildMcpServerConfig(pendingMcpAuth.definition);
-      const apiServers = agentManagerRef.current.buildApiServers(pendingMcpAuth.definition);
-      debug('[completeMcpAuth] Auth succeeded, built MCP servers:', Object.keys(mcpServers));
-      debug('[completeMcpAuth] Built API servers:', Object.keys(apiServers));
+    // MCP auth done (no API auth needed) - complete activation
+    // Auth flow only happens on first-time setup, so always show info
+    const mcpServers = await agentManagerRef.current.buildMcpServerConfig(pendingMcpAuth.definition);
+    const apiServers = agentManagerRef.current.buildApiServers(pendingMcpAuth.definition);
+    debug('[completeMcpAuth] Completing activation, success:', success);
+    activationComplete(pendingMcpAuth.definition, mcpServers, apiServers, pendingMcpAuth.agentName, true);
 
-      const agent = getAgent();
-      agent.setActiveAgentDefinition(pendingMcpAuth.definition, mcpServers, apiServers);
-
-      // Set callbacks for agent tools
-      setUpdateAgentInstructionsCallback(async (content: string) => {
-        if (agentManagerRef.current) {
-          return agentManagerRef.current.updateInstructions(content);
-        }
-        return false;
-      });
-      setReloadAgentInstructionsCallback(async () => {
-        if (reloadAgentRef.current) {
-          return reloadAgentRef.current();
-        }
-        return false;
-      });
-
+    if (!success) {
+      // Warn user that some MCP servers may not work
       setMessages(prev => [...prev, {
-        id: `auth-success-${Date.now()}`,
+        id: `auth-warning-${Date.now()}`,
         type: 'system',
-        content: `Agent "${pendingMcpAuth.agentName}" activated with authenticated MCP servers.`,
-        timestamp: Date.now(),
-      }]);
-    } else {
-      // Auth failed or cancelled - warn user but keep agent active (without those servers)
-      const mcpServers = await agentManagerRef.current.buildMcpServerConfig(pendingMcpAuth.definition);
-      const apiServers = agentManagerRef.current.buildApiServers(pendingMcpAuth.definition);
-      const agent = getAgent();
-      agent.setActiveAgentDefinition(pendingMcpAuth.definition, mcpServers, apiServers);
-
-      setMessages(prev => [...prev, {
-        id: `auth-failed-${Date.now()}`,
-        type: 'system',
-        content: `Agent "${pendingMcpAuth.agentName}" activated. Some MCP servers may not work (authentication was not completed).`,
+        content: 'Some MCP servers may not work (authentication was not completed).',
         timestamp: Date.now(),
       }]);
     }
 
     setPendingMcpAuth(null);
-  }, [pendingMcpAuth, getAgent]);
+  }, [pendingMcpAuth, getAgent, activationComplete]);
 
   // Cancel MCP auth flow
   const cancelMcpAuth = useCallback(() => {
@@ -1169,46 +1147,25 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       return;
     }
 
-    // Build both MCP servers and API servers
+    // All auth done - complete activation
+    // Auth flow only happens on first-time setup, so always show info
     const mcpServers = await agentManagerRef.current.buildMcpServerConfig(pendingApiAuth.definition);
     const apiServers = agentManagerRef.current.buildApiServers(pendingApiAuth.definition);
+    debug('[completeApiAuth] Completing activation, success:', success);
+    activationComplete(pendingApiAuth.definition, mcpServers, apiServers, pendingApiAuth.agentName, true);
 
-    const agent = getAgent();
-    agent.setActiveAgentDefinition(pendingApiAuth.definition, mcpServers, apiServers);
-
-    // Set callbacks for agent tools
-    setUpdateAgentInstructionsCallback(async (content: string) => {
-      if (agentManagerRef.current) {
-        return agentManagerRef.current.updateInstructions(content);
-      }
-      return false;
-    });
-    setReloadAgentInstructionsCallback(async () => {
-      if (reloadAgentRef.current) {
-        return reloadAgentRef.current();
-      }
-      return false;
-    });
-
-    const apiCount = Object.keys(apiServers).length;
-    if (success) {
+    if (!success) {
+      // Warn user that some APIs may not work
       setMessages(prev => [...prev, {
-        id: `api-auth-success-${Date.now()}`,
+        id: `auth-warning-${Date.now()}`,
         type: 'system',
-        content: `Agent "${pendingApiAuth.agentName}" activated with ${apiCount} API(s).`,
-        timestamp: Date.now(),
-      }]);
-    } else {
-      setMessages(prev => [...prev, {
-        id: `api-auth-failed-${Date.now()}`,
-        type: 'system',
-        content: `Agent "${pendingApiAuth.agentName}" activated. Some APIs may not work (authentication skipped).`,
+        content: 'Some APIs may not work (authentication skipped).',
         timestamp: Date.now(),
       }]);
     }
 
     setPendingApiAuth(null);
-  }, [pendingApiAuth, getAgent]);
+  }, [pendingApiAuth, getAgent, activationComplete]);
 
   // Cancel API auth flow
   const cancelApiAuth = useCallback(() => {
