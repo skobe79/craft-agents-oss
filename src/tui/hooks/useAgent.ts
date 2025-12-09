@@ -203,6 +203,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   const [pendingReview, setPendingReview] = useState<PendingReviewRequest | null>(null);
   const [pendingClarifications, setPendingClarifications] = useState<PendingClarifications | null>(null);
   const [showRefinementOptions, setShowRefinementOptions] = useState(false);
+  const [reviewShownForAgent, setReviewShownForAgent] = useState<string | null>(null);
 
   const agentRef = useRef<CraftAgent | null>(null);
   const agentManagerRef = useRef<SubAgentManager | null>(null);
@@ -936,10 +937,12 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }]);
 
     // Trigger review if first-time setup and has concerns with questions
-    if (isFirstTimeSetup) {
+    // Only show review once per agent activation (prevent repeated questions on auth completion)
+    if (isFirstTimeSetup && reviewShownForAgent !== agentId) {
       const concernsWithQuestions = definition.concerns?.filter(c => c.suggestedQuestion) || [];
       if (concernsWithQuestions.length > 0) {
         debug('[activationComplete] Triggering review with', concernsWithQuestions.length, 'questions');
+        setReviewShownForAgent(agentId);  // Mark review as shown for this agent
         setPendingReview({
           agentId,
           agentName,
@@ -947,7 +950,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
         });
       }
     }
-  }, [getAgent]);
+  }, [getAgent, reviewShownForAgent]);
 
   // Sub-agent functions
   const activateAgent = useCallback(async (name: string): Promise<boolean | 'pending_auth'> => {
@@ -1082,6 +1085,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     setPendingReview(null);
     setPendingClarifications(null);
     setShowRefinementOptions(false);
+    setReviewShownForAgent(null);
   }, []);
 
   // Reload current agent instructions (preserves auth credentials)
@@ -1329,88 +1333,71 @@ Please acknowledge these clarifications and let me know if you have any suggesti
     }
   }, [pendingReview, getAgent, activeAgentDefinition]);
 
-  // Save clarifications to Craft document and reload agent
+  // Save clarifications to Craft document using the existing agent loop
   const saveClarifications = useCallback(async () => {
     if (!pendingClarifications) {
       setPendingClarifications(null);
       setShowRefinementOptions(false);
       return;
     }
-    if (!agentManagerRef.current) {
-      setMessages(prev => [...prev, {
-        id: `refinement-error-${Date.now()}`,
-        type: 'error',
-        content: 'Agent manager not available. Cannot save clarifications.',
-        timestamp: Date.now(),
-      }]);
-      setPendingClarifications(null);
-      setShowRefinementOptions(false);
-      return;
-    }
 
-    debug('[saveClarifications] Saving to Craft document');
+    debug('[saveClarifications] Asking agent to save clarifications');
     setShowRefinementOptions(false);
 
     // Clear pending clarifications immediately to prevent useEffect from re-showing options
     const clarificationsToSave = pendingClarifications;
     setPendingClarifications(null);
 
-    // Clear temporary clarifications from agent
+    // Clear temporary clarifications - they'll be saved permanently
     const agent = getAgent();
     agent.setTemporaryClarifications(null);
 
     // Build clarifications text
-    const clarifications = Object.entries(clarificationsToSave.answers)
+    const clarificationsText = Object.entries(clarificationsToSave.answers)
       .map(([question, answer]) => `Q: ${question}\nA: ${answer}`)
       .join('\n\n');
 
-    // Append clarifications to instructions
-    const updatedInstructions = `${clarificationsToSave.definition.instructions}
+    // Ask the EXISTING agent to save using its Craft MCP tools directly
+    // The agent has access to blocks_get, blocks_update, markdown_add, etc.
+    // It should intelligently merge the clarifications into the document
 
-## Clarifications (added during setup)
+    // Get document ID from the registry
+    const registry = loadRegistry(workspace.id);
+    const agentMeta = registry?.agents.find(a => a.id === clarificationsToSave.agentId);
+    const documentId = agentMeta?.documentId;
+    const blockId = clarificationsToSave.definition.instructionsBlockId;
 
-${clarifications}`;
+    const saveMessage = `Update your Instructions document in Craft with these clarifications. This is important:
 
-    // Update instructions in Craft document
-    setMessages(prev => [...prev, {
-      id: `refinement-save-${Date.now()}`,
-      type: 'system',
-      content: `Saving clarifications to @${clarificationsToSave.agentName}'s instructions...`,
-      timestamp: Date.now(),
-    }]);
+1. First, use blocks_get to read the current instructions content
+2. Find any open questions or concerns in the instructions that these clarifications answer
+3. REPLACE those questions/concerns with the actual answers - don't just append
+4. Use blocks_update to save the complete updated instructions
 
-    const success = await agentManagerRef.current.updateInstructions(updatedInstructions);
+Document ID: ${documentId || 'unknown'}
+Instructions Block ID: ${blockId || 'unknown'}
 
-    if (success) {
-      setMessages(prev => [...prev, {
-        id: `refinement-reload-${Date.now()}`,
-        type: 'system',
-        content: 'Instructions saved. Reloading agent...',
-        timestamp: Date.now(),
-      }]);
+Clarifications (answers to questions in your instructions):
+${clarificationsText}
 
-      // Reload agent to use updated instructions
-      try {
-        if (reloadAgentRef.current) {
-          await reloadAgentRef.current();
-        }
-      } catch (err) {
-        setMessages(prev => [...prev, {
-          id: `refinement-reload-error-${Date.now()}`,
-          type: 'error',
-          content: `Failed to reload agent: ${err instanceof Error ? err.message : 'Unknown error'}`,
-          timestamp: Date.now(),
-        }]);
+The goal is to have clean, actionable instructions without unanswered questions. Remove the questions and integrate the answers naturally into the relevant sections.`;
+
+    try {
+      await sendMessageRef.current?.(saveMessage);
+      // Agent will use Craft MCP tools to update the document and respond
+      // After this completes, reload the agent to use updated instructions
+      if (reloadAgentRef.current) {
+        await reloadAgentRef.current();
       }
-    } else {
+    } catch (err) {
       setMessages(prev => [...prev, {
         id: `refinement-error-${Date.now()}`,
         type: 'error',
-        content: 'Failed to save clarifications. Changes were not saved.',
+        content: `Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}`,
         timestamp: Date.now(),
       }]);
     }
-  }, [pendingClarifications, getAgent]);
+  }, [pendingClarifications, getAgent, workspace.id]);
 
   // Continue refinement - hide options and let user type more
   const continueRefinement = useCallback(() => {
