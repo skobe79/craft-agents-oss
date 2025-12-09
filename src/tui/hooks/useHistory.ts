@@ -5,14 +5,14 @@ import { join } from 'path';
 import { ensureConfigDir } from '../../config/storage.ts';
 
 const MAX_HISTORY_SIZE = 100;
-const HISTORY_FILE = join(homedir(), '.craft-agent', 'history.json');
+const TEST_INPUT_HISTORY_FILE = join(homedir(), '.craft-agent', 'input_history.json');
 
-function loadHistory(): string[] {
+function loadTextInputHistory(): string[] {
   try {
-    if (!existsSync(HISTORY_FILE)) {
+    if (!existsSync(TEST_INPUT_HISTORY_FILE)) {
       return [];
     }
-    const content = readFileSync(HISTORY_FILE, 'utf-8');
+    const content = readFileSync(TEST_INPUT_HISTORY_FILE, 'utf-8');
     const data = JSON.parse(content);
     return Array.isArray(data) ? data : [];
   } catch {
@@ -20,9 +20,9 @@ function loadHistory(): string[] {
   }
 }
 
-function saveHistory(history: string[]): void {
+function saveTextInputHistory(history: string[]): void {
   ensureConfigDir();
-  writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2), 'utf-8');
+  writeFileSync(TEST_INPUT_HISTORY_FILE, JSON.stringify(history, null, 2), 'utf-8');
 }
 
 export interface UseHistoryResult {
@@ -32,7 +32,7 @@ export interface UseHistoryResult {
 }
 
 export function useHistory(): UseHistoryResult {
-  const [history, setHistory] = useState<string[]>(() => loadHistory());
+  const [history, setHistory] = useState<string[]>(() => loadTextInputHistory());
 
   const addToHistory = useCallback((input: string) => {
     setHistory((prev) => {
@@ -46,18 +46,18 @@ export function useHistory(): UseHistoryResult {
       // Keep history within bounds
       if (newHistory.length > MAX_HISTORY_SIZE) {
         const trimmed = newHistory.slice(-MAX_HISTORY_SIZE);
-        saveHistory(trimmed);
+        saveTextInputHistory(trimmed);
         return trimmed;
       }
 
-      saveHistory(newHistory);
+      saveTextInputHistory(newHistory);
       return newHistory;
     });
   }, []);
 
   const clearHistory = useCallback(() => {
     setHistory([]);
-    saveHistory([]);
+    saveTextInputHistory([]);
   }, []);
 
   return { history, addToHistory, clearHistory };
