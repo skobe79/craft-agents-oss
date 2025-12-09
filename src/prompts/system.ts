@@ -22,11 +22,14 @@ export function getDateTimeContext(): string {
 
 /**
  * Get the full system prompt with current date/time and user preferences
- * Optionally includes active sub-agent context
+ * Optionally includes active sub-agent context and temporary clarifications
  */
-export function getSystemPrompt(activeAgent?: SubAgentDefinition): string {
+export function getSystemPrompt(
+  activeAgent?: SubAgentDefinition,
+  temporaryClarifications?: string
+): string {
   const preferences = formatPreferencesForPrompt();
-  const agentContext = activeAgent ? formatAgentContext(activeAgent) : '';
+  const agentContext = activeAgent ? formatAgentContext(activeAgent, temporaryClarifications) : '';
 
   debug('[getSystemPrompt] activeAgent:', activeAgent?.name || 'none');
   debug('[getSystemPrompt] instructions length:', activeAgent?.instructions?.length || 0);
@@ -48,7 +51,17 @@ export function getSystemPrompt(activeAgent?: SubAgentDefinition): string {
  * Format sub-agent context for injection into system prompt
  * Makes clear the agent must ADOPT the persona, not just append instructions
  */
-function formatAgentContext(agent: SubAgentDefinition): string {
+function formatAgentContext(agent: SubAgentDefinition, temporaryClarifications?: string): string {
+  const clarificationsSection = temporaryClarifications
+    ? `
+
+### Pending Clarifications (from user, not yet saved)
+The user has provided these clarifications during setup. They are NOT yet saved to your instructions, but you should follow them.
+
+${temporaryClarifications}
+`
+    : '';
+
   return `
 
 ---
@@ -64,9 +77,21 @@ You must:
 
 ### Agent Instructions
 ${agent.instructions}
-
+${clarificationsSection}
 ### Self-Modification
-You can update your instructions using \`update_agent_instructions\` when you learn something that should persist.
+You can update your Instructions document using \`update_agent_instructions\` when you learn something that should persist across conversations. Only add NEW learnings - don't rewrite existing instructions. Use human-friendly references like "this document" instead of IDs.
+
+### Platform Limitations
+This is an interactive CLI tool. You CANNOT:
+- Run automatically or on a schedule
+- Wake up or trigger yourself (no webhooks, no background monitoring)
+- Send notifications proactively
+- Set or schedule reminders
+- Do anything without user interaction
+
+If your instructions mention these features, acknowledge the limitation but focus on what you CAN do when the user interacts with you.
+
+To add external service integrations (email, Slack, GitHub, etc.), include API configs (curl examples or docs) or MCP server configs as code blocks in your Instructions document.
 
 ### Return to Main
 User can type \`@main\` or \`/agent clear\` to return to default Craft Assistant.

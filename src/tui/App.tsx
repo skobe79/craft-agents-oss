@@ -13,6 +13,8 @@ import { ApiKeyChange } from './components/ApiKeyChange.tsx';
 import { AskUserQuestion } from './components/AskUserQuestion.tsx';
 import { McpAuth } from './components/McpAuth.tsx';
 import { ApiAuth } from './components/ApiAuth.tsx';
+import { AgentReview } from './components/AgentReview.tsx';
+import { RefinementOptions } from './components/RefinementOptions.tsx';
 import { HelpPanel } from './components/HelpPanel.tsx';
 import { useAgent } from './hooks/useAgent.ts';
 import { useHistory } from './hooks/useHistory.ts';
@@ -81,6 +83,14 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
     pendingApiAuth,
     completeApiAuth,
     cancelApiAuth,
+    // Post-activation review
+    pendingReview,
+    completeReview,
+    // Refinement mode
+    pendingClarifications,
+    showRefinementOptions,
+    saveClarifications,
+    continueRefinement,
   } = useAgent(config);
 
   const { history, addToHistory } = useHistory();
@@ -112,7 +122,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
     { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', desc: 'Fast & efficient' },
   ];
 
-  const addLocalMessage = useCallback((content: string, type: Message['type'] = 'status') => {
+  const addLocalMessage = useCallback((content: string, type: Message['type'] = 'system') => {
     setLocalMessages((prev) => [
       ...prev,
       { id: `local-${Date.now()}`, type, content, timestamp: Date.now() },
@@ -168,7 +178,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
         if (!activeAgentName) return;
         const agentToReset = activeAgentName;
         const { setTerminalProgressIndeterminate, clearTerminalProgress } = await import('./utils/terminalProgress.ts');
-        addLocalMessage(`Fully resetting @${agentToReset}...`, 'status');
+        addLocalMessage(`Fully resetting @${agentToReset}...`, 'system');
         setTerminalProgressIndeterminate();
         try {
           const success = await resetAgent();
@@ -238,7 +248,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
           debug('[handleAgentAction.info] Adding message:', info);
           addLocalMessage(info, 'assistant');
         } else {
-          addLocalMessage('No sub-agent active. Use @agentname to activate one.', 'status');
+          addLocalMessage('No sub-agent active. Use @agentname to activate one.', 'system');
         }
         break;
       }
@@ -529,7 +539,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             if (onRequestSetup) {
               onRequestSetup();
             } else {
-              addLocalMessage('Setup not available. Run with --setup flag to reconfigure.', 'status');
+              addLocalMessage('Setup not available. Run with --setup flag to reconfigure.', 'system');
             }
             return;
 
@@ -743,6 +753,12 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
                 // Fetch tools from MCP servers
                 const serversWithTools = await fetchAgentTools();
                 let info = `**Active Agent**: @${activeAgentName}`;
+
+                // Show capabilities if available
+                if (activeAgentDefinition?.capabilities && activeAgentDefinition.capabilities.length > 0) {
+                  info += '\n\n**Capabilities**\n' + activeAgentDefinition.capabilities.map(c => `• ${c}`).join('\n');
+                }
+
                 if (serversWithTools.length > 0) {
                   for (const server of serversWithTools) {
                     info += `\n\n**${server.name}**`;
@@ -755,7 +771,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
                 }
                 addLocalMessage(info, 'assistant');
               } else {
-                addLocalMessage('No sub-agent active. Use @agentname to activate one.', 'status');
+                addLocalMessage('No sub-agent active. Use @agentname to activate one.', 'system');
               }
               return;
             }
@@ -787,7 +803,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
               }
               const agentToReset = activeAgentName;
               const { setTerminalProgressIndeterminate, clearTerminalProgress } = await import('./utils/terminalProgress.ts');
-              addLocalMessage(`Fully resetting @${agentToReset}...`, 'status');
+              addLocalMessage(`Fully resetting @${agentToReset}...`, 'system');
               setTerminalProgressIndeterminate();
               try {
                 const success = await resetAgent();
@@ -803,7 +819,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             }
 
             if (subCommand === 'create') {
-              addLocalMessage('Agent creation not yet implemented. Create a document in your "Agents" folder manually.', 'status');
+              addLocalMessage('Agent creation not yet implemented. Create a document in your "Agents" folder manually.', 'system');
               return;
             }
 
@@ -1095,6 +1111,28 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
         />
       )}
 
+      {/* Agent review for post-activation clarifications */}
+      {pendingReview && pendingReview.definition.concerns && (
+        <Box marginTop={1} paddingX={1}>
+          <AgentReview
+            agentName={pendingReview.agentName}
+            concerns={pendingReview.definition.concerns || []}
+            onSubmit={completeReview}
+          />
+        </Box>
+      )}
+
+      {/* Refinement options (after Q&A, before saving) */}
+      {showRefinementOptions && !isProcessing && (
+        <Box marginTop={1} paddingX={1}>
+          <RefinementOptions
+            onDone={saveClarifications}
+            onMoreInput={continueRefinement}
+            isLastRound={(pendingClarifications?.refinementRound ?? 0) >= 1}
+          />
+        </Box>
+      )}
+
       {/* Input + Status bar + Header together at bottom */}
       <Box flexDirection="column" width="100%" paddingX={1}>
         {/* Permission prompt */}
@@ -1123,7 +1161,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             />
           </Box>
         )}
-        {!showModelSelector && !showHelp && !showAgentMenu && !showWorkspaceSelector && !showWorkspaceAdd && !showWorkspaceRename && !showApiKeyChange && !pendingPermission && !pendingQuestion && !pendingMcpAuth && !pendingApiAuth && (
+        {!showModelSelector && !showHelp && !showAgentMenu && !showWorkspaceSelector && !showWorkspaceAdd && !showWorkspaceRename && !showApiKeyChange && !pendingPermission && !pendingQuestion && !pendingMcpAuth && !pendingApiAuth && !pendingReview && !showRefinementOptions && (
           <Input
             onSubmit={handleSubmit}
             onPaste={handlePaste}

@@ -7,7 +7,7 @@
  */
 
 import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
-import type { McpServerConfig, ApiConfig } from './types.ts';
+import type { McpServerConfig, ApiConfig, Concern } from './types.ts';
 import { debug } from '../tui/utils/debug.ts';
 
 export interface ExtractionResult {
@@ -16,6 +16,8 @@ export interface ExtractionResult {
   mcpServers?: McpServerConfig[];
   apis?: ApiConfig[];  // REST API configurations extracted from curl examples or docs
   info?: string[];  // Info messages for users (warnings, notices, etc.)
+  concerns?: Concern[];  // Issues identified that need user clarification
+  capabilities?: string[];  // Auto-generated list of key capabilities
 }
 
 export interface ExtractionProgressEvent {
@@ -81,19 +83,82 @@ Just the raw JSON object starting with { and ending with }.`;
 
     const prompt = `Extract agent definition from Craft document ID "${documentId}" (agent: "${agentName}").
 
-1. First, use mcp__craft__blocks_get with documentId="${documentId}" and depth=3 to read the document
-2. Find the Instructions section/subpage and note its block ID
-3. Extract ALL instruction content EXACTLY as written
-4. Look for MCP server configurations
-5. Look for REST API configurations (curl examples, API documentation)
+CRITICAL ID DISTINCTION:
+- Document ID: "${documentId}" - This is the ID of the agent's document. Use this when referring to "the document" or "this document".
+- Block IDs: The nested blocks inside the document have their own IDs (e.g., for Instructions subpage). Use these only when referring to specific blocks within the document.
+- NEVER use a block ID when you mean the document ID. They are different!
 
-IMPORTANT: Keep the original instructions as intact as possible. Only make minimal, logical changes:
-- Prepend the agent identity context (document ID)
-- Fix obvious formatting issues
-- Do NOT rephrase, summarize, or restructure the content
-- Preserve the exact wording, structure, and formatting from the original
+=== INCREMENTAL LOADING STRATEGY ===
 
-MCP Server Handling:
+Use a conservative, step-by-step approach to minimize unnecessary data loading:
+
+STEP 1: Get Document Outline (REQUIRED)
+- Call mcp__craft__blocks_get with id="${documentId}" and maxDepth=1
+- This gives you the top-level structure: document title and immediate children
+- Examine the block titles/content to identify:
+  * "Instructions" section (PRIORITY - this contains the agent behavior)
+  * "MCP Servers" or similar sections (may contain server configs)
+  * Code blocks at the top level (may contain inline configs)
+  * Any section names suggesting APIs, integrations, or configurations
+
+STEP 2: Load Instructions Content (REQUIRED if found)
+- If you found an "Instructions" block in Step 1:
+  * Note its block ID (this will be different from ${documentId})
+  * Call mcp__craft__blocks_get with id="[instructions_block_id]" and maxDepth=2
+  * This loads the full instructions content including nested subpages
+- If NO "Instructions" section exists:
+  * Add info message: "No Instructions section found in document."
+  * The document root content may BE the instructions - use what you loaded in Step 1
+
+STEP 3: Selectively Load Additional Sections (CONDITIONAL)
+Only load additional sections if Step 1 revealed potentially relevant content:
+
+a) MCP Server Sections:
+   - If you see a section like "MCP Servers", "Servers", "Integrations", "Configuration":
+     * Load that specific block with maxDepth=1 or maxDepth=2
+   - If top-level code blocks exist, they may already contain server configs from Step 1
+
+b) API Documentation Sections:
+   - If you see sections like "APIs", "REST APIs", "Endpoints", "Integration Guide":
+     * Load that specific block with maxDepth=2
+   - Look for sections containing words: curl, fetch, API, endpoint, request
+
+c) Code Blocks Discovery:
+   - If you saw code blocks in Step 1 outline but couldn't read their content:
+     * Load those specific blocks to see if they contain MCP or API configs
+
+STEP 4: Final Pass (ONLY IF NEEDED)
+- If after Steps 1-3 you still haven't found expected content:
+  * You may load the full document with maxDepth=3 as a fallback
+  * But ONLY do this if the incremental approach failed to find Instructions
+- Most documents should NOT need this step
+
+=== DECISION GUIDELINES ===
+
+DO load a section if:
+- It's named "Instructions" (always load this)
+- It contains the word "MCP", "Server", "API", "Config", "Integration"
+- It's a code block that might contain configuration
+- The outline suggests it has relevant content
+
+DO NOT load a section if:
+- It's clearly unrelated (e.g., "Meeting Notes", "Archive", "Drafts")
+- It's a large section with no indication of agent-relevant content
+- You already have the information you need
+
+=== EXTRACTION REQUIREMENTS ===
+
+From the loaded content, extract:
+
+1. INSTRUCTIONS (Primary Goal)
+Extract the EXACT original instructions without modification. Critical rules:
+- Do NOT prepend any identity context - that is added at runtime
+- Do NOT add document IDs or agent names to the instructions
+- Preserve the EXACT wording, structure, and formatting from the original document
+- Fix only obvious formatting issues (e.g., broken markdown)
+- Keep human-friendly references like "this document", "this page", "the Instructions section"
+
+2. MCP SERVER CONFIGURATIONS
 - Look for MCP server configurations in code blocks (YAML, JSON, or plain URLs)
 - ONLY include servers with HTTP/HTTPS URLs in the mcpServers array
 - UNSUPPORTED server types (do NOT include in mcpServers):
@@ -102,8 +167,8 @@ MCP Server Handling:
   * stdio transports
   * Any server config without an http:// or https:// URL
 
-REST API Detection - IMPORTANT:
-Look for REST API configurations in the document. These are NOT MCP servers, but regular HTTP APIs.
+3. REST API DETECTION
+Look for REST API configurations. These are NOT MCP servers, but regular HTTP APIs.
 Detect APIs from:
 - curl examples (e.g., curl -X POST https://api.example.com/search -H "x-api-key: KEY" -d '{"query": "test"}')
 - fetch() calls or axios requests
@@ -132,21 +197,75 @@ For each API found, extract:
     GOOD: "Search the web using Exa's neural search engine. Use this for finding recent articles, research papers, news, or any web content. Key parameters: query (search string), numResults (1-100, default 10, START WITH 5-10 to avoid huge responses), type ('neural' for semantic search, 'keyword' for exact match), category (optional: 'news', 'research paper', 'company', 'github'). Returns URLs, titles, and snippets. For full page content, follow up with exa_contents using the returned URLs."
   - exampleParams: Example request body extracted from curl -d or request body (as object, not string)
 
-INFO MESSAGES - VERY IMPORTANT:
+4. INFO MESSAGES
 Use the "info" array to communicate important information to the user. You MUST add info messages for:
 - Unsupported MCP servers: "MCP server '[name]' uses npx/stdio which is not supported. Only HTTP/HTTPS servers work."
 - Missing or empty Instructions section: "No Instructions section found in document."
 - Malformed or unparseable MCP configs: "Could not parse MCP server config in code block."
 - APIs found: "Found API '[name]' with [N] endpoints."
+- Unsupported automation features (see below): Add info message explaining the limitation
 - Any other issues or warnings the user should know about during agent setup
 
-Prepend this context line, then include the EXACT original content:
-"You are the ${agentName} agent. Your definition is stored in Craft document ${documentId}."
+PLATFORM LIMITATIONS - IMPORTANT:
+This is an interactive CLI tool. It CANNOT:
+- Run automatically or on a schedule (no cron, no background tasks)
+- Wake up or trigger itself (no webhooks, no event listeners)
+- Run continuously in the background
+- Send notifications or alerts proactively
+- Set or schedule reminders
+- Monitor things over time without user interaction
+
+If the instructions mention ANY of these features, add an info message like:
+"Note: '[feature]' requires automation/scheduling which is not supported. This agent only responds when you interact with it."
+
+EXTERNAL SERVICE INTEGRATIONS:
+If instructions mention external services (email, Slack, Discord, GitHub, calendar, etc.) that aren't already configured:
+- Add info: "To enable [service] integration, add an API config (curl examples or API docs) or MCP server config as a code block in this document."
+- Common examples:
+  * Email: "To send emails, add an API config for SendGrid, Resend, or similar email service."
+  * Slack/Discord: "To post messages, add a Slack/Discord API config or MCP server."
+  * GitHub: "To interact with GitHub, add the GitHub API or an MCP server config."
+- Do NOT treat missing integrations as concerns - just provide helpful guidance.
+
+Do NOT create concerns or ask questions about these limitations - they cannot be resolved. Just inform the user.
+
+5. CAPABILITIES SUMMARY
+Analyze the instructions and extract a list of 3-8 key capabilities this agent has.
+Each capability should be a concise phrase (5-15 words) describing what the agent can do.
+Examples: "Search the web using Exa neural search", "Create and edit Craft documents", "Write and debug TypeScript code"
+
+6. CONCERNS EXTRACTION - BE SELECTIVE
+ONLY extract concerns that are ACTUAL issues that could prevent the agent from working correctly.
+DO NOT include trivial, obvious, or non-actionable items. Quality over quantity.
+
+Types:
+1. CONFUSING: Instructions that could genuinely be interpreted multiple ways
+2. CONFLICTING: Clear contradictions that need resolution
+3. MISSING: Critical info without which the agent cannot function
+4. GENERAL: Significant risks or issues (not minor edge cases)
+
+For each concern, include:
+- type: One of the four types above
+- description: Concise explanation of the actual issue
+- context: The relevant text from instructions (if applicable)
+- suggestedQuestion: A clear question to ask the user
+- suggestedAnswers: Array of 2-4 MEANINGFUL pre-defined answers (MAX 4, user can always type custom)
+  Examples:
+  - For "Which API version?" → ["v1 (stable)", "v2 (latest features)", "Both with fallback"]
+  - For "When to confirm deletions?" → ["Always", "Only for important items", "Never"]
+  Skip suggestedAnswers if no logical options exist (open-ended questions).
+  IMPORTANT: Maximum 4 suggested answers. The UI always shows a "Custom" option for free-form input.
+
+If instructions are clear and complete, return empty concerns array []. Do NOT invent concerns.
+
+REMEMBER: "${documentId}" is the DOCUMENT ID. The instructionsBlockId will be a DIFFERENT number (the block ID of the Instructions subpage within the document).
+
+=== OUTPUT FORMAT ===
 
 Return ONLY valid JSON:
 {
-  "instructions": "You are the ${agentName} agent. Your definition is stored in Craft document ${documentId}.\\n\\n[EXACT instruction content from document]",
-  "instructionsBlockId": "block-id-of-instructions-section-or-null",
+  "instructions": "[EXACT instruction content from document - no identity prefix added]",
+  "instructionsBlockId": "[block ID of Instructions subpage, NOT ${documentId}]",
   "mcpServers": [{ "name": "myserver", "url": "https://example.com/mcp", "requiresAuth": false }],
   "apis": [{
     "name": "exa",
@@ -157,17 +276,27 @@ Return ONLY valid JSON:
       "name": "search",
       "method": "POST",
       "path": "/search",
-      "description": "Search the web using Exa's neural search engine. Use this for finding recent articles, research papers, news, or any web content. Key parameters: query (search string), numResults (1-100, default 10), type ('neural' for semantic search, 'keyword' for exact match). Returns URLs, titles, and snippets.",
+      "description": "Search the web using Exa's neural search engine...",
       "exampleParams": { "query": "search query", "numResults": 10 }
     }]
   }],
-  "info": ["Found API 'exa' with 1 endpoint."]
+  "info": ["Found API 'exa' with 1 endpoint."],
+  "capabilities": ["Search the web using Exa neural search", "Process and analyze search results"],
+  "concerns": [{
+    "type": "confusing",
+    "description": "Unclear when to use neural vs keyword search",
+    "context": "type ('neural' for semantic search, 'keyword' for exact match)",
+    "suggestedQuestion": "When should I use neural search vs keyword search?",
+    "suggestedAnswers": ["Always use neural search", "Use keyword for exact phrases, neural otherwise", "Ask user each time"]
+  }]
 }
 
 Rules:
 - mcpServers: Empty array [] if no HTTP/HTTPS MCP servers found
 - apis: Empty array [] if no REST APIs found. Include APIs even if only one endpoint is detected.
 - info: Empty array [] if nothing to report. MUST contain messages for any issues, warnings, or important information.
+- capabilities: List of 3-8 key capabilities. Empty array [] if instructions are empty.
+- concerns: Empty array [] if instructions are clear and complete. Do NOT invent concerns.
 - instructions: Empty string "" if document is empty or not found`;
 
     const options: Options = {
@@ -251,8 +380,46 @@ Rules:
               description: 'User-facing info messages about the extraction (warnings, notices, etc.)',
               items: { type: 'string' },
             },
+            capabilities: {
+              type: 'array',
+              description: 'List of 3-8 key capabilities this agent has',
+              items: { type: 'string' },
+            },
+            concerns: {
+              type: 'array',
+              description: 'Concerns identified during extraction that need user clarification',
+              items: {
+                type: 'object',
+                properties: {
+                  type: {
+                    type: 'string',
+                    enum: ['confusing', 'conflicting', 'missing', 'general'],
+                    description: 'Type of concern',
+                  },
+                  description: {
+                    type: 'string',
+                    description: 'Concise explanation of the actual issue',
+                  },
+                  context: {
+                    type: 'string',
+                    description: 'Relevant text from instructions',
+                  },
+                  suggestedQuestion: {
+                    type: 'string',
+                    description: 'Clear question to ask the user',
+                  },
+                  suggestedAnswers: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    maxItems: 4,
+                    description: 'Max 4 meaningful pre-defined answers if logical choices exist',
+                  },
+                },
+                required: ['type', 'description'],
+              },
+            },
           },
-          required: ['instructions'],
+          required: ['instructions', 'instructionsBlockId'],
         },
       },
     };
@@ -326,7 +493,7 @@ Rules:
 
     if (!result) {
       debug('[extractor] No structured output received');
-      return { instructions: '', mcpServers: [], apis: [] };
+      return { instructions: '', mcpServers: [], apis: [], concerns: [], capabilities: [] };
     }
 
     debug(
@@ -338,7 +505,11 @@ Rules:
       result.apis?.length || 0,
       'APIs,',
       result.info?.length || 0,
-      'info messages',
+      'info messages,',
+      result.capabilities?.length || 0,
+      'capabilities,',
+      result.concerns?.length || 0,
+      'concerns',
     );
 
     return {
@@ -347,6 +518,8 @@ Rules:
       mcpServers: result.mcpServers || [],
       apis: result.apis || [],
       info: result.info || [],
+      concerns: result.concerns || [],
+      capabilities: result.capabilities || [],
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -356,6 +529,8 @@ Rules:
       instructions: '',
       mcpServers: [],
       apis: [],
+      concerns: [],
+      capabilities: [],
     };
   }
 }

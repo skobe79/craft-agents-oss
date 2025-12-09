@@ -227,6 +227,8 @@ export class SubAgentManager {
         mcpServers: extracted.mcpServers?.length ? extracted.mcpServers : undefined,
         apis: extracted.apis?.length ? extracted.apis : undefined,
         info: extracted.info?.length ? extracted.info : undefined,
+        concerns: extracted.concerns?.length ? extracted.concerns : undefined,
+        capabilities: extracted.capabilities?.length ? extracted.capabilities : undefined,
         rawContent: extracted.instructions, // Use instructions as raw content since we don't have separate raw
         parsedAt: Date.now(),
       };
@@ -324,7 +326,12 @@ export class SubAgentManager {
     }
 
     const definition = await this.getDefinition(this.activeAgent.agentId);
-    if (!definition || !definition.instructionsBlockId) {
+    if (!definition) {
+      debug('[updateInstructions] No definition found for agent:', this.activeAgent.agentId);
+      return false;
+    }
+    if (!definition.instructionsBlockId) {
+      debug('[updateInstructions] No instructionsBlockId in definition - cannot save to Craft');
       return false;
     }
 

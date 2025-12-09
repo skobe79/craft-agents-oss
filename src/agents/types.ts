@@ -43,6 +43,10 @@ export interface SubAgentDefinition {
   apis?: ApiConfig[];
   /** Info messages from extraction (warnings, notices, etc.) */
   info?: string[];
+  /** Concerns identified during extraction that need user clarification */
+  concerns?: Concern[];
+  /** Auto-generated list of key capabilities this agent has */
+  capabilities?: string[];
   /** Full raw content for reference */
   rawContent: string;
   /** When this was parsed */
@@ -112,6 +116,22 @@ export interface ApiEndpoint {
   description: string;
   /** Example parameters extracted from curl/docs - appended to description */
   exampleParams?: Record<string, unknown>;
+}
+
+/**
+ * Concern identified during agent definition extraction
+ */
+export interface Concern {
+  /** Type of concern */
+  type: 'confusing' | 'conflicting' | 'missing' | 'general';
+  /** Description of the concern */
+  description: string;
+  /** Relevant text from instructions (optional) */
+  context?: string;
+  /** Suggested question to ask user (optional) */
+  suggestedQuestion?: string;
+  /** Pre-defined answer options if logical choices exist (optional) */
+  suggestedAnswers?: string[];
 }
 
 /**

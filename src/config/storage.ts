@@ -309,7 +309,7 @@ export function updateWorkspaceSessionId(workspaceId: string, sessionId: string 
 // Stored message format (simplified for persistence)
 export interface StoredMessage {
   id: string;
-  type: 'user' | 'assistant' | 'tool' | 'error' | 'status' | 'system';
+  type: 'user' | 'assistant' | 'tool' | 'error' | 'status' | 'system' | 'info';
   content: string;
   timestamp?: number;
   toolName?: string;

@@ -210,6 +210,58 @@ function getPreferencesServer() {
             }
           }
         ),
+        tool(
+          'update_agent_instructions',
+          `Add a new learning or instruction to your Instructions document. Use this when you learn something from the user that should persist across conversations.
+
+IMPORTANT guidelines for what to write:
+- Write ONLY the new learning or instruction, not your full instructions
+- Use human-friendly references: "this document", "this page", "the Instructions section"
+- Do NOT include document IDs or block IDs in your content
+- Keep it concise and actionable
+- Format as a clear instruction or note that your future self can follow
+
+Example good content:
+- "When the user asks about projects, always check the Projects folder first"
+- "User prefers bullet points over numbered lists"
+- "Always confirm before making destructive changes"
+
+Example bad content:
+- "Update document 12345 with..." (don't include IDs)
+- [Entire rewrite of instructions] (only add what's new)`,
+          {
+            content: z.string().describe('The new learning or instruction to add. Should be a concise, actionable note.'),
+            section: z.string().optional().describe('Optional: which section to add this to (e.g., "Learnings", "User Preferences"). Defaults to appending at the end.'),
+          },
+          async (args) => {
+            if (!updateAgentInstructionsCallback) {
+              return {
+                content: [{ type: 'text', text: 'No agent is currently active. This tool only works when a sub-agent is active.' }],
+              };
+            }
+            try {
+              // Format the content for the document
+              const section = args.section ? `## ${args.section}\n` : '';
+              const formattedContent = section ? `${section}${args.content}` : args.content;
+
+              const success = await updateAgentInstructionsCallback(formattedContent);
+              return {
+                content: [{
+                  type: 'text',
+                  text: success
+                    ? `Successfully added to my instructions:\n\n${args.content}\n\nThis will persist across conversations.`
+                    : 'Failed to update instructions. The instructionsBlockId may be missing.',
+                }],
+              };
+            } catch (error) {
+              const message = error instanceof Error ? error.message : 'Unknown error';
+              return {
+                content: [{ type: 'text', text: `Failed to update instructions: ${message}` }],
+                isError: true,
+              };
+            }
+          }
+        ),
       ],
     });
   }
@@ -231,6 +283,8 @@ export class CraftAgent {
   private agentMcpServers: Record<string, { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }> = {};
   // In-process MCP servers for API integrations (created from ApiConfig)
   private agentApiServers: Record<string, ReturnType<typeof createSdkMcpServer>> = {};
+  // Temporary clarifications (not yet saved to Craft document)
+  private temporaryClarifications: string | null = null;
 
   // Callback for permission requests - set by TUI to receive permission prompts
   public onPermissionRequest: ((request: { requestId: string; toolName: string; command: string; description: string }) => void) | null = null;
@@ -474,7 +528,7 @@ export class CraftAgent {
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: getSystemPrompt(this.activeAgentDefinition ?? undefined),
+          append: getSystemPrompt(this.activeAgentDefinition ?? undefined, this.temporaryClarifications ?? undefined),
         },
         // Option B: Custom system prompt (uncomment to use instead)
         // systemPrompt: getSystemPrompt(this.activeAgentDefinition ?? undefined),
@@ -1123,6 +1177,14 @@ export class CraftAgent {
     this.activeAgentDefinition = definition;
     this.agentMcpServers = mcpServers ?? {};
     this.agentApiServers = apiServers ?? {};
+  }
+
+  /**
+   * Set temporary clarifications that are injected into the system prompt
+   * but not yet persisted to the Craft document
+   */
+  setTemporaryClarifications(text: string | null): void {
+    this.temporaryClarifications = text;
   }
 
   /**

@@ -8,7 +8,7 @@ import { renderMarkdown } from '../utils/markdown.ts';
 
 export interface Message {
   id: string;
-  type: 'user' | 'assistant' | 'tool' | 'error' | 'status' | 'system';
+  type: 'user' | 'assistant' | 'tool' | 'error' | 'status' | 'system' | 'info';
   content: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
@@ -186,10 +186,11 @@ const MessageItem: React.FC<MessageItemProps> = memo(({ message, compact = true 
       return <ErrorMessage content={message.content} />;
 
     case 'status':
-      return <StatusMessage content={message.content} />;
-
     case 'system':
       return <SystemMessage content={message.content} />;
+
+    case 'info':
+      return <InfoMessage content={message.content} />;
 
     default:
       return null;
@@ -242,22 +243,21 @@ const ErrorMessage: React.FC<{ content: string }> = memo(({ content }) => {
   );
 });
 
-// Status message (dimmed)
-const StatusMessage: React.FC<{ content: string }> = memo(({ content }) => {
+// System/status message (for internal notifications)
+const SystemMessage: React.FC<{ content: string }> = memo(({ content }) => {
   return (
-    <Box marginY={1}>
-      <Text dimColor>{content}</Text>
+    <Box marginTop={1}>
+      <Text dimColor italic>{content}</Text>
     </Box>
   );
 });
 
-// System message (for internal notifications)
-const SystemMessage: React.FC<{ content: string }> = memo(({ content }) => {
+// Info message (important notifications - brighter with icon)
+const InfoMessage: React.FC<{ content: string }> = memo(({ content }) => {
   return (
-    <Box marginY={1} paddingX={1}>
-      <Text color="yellow" dimColor>{'─ '}</Text>
-      <Text dimColor italic>{content}</Text>
-      <Text color="yellow" dimColor>{' ─'}</Text>
+    <Box marginTop={1}>
+      <Text color="cyan">ℹ </Text>
+      <Text color="white">{content}</Text>
     </Box>
   );
 });
