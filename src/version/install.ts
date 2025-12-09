@@ -29,7 +29,7 @@ export async function installBinary(params: { binaryData: ArrayBuffer, version: 
   const { binaryData, version } = params;
   const actualDirectory = join(homedir(), '.local', 'share', 'craft', 'versions');
   const actualPath = join(actualDirectory, version);
-  const symlinkDirectory = join(homedir(), '.local', 'bin', 'craft');
+  const symlinkDirectory = join(homedir(), '.local', 'bin');
   const symlinkPath = join(symlinkDirectory, 'craft');
 
   await ensureDirectory(actualDirectory);
