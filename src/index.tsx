@@ -319,28 +319,17 @@ async function main() {
   if (cli.flags.print !== undefined) {
     const { HeadlessRunner, writeStreamingOutput } = await import('./headless/index.ts');
 
-    // Validate config exists
-    const storedConfig = loadStoredConfig();
-    if (!storedConfig) {
-      console.error('Error: No configuration found. Run `craft --setup` first.');
-      process.exit(1);
-    }
-
-    // Validate credentials
-    const hasCredentials = await hasValidCredentials();
-    if (!hasCredentials) {
-      console.error('Error: No valid credentials. Run `craft --setup` first.');
-      process.exit(1);
-    }
+    // Check if using URL workspace (allows skipping config requirement)
+    const isUrlWorkspace = cli.flags.workspace && isUrl(cli.flags.workspace);
 
     // Get workspace: -w URL > -w workspace name/ID > active workspace
     let workspace: Workspace | null = null;
     if (cli.flags.workspace) {
-      if (isUrl(cli.flags.workspace)) {
-        // -w with URL creates a temporary workspace
+      if (isUrlWorkspace) {
+        // -w with URL creates a temporary workspace (no config required)
         workspace = createUrlWorkspace(cli.flags.workspace);
       } else {
-        // -w with name/ID: lookup existing workspace
+        // -w with name/ID: lookup existing workspace (requires config)
         workspace = getWorkspaceByNameOrId(cli.flags.workspace);
         if (!workspace) {
           const available = getWorkspaces();
@@ -350,20 +339,31 @@ async function main() {
         }
       }
     } else {
+      // No -w flag: need config for active workspace
+      const storedConfig = loadStoredConfig();
+      if (!storedConfig) {
+        console.error('Error: No configuration found. Run `craft --setup` first, or use -w <url> for zero-config mode.');
+        process.exit(1);
+      }
       workspace = getActiveWorkspace();
     }
 
     if (!workspace) {
-      console.error('Error: No workspace configured. Run `craft --setup` first.');
+      console.error('Error: No workspace configured. Run `craft --setup` first, or use -w <url> for zero-config mode.');
       process.exit(1);
     }
 
-    // Set up auth env vars
+    // Get credentials (from env vars or keychain)
     const apiKey = await getAnthropicApiKey();
     const oauthToken = await getClaudeOAuthToken();
-    const authType: AuthType = storedConfig.authType || 'api_key';
 
-    if (authType === 'oauth_token' && oauthToken) {
+    if (!apiKey && !oauthToken) {
+      console.error('Error: No Anthropic credentials found. Set CRAFT_ANTHROPIC_API_KEY env var, or run `craft --setup`.');
+      process.exit(1);
+    }
+
+    // Set up auth env vars for SDK (prefer OAuth if available, else API key)
+    if (oauthToken) {
       process.env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
       delete process.env.ANTHROPIC_API_KEY;
     } else if (apiKey) {
@@ -390,12 +390,16 @@ async function main() {
       process.exit(1);
     }
 
+    // Get model (from flag, config, or default)
+    const storedConfig = loadStoredConfig();
+    const model = cli.flags.model || storedConfig?.model;
+
     // Create and run headless runner
     const runner = new HeadlessRunner({
       prompt: cli.flags.print,
       workspace,
       agentName,
-      model: cli.flags.model || storedConfig.model,
+      model,
       outputFormat,
       permissionPolicy,
       sessionId: cli.flags.sessionId,
