@@ -25,19 +25,46 @@ interface CraftBlock {
 }
 
 /**
- * Normalize agent name for @mention usage
+ * Normalize a single name segment (title or folder name)
  * - Lowercase
  * - Replace spaces with hyphens
  * - Remove special characters
  */
-export function normalizeAgentName(title: string): string {
-  return title
+function normalizeSegment(segment: string): string {
+  return segment
     .toLowerCase()
     .trim()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9-]/g, '')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
+}
+
+/**
+ * Normalize agent name for @mention usage
+ * If folderPath is provided, builds a path-based name: "folder/subfolder/agentname"
+ *
+ * @param title - Document title (agent name)
+ * @param folderPath - Optional array of folder names leading to this agent
+ * @returns Normalized name like "writer" or "work/coder"
+ */
+export function normalizeAgentName(title: string, folderPath?: string[]): string {
+  const normalizedTitle = normalizeSegment(title);
+
+  if (!folderPath || folderPath.length === 0) {
+    return normalizedTitle;
+  }
+
+  const normalizedPath = folderPath
+    .map(segment => normalizeSegment(segment))
+    .filter(segment => segment.length > 0)
+    .join('/');
+
+  if (!normalizedPath) {
+    return normalizedTitle;
+  }
+
+  return `${normalizedPath}/${normalizedTitle}`;
 }
 
 /**

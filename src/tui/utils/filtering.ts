@@ -344,7 +344,9 @@ export function getAgentHint(query: string, agents: string[]): HintData {
       ? 'Return to main assistant'
       : first === 'agent'
         ? 'Open agent menu'
-        : 'Activate sub-agent';
+        : first.includes('/')
+          ? `Activate ${first.split('/').pop()} agent`
+          : 'Activate sub-agent';
     return {
       selected: `@${first}`,
       description,

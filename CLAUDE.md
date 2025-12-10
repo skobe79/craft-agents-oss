@@ -231,6 +231,22 @@ Subagents are specialized agents defined in Craft documents. When activated, the
 - `api-tools.ts` - Dynamic MCP server factory for REST APIs
 - `cache.ts` - Agent definition cache
 
+**Folder structure (up to 3 levels):**
+Agents can be organized in subfolders within the "Agents" folder:
+```
+Agents/
+├── Writer                    → @writer
+├── Work/
+│   ├── Coder                 → @work/coder
+│   └── Reviewer              → @work/reviewer
+└── Personal/
+    └── Creative/
+        └── Storyteller       → @personal/creative/storyteller
+```
+- Agent names include their folder path: `@folder/subfolder/name`
+- Tab completion works with paths: `@wo` → `@work/...`
+- Maximum 3 levels deep (root + 2 subfolder levels)
+
 **Extraction flow (`extractor.ts`):**
 1. Uses Claude Agent SDK to agentically read Craft document via MCP tools
 2. Claude parses document structure, finding Instructions section

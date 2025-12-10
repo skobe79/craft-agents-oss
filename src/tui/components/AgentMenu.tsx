@@ -74,8 +74,9 @@ export const AgentMenu: React.FC<AgentMenuProps> = ({
   // Add separator label index
   const agentStartIndex = menuItems.length;
 
-  // Add available agents
-  for (const agent of agents) {
+  // Add available agents (sorted alphabetically)
+  const sortedAgents = [...agents].sort((a, b) => a.localeCompare(b));
+  for (const agent of sortedAgents) {
     menuItems.push({
       key: `agent-${agent}`,
       label: `@${agent}`,

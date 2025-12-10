@@ -48,6 +48,15 @@ interface FolderInfo {
   name: string;
 }
 
+/**
+ * Folder with nested children (tree structure)
+ */
+interface FolderTree {
+  id: string;
+  name: string;
+  children: FolderTree[];
+}
+
 interface DocumentInfo {
   id: string;
   title: string;
@@ -106,17 +115,16 @@ export class SubAgentManager {
 
   /**
    * Discover agents from the "Agents" folder
-   * Returns list of discovered agents
+   * Recursively scans subfolders up to 3 levels deep
+   * Returns list of discovered agents with path-based names
    * Throws on MCP errors (callers should handle)
    */
   async discoverAgents(): Promise<SubAgentMetadata[]> {
-    // 1. List all folders to find "Agents" folder
+    // 1. List all folders and parse as tree to find "Agents" folder with children
     const foldersResult = await this.callMcpTool('folders_list', {});
-    const folders = this.parseFolders(foldersResult);
+    const folderTree = this.parseFoldersTree(foldersResult);
 
-    const agentsFolder = folders.find(
-      (f) => f.name.toLowerCase() === 'agents'
-    );
+    const agentsFolder = this.findFolderInTree(folderTree, 'agents');
 
     if (!agentsFolder) {
       // No Agents folder found - not an error, just empty
@@ -129,20 +137,8 @@ export class SubAgentManager {
       return [];
     }
 
-    // 2. List documents in the Agents folder
-    const docsResult = await this.callMcpTool('documents_list', {
-      location: { folderId: agentsFolder.id },
-    });
-    const documents = this.parseDocuments(docsResult);
-
-    // 3. Create metadata for each document
-    const agents: SubAgentMetadata[] = documents.map((doc) => ({
-      id: doc.id,
-      name: normalizeAgentName(doc.title),
-      documentId: doc.id,
-      workspaceId: this.workspaceId,
-      createdAt: Date.now(),
-    }));
+    // 2. Recursively discover agents in Agents folder and subfolders (up to 3 levels)
+    const agents = await this.discoverAgentsInFolder(agentsFolder, [], 0);
 
     // Save to registry
     this.registry = {
@@ -153,6 +149,53 @@ export class SubAgentManager {
     saveRegistry(this.workspaceId, this.registry);
 
     debug('[discoverAgents] Found agents:', agents.map(a => a.name));
+    return agents;
+  }
+
+  /**
+   * Recursively discover agents in a folder and its subfolders
+   * @param folder - Current folder to scan
+   * @param folderPath - Path of folder names leading to current folder
+   * @param depth - Current depth (0 = Agents folder root)
+   * @returns Array of agent metadata with path-based names
+   */
+  private async discoverAgentsInFolder(
+    folder: FolderTree,
+    folderPath: string[],
+    depth: number
+  ): Promise<SubAgentMetadata[]> {
+    const agents: SubAgentMetadata[] = [];
+
+    // 1. Get documents in this folder
+    const docsResult = await this.callMcpTool('documents_list', {
+      location: { folderId: folder.id },
+    });
+    const documents = this.parseDocuments(docsResult);
+
+    // Create metadata for each document with folder path
+    for (const doc of documents) {
+      agents.push({
+        id: doc.id,
+        name: normalizeAgentName(doc.title, folderPath),
+        documentId: doc.id,
+        workspaceId: this.workspaceId,
+        createdAt: Date.now(),
+        folderPath: folderPath.length > 0 ? folderPath : undefined,
+      });
+    }
+
+    // 2. Recurse into subfolders (max 3 levels: 0, 1, 2)
+    if (depth < 3 && folder.children.length > 0) {
+      for (const subfolder of folder.children) {
+        const subAgents = await this.discoverAgentsInFolder(
+          subfolder,
+          [...folderPath, subfolder.name],
+          depth + 1
+        );
+        agents.push(...subAgents);
+      }
+    }
+
     return agents;
   }
 
@@ -219,7 +262,7 @@ export class SubAgentManager {
       }
 
       const definition: SubAgentDefinition = {
-        name: normalizeAgentName(metadata.name),
+        name: metadata.name, // Already normalized with path
         instructions: extracted.instructions,
         instructionsBlockId: extracted.instructionsBlockId,
         mcpServers: extracted.mcpServers?.length ? extracted.mcpServers : undefined,
@@ -644,6 +687,68 @@ export class SubAgentManager {
       debug('[parseFolders] JSON parse error:', err);
       return [];
     }
+  }
+
+  /**
+   * Parse folders from MCP response preserving tree structure
+   * Used for recursive agent discovery in subfolders
+   */
+  private parseFoldersTree(result: unknown): FolderTree[] {
+    const response = result as BlocksResponse;
+    if (!response.content?.[0]?.text) {
+      debug('[parseFoldersTree] No content in response');
+      return [];
+    }
+
+    try {
+      const data = JSON.parse(response.content[0].text);
+
+      // Handle both formats: array or {folders: [...]}
+      let foldersArray: unknown[];
+      if (Array.isArray(data)) {
+        foldersArray = data;
+      } else if (data && Array.isArray(data.folders)) {
+        foldersArray = data.folders;
+      } else {
+        debug('[parseFoldersTree] Data is neither array nor {folders: []}:', typeof data);
+        return [];
+      }
+
+      // Recursively build tree structure
+      const buildTree = (folders: unknown[]): FolderTree[] => {
+        const result: FolderTree[] = [];
+        for (const f of folders) {
+          const folder = f as { id?: string; name?: string; folders?: unknown[] };
+          result.push({
+            id: String(folder.id || ''),
+            name: String(folder.name || ''),
+            children: Array.isArray(folder.folders) ? buildTree(folder.folders) : [],
+          });
+        }
+        return result;
+      };
+
+      return buildTree(foldersArray);
+    } catch (err) {
+      debug('[parseFoldersTree] JSON parse error:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Find a folder by name in the folder tree (case-insensitive)
+   */
+  private findFolderInTree(folders: FolderTree[], name: string): FolderTree | null {
+    const lowerName = name.toLowerCase();
+    for (const folder of folders) {
+      if (folder.name.toLowerCase() === lowerName) {
+        return folder;
+      }
+      // Recursively search children
+      const found = this.findFolderInTree(folder.children, name);
+      if (found) return found;
+    }
+    return null;
   }
 
   /**

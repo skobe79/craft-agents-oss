@@ -12,7 +12,7 @@
 export interface SubAgentMetadata {
   /** Unique identifier (derived from document ID) */
   id: string;
-  /** Short name for @mention (e.g., "writer", "coder") */
+  /** Short name for @mention (e.g., "writer", "work/coder") */
   name: string;
   /** Craft document ID containing the agent definition */
   documentId: string;
@@ -20,6 +20,8 @@ export interface SubAgentMetadata {
   workspaceId: string;
   /** When the agent was first discovered */
   createdAt: number;
+  /** Folder path within Agents folder (e.g., ["work"] or ["personal", "creative"]) */
+  folderPath?: string[];
 }
 
 /**
