@@ -24,6 +24,7 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel }) => {
   const [apiKey, setApiKey] = useState('');
   const [oauthToken, setOauthToken] = useState('');
   const [mcpUrl, setMcpUrl] = useState('');
+  const [workspaceName, setWorkspaceName] = useState('Default');
   const [oauthStatus, setOauthStatus] = useState('');
 
   // Track if we have existing MCP config to skip those steps
@@ -223,8 +224,9 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel }) => {
     }
   }, []);
 
-  const handleCraftAuthComplete = useCallback((url: string) => {
+  const handleCraftAuthComplete = useCallback((url: string, spaceName: string) => {
     setMcpUrl(url);
+    setWorkspaceName(spaceName);
     setIsPublicServer(true);
     setStep('confirm');
   }, []);
@@ -387,7 +389,7 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel }) => {
         workspaceId = generateWorkspaceId();
         workspace = {
           id: workspaceId,
-          name: 'Default',
+          name: workspaceName,
           mcpUrl: mcpUrl,
           isPublic: isPublicServer,
           createdAt: Date.now(),
@@ -439,7 +441,7 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel }) => {
       setError(err instanceof Error ? err.message : 'Failed to save configuration');
       setStep('error');
     }
-  }, [apiKey, oauthToken, authType, mcpUrl, oauthResult, isPublicServer, mcpBearerToken, onComplete, hasExistingMcp, existingWorkspace]);
+  }, [apiKey, oauthToken, authType, mcpUrl, workspaceName, oauthResult, isPublicServer, mcpBearerToken, onComplete, hasExistingMcp, existingWorkspace]);
 
   const handleBack = useCallback(() => {
     setError(null);
@@ -532,7 +534,7 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel }) => {
       {/* Step content */}
       <Box flexDirection="column" marginY={1}>
         {step === 'welcome' && (
-          <WelcomeStep onContinue={handleWelcome} hasExistingMcp={hasExistingMcp} />
+          <WelcomeStep onContinue={handleWelcome} onExit={exit} hasExistingMcp={hasExistingMcp} />
         )}
 
         {step === 'auth-type' && (
@@ -700,7 +702,7 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel }) => {
       {/* Footer */}
       <Box marginTop={1}>
         <Text dimColor>
-          Press Ctrl+C to cancel | Esc to go back
+          Press Ctrl+C to cancel | Esc to exit the setup
         </Text>
       </Box>
     </Box>
@@ -771,13 +773,16 @@ function getStepName(step: SetupStep): string {
 
 interface WelcomeStepProps {
   onContinue: () => void;
+  onExit: () => void;
   hasExistingMcp?: boolean;
 }
 
-const WelcomeStep: React.FC<WelcomeStepProps> = ({ onContinue, hasExistingMcp }) => {
+const WelcomeStep: React.FC<WelcomeStepProps> = ({ onContinue, onExit, hasExistingMcp }) => {
   useInput((input, key) => {
     if (key.return) {
       onContinue();
+    } else if (key.escape) {
+      onExit();
     }
   });
 

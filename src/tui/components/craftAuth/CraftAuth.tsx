@@ -7,7 +7,7 @@ import { CraftCallbackStep } from './CraftCallbackStep';
 import { CraftSpaceSelector } from './CraftSpaceSelector';
 
 interface CraftAuthProps {
-  onComplete: (craftMcpUrl: string) => void;
+  onComplete: (craftMcpUrl: string, spaceName: string) => void;
   onBack: () => void;
 }
 

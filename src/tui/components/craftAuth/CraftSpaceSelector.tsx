@@ -5,7 +5,7 @@ import { getCredentialManager } from '../../../credentials';
 
 export interface CraftSpaceSelectorProps {
   token: string;
-  onComplete: (spaceId: string) => void;
+  onComplete: (mcpUrl: string, spaceName: string) => void;
   onBack: () => void;
 }
 
@@ -40,25 +40,25 @@ export const CraftSpaceSelector: React.FC<CraftSpaceSelectorProps> = ({ token, o
     } else if (key.return) {
       const selectedSpace = spaces[selected];
       if (selectedSpace) {
-        selectSpace(selectedSpace.id);
+        selectSpace(selectedSpace.id, selectedSpace.name);
       }
     } else if (key.escape) {
       onBack();
     }
   });
 
-  const selectSpace = async (spaceId: string) => {
+  const selectSpace = async (spaceId: string, spaceName: string) => {
     const craftApi = new CraftApi('https://api.craft.do');
     setLoading("Loading MCP URL");
     const workflowLinks = await craftApi.getWorkflowLinks({ authToken: token, spaceId });
     const spaceWorkflowLink = workflowLinks.find(link => link.type === 'mcp' && link.scope === 'fullSpace' && link.enabled && link.name === MCP_LINK_NAME);
-    
+
     const completeWithMcpUrl = async (mcpUrl: string) => {
       // Save the Craft OAuth token to secure storage
       const credentialManager = getCredentialManager();
       await credentialManager.setCraftOAuth(token);
       setLoading(null);
-      onComplete(mcpUrl);
+      onComplete(mcpUrl, spaceName);
     };
     
     if (spaceWorkflowLink?.urls?.mcp != null) {
