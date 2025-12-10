@@ -638,7 +638,11 @@ export class CraftAgent {
     return token;
   }
 
-  async *chat(userMessage: string, attachments?: FileAttachment[]): AsyncGenerator<AgentEvent> {
+  async *chat(
+    userMessage: string,
+    attachments?: FileAttachment[],
+    _isRetry: boolean = false // Internal flag for session expiry retry
+  ): AsyncGenerator<AgentEvent> {
     try {
       // Check if we have binary attachments that need the AsyncIterable interface
       const hasBinaryAttachments = attachments?.some(a => a.type === 'image' || a.type === 'pdf');
@@ -801,8 +805,8 @@ export class CraftAgent {
           }],
         },
         // Continue from previous session if we have one (enables conversation history & auto compaction)
-        // If resume fails (invalid session), SDK should start fresh
-        ...(this.sessionId ? { resume: this.sessionId } : {}),
+        // Skip resume on retry (after session expiry) to start fresh
+        ...(!_isRetry && this.sessionId ? { resume: this.sessionId } : {}),
         mcpServers,
         // Custom permission handler for Bash commands and AskUserQuestion
         canUseTool: async (toolName, input, toolOptions) => {
@@ -917,10 +921,19 @@ export class CraftAgent {
           return;
         }
 
-        // Session resume failures - clear session on any error during resume
+        // Session resume failures - clear session and retry automatically
         if (this.sessionId && sdkError instanceof Error) {
-          this.sessionId = null;
-          yield { type: 'error', message: 'Session expired. Please try again.' };
+          // Only retry once to prevent infinite loops
+          if (!_isRetry) {
+            this.sessionId = null;
+            yield { type: 'status', message: 'Session expired, retrying...' };
+            // Recursively call with isRetry=true (yield* delegates all events)
+            yield* this.chat(userMessage, attachments, true);
+            return;
+          }
+
+          // Retry also failed - show actual error
+          yield { type: 'error', message: sdkError.message };
           yield { type: 'complete' };
           return;
         }
