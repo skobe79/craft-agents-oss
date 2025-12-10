@@ -24,7 +24,7 @@ import { formatPreferencesDisplay, getPreferencesPath } from '../config/preferen
 import { formatTokens } from './utils/markdown.ts';
 import { processInputWithFiles, readClipboard, type FileAttachment } from './utils/files.ts';
 import { resolveCommand, resolveAgentMention } from './utils/filtering.ts';
-import { debug } from './utils/debug.ts';
+import { debug, isDebugEnabled } from './utils/debug.ts';
 import type { CraftAgentConfig } from '../agent/craft-agent.ts';
 
 export interface AppProps {
@@ -575,20 +575,37 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
             );
             return;
 
-          case '/cost':
+          case '/cost': {
             const costDisplay = tokenUsage.costUsd < 0.01
               ? `$${(tokenUsage.costUsd * 100).toFixed(2)}¢`
               : `$${tokenUsage.costUsd.toFixed(4)}`;
-            addLocalMessage(
-              `**Token Usage (this session)**
+
+            // Calculate cache hit rate for debug mode
+            const totalCacheTokens = tokenUsage.cacheReadTokens + tokenUsage.cacheCreationTokens;
+            const cacheHitRate = totalCacheTokens > 0
+              ? ((tokenUsage.cacheReadTokens / totalCacheTokens) * 100).toFixed(1)
+              : '0.0';
+
+            let costMessage = `**Token Usage (this session)**
 
 - Input tokens: ${formatTokens(tokenUsage.inputTokens)}
 - Output tokens: ${formatTokens(tokenUsage.outputTokens)}
 - Total tokens: ${formatTokens(tokenUsage.totalTokens)}
-- Cost: ${costDisplay}`,
-              'assistant'
-            );
+- Cost: ${costDisplay}`;
+
+            // Add cache stats only in debug mode
+            if (isDebugEnabled()) {
+              costMessage += `
+
+**Cache Stats (debug)**
+- Cache read tokens: ${formatTokens(tokenUsage.cacheReadTokens)}
+- Cache creation tokens: ${formatTokens(tokenUsage.cacheCreationTokens)}
+- Cache hit rate: ${cacheHitRate}%`;
+            }
+
+            addLocalMessage(costMessage, 'assistant');
             return;
+          }
 
           case '/model': {
             const modelArg = parts[1];
@@ -1184,7 +1201,7 @@ Filename: ${workspace.sessionId}.jsonl`;
           <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} marginBottom={1}>
             <Text color="yellow" bold>⚠ Permission Required</Text>
             <Text>Tool: <Text color="cyan">{pendingPermission.toolName}</Text></Text>
-            <Text dimColor>Command: <Text color="white">{pendingPermission.command}</Text></Text>
+            <Text dimColor>Command: <Text>{pendingPermission.command}</Text></Text>
             <Box marginTop={1}>
               <Text>Allow? </Text>
               <Text color="green" bold>[Y]es</Text>

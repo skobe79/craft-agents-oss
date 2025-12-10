@@ -327,6 +327,8 @@ export interface WorkspaceConversation {
     totalTokens: number;
     contextTokens: number;
     costUsd: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
   };
   savedAt: number;
 }

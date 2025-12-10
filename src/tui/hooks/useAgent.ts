@@ -108,6 +108,9 @@ export interface TokenUsage {
   totalTokens: number;
   contextTokens: number;  // Current context size (last request's input tokens)
   costUsd: number;
+  // Cache stats (for debugging cost issues)
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
 }
 
 export interface PermissionRequest {
@@ -190,6 +193,8 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     totalTokens: 0,
     contextTokens: 0,
     costUsd: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
   });
   const [model, setModelState] = useState(config.model || 'claude-sonnet-4-5-20250929');
   const [workspace, setWorkspaceState] = useState<Workspace>(config.workspace);
@@ -239,7 +244,12 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       if (isRecent) {
         const restoredMessages = savedConversation.messages.map(storedMessageToMessage);
         setMessages(restoredMessages);
-        setTokenUsage(savedConversation.tokenUsage);
+        // Provide defaults for cache fields that may not exist in old saved conversations
+        setTokenUsage({
+          ...savedConversation.tokenUsage,
+          cacheReadTokens: savedConversation.tokenUsage.cacheReadTokens ?? 0,
+          cacheCreationTokens: savedConversation.tokenUsage.cacheCreationTokens ?? 0,
+        });
       } else {
         // Conversation is stale - clear it to start fresh
         clearWorkspaceConversation(workspace.id);
@@ -730,6 +740,8 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
                   event.usage!.outputTokens,
                 contextTokens: event.usage!.inputTokens,  // Current context size
                 costUsd: prev.costUsd + (event.usage!.costUsd ?? 0),
+                cacheReadTokens: prev.cacheReadTokens + (event.usage!.cacheReadTokens ?? 0),
+                cacheCreationTokens: prev.cacheCreationTokens + (event.usage!.cacheCreationTokens ?? 0),
               }));
             }
             break;
@@ -809,6 +821,8 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       totalTokens: 0,
       contextTokens: 0,
       costUsd: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
     });
     if (agentRef.current) {
       agentRef.current.clearHistory();
@@ -880,7 +894,12 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       // Restore saved messages and token usage
       const restoredMessages = savedConversation.messages.map(storedMessageToMessage);
       setMessages(restoredMessages);
-      setTokenUsage(savedConversation.tokenUsage);
+      // Provide defaults for cache fields that may not exist in old saved conversations
+      setTokenUsage({
+        ...savedConversation.tokenUsage,
+        cacheReadTokens: savedConversation.tokenUsage.cacheReadTokens ?? 0,
+        cacheCreationTokens: savedConversation.tokenUsage.cacheCreationTokens ?? 0,
+      });
       setError(null);
 
       // Update agent with restored session ID
@@ -897,6 +916,8 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
         totalTokens: 0,
         contextTokens: 0,
         costUsd: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
       });
 
       if (agentRef.current) {

@@ -203,7 +203,7 @@ const UserMessage: React.FC<{ content: string }> = memo(({ content }) => {
     <Box marginTop={1} marginBottom={1}>
       <Box>
         <Text color="blue" bold>{'> '}</Text>
-        <Text color="white" bold>{content}</Text>
+        <Text bold>{content}</Text>
       </Box>
     </Box>
   );
@@ -257,7 +257,7 @@ const InfoMessage: React.FC<{ content: string }> = memo(({ content }) => {
   return (
     <Box marginTop={1}>
       <Text color="cyan">ℹ </Text>
-      <Text color="white">{content}</Text>
+      <Text>{content}</Text>
     </Box>
   );
 });
