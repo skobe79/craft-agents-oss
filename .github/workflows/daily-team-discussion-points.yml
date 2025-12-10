@@ -15,6 +15,17 @@ jobs:
       - name: Install Craft CLI
         run: curl -fsSL https://agents.craft.do/install.sh | bash
 
+      - name: Check installation
+        run: |
+          echo "=== Installed files ==="
+          ls -la ~/.local/bin/
+          ls -la ~/.local/share/craft/versions/ || echo "No versions dir"
+          ls -laR ~/.local/share/craft/ || echo "No craft dir"
+          echo "=== Node version ==="
+          node --version || echo "Node not found"
+          echo "=== PATH ==="
+          echo $PATH
+
       - name: Run Daily Team Discussion Points Agent
         timeout-minutes: 10
         env:
