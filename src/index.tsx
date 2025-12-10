@@ -1,12 +1,16 @@
 #!/usr/bin/env bun
 import React, { useState, useCallback } from 'react';
 import { render } from 'ink';
+import { createHash } from 'crypto';
 import meow from 'meow';
 import { App } from './tui/App.tsx';
 import { Setup } from './tui/components/Setup.tsx';
 import {
   loadStoredConfig,
   getActiveWorkspace,
+  getWorkspaceByNameOrId,
+  getWorkspaces,
+  setActiveWorkspace,
   getAnthropicApiKey,
   getClaudeOAuthToken,
   hasValidCredentials,
@@ -18,23 +22,46 @@ import type { CraftAgentConfig } from './agent/craft-agent.ts';
 import { enableDebug } from './tui/utils/debug.ts';
 import { install } from './version/install.ts';
 
+/**
+ * Generate a deterministic workspace ID from a URL.
+ * Same URL always produces the same ID (for caching), different URLs get different IDs.
+ */
+function generateUrlWorkspaceId(url: string): string {
+  const hash = createHash('sha256').update(url).digest('hex').substring(0, 12);
+  return `cli-ws-url-${hash}`;
+}
+
 const cli = meow(
   `
   Craft Document Assistant - A Claude Code-like TUI for Craft documents
 
   Usage
-    $ craft-agent [command] [options]
+    $ craft [options]                     Interactive mode
+    $ craft [options] "prompt"            Interactive mode with initial prompt
+    $ craft -a agent "prompt"             Activate agent and send prompt
+    $ craft -p "query"                    Print mode: execute and exit
+    $ craft -p "query" -a agent           Print mode with agent
 
   Commands
     install [version]  Install a specific version (defaults to "latest")
 
+  Common Options (both modes)
+    --agent, -a <name>      Agent to activate (with or without @ prefix)
+    --workspace, -w <name>  Select workspace by name or ID
+    --model, -m <model>     Claude model to use (default: claude-sonnet-4-5-20250929)
+    --debug                 Enable debug logging to /tmp/craft-debug.log
 
-  Options
+  Print Mode (non-interactive, exits after response)
+    --print, -p <query>     Execute prompt and exit (non-interactive)
+    --output-format <fmt>   Output format: text, json, stream-json (default: text)
+    --permission-policy     Permission handling: deny-all, allow-safe, allow-all (default: deny-all)
+    --session-id <uuid>     Use explicit session ID (for workflow management)
+    --session-resume        Resume workspace's saved session (default: fresh session)
+
+  Interactive Mode Options
     --setup         Run the setup wizard (reconfigure)
     --url, -u       Craft MCP server URL (overrides saved config)
-    --token, -t     Bearer token for authentication (overrides saved config)
-    --model, -m     Claude model to use (default: claude-sonnet-4-5-20250929)
-    --debug         Enable debug logging to /tmp/craft-debug.log
+    --token, -t     Bearer token for MCP authentication (overrides saved config)
     --help          Show this help message
     --version       Show version number
 
@@ -46,15 +73,55 @@ const cli = meow(
     Settings are stored in ~/.craft-agent/config.json
     Run with --setup to reconfigure at any time.
 
+  Session Behavior
+    - Interactive (REPL): Always resumes workspace session
+    - Print mode: Fresh session by default (predictable for scripts)
+      Use --session-resume to continue workspace session
+      Use --session-id <uuid> for explicit session management
+
   Examples
-    $ craft-agent
-    $ craft-agent --setup
-    $ craft-agent --url http://localhost:3000/v1/links/abc123/mcp
-    $ craft-agent install 0.0.1
+    $ craft                                    # Interactive mode
+    $ craft "What documents do I have?"        # Interactive with initial prompt
+    $ craft -a writer "Help me draft an email" # Activate agent + prompt
+    $ craft -w work -p "list my documents"     # Print mode with specific workspace
+    $ craft -p "summarize" -a writer           # Print mode with agent
+    $ craft -p "query" --session-resume        # Print mode, resume session
+    $ craft -p "query" --output-format json    # JSON output for scripts
+    $ craft --setup                            # Reconfigure
+    $ craft install 0.0.1                      # Install specific version
 `,
   {
     importMeta: import.meta,
     flags: {
+      // Print mode flags
+      print: {
+        type: 'string',
+        shortFlag: 'p',
+      },
+      agent: {
+        type: 'string',
+        shortFlag: 'a',
+      },
+      outputFormat: {
+        type: 'string',
+        default: 'text',
+      },
+      permissionPolicy: {
+        type: 'string',
+        default: 'deny-all',
+      },
+      sessionId: {
+        type: 'string',
+      },
+      sessionResume: {
+        type: 'boolean',
+        default: false,
+      },
+      workspace: {
+        type: 'string',
+        shortFlag: 'w',
+      },
+      // Interactive mode flags
       setup: {
         type: 'boolean',
         default: false,
@@ -76,6 +143,7 @@ const cli = meow(
         default: false,
       },
     },
+    allowUnknownFlags: false,
   }
 );
 
@@ -86,9 +154,13 @@ interface RootProps {
   forceSetup: boolean;
   initialCredentials: { apiKey: string | null; oauthToken: string | null } | null;
   initialHasValidCredentials: boolean;
+  /** Agent to auto-activate on startup (without @ prefix) */
+  initialAgent?: string;
+  /** Prompt to auto-send after agent activation */
+  initialPrompt?: string;
 }
 
-const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, forceSetup, initialCredentials, initialHasValidCredentials }) => {
+const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, forceSetup, initialCredentials, initialHasValidCredentials, initialAgent, initialPrompt }) => {
   // Show setup if: forced, no config, or no valid credentials in keychain
   const [showSetup, setShowSetup] = useState(forceSetup || !initialConfig || !initialHasValidCredentials);
   const [config, setConfig] = useState<StoredConfig | null>(initialConfig);
@@ -152,16 +224,33 @@ const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, forceSetup, initia
   }
 
   // Build agent config from stored config + CLI overrides
-  // If CLI URL is provided, create a temporary workspace object for it
-  const workspace: Workspace = cliFlags.url
-    ? {
-        id: 'cli-override',
-        name: 'CLI Override',
-        mcpUrl: cliFlags.url,
-        isPublic: true, // Assume public for CLI override
-        createdAt: Date.now(),
-      }
-    : activeWorkspace;
+  // Priority: --url (temporary workspace) > -w (workspace by name/ID) > active workspace
+  let workspace: Workspace;
+  let workspaceError: string | undefined;
+  if (cliFlags.url) {
+    // URL override creates a temporary workspace with deterministic ID from URL
+    workspace = {
+      id: generateUrlWorkspaceId(cliFlags.url),
+      name: 'CLI Override',
+      mcpUrl: cliFlags.url,
+      isPublic: true, // Assume public for CLI override
+      createdAt: Date.now(),
+    };
+  } else if (cliFlags.workspace) {
+    // -w flag: lookup by name or ID
+    const found = getWorkspaceByNameOrId(cliFlags.workspace);
+    if (!found) {
+      // Workspace not found - fall back to active workspace, cancel initial agent/prompt
+      workspaceError = `Workspace '${cliFlags.workspace}' not found. Using '${activeWorkspace.name}' instead.`;
+      workspace = activeWorkspace;
+    } else {
+      workspace = found;
+      // Update last active workspace for REPL mode (user is interactively working here now)
+      setActiveWorkspace(found.id);
+    }
+  } else {
+    workspace = activeWorkspace;
+  }
 
   const agentConfig: CraftAgentConfig = {
     workspace,
@@ -185,7 +274,16 @@ const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, forceSetup, initia
     delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   }
 
-  return <App config={agentConfig} onRequestSetup={handleRequestSetup} />;
+  return (
+    <App
+      config={agentConfig}
+      onRequestSetup={handleRequestSetup}
+      // Cancel initial agent/prompt if workspace lookup failed
+      initialAgent={workspaceError ? undefined : initialAgent}
+      initialPrompt={workspaceError ? undefined : initialPrompt}
+      initialError={workspaceError}
+    />
+  );
 };
 
 async function main() {
@@ -200,6 +298,107 @@ async function main() {
   if (cli.flags.debug) {
     enableDebug();
   }
+
+  // ========================================
+  // HEADLESS MODE (-p flag)
+  // ========================================
+  if (cli.flags.print !== undefined) {
+    const { HeadlessRunner, writeStreamingOutput } = await import('./headless/index.ts');
+
+    // Validate config exists
+    const storedConfig = loadStoredConfig();
+    if (!storedConfig) {
+      console.error('Error: No configuration found. Run `craft --setup` first.');
+      process.exit(1);
+    }
+
+    // Validate credentials
+    const hasCredentials = await hasValidCredentials();
+    if (!hasCredentials) {
+      console.error('Error: No valid credentials. Run `craft --setup` first.');
+      process.exit(1);
+    }
+
+    // Get workspace: -w flag > --url override > active workspace
+    let workspace: Workspace | null = null;
+    if (cli.flags.url) {
+      // URL override creates a temporary workspace with deterministic ID from URL
+      workspace = {
+        id: generateUrlWorkspaceId(cli.flags.url),
+        name: 'CLI Override',
+        mcpUrl: cli.flags.url,
+        isPublic: true,
+        createdAt: Date.now(),
+      };
+    } else if (cli.flags.workspace) {
+      // -w flag: lookup by name or ID
+      workspace = getWorkspaceByNameOrId(cli.flags.workspace);
+      if (!workspace) {
+        const available = getWorkspaces();
+        const names = available.map(w => w.name).join(', ') || 'none';
+        console.error(`Error: Workspace '${cli.flags.workspace}' not found. Available: ${names}`);
+        process.exit(1);
+      }
+    } else {
+      workspace = getActiveWorkspace();
+    }
+
+    if (!workspace) {
+      console.error('Error: No workspace configured. Run `craft --setup` first.');
+      process.exit(1);
+    }
+
+    // Set up auth env vars
+    const apiKey = await getAnthropicApiKey();
+    const oauthToken = await getClaudeOAuthToken();
+    const authType: AuthType = storedConfig.authType || 'api_key';
+
+    if (authType === 'oauth_token' && oauthToken) {
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = oauthToken;
+      delete process.env.ANTHROPIC_API_KEY;
+    } else if (apiKey) {
+      process.env.ANTHROPIC_API_KEY = apiKey;
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    }
+
+    // Normalize agent name (strip @ prefix if present)
+    // Note: meow exposes short flags under their short name when used
+    const agentFlag = cli.flags.agent ?? (cli.flags as Record<string, unknown>).a as string | undefined;
+    const agentName = agentFlag?.replace(/^@/, '');
+
+    // Validate output format
+    const outputFormat = cli.flags.outputFormat as 'text' | 'json' | 'stream-json';
+    if (!['text', 'json', 'stream-json'].includes(outputFormat)) {
+      console.error(`Error: Invalid output format '${outputFormat}'. Use: text, json, or stream-json`);
+      process.exit(1);
+    }
+
+    // Validate permission policy
+    const permissionPolicy = cli.flags.permissionPolicy as 'deny-all' | 'allow-safe' | 'allow-all';
+    if (!['deny-all', 'allow-safe', 'allow-all'].includes(permissionPolicy)) {
+      console.error(`Error: Invalid permission policy '${permissionPolicy}'. Use: deny-all, allow-safe, or allow-all`);
+      process.exit(1);
+    }
+
+    // Create and run headless runner
+    const runner = new HeadlessRunner({
+      prompt: cli.flags.print,
+      workspace,
+      agentName,
+      model: cli.flags.model || storedConfig.model,
+      outputFormat,
+      permissionPolicy,
+      sessionId: cli.flags.sessionId,
+      sessionResume: cli.flags.sessionResume,
+    });
+
+    const result = await writeStreamingOutput(runner.runStreaming(), outputFormat);
+    process.exit(result.success ? 0 : 1);
+  }
+
+  // ========================================
+  // INTERACTIVE MODE (TUI)
+  // ========================================
 
   // Clear screen and move cursor to top-left
   process.stdout.write('\x1b[2J\x1b[H');
@@ -229,6 +428,12 @@ async function main() {
     initialCredentials = { apiKey, oauthToken };
   }
 
+  // Extract initial agent and prompt for interactive mode
+  // Agent comes from -a flag (strip @ prefix if present)
+  // Prompt comes from positional arguments (cli.input)
+  const initialAgent = cli.flags.agent?.replace(/^@/, '');
+  const initialPrompt = cli.input.length > 0 ? cli.input.join(' ') : undefined;
+
   // Render the root component
   const { waitUntilExit } = render(
     <Root
@@ -237,6 +442,8 @@ async function main() {
       forceSetup={forceSetup}
       initialCredentials={initialCredentials}
       initialHasValidCredentials={initialHasValidCredentials}
+      initialAgent={initialAgent}
+      initialPrompt={initialPrompt}
     />
   );
 
