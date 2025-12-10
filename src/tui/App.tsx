@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react';
 import { homedir } from 'os';
 import { Box, useApp, useInput, Text } from 'ink';
 import { Header } from './components/Header.tsx';
@@ -29,9 +29,13 @@ import type { CraftAgentConfig } from '../agent/craft-agent.ts';
 export interface AppProps {
   config: CraftAgentConfig;
   onRequestSetup?: () => void;
+  /** Agent to auto-activate on startup (without @ prefix) */
+  initialAgent?: string;
+  /** Prompt to auto-send after agent activation (or immediately if no agent) */
+  initialPrompt?: string;
 }
 
-export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
+export const App: React.FC<AppProps> = ({ config, onRequestSetup, initialAgent, initialPrompt }) => {
   const { exit } = useApp();
 
   const {
@@ -101,6 +105,103 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup }) => {
   const [showWorkspaceRename, setShowWorkspaceRename] = useState(false);
   const [showApiKeyChange, setShowApiKeyChange] = useState(false);
   const [pendingRemoveWorkspace, setPendingRemoveWorkspace] = useState<string | null>(null);
+
+  // Track if we've processed initial startup params
+  const initialStartupDoneRef = useRef(false);
+  const initialPromptPendingRef = useRef<string | null>(initialPrompt ?? null);
+
+  // Track if agent loading has started (agentsLoading became true at least once)
+  const agentsLoadingStartedRef = useRef(false);
+  if (agentsLoading) {
+    agentsLoadingStartedRef.current = true;
+  }
+
+  // Handle initial agent activation and prompt on startup
+  useEffect(() => {
+    // Only run once
+    if (initialStartupDoneRef.current) return;
+
+    // If we need an agent, wait for discovery to complete
+    if (initialAgent) {
+      // Loading hasn't even started yet - wait
+      if (!agentsLoadingStartedRef.current) return;
+      // Still loading - wait
+      if (agentsLoading) return;
+    }
+
+    const runInitialStartup = async () => {
+      initialStartupDoneRef.current = true;
+
+      // If initial agent specified, activate it first
+      if (initialAgent) {
+        debug('[App] Auto-activating initial agent:', initialAgent);
+
+        // Check if agent exists
+        const agentExists = availableAgents.some(
+          a => a.toLowerCase() === initialAgent.toLowerCase()
+        );
+
+        if (!agentExists) {
+          setLocalMessages(prev => [...prev, {
+            id: `startup-error-${Date.now()}`,
+            type: 'error',
+            content: `Agent '@${initialAgent}' not found. Available agents: ${availableAgents.map(a => `@${a}`).join(', ') || 'none'}`,
+            timestamp: Date.now(),
+          }]);
+          // Still send the prompt if there is one (to main agent)
+          if (initialPromptPendingRef.current) {
+            await sendMessage(initialPromptPendingRef.current);
+            initialPromptPendingRef.current = null;
+          }
+          return;
+        }
+
+        const result = await activateAgent(initialAgent);
+        debug('[App] Initial agent activation result:', result);
+
+        if (result === 'pending_auth') {
+          // Auth flow will handle it - prompt will be sent after auth completes
+          // We'll handle this in the auth completion callbacks
+          return;
+        }
+
+        if (result !== true) {
+          setLocalMessages(prev => [...prev, {
+            id: `startup-error-${Date.now()}`,
+            type: 'error',
+            content: `Failed to activate agent '@${initialAgent}'`,
+            timestamp: Date.now(),
+          }]);
+        }
+      }
+
+      // Send initial prompt if specified (and no auth pending)
+      if (initialPromptPendingRef.current) {
+        debug('[App] Auto-sending initial prompt');
+        await sendMessage(initialPromptPendingRef.current);
+        initialPromptPendingRef.current = null;
+      }
+    };
+
+    runInitialStartup();
+  }, [agentsLoading, availableAgents, initialAgent, activateAgent, sendMessage]);
+
+  // Handle initial prompt after auth completes (for agents that needed auth)
+  useEffect(() => {
+    // If we have a pending prompt and auth just completed (no more pending auth)
+    if (
+      initialPromptPendingRef.current &&
+      !pendingMcpAuth &&
+      !pendingApiAuth &&
+      !pendingReview &&
+      activeAgentName // Agent is now active
+    ) {
+      debug('[App] Auth completed, sending pending initial prompt');
+      const prompt = initialPromptPendingRef.current;
+      initialPromptPendingRef.current = null;
+      sendMessage(prompt);
+    }
+  }, [pendingMcpAuth, pendingApiAuth, pendingReview, activeAgentName, sendMessage]);
 
   // Handle terminal resize - clears screen (debounced) and increments staticResetKey
   // Both state updates batch together so Static items re-render on clean screen

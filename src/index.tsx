@@ -24,15 +24,19 @@ const cli = meow(
 
   Usage
     $ craft [options]                     Interactive mode
-    $ craft -p "query"                    Execute query and exit
-    $ craft -p "query" -a agent           Activate agent first
+    $ craft [options] "prompt"            Interactive mode with initial prompt
+    $ craft -a agent "prompt"             Activate agent and send prompt
+    $ craft -p "query"                    Print mode: execute and exit
+    $ craft -p "query" -a agent           Print mode with agent
 
   Commands
     install [version]  Install a specific version (defaults to "latest")
 
-  Print Mode (non-interactive)
-    --print, -p <query>     Execute prompt and exit
+  Agent Selection
     --agent, -a <name>      Agent to activate (with or without @ prefix)
+
+  Print Mode (non-interactive, exits after response)
+    --print, -p <query>     Execute prompt and exit (non-interactive)
     --output-format <fmt>   Output format: text, json, stream-json (default: text)
     --permission-policy     Permission handling: deny-all, allow-safe, allow-all (default: deny-all)
     --session-id <uuid>     Use specific session ID for conversation continuity
@@ -57,8 +61,10 @@ const cli = meow(
 
   Examples
     $ craft                                    # Interactive mode
-    $ craft -p "list my documents"             # Quick query
-    $ craft -p "summarize my notes" -a writer  # Use agent
+    $ craft "What documents do I have?"        # Interactive with initial prompt
+    $ craft -a writer "Help me draft an email" # Activate agent + prompt
+    $ craft -p "list my documents"             # Print mode (non-interactive)
+    $ craft -p "summarize" -a writer           # Print mode with agent
     $ craft -p "query" --output-format json    # JSON output for scripts
     $ craft --setup                            # Reconfigure
     $ craft install 0.0.1                      # Install specific version
@@ -122,9 +128,13 @@ interface RootProps {
   forceSetup: boolean;
   initialCredentials: { apiKey: string | null; oauthToken: string | null } | null;
   initialHasValidCredentials: boolean;
+  /** Agent to auto-activate on startup (without @ prefix) */
+  initialAgent?: string;
+  /** Prompt to auto-send after agent activation */
+  initialPrompt?: string;
 }
 
-const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, forceSetup, initialCredentials, initialHasValidCredentials }) => {
+const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, forceSetup, initialCredentials, initialHasValidCredentials, initialAgent, initialPrompt }) => {
   // Show setup if: forced, no config, or no valid credentials in keychain
   const [showSetup, setShowSetup] = useState(forceSetup || !initialConfig || !initialHasValidCredentials);
   const [config, setConfig] = useState<StoredConfig | null>(initialConfig);
@@ -221,7 +231,14 @@ const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, forceSetup, initia
     delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   }
 
-  return <App config={agentConfig} onRequestSetup={handleRequestSetup} />;
+  return (
+    <App
+      config={agentConfig}
+      onRequestSetup={handleRequestSetup}
+      initialAgent={initialAgent}
+      initialPrompt={initialPrompt}
+    />
+  );
 };
 
 async function main() {
@@ -353,6 +370,12 @@ async function main() {
     initialCredentials = { apiKey, oauthToken };
   }
 
+  // Extract initial agent and prompt for interactive mode
+  // Agent comes from -a flag (strip @ prefix if present)
+  // Prompt comes from positional arguments (cli.input)
+  const initialAgent = cli.flags.agent?.replace(/^@/, '');
+  const initialPrompt = cli.input.length > 0 ? cli.input.join(' ') : undefined;
+
   // Render the root component
   const { waitUntilExit } = render(
     <Root
@@ -361,6 +384,8 @@ async function main() {
       forceSetup={forceSetup}
       initialCredentials={initialCredentials}
       initialHasValidCredentials={initialHasValidCredentials}
+      initialAgent={initialAgent}
+      initialPrompt={initialPrompt}
     />
   );
 
