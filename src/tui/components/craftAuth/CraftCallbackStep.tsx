@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 import crypto from 'crypto';
 import open from 'open';
@@ -6,6 +6,7 @@ import { createCallbackServer } from '../../../auth/callback-server';
 import { CraftApi } from '../../../clients/craftApi';
 import { AnimatedSpinner } from '../Spinner';
 import { debug } from '@/tui/utils/debug';
+import { checkSubscription } from '../../../subscription/check';
 
 export interface CraftProfile {
   userId: string;
@@ -48,12 +49,15 @@ const callback = async () => {
   return { url, callbackUrl, callbackServer, codeVerifier, state };
 };
 
-type AuthStatus = 'initializing' | 'ready' | 'waiting' | 'error';
+type AuthStatus = 'initializing' | 'ready' | 'waiting' | 'checking-subscription' | 'blocked' | 'error';
 
 export const CraftCallbackStep: React.FC<CraftCallbackStepProps> = ({ onComplete, onBack }) => {
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<AuthStatus>('initializing');
   const [error, setError] = useState<string | null>(null);
+  const [subscribeUrl, setSubscribeUrl] = useState<string | null>(null);
+  // Store auth result for subscription retry
+  const authResultRef = useRef<{ token: string; profile: CraftProfile } | null>(null);
   const callbackDataRef = useRef<{
     callbackUrl: string;
     callbackServer: Awaited<ReturnType<typeof createCallbackServer>>;
@@ -62,24 +66,57 @@ export const CraftCallbackStep: React.FC<CraftCallbackStepProps> = ({ onComplete
   } | null>(null);
 
   // Open browser with the auth URL
-  const openBrowser = async () => {
+  const openBrowser = useCallback(async () => {
     if (!url) return;
     setStatus('waiting');
     try {
       await open(url);
-    } catch (err) {
+    } catch {
       // Browser open failed, but user can still copy URL manually
     }
-  };
+  }, [url]);
+
+  // Open subscribe page
+  const openSubscribePage = useCallback(async () => {
+    if (!subscribeUrl) return;
+    try {
+      await open(subscribeUrl);
+    } catch {
+      // Browser open failed, user can copy URL manually
+    }
+  }, [subscribeUrl]);
+
+  // Check subscription and complete if paid
+  const checkAndComplete = useCallback(async () => {
+    const authResult = authResultRef.current;
+    if (!authResult) return;
+
+    setStatus('checking-subscription');
+    const subUrl = await checkSubscription(authResult.profile);
+    if (subUrl) {
+      setSubscribeUrl(subUrl);
+      setStatus('blocked');
+    } else {
+      onComplete(authResult);
+    }
+  }, [onComplete]);
 
   useInput((input, key) => {
     if (key.escape) {
       onBack();
       return;
     }
-    // Press Enter or 'o' to open browser
+    // Press Enter or 'o' to open browser (ready state)
     if ((key.return || input === 'o') && url && status === 'ready') {
       openBrowser();
+    }
+    // Blocked state: Enter to open subscribe page, R to retry check
+    if (status === 'blocked') {
+      if (key.return) {
+        openSubscribePage();
+      } else if (input === 'r' || input === 'R') {
+        checkAndComplete();
+      }
     }
   });
 
@@ -120,7 +157,19 @@ export const CraftCallbackStep: React.FC<CraftCallbackStepProps> = ({ onComplete
 
         // Fetch profile to get spaces and teams for categorization
         const profile = await craftApi.getProfile(token);
-        onComplete({ token, profile });
+        
+        // Store auth result and check subscription
+        authResultRef.current = { token, profile };
+        setStatus('checking-subscription');
+        const subUrl = await checkSubscription(profile);
+        if (cancelled) return;
+        
+        if (subUrl) {
+          setSubscribeUrl(subUrl);
+          setStatus('blocked');
+        } else {
+          onComplete({ token, profile });
+        }
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Authentication failed');
@@ -160,6 +209,32 @@ export const CraftCallbackStep: React.FC<CraftCallbackStepProps> = ({ onComplete
           </Box>
           <Box marginTop={1}>
             <Text dimColor>Complete sign-in in your browser.</Text>
+          </Box>
+        </Box>
+      )}
+
+      {status === 'checking-subscription' && (
+        <Box flexDirection="column" alignItems="center">
+          <Box>
+            <AnimatedSpinner />
+            <Text> Checking subscription...</Text>
+          </Box>
+        </Box>
+      )}
+
+      {status === 'blocked' && (
+        <Box flexDirection="column" alignItems="center">
+          <Text color="yellow">⚠ Subscription Required</Text>
+          <Box marginY={1} flexDirection="column" alignItems="center">
+            <Text>A paid Craft subscription is required to use Craft Agent.</Text>
+            {subscribeUrl && (
+              <Box marginTop={1}>
+                <Text dimColor>{subscribeUrl}</Text>
+              </Box>
+            )}
+          </Box>
+          <Box marginTop={1}>
+            <Text dimColor>↵ open browser • R check again • Esc back</Text>
           </Box>
         </Box>
       )}
