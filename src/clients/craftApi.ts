@@ -140,6 +140,32 @@ export class CraftApi {
             },
         });
     }
+
+    async createStripeCheckout(params: {
+        authToken: string;
+        priceId: string;
+        teamId: string;
+        successUrl: string;
+        cancelUrl: string;
+        environment?: 'live' | 'sandbox';
+        country?: string;
+        locale?: string;
+    }) {
+        const { authToken, priceId, teamId, successUrl, cancelUrl, environment = 'live', country, locale } = params;
+        const queryParams: Record<string, string> = { environment };
+        if (country) queryParams.country = country;
+        if (locale) queryParams.locale = locale;
+        return this.fetch({
+            method: 'POST',
+            path: '/subscription/teams/stripe/checkout',
+            queryParams,
+            authToken,
+            body: { priceId, teamId, successUrl, cancelUrl },
+            responseParser: async (response) => {
+                return stripeCheckoutResponseSchema.parse(JSON.parse(response));
+            },
+        });
+    }
 }
 
 const workflowLinkSchema = z.object({
@@ -164,12 +190,13 @@ const profileResponseSchema = z.object({
     userId: z.string(),
     firstName: z.string(),
     lastName: z.string(),
-    spaces: z.array(z.object({ id: z.string(), name: z.string() })),
+    spaces: z.array(z.object({ id: z.string(), name: z.string(), teamId: z.string().nullable().optional() })),
     teams: z.array(z.object({
         id: z.string(),
         isPrivate: z.boolean(),
         role: z.string(),
-        name: z.string()
+        name: z.string(),
+        tier: z.string().nullable().optional(),
     })),
 });
 
@@ -187,3 +214,14 @@ const aiCreditsBalanceResponseSchema = z.object({
         expiresAt: z.number().nullable(),
     })),
 });
+
+const stripeCheckoutResponseSchema = z.object({
+    checkoutUrl: z.string(),
+});
+
+export type ProfileResponse = z.infer<typeof profileResponseSchema>;
+
+export function getTeamIdFromProfile(profile: ProfileResponse): string | null {
+    const team = profile.teams.find(t => t.isPrivate && t.role === 'admin');
+    return team?.id ?? null;
+}

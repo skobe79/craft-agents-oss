@@ -3,18 +3,14 @@ import { Box, Text, useInput } from 'ink';
 import crypto from 'crypto';
 import open from 'open';
 import { createCallbackServer } from '../../../auth/callback-server';
-import { CraftApi } from '../../../clients/craftApi';
+import { CraftApi, type ProfileResponse } from '../../../clients/craftApi';
 import { AnimatedSpinner } from '../Spinner';
 import { debug } from '@/tui/utils/debug';
 import { checkSubscription } from '../../../subscription/check';
+import { getCredentialManager } from '../../../credentials';
 
-export interface CraftProfile {
-  userId: string;
-  firstName: string;
-  lastName: string;
-  spaces: Array<{ id: string; name: string }>;
-  teams: Array<{ id: string; isPrivate: boolean; role: string; name: string }>;
-}
+// Re-export ProfileResponse as CraftProfile for backwards compatibility
+export type CraftProfile = ProfileResponse;
 
 export interface CraftCallbackStepProps {
   onComplete: (params: { token: string; profile: CraftProfile }) => void;
@@ -91,6 +87,9 @@ export const CraftCallbackStep: React.FC<CraftCallbackStepProps> = ({ onComplete
     const authResult = authResultRef.current;
     if (!authResult) return;
 
+    const manager = getCredentialManager();
+    await manager.setCraftOAuth(authResult.token);
+
     setStatus('checking-subscription');
     const subUrl = await checkSubscription(authResult.profile);
     if (subUrl) {
@@ -157,6 +156,8 @@ export const CraftCallbackStep: React.FC<CraftCallbackStepProps> = ({ onComplete
 
         // Fetch profile to get spaces and teams for categorization
         const profile = await craftApi.getProfile(token);
+        const manager = getCredentialManager();
+        await manager.setCraftOAuth(token);
         
         // Store auth result and check subscription
         authResultRef.current = { token, profile };

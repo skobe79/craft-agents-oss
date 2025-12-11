@@ -163,10 +163,15 @@ export const Setup: React.FC<SetupProps> = ({ onComplete, onCancel, authState, s
     setStep('billing-method');
   }, []);
 
-  // Craft OAuth complete (includes subscription check) -> Select Space
-  const handleCraftLoginComplete = useCallback((token: string, profile: CraftProfile) => {
+  // Craft OAuth complete -> Subscription Check
+  const handleCraftLoginComplete = useCallback(async (token: string, profile: CraftProfile) => {
     setCraftToken(token);
     setCraftProfile(profile);
+
+    // Save the Craft OAuth token immediately so it's available for subscription check
+    const manager = getCredentialManager();
+    await manager.setCraftOAuth(token);
+
     setStep('select-space');
   }, []);
 

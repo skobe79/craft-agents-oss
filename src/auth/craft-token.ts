@@ -1,5 +1,5 @@
 import { getCredentialManager } from '../credentials';
-import { CraftApi } from '../clients/craftApi';
+import { CraftApi, getTeamIdFromProfile } from '../clients/craftApi';
 import { debug } from '../tui/utils/debug';
 
 const REFRESH_BUFFER_MS = 60 * 60 * 1000;
@@ -89,7 +89,6 @@ export async function getTeamId(): Promise<string | null> {
     throw new Error('No Craft token stored. Please authenticate first.');
   }
   const craftApi = new CraftApi(CRAFT_API_BASE_URL);
-  const { teams } = await craftApi.getProfile(token);
-  const team = teams.find(team => team.isPrivate && team.role === 'admin');
-  return team?.id ?? null;
+  const profile = await craftApi.getProfile(token);
+  return getTeamIdFromProfile(profile);
 }
