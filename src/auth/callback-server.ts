@@ -503,7 +503,7 @@ export async function createCallbackServer(): Promise<CallbackServer> {
     try {
       const url = new URL(req.url || '/', `http://127.0.0.1:${port}`);
 
-      debug('[callback-server] request url:', url.toString(), 'pathname:', url.pathname);
+      debug('[callback-server] request pathname:', url.pathname);
 
       if (url.pathname !== '/callback') {
         res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
