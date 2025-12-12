@@ -2,7 +2,7 @@ import { getCraftToken } from '../auth/craft-token';
 import { CraftApi, type ProfileResponse, getTeamIdFromProfile } from '../clients/craftApi';
 
 const FREE_TIER = ['Free', 'free', 'V2_Free', 'v2_free'];
-const LIVE_PRICE_ID = 'price_1SdYeKCYYgB1lx2ucPn5ZPlL';
+const LIVE_PRICE_ID = 'price_1SdYrjCYYgB1lx2us8igvoy1';
 
 function getSuccessUrl(params: { teamId: string, spaceId: string, go: string }) {
   const { teamId, spaceId, go } = params;
