@@ -109,8 +109,8 @@ async function interceptedFetch(
         newUrl.hostname = 'api.craft.do';
         newUrl.pathname = '/ai-gateway/anthropic' + newUrl.pathname;
         headers = {
-          ...headers,
-          'Authorization': `${process.env.CRAFT_API_GATEWAY_TOKEN}`,
+          ...JSON.parse(JSON.stringify(headers)),
+          'authorization': `${process.env.CRAFT_API_GATEWAY_TOKEN}`,
         };
       }
       const body = typeof init.body === 'string' ? init.body : undefined;
