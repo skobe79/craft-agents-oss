@@ -4,6 +4,20 @@ set -e
 
 VERSIONS_URL="https://agents.craft.do"
 DOWNLOAD_DIR="$HOME/.craft-agent/downloads"
+INSTALL_DIR="$HOME/.local/bin"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+info() { printf "%b\n" "${BLUE}→${NC} $1"; }
+success() { printf "%b\n" "${GREEN}✓${NC} $1"; }
+warn() { printf "%b\n" "${YELLOW}!${NC} $1"; }
+error() { printf "%b\n" "${RED}✗${NC} $1"; exit 1; }
 
 # Check for required dependencies
 DOWNLOADER=""
@@ -171,17 +185,211 @@ tar -xzf "$tarball_path" -C "$extract_dir"
 binary_path="$extract_dir/craft"
 chmod +x "$binary_path"
 
-# Run craft install to set up the installation
+# Move binary to final location
 echo ""
-echo "Running craft install..."
-"$binary_path" install
+info "Installing binary..."
+mkdir -p "$INSTALL_DIR"
+mv "$binary_path" "$INSTALL_DIR/craft"
+chmod +x "$INSTALL_DIR/craft"
 
 # Clean up
 rm -rf "$tarball_path" "$extract_dir"
 
+success "Binary installed to $INSTALL_DIR/craft"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATH Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Detect shell and config file
+detect_shell_config() {
+    local shell_name
+    shell_name=$(basename "$SHELL")
+
+    case "$shell_name" in
+        zsh)
+            # zsh: prefer .zshrc, fall back to .zprofile
+            if [ -f "$HOME/.zshrc" ]; then
+                echo "$HOME/.zshrc"
+            else
+                echo "$HOME/.zprofile"
+            fi
+            ;;
+        bash)
+            # bash: prefer .bashrc for interactive, .bash_profile for login
+            if [ -f "$HOME/.bashrc" ]; then
+                echo "$HOME/.bashrc"
+            elif [ -f "$HOME/.bash_profile" ]; then
+                echo "$HOME/.bash_profile"
+            else
+                echo "$HOME/.bashrc"
+            fi
+            ;;
+        fish)
+            echo "$HOME/.config/fish/config.fish"
+            ;;
+        *)
+            # Default to .profile for unknown shells
+            echo "$HOME/.profile"
+            ;;
+    esac
+}
+
+# Check if PATH is already configured
+is_path_configured() {
+    case "$PATH" in
+        *"$INSTALL_DIR"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Check if config file already has the PATH export
+config_has_path() {
+    local config_file="$1"
+    if [ -f "$config_file" ]; then
+        grep -q "\.local/bin" "$config_file" 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+# Add PATH to shell config
+add_path_to_config() {
+    local config_file="$1"
+    local shell_name
+    shell_name=$(basename "$SHELL")
+
+    # Create parent directory if needed (for fish)
+    mkdir -p "$(dirname "$config_file")"
+
+    # Add newline if file doesn't end with one
+    if [ -f "$config_file" ] && [ -s "$config_file" ]; then
+        if [ "$(tail -c 1 "$config_file" | wc -l)" -eq 0 ]; then
+            echo "" >> "$config_file"
+        fi
+    fi
+
+    # Add the PATH export
+    echo "" >> "$config_file"
+    echo "# Added by Craft Agent installer" >> "$config_file"
+
+    if [ "$shell_name" = "fish" ]; then
+        echo "fish_add_path $INSTALL_DIR" >> "$config_file"
+    else
+        echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$config_file"
+    fi
+
+    return 0
+}
+
 echo ""
-echo "✅ Installation complete!"
+echo "─────────────────────────────────────────────────────────────────────────"
 echo ""
-echo "Make sure ~/.local/bin is in your PATH:"
-echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+
+# Check PATH status
+if is_path_configured; then
+    success "PATH is already configured!"
+    echo ""
+else
+    config_file=$(detect_shell_config)
+    shell_name=$(basename "$SHELL")
+    config_filename=$(basename "$config_file")
+
+    # Check if already in config file (but not in current PATH)
+    if config_has_path "$config_file"; then
+        warn "PATH is configured in $config_filename but not active in this terminal."
+        echo ""
+        printf "%b\n" "  This usually means you ran ${BOLD}export PATH=...${NC} directly instead of"
+        printf "%b\n" "  adding it to your shell config file."
+        echo ""
+        printf "%b\n" "  To fix this, either:"
+        printf "%b\n" "    1. Open a ${BOLD}new terminal window${NC}"
+        printf "%b\n" "    2. Run: ${BOLD}source $config_file${NC}"
+        echo ""
+    else
+        warn "PATH is not configured."
+        echo ""
+        printf "%b\n" "  The ${BOLD}craft${NC} command won't be available in new terminals unless you"
+        printf "%b\n" "  add ${BOLD}$INSTALL_DIR${NC} to your PATH."
+        echo ""
+
+        # Ask user what they want to do
+        printf "%b\n" "  ${BOLD}How would you like to configure PATH?${NC}"
+        echo ""
+        printf "%b\n" "    [1] ${GREEN}Add to $config_filename automatically${NC} (recommended)"
+        printf "%b\n" "    [2] Show me what to add (manual)"
+        printf "%b\n" "    [3] Skip for now"
+        echo ""
+        printf "  Choice [1/2/3]: "
+        read -r choice
+
+        case "$choice" in
+            1|"")
+                # Automatic - add to shell config
+                if add_path_to_config "$config_file"; then
+                    echo ""
+                    success "Added PATH to $config_filename"
+                    echo ""
+                    printf "%b\n" "  To use ${BOLD}craft${NC} now, either:"
+                    printf "%b\n" "    • Open a ${BOLD}new terminal window${NC}, or"
+                    printf "%b\n" "    • Run: ${BOLD}source $config_file${NC}"
+                    echo ""
+                else
+                    # Fallback gracefully - binary is already installed!
+                    echo ""
+                    warn "Could not update $config_filename automatically."
+                    echo ""
+                    printf "%b\n" "  Add this line manually to your ${BOLD}$config_filename${NC}:"
+                    echo ""
+                    if [ "$shell_name" = "fish" ]; then
+                        printf "%b\n" "    ${BOLD}fish_add_path $INSTALL_DIR${NC}"
+                    else
+                        printf "%b\n" "    ${BOLD}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+                    fi
+                    echo ""
+                fi
+                ;;
+            2)
+                # Manual - show instructions
+                echo ""
+                printf "%b\n" "  Add this line to your ${BOLD}$config_filename${NC}:"
+                echo ""
+                if [ "$shell_name" = "fish" ]; then
+                    printf "%b\n" "    ${BOLD}fish_add_path $INSTALL_DIR${NC}"
+                else
+                    printf "%b\n" "    ${BOLD}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+                fi
+                echo ""
+                printf "%b\n" "  Then restart your terminal or run:"
+                printf "%b\n" "    ${BOLD}source $config_file${NC}"
+                echo ""
+                ;;
+            3)
+                # Skip
+                echo ""
+                warn "Skipping PATH configuration."
+                echo ""
+                printf "%b\n" "  To run craft, use the full path:"
+                printf "%b\n" "    ${BOLD}$INSTALL_DIR/craft${NC}"
+                echo ""
+                ;;
+            *)
+                warn "Invalid choice, skipping PATH configuration."
+                echo ""
+                ;;
+        esac
+    fi
+fi
+
+echo "─────────────────────────────────────────────────────────────────────────"
+echo ""
+success "Installation complete!"
+echo ""
+
+# Verify installation
+if command -v craft >/dev/null 2>&1; then
+    printf "%b\n" "  Run ${BOLD}craft${NC} to get started."
+elif [ -x "$INSTALL_DIR/craft" ]; then
+    printf "%b\n" "  Run ${BOLD}$INSTALL_DIR/craft${NC} to get started."
+    printf "%b\n" "  (After configuring PATH, you can just use ${BOLD}craft${NC})"
+fi
 echo ""

@@ -81,12 +81,19 @@ function generateCallbackPage(options: {
   // Auto-close countdown for success
   const progressSection = isSuccess ? `
       <div class="progress-section">
-        <div class="timer-info">
-          <span>Auto-closing</span>
-          <span id="countdown-text">3.0s</span>
+        <div id="countdown-container">
+          <div class="timer-info">
+            <span>Auto-closing</span>
+            <span id="countdown-text">3.0s</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
         </div>
-        <div class="progress-bar">
-          <div class="progress-fill" id="progress-fill"></div>
+        <div id="redirect-notice" style="display: none;">
+          <span style="color: var(--comment); font-size: 12px;">
+            If you haven't been redirected automatically, you can safely close this window and return to the terminal.
+          </span>
         </div>
       </div>` : '';
 
@@ -109,7 +116,15 @@ function generateCallbackPage(options: {
         if (elapsed < duration) {
           requestAnimationFrame(tick);
         } else {
+          // Try to close the window
           window.close();
+          // If window.close() didn't work (browser blocked it), show fallback message
+          setTimeout(() => {
+            const countdownContainer = document.getElementById('countdown-container');
+            const redirectNotice = document.getElementById('redirect-notice');
+            if (countdownContainer) countdownContainer.style.display = 'none';
+            if (redirectNotice) redirectNotice.style.display = 'block';
+          }, 100);
         }
       };
 
