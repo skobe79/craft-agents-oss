@@ -223,6 +223,63 @@ bun dev
 craft --debug
 ```
 
+## Releasing
+
+Releases are built and deployed via GitHub Actions.
+
+### Creating a Release
+
+1. Go to [Actions → Build and Upload](https://github.com/lukilabs/craft-terminal-agent/actions/workflows/build-and-upload.yml)
+2. Click **"Run workflow"**
+3. Enter the version number (e.g., `1.0.1`)
+4. Options:
+   - **"Also upload to /latest folder"** → Check this to make it the default version users get
+   - **"Also upload install.sh to bucket root"** → Check this if you updated the install script
+5. Click **"Run workflow"**
+
+The workflow will:
+- Build native binaries for all platforms (darwin-arm64, darwin-x64, linux-x64, linux-arm64)
+- Upload tarballs and manifest to `agents.craft.do/<version>/`
+- Optionally update `/latest` to point to this version
+
+### Testing a Release
+
+After the workflow completes, users can install with:
+
+```bash
+curl -fsSL https://agents.craft.do/install.sh | bash
+```
+
+### Testing a Fresh Install
+
+To completely uninstall Craft Agent and test from scratch:
+
+```bash
+# Remove the binary
+rm -f ~/.local/bin/craft
+
+# Remove bun-linked version (if using development install)
+bun unlink 2>/dev/null || rm -f ~/.bun/bin/craft
+
+# Remove config and credentials
+rm -rf ~/.craft-agent
+
+# Remove PATH from shell config (choose your shell)
+# For zsh:
+sed -i '' '/# Added by Craft Agent installer/d' ~/.zshrc
+sed -i '' '/export PATH="\$HOME\/.local\/bin:\$PATH"/d' ~/.zshrc
+
+# For bash:
+sed -i '/# Added by Craft Agent installer/d' ~/.bashrc
+sed -i '/export PATH="\$HOME\/.local\/bin:\$PATH"/d' ~/.bashrc
+
+# Clear command cache and verify removal
+hash -r
+which craft  # Should say "craft not found"
+```
+
+Then open a **new terminal** and run the install script to test.
+
 ### Keyboard Handling
 
 When handling Ctrl+key shortcuts in Ink's raw terminal mode, always check for both forms:

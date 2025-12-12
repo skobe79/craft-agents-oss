@@ -33,6 +33,45 @@ bun link
 - `--model, -m` - Override model selection
 - `--debug` - Enable debug logging to `/tmp/craft-debug.log`
 
+## Releasing
+
+Releases are built and deployed via [GitHub Actions](https://github.com/lukilabs/craft-terminal-agent/actions/workflows/build-and-upload.yml).
+
+**To create a release:**
+1. Go to Actions → "Build and Upload" workflow
+2. Click "Run workflow"
+3. Enter version (e.g., `1.0.1`)
+4. Check "Also upload to /latest folder" to make it the default
+5. Check "Also upload install.sh to bucket root" if install script was updated
+
+**What it does:**
+- Builds native binaries for darwin-arm64, darwin-x64, linux-x64, linux-arm64
+- Uploads to `agents.craft.do/<version>/`
+- Updates `/latest` pointer (if checked)
+
+**Install command for users:**
+```bash
+curl -fsSL https://agents.craft.do/install.sh | bash
+```
+
+**Testing fresh install (complete uninstall):**
+```bash
+# Remove binaries
+rm -f ~/.local/bin/craft
+bun unlink 2>/dev/null || rm -f ~/.bun/bin/craft
+
+# Remove config/credentials
+rm -rf ~/.craft-agent
+
+# Remove PATH from shell config (zsh)
+sed -i '' '/# Added by Craft Agent installer/d' ~/.zshrc
+sed -i '' '/export PATH="\$HOME\/.local\/bin:\$PATH"/d' ~/.zshrc
+
+# Verify removal
+hash -r && which craft  # Should say "not found"
+```
+Then open a new terminal and run the install script.
+
 ## Project Structure
 
 ```
