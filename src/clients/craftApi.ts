@@ -214,7 +214,7 @@ const aiCreditsBalanceResponseSchema = z.object({
     details: z.array(z.object({
         source: z.string(),
         credits: z.number(),
-        expiresAt: z.number().nullable(),
+        expiresAt: z.number().optional().nullable(),
     })),
 });
 

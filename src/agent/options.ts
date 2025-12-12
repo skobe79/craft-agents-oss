@@ -1,8 +1,15 @@
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { join } from "path";
 import { homedir } from "os";
+import { debug } from "../tui/utils/debug";
 
 declare const CRAFT_AGENT_CLI_VERSION: string | undefined;
+
+let optionsEnv: Record<string, string> = {};
+
+export function setAnthropicOptionsEnv(env: Record<string, string>) {
+    optionsEnv = env;
+}
 
 export function getDefaultOptions(): Partial<Options> {
     if (typeof CRAFT_AGENT_CLI_VERSION !== 'undefined' && CRAFT_AGENT_CLI_VERSION != null) {
@@ -18,9 +25,16 @@ export function getDefaultOptions(): Partial<Options> {
             env: {
                 ...process.env,
                 BUN_BE_BUN: '1',
+                ... optionsEnv,
                 CRAFT_DEBUG: process.argv.includes('--debug') ? '1' : '0',
             }
         }
     }
-    return {};
+    return {
+        env: {
+            ... process.env,
+            ... optionsEnv,
+            CRAFT_DEBUG: process.argv.includes('--debug') ? '1' : '0',
+        }
+    };
 }

@@ -103,7 +103,16 @@ async function interceptedFetch(
     init?.body
   ) {
     try {
-      debugLog(`[cache-ttl-interceptor] fetch: ${url}`);
+      let headers = init?.headers;
+      let newUrl = new URL(url);
+      if (process.env.USE_CRAFT_AI_GATEWAY === 'true' && process.env.CRAFT_API_GATEWAY_TOKEN != null) {
+        newUrl.hostname = 'api.craft.do';
+        newUrl.pathname = '/ai-gateway/anthropic' + newUrl.pathname;
+        headers = {
+          ...headers,
+          'Authorization': `${process.env.CRAFT_API_GATEWAY_TOKEN}`,
+        };
+      }
       const body = typeof init.body === 'string' ? init.body : undefined;
       if (body) {
         const parsed = JSON.parse(body);
@@ -116,17 +125,11 @@ async function interceptedFetch(
           EXTENDED_CACHE_CONFIG === true ||
           (EXTENDED_CACHE_CONFIG === null && model && isOpusModel(model));
 
-        if (!shouldApply) {
-          debugLog('FETCH skipped (non-Opus model):', model);
-          return originalFetch(input, init);
-        }
-
-        debugLog('FETCH intercepted:', url, 'model:', model);
-        const modified = addCacheTtl(parsed);
-        debugLog('FETCH modified body with ttl: 1h');
-        return originalFetch(input, {
+        const modified = shouldApply ? addCacheTtl(parsed) : parsed;
+        return originalFetch(newUrl.toString(), {
           ...init,
           body: JSON.stringify(modified),
+          headers: headers,
         });
       }
     } catch (e) {

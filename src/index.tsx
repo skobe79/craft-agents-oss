@@ -1,9 +1,5 @@
 #!/usr/bin/env bun
-// Cache TTL interceptor - MUST be first import (patches fetch before SDK loads)
-// Works in both dev (bunfig.toml preload) and compiled mode (direct import)
-// import './cache-ttl-interceptor.ts';
-
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { render } from 'ink';
 import { createHash } from 'crypto';
 import meow from 'meow';
@@ -23,9 +19,11 @@ import {
 } from './config/storage.ts';
 import { getAuthState, getSetupNeeds, type AuthState, type SetupNeeds } from './auth/state.ts';
 import type { CraftAgentConfig } from './agent/craft-agent.ts';
-import { enableDebug } from './tui/utils/debug.ts';
+import { debug, enableDebug } from './tui/utils/debug.ts';
 import { install } from './version/install.ts';
 import { DEFAULT_MODEL } from './config/models.ts';
+import { setAnthropicOptionsEnv } from './agent/options.ts';
+import { getCraftToken } from './auth/craft-token.ts';
 
 /**
  * Generate a deterministic workspace ID from a URL.
@@ -182,6 +180,34 @@ const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, authState, setupNe
   // Track current auth state (may be updated after setup)
   const [currentAuthState, setCurrentAuthState] = useState<AuthState>(authState);
 
+  const { billing } = currentAuthState;
+  useEffect(() => {
+    debug(`billing type: ${billing.type}`);
+    
+    (async () => {
+      if (billing.type === 'craft_credits') {
+        const token = await getCraftToken();
+        setAnthropicOptionsEnv({
+          USE_CRAFT_AI_GATEWAY: 'true',
+          CRAFT_API_GATEWAY_TOKEN: token,
+        });
+        debug(`Set Craft API Gateway Token`);
+      } else if (billing.type === 'oauth_token' && billing.claudeOAuthToken) {
+        // Use Claude Max subscription via OAuth token
+        process.env.CLAUDE_CODE_OAUTH_TOKEN = billing.claudeOAuthToken;
+        // Clear API key to ensure SDK uses OAuth token
+        delete process.env.ANTHROPIC_API_KEY;
+        debug(`Set Claude Max OAuth Token`);
+      } else if (billing.apiKey) {
+        // Use API key (pay-as-you-go)
+        process.env.ANTHROPIC_API_KEY = billing.apiKey;
+        // Clear OAuth token if set
+        delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+        debug(`Set Anthropic API Key`);
+      }
+    })();
+  }, [billing.type, billing.apiKey, billing.claudeOAuthToken]);
+
   const handleSetupComplete = useCallback(async (newConfig: StoredConfig) => {
     setConfig(newConfig);
     // Reload auth state after setup
@@ -273,25 +299,6 @@ const Root: React.FC<RootProps> = ({ initialConfig, cliFlags, authState, setupNe
   };
 
   // Set authentication in environment for the SDK based on auth type
-  const { billing } = currentAuthState;
-  if (billing.type === 'craft_credits') {
-    // Craft Credits - uses Craft's billing system
-    // Clear both API key and OAuth token - Craft handles billing via its own token
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
-    // Note: The Craft OAuth token is used for MCP access, not Claude API billing
-    // Craft Credits billing is handled server-side by Craft's infrastructure
-  } else if (billing.type === 'oauth_token' && billing.claudeOAuthToken) {
-    // Use Claude Max subscription via OAuth token
-    process.env.CLAUDE_CODE_OAUTH_TOKEN = billing.claudeOAuthToken;
-    // Clear API key to ensure SDK uses OAuth token
-    delete process.env.ANTHROPIC_API_KEY;
-  } else if (billing.apiKey) {
-    // Use API key (pay-as-you-go)
-    process.env.ANTHROPIC_API_KEY = billing.apiKey;
-    // Clear OAuth token if set
-    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  }
 
   return (
     <App
