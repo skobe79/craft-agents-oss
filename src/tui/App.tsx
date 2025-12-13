@@ -1428,6 +1428,7 @@ Filename: ${workspace.sessionId}.jsonl`;
           agentsLoading={agentsLoading}
           tokenDisplay={tokenDisplayMode}
           showCost={showCostSetting}
+          version={getCurrentVersion()}
         />
       </Box>
     </Box>
