@@ -96,6 +96,7 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup, initialAgent, 
     pendingApiAuth,
     completeApiAuth,
     cancelApiAuth,
+    triggerApiAuth,
     // Review mode (concerns from extraction)
     pendingReview,
     completeReview,
@@ -363,9 +364,10 @@ export const App: React.FC<AppProps> = ({ config, onRequestSetup, initialAgent, 
       }
       case 'reauth':
         triggerMcpAuth();
+        triggerApiAuth();
         break;
     }
-  }, [activateAgent, deactivateAgent, reloadAgent, resetAgent, refreshAgents, fetchTools, triggerMcpAuth, activeAgentName, activeAgentDefinition, activeAgentMcpServers, addLocalMessage]);
+  }, [activateAgent, deactivateAgent, reloadAgent, resetAgent, refreshAgents, fetchTools, triggerMcpAuth, triggerApiAuth, activeAgentName, activeAgentDefinition, activeAgentMcpServers, addLocalMessage]);
 
   const handleAgentMenuCancel = useCallback(() => {
     setShowAgentMenu(false);

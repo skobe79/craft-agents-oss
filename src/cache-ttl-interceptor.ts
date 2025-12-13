@@ -14,6 +14,10 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+// Type alias for fetch's HeadersInit (not in ESNext lib, but available at runtime via Bun)
+// Using string[][] instead of [string, string][] to match RequestInit.headers type
+type HeadersInitType = Headers | Record<string, string> | string[][];
+
 const DEBUG = process.argv.includes('--debug') || process.env.CRAFT_DEBUG === '1';
 const LOG_FILE = '/tmp/craft-debug.log';
 const CONFIG_FILE = join(homedir(), '.craft-agent', 'config.json');
@@ -84,7 +88,7 @@ const originalFetch = globalThis.fetch.bind(globalThis);
 /**
  * Convert headers to cURL -H flags, redacting sensitive values
  */
-function headersToCurl(headers: HeadersInit | undefined): string {
+function headersToCurl(headers: HeadersInitType | undefined): string {
   if (!headers) return '';
 
   const headerObj: Record<string, string> =
@@ -111,7 +115,7 @@ function headersToCurl(headers: HeadersInit | undefined): string {
  */
 function toCurl(url: string, init?: RequestInit): string {
   const method = init?.method?.toUpperCase() ?? 'GET';
-  const headers = headersToCurl(init?.headers);
+  const headers = headersToCurl(init?.headers as HeadersInitType | undefined);
 
   let curl = `curl -X ${method}`;
   if (headers) {

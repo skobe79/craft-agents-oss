@@ -15,7 +15,7 @@ import type {
   McpServerConfig,
   ApiConfig,
 } from './types.ts';
-import { createApiServer } from './api-tools.ts';
+import { createApiServer, type ApiCredential, type BasicAuthCredential } from './api-tools.ts';
 import { normalizeAgentName } from './parser.ts';
 import { extractAgentDefinition, type ExtractionProgressEvent } from './extractor.ts';
 import {
@@ -483,6 +483,7 @@ export class SubAgentManager {
 
   /**
    * Get APIs that need authentication (have auth config but no stored key)
+   * Excludes APIs with auth.type='none' as they don't require credentials
    */
   async getApisNeedingAuth(definition: SubAgentDefinition): Promise<ApiConfig[]> {
     if (!definition.apis || !this.activeAgent.agentId) {
@@ -491,16 +492,16 @@ export class SubAgentManager {
 
     const results: ApiConfig[] = [];
     for (const api of definition.apis) {
-      // No auth needed for this API
-      if (!api.auth) continue;
+      // No auth needed if no auth config or type is 'none'
+      if (!api.auth || api.auth.type === 'none') continue;
 
       // Check if we have stored credentials in credential store
-      const apiKey = await getApiKeyCredentialAsync(
+      const storedCred = await getApiKeyCredentialAsync(
         this.workspaceId,
         this.activeAgent.agentId!,
         api.name
       );
-      if (!apiKey) {
+      if (!storedCred) {
         results.push(api);
       }
     }
@@ -510,6 +511,11 @@ export class SubAgentManager {
   /**
    * Build in-process MCP servers for all APIs with credentials
    * Returns servers keyed by `api_{name}`
+   *
+   * Handles different auth types:
+   * - none: No credentials needed, creates server with empty credential
+   * - basic: Parses stored JSON to BasicAuthCredential
+   * - header/bearer/query: Uses stored string credential
    */
   async buildApiServers(
     definition: SubAgentDefinition
@@ -530,27 +536,51 @@ export class SubAgentManager {
         continue;
       }
 
-      // Get API key from credential store (either stored or not needed)
-      let apiKey = '';
-      if (api.auth) {
-        const storedKey = await getApiKeyCredentialAsync(
+      // Determine credential based on auth type
+      let credential: ApiCredential = '';
+
+      if (!api.auth || api.auth.type === 'none') {
+        // No auth needed - use empty credential
+        debug(`[manager.buildApiServers] No auth needed for ${api.name}`);
+      } else {
+        // Auth required - get stored credential
+        const storedValue = await getApiKeyCredentialAsync(
           this.workspaceId,
           this.activeAgent.agentId,
           api.name
         );
-        if (!storedKey) {
+
+        if (!storedValue) {
           debug(`[manager.buildApiServers] No credentials for ${api.name}, skipping`);
           continue;
         }
-        apiKey = storedKey;
+
+        // Parse basic auth credentials from JSON
+        if (api.auth.type === 'basic') {
+          try {
+            const parsed = JSON.parse(storedValue) as BasicAuthCredential;
+            if (parsed.username && parsed.password) {
+              credential = parsed;
+            } else {
+              debug(`[manager.buildApiServers] Invalid basic auth format for ${api.name}, skipping`);
+              continue;
+            }
+          } catch {
+            debug(`[manager.buildApiServers] Failed to parse basic auth for ${api.name}, skipping`);
+            continue;
+          }
+        } else {
+          // String credential for header/bearer/query
+          credential = storedValue;
+        }
       }
 
       // Create and cache the server
-      const server = createApiServer(api, apiKey);
+      const server = createApiServer(api, credential);
       this.apiServerCache.set(serverKey, server);
       servers[serverKey] = server;
 
-      debug(`[manager.buildApiServers] Created server for ${api.name} with ${api.endpoints.length} endpoints`);
+      debug(`[manager.buildApiServers] Created flexible tool for ${api.name}`);
     }
 
     return servers;

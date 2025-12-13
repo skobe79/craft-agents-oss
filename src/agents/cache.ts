@@ -123,6 +123,16 @@ export function loadDefinition(workspaceId: string, agentId: string): CachedSubA
       return null;
     }
 
+    // Check for old cache format (has endpoints[] but no documentation in APIs)
+    // If detected, clear cache and return null to trigger re-extraction
+    if (cached.definition?.apis?.some(api =>
+      (api as any).endpoints && !api.documentation
+    )) {
+      debug('[cache] loadDefinition: OLD FORMAT detected (has endpoints, no documentation), clearing cache');
+      clearDefinition(workspaceId, agentId);
+      return null;
+    }
+
     debug('[cache] loadDefinition: HIT - instructions:', cached.definition?.instructions?.length || 0, 'chars');
     return cached;
   } catch (err) {

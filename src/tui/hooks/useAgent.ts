@@ -169,6 +169,7 @@ export interface UseAgentResult {
   pendingApiAuth: PendingApiAuthRequest | null;
   completeApiAuth: (success: boolean) => Promise<void>;
   cancelApiAuth: () => void;
+  triggerApiAuth: () => void;  // For reauth command
   // Review mode (concerns from extraction that need user input)
   pendingReview: PendingReviewRequest | null;
   completeReview: (answers: Record<string, string>) => Promise<void>;
@@ -1313,6 +1314,39 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     });
   }, [activeAgentDefinition]);
 
+  // Trigger API auth flow manually (for reauth command)
+  const triggerApiAuth = useCallback(async () => {
+    if (!agentManagerRef.current || !activeAgentDefinition) {
+      setMessages(prev => [...prev, {
+        id: `api-auth-error-${Date.now()}`,
+        type: 'system',
+        content: 'No active agent or no APIs configured.',
+        timestamp: Date.now(),
+      }]);
+      return;
+    }
+
+    const apisNeedingAuth = await agentManagerRef.current.getApisNeedingAuth(activeAgentDefinition);
+    if (apisNeedingAuth.length === 0) {
+      setMessages(prev => [...prev, {
+        id: `api-auth-ok-${Date.now()}`,
+        type: 'system',
+        content: 'All APIs are already authenticated.',
+        timestamp: Date.now(),
+      }]);
+      return;
+    }
+
+    const agentId = agentManagerRef.current.getActiveAgent()?.agentId || 'unknown';
+
+    setPendingApiAuth({
+      apis: apisNeedingAuth,
+      agentId,
+      agentName: activeAgentDefinition.name,
+      definition: activeAgentDefinition,
+    });
+  }, [activeAgentDefinition]);
+
   // Complete API auth flow - called when API key entry finishes (success or failure)
   const completeApiAuth = useCallback(async (success: boolean) => {
     if (!pendingApiAuth || !agentManagerRef.current) {
@@ -1551,15 +1585,16 @@ The goal is to have clean, actionable instructions without unanswered questions.
         }
       }
 
-      // 3. Active agent's API tools
+      // 3. Active agent's API tools (prefixed with api_ to avoid collisions)
       if (activeAgentDefinition.apis) {
         for (const api of activeAgentDefinition.apis) {
+          // Each API has one flexible tool prefixed with api_
           result.push({
             name: api.name,
-            tools: api.endpoints.map(e => ({
-              name: `${api.name}_${e.name}`,
-              description: e.description,
-            })),
+            tools: [{
+              name: `api_${api.name}`,
+              description: `Flexible API tool for ${api.name} (${api.baseUrl})`,
+            }],
           });
         }
       }
@@ -1615,6 +1650,7 @@ The goal is to have clean, actionable instructions without unanswered questions.
     pendingApiAuth,
     completeApiAuth,
     cancelApiAuth,
+    triggerApiAuth,
     // Review mode (concerns from extraction that need user input)
     pendingReview,
     completeReview,

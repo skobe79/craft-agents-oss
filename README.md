@@ -7,7 +7,7 @@ A Claude Code-like agent for Craft documents using the Anthropic SDK and Craft M
 - **Claude Code-like Experience**: Streaming responses, tool visualization, and real-time updates
 - **Craft MCP Integration**: Access to 32+ Craft document tools (blocks, collections, search, tasks)
 - **Subagents**: Define specialized agents in Craft documents with custom instructions, MCP servers, and REST APIs
-- **Dynamic API Integration**: Automatically extract REST APIs from curl examples and create tools
+- **Dynamic API Integration**: Automatically extract REST APIs from documentation and create flexible tools
 - **Rich Terminal UI**: Built with Ink (React for CLIs)
 - **Command History**: Navigate previous inputs with arrow keys
 - **Slash Commands**: `/help`, `/tools`, `/setup`, `/clear`, `/agent`, `/info`, `/exit`
@@ -145,9 +145,10 @@ curl -X POST https://api.exa.ai/search \
 
 The extractor will automatically:
 - Detect APIs from curl examples, fetch calls, axios requests, or API documentation
-- Parse endpoints, authentication methods, and example parameters
-- Create tools like `exa_search` that Claude can use
-- Prompt for API keys on first activation
+- Extract authentication methods (header, bearer, query, basic, or public)
+- Generate comprehensive markdown documentation for Claude
+- Create a single flexible tool (`api_{name}`) that Claude uses with the documentation
+- Prompt for API credentials on first activation (with custom labels when provided)
 
 ### Using Subagents
 
@@ -185,6 +186,7 @@ src/
 ├── agents/
 │   ├── manager.ts      # Subagent management
 │   ├── extractor.ts    # Extract agent definitions from docs
+│   ├── api-tools.ts    # Dynamic MCP server factory for REST APIs
 │   └── cache.ts        # Agent definition cache
 ├── credentials/
 │   ├── manager.ts      # Keychain credential management

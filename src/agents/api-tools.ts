@@ -1,16 +1,36 @@
 /**
  * Dynamic API Tool Factory
  *
- * Creates in-process MCP servers from API configurations.
- * Each API endpoint becomes a tool that Claude can use.
+ * Creates a single flexible MCP tool per API configuration.
+ * Each tool accepts { path, method, params } and auto-injects authentication.
  */
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import type { ApiConfig, ApiEndpoint } from './types.ts';
+import type { ApiConfig } from './types.ts';
 import { debug } from '../tui/utils/debug.ts';
 import { SUMMARIZATION_MODEL } from '../config/models.ts';
+
+/**
+ * Credential for HTTP Basic Authentication
+ */
+export interface BasicAuthCredential {
+  username: string;
+  password: string;
+}
+
+/**
+ * API credential - either a simple string (API key/token) or basic auth credentials
+ */
+export type ApiCredential = string | BasicAuthCredential;
+
+/**
+ * Type guard to check if credential is BasicAuthCredential
+ */
+function isBasicAuthCredential(cred: ApiCredential): cred is BasicAuthCredential {
+  return typeof cred === 'object' && cred !== null && 'username' in cred && 'password' in cred;
+}
 
 // Token limit for summarization trigger (roughly ~40KB of text)
 const TOKEN_LIMIT = 10000;
@@ -29,25 +49,28 @@ function getAnthropicClient(): Anthropic {
 }
 
 /**
+ * Estimate token count from text length (rough approximation: 4 chars per token)
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
  * Summarize a large API response to fit within context limits.
  * Uses Claude Haiku for fast, cheap summarization.
- *
- * @param response - The full API response text
- * @param endpointDescription - What this endpoint does (for context)
- * @param requestParams - The parameters used in the request (for focus)
- * @returns Summarized response
  */
 async function summarizeLargeResponse(
   response: string,
-  endpointDescription: string,
+  apiName: string,
+  path: string,
   requestParams: Record<string, unknown> | undefined
 ): Promise<string> {
   const client = getAnthropicClient();
 
   // Build context from request params
   const paramsContext = requestParams
-    ? `The user searched for: ${JSON.stringify(requestParams)}`
-    : 'No specific search parameters provided.';
+    ? `Request parameters: ${JSON.stringify(requestParams)}`
+    : 'No specific parameters provided.';
 
   // Truncate response to fit within Haiku's context safely
   const maxChars = MAX_SUMMARIZATION_INPUT * 4; // ~80KB
@@ -64,13 +87,13 @@ async function summarizeLargeResponse(
         role: 'user',
         content: `You are summarizing an API response that was too large to fit in context.
 
-Endpoint description: ${endpointDescription}
-
+API: ${apiName}
+Endpoint: ${path}
 ${paramsContext}
 ${wasTruncated ? '\nNote: The response was truncated before summarization due to extreme size.' : ''}
 
 Your task:
-1. Extract the MOST RELEVANT information based on what was searched for
+1. Extract the MOST RELEVANT information based on the request
 2. Preserve key data points, IDs, URLs, and actionable information
 3. Summarize long text content but keep essential details
 4. Format the output cleanly for the AI assistant to use
@@ -92,137 +115,80 @@ Provide a concise but comprehensive summary that captures the essential informat
 }
 
 /**
- * Create an in-process MCP server for an API configuration.
- * Each endpoint becomes a tool with flexible parameters.
- *
- * @param config - API configuration with endpoints
- * @param apiKey - API key for authentication (empty string if no auth needed)
- * @returns SDK MCP server that can be passed to query()
+ * Build headers for an API request, injecting authentication
  */
-export function createApiServer(
-  config: ApiConfig,
-  apiKey: string
-): ReturnType<typeof createSdkMcpServer> {
-  debug(`[api-tools] Creating server for ${config.name} with ${config.endpoints.length} endpoints`);
+function buildHeaders(auth: ApiConfig['auth'], credential: ApiCredential): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
 
-  const tools = config.endpoints.map(endpoint => {
-    // Build tool description including example params if available
-    let description = endpoint.description;
-    if (endpoint.exampleParams && Object.keys(endpoint.exampleParams).length > 0) {
-      description += `\n\nExample parameters:\n${JSON.stringify(endpoint.exampleParams, null, 2)}`;
+  // No auth needed for type='none' or missing auth
+  if (!auth || auth.type === 'none') {
+    return headers;
+  }
+
+  // Basic auth requires username:password credential
+  if (auth.type === 'basic') {
+    if (isBasicAuthCredential(credential)) {
+      const encoded = Buffer.from(`${credential.username}:${credential.password}`).toString('base64');
+      headers['Authorization'] = `Basic ${encoded}`;
     }
+    return headers;
+  }
 
-    const toolName = `${config.name}_${endpoint.name}`;
-    debug(`[api-tools] Creating tool: ${toolName}`);
+  // Other types use string credential (API key/token)
+  const apiKey = typeof credential === 'string' ? credential : '';
+  if (!apiKey) {
+    return headers;
+  }
 
-    return tool(
-      toolName,
-      description,
-      // Use a flexible object schema that accepts any properties
-      // Claude will figure out what to pass based on the description/examples
-      {
-        params: z.record(z.string(), z.unknown()).optional().describe('Request parameters as key-value pairs (see description for expected fields)'),
-      },
-      async (args: { params?: Record<string, unknown> }) => {
-        // Extract params from the args wrapper
-        const requestParams = args.params;
-        try {
-          const url = buildUrl(config, endpoint, requestParams, apiKey);
-          const headers = buildHeaders(config, apiKey);
+  if (auth.type === 'header') {
+    headers[auth.headerName || 'x-api-key'] = apiKey;
+  } else if (auth.type === 'bearer') {
+    const scheme = auth.authScheme || 'Bearer';
+    headers['Authorization'] = `${scheme} ${apiKey}`;
+  }
+  // Query type is handled in buildUrl
 
-          debug(`[api-tools] ${endpoint.method} ${url}`);
-
-          const fetchOptions: RequestInit = {
-            method: endpoint.method,
-            headers,
-          };
-
-          // Add body for non-GET requests
-          if (endpoint.method !== 'GET' && requestParams && Object.keys(requestParams).length > 0) {
-            fetchOptions.body = JSON.stringify(requestParams);
-          }
-
-          const response = await fetch(url, fetchOptions);
-          const text = await response.text();
-
-          // Check for error responses
-          if (!response.ok) {
-            debug(`[api-tools] API error ${response.status}: ${text.substring(0, 200)}`);
-            return {
-              content: [{
-                type: 'text' as const,
-                text: `API Error ${response.status}: ${text}`,
-              }],
-              isError: true,
-            };
-          }
-
-          debug(`[api-tools] Success, response length: ${text.length}`);
-
-          // Check if response is too large and needs summarization
-          const estimatedTokens = Math.ceil(text.length / 4);
-          if (estimatedTokens > TOKEN_LIMIT) {
-            debug(`[api-tools] Response too large (~${estimatedTokens} tokens), summarizing...`);
-            const summary = await summarizeLargeResponse(text, endpoint.description, requestParams);
-            return {
-              content: [{
-                type: 'text' as const,
-                text: `[Response summarized - original was ~${estimatedTokens} tokens]\n\n${summary}`,
-              }],
-            };
-          }
-
-          return { content: [{ type: 'text' as const, text }] };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unknown error';
-          debug(`[api-tools] Request failed: ${message}`);
-          return {
-            content: [{ type: 'text' as const, text: `Request failed: ${message}` }],
-            isError: true,
-          };
-        }
-      }
-    );
-  });
-
-  return createSdkMcpServer({
-    name: `api_${config.name}`,
-    version: '1.0.0',
-    tools,
-  });
+  return headers;
 }
 
 /**
  * Build the full URL for an API request
  */
 function buildUrl(
-  config: ApiConfig,
-  endpoint: ApiEndpoint,
-  args: Record<string, unknown> | undefined,
-  apiKey: string
+  baseUrl: string,
+  path: string,
+  method: string,
+  params: Record<string, unknown> | undefined,
+  auth: ApiConfig['auth'],
+  credential: ApiCredential
 ): string {
-  let url = `${config.baseUrl}${endpoint.path}`;
+  // Ensure path starts with /
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  let url = `${baseUrl}${normalizedPath}`;
 
-  // Handle query param auth
-  if (config.auth?.type === 'query' && config.auth.queryParam && apiKey) {
+  // Handle query param auth (only for string credentials)
+  const apiKey = typeof credential === 'string' ? credential : '';
+  if (auth?.type === 'query' && auth.queryParam && apiKey) {
     const separator = url.includes('?') ? '&' : '?';
-    url += `${separator}${config.auth.queryParam}=${encodeURIComponent(apiKey)}`;
+    url += `${separator}${auth.queryParam}=${encodeURIComponent(apiKey)}`;
   }
 
   // Handle GET params in query string
-  if (endpoint.method === 'GET' && args && Object.keys(args).length > 0) {
-    const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(args)) {
+  if (method === 'GET' && params && Object.keys(params).length > 0) {
+    const urlParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== null) {
         // Handle arrays and objects
         if (typeof value === 'object') {
-          params.append(key, JSON.stringify(value));
+          urlParams.append(key, JSON.stringify(value));
         } else {
-          params.append(key, String(value));
+          urlParams.append(key, String(value));
         }
       }
     }
-    const queryString = params.toString();
+    const queryString = urlParams.toString();
     if (queryString) {
       const separator = url.includes('?') ? '&' : '?';
       url += `${separator}${queryString}`;
@@ -233,23 +199,134 @@ function buildUrl(
 }
 
 /**
- * Build headers for an API request
+ * Build tool description from API config
  */
-function buildHeaders(config: ApiConfig, apiKey: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+function buildToolDescription(config: ApiConfig): string {
+  let desc = `Make authenticated requests to ${config.name} API (${config.baseUrl})\n\n`;
+  desc += `Authentication is handled automatically - just specify path, method, and params.\n\n`;
 
-  if (!apiKey) {
-    return headers;
+  // Check for old cache format (no documentation field)
+  if (!config.documentation) {
+    desc += `⚠️ This API was cached with an older format. Run "/agent refresh" to get full API documentation.\n\n`;
+    desc += `Until then, you can still make requests but you'll need to figure out the endpoints yourself.`;
+    return desc;
   }
 
-  if (config.auth?.type === 'header') {
-    headers[config.auth.headerName || 'x-api-key'] = apiKey;
-  } else if (config.auth?.type === 'bearer') {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
-  // Query type is handled in buildUrl
+  // Include the rich documentation extracted from the agent definition
+  desc += config.documentation;
 
-  return headers;
+  if (config.docsUrl) {
+    desc += `\n\nOfficial docs: ${config.docsUrl}`;
+  }
+
+  return desc;
+}
+
+/**
+ * Create a single flexible MCP tool for an API configuration.
+ * The tool accepts { path, method, params } and handles auth automatically.
+ *
+ * @param config - API configuration with documentation
+ * @param credential - API credential (string for API key/token, BasicAuthCredential for basic auth, empty string for public APIs)
+ * @returns SDK tool that can be included in an MCP server
+ */
+export function createApiTool(
+  config: ApiConfig,
+  credential: ApiCredential
+) {
+  const toolName = `api_${config.name}`;
+  debug(`[api-tools] Creating flexible tool: ${toolName}`);
+
+  const description = buildToolDescription(config);
+
+  return tool(
+    toolName,
+    description,
+    {
+      path: z.string().describe('API endpoint path, e.g., "/search" or "/v1/completions"'),
+      method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']).describe('HTTP method - check documentation for correct method per endpoint'),
+      params: z.record(z.string(), z.unknown()).optional().describe('Request body (POST/PUT/PATCH) or query parameters (GET)'),
+    },
+    async (args) => {
+      const { path, method, params } = args;
+
+      try {
+        const url = buildUrl(config.baseUrl, path, method, params, config.auth, credential);
+        const headers = buildHeaders(config.auth, credential);
+
+        debug(`[api-tools] ${config.name}: ${method} ${url}`);
+
+        const fetchOptions: RequestInit = {
+          method,
+          headers,
+        };
+
+        // Add body for non-GET requests
+        if (method !== 'GET' && params && Object.keys(params).length > 0) {
+          fetchOptions.body = JSON.stringify(params);
+        }
+
+        const response = await fetch(url, fetchOptions);
+        const text = await response.text();
+
+        // Check for error responses
+        if (!response.ok) {
+          debug(`[api-tools] ${config.name} error ${response.status}: ${text.substring(0, 200)}`);
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `API Error ${response.status}: ${text}`,
+            }],
+            isError: true,
+          };
+        }
+
+        debug(`[api-tools] ${config.name} success, response length: ${text.length}`);
+
+        // Check if response is too large and needs summarization
+        const estimatedTokens = estimateTokens(text);
+        if (estimatedTokens > TOKEN_LIMIT) {
+          debug(`[api-tools] Response too large (~${estimatedTokens} tokens), summarizing...`);
+          const summary = await summarizeLargeResponse(text, config.name, path, params);
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `[Response summarized - original was ~${estimatedTokens} tokens]\n\n${summary}`,
+            }],
+          };
+        }
+
+        return { content: [{ type: 'text' as const, text }] };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        debug(`[api-tools] ${config.name} request failed: ${message}`);
+        return {
+          content: [{ type: 'text' as const, text: `Request failed: ${message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+}
+
+/**
+ * Create an in-process MCP server with a single flexible API tool.
+ *
+ * @param config - API configuration
+ * @param credential - API credential (string for API key/token, BasicAuthCredential for basic auth, empty string for public APIs)
+ * @returns SDK MCP server that can be passed to query()
+ */
+export function createApiServer(
+  config: ApiConfig,
+  credential: ApiCredential
+): ReturnType<typeof createSdkMcpServer> {
+  debug(`[api-tools] Creating server for ${config.name}`);
+
+  const apiTool = createApiTool(config, credential);
+
+  return createSdkMcpServer({
+    name: `api_${config.name}`,
+    version: '1.0.0',
+    tools: [apiTool],
+  });
 }
