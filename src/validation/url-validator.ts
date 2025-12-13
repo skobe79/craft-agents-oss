@@ -9,10 +9,15 @@ import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { getDefaultOptions } from '../agent/options.ts';
 import { SUMMARIZATION_MODEL } from '../config/models.ts';
 import { debug } from '../tui/utils/debug.ts';
+import { parseError, type AgentError } from '../agent/errors.ts';
+import { getLastApiError, clearLastApiError } from '../cache-ttl-interceptor.ts';
 
 export interface UrlValidationResult {
   valid: boolean;
+  /** Simple error message for validation failures */
   error?: string;
+  /** Typed error for API/billing failures - display as ErrorBanner */
+  typedError?: AgentError;
 }
 
 const SYSTEM_PROMPT = `You are a URL validator for Craft MCP servers. Your ONLY job is to validate if a URL is a valid Craft MCP URL.
@@ -97,6 +102,27 @@ export async function validateMcpUrl(
     };
   } catch (err) {
     debug('[url-validator] Error:', err);
-    return { valid: false, error: 'URL validation failed' };
+
+    // Check for captured API error (from file-based storage)
+    const apiError = getLastApiError();
+    let errorToParse = err;
+    if (apiError) {
+      debug('[url-validator] Found captured API error:', apiError.status, apiError.message);
+      // Create an error with the actual API error message for parsing
+      errorToParse = new Error(`${apiError.status} ${apiError.message}`);
+      clearLastApiError();
+    }
+
+    // Parse the error to get typed error for ErrorBanner display
+    const typedError = parseError(errorToParse);
+
+    // Return typed error for ErrorBanner display (for API/billing errors)
+    // For unknown errors, fall back to simple error message
+    if (typedError.code !== 'unknown_error') {
+      return { valid: false, typedError };
+    }
+
+    // For unknown errors, return a simple message
+    return { valid: false, error: `URL validation failed: ${typedError.originalError || 'Unknown error'}` };
   }
 }

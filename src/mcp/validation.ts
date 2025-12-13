@@ -10,6 +10,7 @@ import { getDefaultOptions } from '../agent/options.ts';
 import { CraftMcpClient } from './client.js';
 import { debug } from '@/tui/utils/debug.js';
 import { DEFAULT_MODEL } from '../config/models.ts';
+import { parseError } from '../agent/errors.ts';
 
 export interface InvalidProperty {
   toolName: string;
@@ -277,9 +278,37 @@ export async function validateMcpConnection(
       // Abort on error
       abortController.abort();
 
+      // Parse the error to provide a more helpful message
+      const typedError = parseError(err);
+
+      // Check if this is an AI backend error (not an MCP connection error)
+      let errorMessage: string;
+      switch (typedError.code) {
+        case 'insufficient_credits':
+          errorMessage = 'Validation failed: Insufficient credits. Please top up your credits.';
+          break;
+        case 'invalid_api_key':
+          errorMessage = 'Validation failed: Invalid API key. Please check your Claude credentials.';
+          break;
+        case 'expired_oauth_token':
+          errorMessage = 'Validation failed: Session expired. Please re-authenticate.';
+          break;
+        case 'rate_limited':
+          errorMessage = 'Validation failed: Too many requests. Please wait a moment and try again.';
+          break;
+        case 'network_error':
+          errorMessage = 'Validation failed: Could not reach the AI service. Please check your internet connection.';
+          break;
+        case 'service_error':
+          errorMessage = 'Validation failed: AI service temporarily unavailable. Please try again.';
+          break;
+        default:
+          errorMessage = err instanceof Error ? err.message : 'Validation failed';
+      }
+
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Validation failed',
+        error: errorMessage,
         errorType: 'unknown',
       };
     }

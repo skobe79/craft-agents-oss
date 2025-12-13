@@ -10,6 +10,7 @@ import {
   setGlobalPermissionHandler,
   resolveGlobalPermission,
 } from '../../agent/craft-agent.ts';
+import type { AgentError } from '../../agent/errors.ts';
 import type { UpdateInstructionsContext, UpdateInstructionsProgressEvent } from '../../agents/instruction-updater.ts';
 import type { Message } from '../components/Messages.tsx';
 import type { FileAttachment } from '../utils/files.ts';
@@ -135,6 +136,8 @@ export interface UseAgentResult {
   processingStartTime: number | null;
   connected: boolean;
   error: string | null;
+  typedError: AgentError | null;
+  dismissTypedError: () => void;
   tokenUsage: TokenUsage;
   pendingPermission: PermissionRequest | null;
   pendingQuestion: AskUserQuestionRequest | null;
@@ -198,6 +201,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
   const [pendingQuestion, setPendingQuestion] = useState<AskUserQuestionRequest | null>(null);
   const [hasExecutingTool, setHasExecutingTool] = useState(false);
+  const [typedError, setTypedError] = useState<AgentError | null>(null);
 
   // Sub-agent state
   const [availableAgents, setAvailableAgents] = useState<string[]>([]);
@@ -491,6 +495,10 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }
   }, [pendingQuestion]);
 
+  const dismissTypedError = useCallback(() => {
+    setTypedError(null);
+  }, []);
+
   const sendMessage = useCallback(async (
     input: string,
     attachments?: FileAttachment[],
@@ -523,6 +531,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     setStreamingText('');
     setStatus('');
     setError(null);
+    setTypedError(null);  // Clear any typed errors from previous request
     toolStartTimeRef.current.clear();
     streamingBufferRef.current = '';
     lastStreamingUpdateRef.current = 0;
@@ -727,6 +736,12 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
                 timestamp: Date.now(),
               },
             ]);
+            break;
+
+          case 'typed_error':
+            // Set typed error for ErrorBanner display
+            // Don't add to messages - the banner already shows the error with recovery actions
+            setTypedError(event.error);
             break;
 
           case 'complete':
@@ -1616,6 +1631,8 @@ The goal is to have clean, actionable instructions without unanswered questions.
     processingStartTime,
     connected,
     error,
+    typedError,
+    dismissTypedError,
     tokenUsage,
     pendingPermission,
     pendingQuestion,
