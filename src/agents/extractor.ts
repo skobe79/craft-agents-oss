@@ -178,6 +178,17 @@ Extract the EXACT original instructions without modification. Critical rules:
 - Fix only obvious formatting issues (e.g., broken markdown)
 - Keep human-friendly references like "this document", "this page", "the Instructions section"
 
+API KEY/AUTHENTICATION INSTRUCTIONS - REMOVE THESE:
+The system automatically collects API keys during agent setup and injects them into requests.
+REMOVE any instructions about API key acquisition or setup from the extracted instructions, including:
+- "Get your API key from..."
+- "You'll need to provide an API key..."
+- "Sign up at [service] to get an API key"
+- "Set your API key in the environment..."
+- "The user will provide the API key..."
+- Any instructions telling the user OR agent how to obtain/configure API credentials
+These are setup concerns, not agent behavior. The extracted instructions should focus on WHAT the agent does, not HOW to authenticate.
+
 2. MCP SERVER CONFIGURATIONS
 - Look for MCP server configurations in code blocks (YAML, JSON, or plain URLs)
 - ONLY include servers with HTTP/HTTPS URLs in the mcpServers array
@@ -188,8 +199,17 @@ Extract the EXACT original instructions without modification. Critical rules:
   * stdio transports
   * Any server config without an http:// or https:// URL
 
-3. REST API DETECTION
-Look for REST API configurations. These are NOT MCP servers, but regular HTTP APIs.
+3. REST API DOCUMENTATION EXTRACTION
+Look for REST API configurations and extract COMPREHENSIVE documentation.
+These are NOT MCP servers, but regular HTTP APIs that will become flexible tools.
+
+IMPORTANT: Each API will become ONE tool that accepts { path, method, params }.
+Authentication is FULLY AUTOMATIC:
+- API keys are collected from the user during agent setup (not at runtime)
+- The system injects authentication into every request automatically
+- The agent NEVER sees, handles, or needs to know about API keys
+- You just need to identify WHAT TYPE of auth the API uses so we can inject it correctly
+
 Detect APIs from:
 - curl examples (e.g., curl -X POST https://api.example.com/search -H "x-api-key: KEY" -d '{"query": "test"}')
 - fetch() calls or axios requests
@@ -199,31 +219,91 @@ Detect APIs from:
 For each API found, extract:
 - name: Short identifier (e.g., "exa", "openai") - derive from hostname if not explicit
 - baseUrl: Base URL without path (e.g., "https://api.exa.ai")
-- auth: Authentication config if detected:
-  - type: "header" for -H "x-api-key: ...", "bearer" for -H "Authorization: Bearer ...", "query" for ?api_key=...
-  - headerName: The header name for type="header" (e.g., "x-api-key")
-  - queryParam: The query param for type="query" (e.g., "api_key")
-- endpoints: Array of endpoints, each with:
-  - name: Endpoint name derived from path (e.g., "search" from /search)
-  - method: HTTP method (GET, POST, etc.)
-  - path: Path relative to baseUrl (e.g., "/search")
-  - description: CRITICAL - Write a rich, actionable description that helps Claude use this endpoint effectively:
-    * Start with what the endpoint DOES (not just its name)
-    * Explain WHEN to use it (use cases, scenarios)
-    * List KEY PARAMETERS with their purpose and valid values
-    * PAGINATION/LIMITS ARE CRITICAL: Always prominently mention any limit/count/numResults parameters. Large responses can overwhelm context. Recommend conservative defaults (e.g., "numResults: 1-100, default 10, START WITH 5-10 to avoid huge responses")
-    * Include any important CONSTRAINTS (rate limits, max results, etc.)
-    * Mention RELATED endpoints if relevant
-    BAD: "Search the Exa API"
-    GOOD: "Search the web using Exa's neural search engine. Use this for finding recent articles, research papers, news, or any web content. Key parameters: query (search string), numResults (1-100, default 10, START WITH 5-10 to avoid huge responses), type ('neural' for semantic search, 'keyword' for exact match), category (optional: 'news', 'research paper', 'company', 'github'). Returns URLs, titles, and snippets. For full page content, follow up with exa_contents using the returned URLs."
-  - exampleParams: Example request body extracted from curl -d or request body (as object, not string)
+- auth: Authentication config - identify the TYPE so the system can inject credentials:
+  SUPPORTED AUTH TYPES (pick one):
+  - type: "none" - No authentication required (public API, free tier, etc.)
+    No additional fields needed. The credential prompt will be skipped entirely.
+  - type: "header" - Custom header auth (e.g., -H "x-api-key: KEY")
+    Set headerName to the header name (e.g., "x-api-key", "X-API-Key")
+  - type: "bearer" - Authorization header auth (e.g., -H "Authorization: Bearer KEY")
+    Set authScheme if NOT "Bearer" (e.g., "Token", "ApiKey", "Key")
+    Default authScheme is "Bearer" if not specified
+  - type: "query" - Query parameter auth (e.g., ?api_key=KEY or ?key=KEY)
+    Set queryParam to the parameter name (e.g., "api_key", "key", "token")
+  - type: "basic" - HTTP Basic Authentication (username:password)
+    User will be prompted for two credentials separately.
+
+  CREDENTIAL LABELS (extract from document context):
+  - credentialLabel: What the document calls the first/main credential
+    Examples: "API Key", "Access Token", "Client ID", "App Key"
+    For basic auth, this is what they call the username-equivalent (e.g., "API Key")
+  - secretLabel: For basic auth only - what they call the password-equivalent
+    Examples: "Secret Key", "API Secret", "Client Secret"
+
+  Look for phrases like "API_KEY:SECRET_KEY", "client_id:client_secret", etc. to determine labels.
+
+  How to determine auth type (CHECK IN THIS ORDER):
+  1. Look at curl examples or code snippets FIRST - they are the most reliable source
+  2. If you see -H "Authorization: Bearer xxx" → use "bearer"
+  3. If you see -H "Authorization: Token xxx" → use "bearer" with authScheme: "Token"
+  4. If you see -H "x-api-key: xxx" or similar custom header → use "header" with headerName
+  5. If you see ?api_key=xxx in URL → use "query" with queryParam
+  6. If you see curl -u username:password OR -H "Authorization: Basic xxx" → use "basic"
+  7. If no auth in examples AND API is described as public/free → use "none"
+  8. If unclear but API requires auth → default to "bearer"
+
+  IMPORTANT: Do NOT use "basic" just because the word "basic" appears in the document.
+  Only use "basic" if you see ACTUAL HTTP Basic Authentication patterns:
+  - curl -u user:pass
+  - Authorization: Basic <base64>
+  - Explicit mention of "HTTP Basic Authentication" as the auth method
+- documentation: COMPREHENSIVE markdown documentation that will be included in the tool description.
+  This is CRITICAL - the agent uses this to figure out how to call the API. Include:
+  * ALL available endpoints with their paths and HTTP methods
+  * Parameter descriptions with types and valid values
+  * Example requests showing typical usage (as JSON objects - NO auth headers needed in examples)
+  * Response format descriptions if available
+  * Rate limits and constraints if mentioned
+  * PAGINATION DETAILS ARE CRITICAL - mention any limit/count/numResults params prominently
+  * Related endpoint relationships (e.g., "use /contents after /search")
+
+  DO NOT include in documentation:
+  * How to get an API key
+  * Authentication setup instructions
+  * API key headers in examples (auth is injected automatically)
+
+  Format as readable markdown. Example documentation field:
+  """
+  ## Endpoints
+
+  ### POST /search
+  Search the web using neural or keyword search.
+
+  **Parameters:**
+  - query (string, required): Search query
+  - numResults (int, 1-100, default 10): Number of results. START WITH 5-10 to avoid huge responses.
+  - type (string): "neural" for semantic search, "keyword" for exact match
+  - category (string, optional): "news", "research paper", "company", "github"
+
+  **Example:** {"query": "AI news", "numResults": 5, "type": "neural"}
+
+  ### POST /contents
+  Get full page content for URLs. Use after /search to get full content of relevant results.
+
+  **Parameters:**
+  - urls (array of strings, required): URLs to fetch content from
+  - text (object, optional): {maxCharacters: 1000} to limit content length
+
+  **Example:** {"urls": ["https://example.com"], "text": {"maxCharacters": 5000}}
+  """
+- docsUrl: Link to official API documentation if found (optional)
 
 4. INFO MESSAGES
 Use the "info" array to communicate important information to the user. You MUST add info messages for:
 - Unsupported MCP servers: "MCP server '[name]' uses npx/stdio which is not supported. Only HTTP/HTTPS servers work."
 - Empty document (no content at all): "Document has no content."
 - Malformed or unparseable MCP configs: "Could not parse MCP server config in code block."
-- APIs found: "Found API '[name]' with [N] endpoints."
+- APIs found: "Found API '[name]'."
 - Unsupported automation features (see below): Add info message explaining the limitation
 - Any other issues or warnings the user should know about during agent setup
 
@@ -309,17 +389,11 @@ Return ONLY valid JSON:
   "apis": [{
     "name": "exa",
     "baseUrl": "https://api.exa.ai",
-    "description": "Exa AI search API for finding web content",
     "auth": { "type": "header", "headerName": "x-api-key" },
-    "endpoints": [{
-      "name": "search",
-      "method": "POST",
-      "path": "/search",
-      "description": "Search the web using Exa's neural search engine...",
-      "exampleParams": { "query": "search query", "numResults": 10 }
-    }]
+    "documentation": "## Endpoints\\n\\n### POST /search\\nSearch the web using neural or keyword search.\\n\\n**Parameters:**\\n- query (string, required)\\n- numResults (int, 1-100, default 10)\\n\\n**Example:** {\"query\": \"AI news\", \"numResults\": 5}",
+    "docsUrl": "https://docs.exa.ai"
   }],
-  "info": ["Found API 'exa' with 1 endpoint."],
+  "info": ["Found API 'exa'."],
   "capabilities": ["Search the web using Exa neural search", "Process and analyze search results"],
   "concerns": [{
     "type": "confusing",
@@ -389,34 +463,24 @@ Rules:
                 properties: {
                   name: { type: 'string', description: 'Short name like "exa", "openai"' },
                   baseUrl: { type: 'string', description: 'Base URL without path' },
-                  description: { type: 'string' },
                   auth: {
                     type: 'object',
                     properties: {
-                      type: { type: 'string', enum: ['header', 'bearer', 'query'] },
+                      type: { type: 'string', enum: ['none', 'header', 'bearer', 'query', 'basic'] },
                       headerName: { type: 'string', description: 'Header name for type=header' },
                       queryParam: { type: 'string', description: 'Query param for type=query' },
+                      authScheme: { type: 'string', description: 'Custom Authorization scheme for type=bearer (default: Bearer). Examples: Token, ApiKey' },
+                      credentialLabel: { type: 'string', description: 'Custom label for credential prompt (e.g., "API Key"). For basic auth, this is the username-equivalent label.' },
+                      secretLabel: { type: 'string', description: 'For basic auth: label for password-equivalent (e.g., "Secret Key")' },
                     },
                   },
-                  endpoints: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        name: { type: 'string', description: 'Endpoint name, e.g., "search"' },
-                        method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] },
-                        path: { type: 'string', description: 'Path like "/search"' },
-                        description: {
-                          type: 'string',
-                          description: 'CRITICAL: Rich description explaining what this endpoint does, when to use it, key parameters with valid values, constraints, and related endpoints. This becomes the tool description that helps Claude use the API effectively.',
-                        },
-                        exampleParams: { type: 'object', description: 'Example request body' },
-                      },
-                      required: ['name', 'method', 'path', 'description'],
-                    },
+                  documentation: {
+                    type: 'string',
+                    description: 'CRITICAL: Comprehensive API reference as markdown text. Include all endpoints with paths, methods, parameters, examples, and constraints. This becomes the tool description.',
                   },
+                  docsUrl: { type: 'string', description: 'Link to official API documentation if found' },
                 },
-                required: ['name', 'baseUrl', 'endpoints'],
+                required: ['name', 'baseUrl', 'documentation'],
               },
             },
             info: {

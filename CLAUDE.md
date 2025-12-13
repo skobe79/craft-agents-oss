@@ -283,10 +283,10 @@ Validates MCP connections using the Claude Agent SDK's `mcpServerStatus()` metho
 Subagents are specialized agents defined in Craft documents. When activated, they extend the base agent with custom instructions, MCP servers, and REST APIs.
 
 **Key files:**
-- `types.ts` - `SubAgentDefinition`, `ApiConfig`, `ApiEndpoint` interfaces
+- `types.ts` - `SubAgentDefinition`, `ApiConfig` interfaces
 - `manager.ts` - `SubAgentManager` for listing, activating, deactivating agents
 - `extractor.ts` - Agentic extraction of agent definitions from Craft documents
-- `api-tools.ts` - Dynamic MCP server factory for REST APIs
+- `api-tools.ts` - Single flexible tool factory for REST APIs
 - `cache.ts` - Agent definition cache
 
 **Folder structure (up to 3 levels):**
@@ -309,19 +309,23 @@ Agents/
 1. Uses Claude Agent SDK to agentically read Craft document via MCP tools
 2. Claude parses document structure, finding Instructions section
 3. Extracts MCP server configs (HTTP/HTTPS URLs only, not npx/stdio)
-4. Detects REST APIs from any reference: curl examples, fetch/axios calls, inline API docs, or links to API documentation
-5. Returns structured `ExtractionResult` with instructions, servers, and APIs
+4. Detects REST APIs from curl examples, fetch/axios calls, or API documentation links
+5. Extracts comprehensive markdown `documentation` for each API (endpoints, params, examples)
+6. Returns structured `ExtractionResult` with instructions, servers, and APIs
 
 **Dynamic API Integration (`api-tools.ts`):**
-Converts REST API configs into in-process MCP servers using `createSdkMcpServer`:
+Each API becomes a single flexible tool via `createApiServer()`:
 ```typescript
-// Each API endpoint becomes a tool
-createApiServer(config: ApiConfig, apiKey: string)
-// Creates tools like: exa_search, exa_contents
+// Each API becomes ONE flexible tool
+createApiServer(config: ApiConfig, credential: ApiCredential)
+// Creates tool: api_exa (accepts { path, method, params })
 ```
-- Flexible `z.record(z.unknown())` schema - Claude figures out params from description
-- Supports header, bearer, and query param authentication
-- GET params go in query string, POST params in body
+- Tool named `api_{name}` accepts `{ path, method, params }`
+- Claude uses extracted `documentation` field to determine endpoints/params
+- Auth types: `none`, `header`, `bearer`, `query`, `basic`
+- `ApiCredential` = string (API key) or `BasicAuthCredential` (username/password)
+- Custom credential labels via `auth.credentialLabel` and `auth.secretLabel`
+- Credentials injected automatically - Claude never sees keys
 
 **Large Response Summarization:**
 API responses can be huge (e.g., full web page content). To prevent context overflow:
@@ -334,7 +338,7 @@ API responses can be huge (e.g., full web page content). To prevent context over
 **Credential storage:**
 - Stored in encrypted file via `CredentialManager` (see Credential Storage section)
 - MCP OAuth: `mcp_oauth::{workspaceId}::{agentId}::{serverName}`
-- API keys: `api_key::{workspaceId}::{agentId}::{apiName}`
+- API keys: `api_key::{workspaceId}::{agentId}::{apiName}` (string or JSON `{username,password}` for basic auth)
 
 ### OAuth (`src/auth/oauth.ts`)
 - Dynamic client registration (no pre-registration)

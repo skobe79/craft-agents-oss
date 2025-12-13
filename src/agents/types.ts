@@ -75,49 +75,47 @@ export interface McpServerConfig {
 
 /**
  * REST API configuration extracted from agent document
- * APIs are converted to in-process MCP servers at runtime
+ * APIs are converted to in-process MCP servers at runtime.
+ *
+ * Each API becomes ONE flexible tool that accepts { path, method, params }.
+ * The documentation field contains rich API reference text that helps
+ * Claude figure out how to use the API correctly.
  */
 export interface ApiConfig {
-  /** API identifier - becomes tool prefix (e.g., "exa" → "exa_search") */
+  /** API identifier - becomes the tool name (e.g., "exa") */
   name: string;
   /** Base URL for API requests */
   baseUrl: string;
-  /** Authentication configuration */
+  /**
+   * Authentication configuration.
+   * - 'none': No authentication required (public API)
+   * - 'header': Custom header (uses headerName field)
+   * - 'bearer': Authorization: {authScheme} {key} (authScheme defaults to "Bearer")
+   * - 'query': Query parameter (uses queryParam field)
+   * - 'basic': HTTP Basic Authentication (username:password)
+   */
   auth?: {
-    type: 'header' | 'bearer' | 'query';
+    type: 'none' | 'header' | 'bearer' | 'query' | 'basic';
     /** Header name for type='header' (e.g., "x-api-key") */
     headerName?: string;
-    /** Query param name for type='query' (e.g., "api_key") */
+    /** Query param name for type='query' (e.g., "api_key", "key") */
     queryParam?: string;
+    /** Custom Authorization scheme for type='bearer' (default: "Bearer"). Examples: "Token", "ApiKey" */
+    authScheme?: string;
+    /** Custom label for credential prompt (e.g., "API Key" instead of default). For basic auth, this is the username label. */
+    credentialLabel?: string;
+    /** Custom label for password field in basic auth (e.g., "Secret Key" instead of "password") */
+    secretLabel?: string;
   };
-  /** Discovered endpoints */
-  endpoints: ApiEndpoint[];
-  /** Human-readable description */
-  description?: string;
-}
-
-/**
- * API endpoint configuration - becomes an MCP tool
- */
-export interface ApiEndpoint {
-  /** Endpoint name - becomes tool suffix (e.g., "search" → "exa_search") */
-  name: string;
-  /** HTTP method */
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-  /** Path relative to baseUrl (e.g., "/search") */
-  path: string;
   /**
-   * Rich tool description that helps Claude use this endpoint effectively.
-   * Should include:
-   * - What the endpoint does
-   * - When to use it (use cases)
-   * - Key parameters with valid values
-   * - Constraints (rate limits, max values)
-   * - Related endpoints
+   * Rich API documentation as markdown text.
+   * Included directly in the tool description so Claude knows how to use the API.
+   * Should contain: endpoints, parameters, examples, constraints, etc.
+   * Optional for backwards compatibility with old cached definitions.
    */
-  description: string;
-  /** Example parameters extracted from curl/docs - appended to description */
-  exampleParams?: Record<string, unknown>;
+  documentation?: string;
+  /** Link to official API documentation if found */
+  docsUrl?: string;
 }
 
 /**

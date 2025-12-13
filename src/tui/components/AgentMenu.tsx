@@ -53,7 +53,7 @@ export const AgentMenu: React.FC<AgentMenuProps> = ({
     menuItems.push({
       key: 'reauth',
       label: 'Reauthenticate',
-      desc: 'Re-authenticate MCP servers',
+      desc: 'Re-authenticate MCP servers and APIs',
       action: { type: 'reauth' },
     });
     // Destructive actions last
