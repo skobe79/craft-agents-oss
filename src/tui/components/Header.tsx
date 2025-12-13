@@ -20,6 +20,7 @@ export interface HeaderProps {
   agentsLoading?: boolean;
   tokenDisplay?: TokenDisplayMode;
   showCost?: boolean;
+  version?: string;
 }
 
 export const Header: React.FC<HeaderProps> = memo(({
@@ -36,6 +37,7 @@ export const Header: React.FC<HeaderProps> = memo(({
   agentsLoading = false,
   tokenDisplay = 'hidden',
   showCost = true,
+  version,
 }) => {
   // Map model IDs to friendly names
   const modelDisplay = useMemo(() => getModelDisplayName(model), [model]);
@@ -76,6 +78,12 @@ export const Header: React.FC<HeaderProps> = memo(({
         <Text color={authType === 'oauth_token' ? 'green' : authType === 'craft_credits' ? 'magenta' : 'blue'}>
           {authType === 'oauth_token' ? 'Claude Sub' : authType === 'craft_credits' ? 'Craft Credits' : 'API Key'}
         </Text>
+        {version && (
+          <>
+            <Text dimColor> | </Text>
+            <Text dimColor>v{version}</Text>
+          </>
+        )}
       </Box>
 
       <Box>
