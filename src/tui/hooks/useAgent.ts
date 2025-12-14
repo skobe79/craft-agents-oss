@@ -10,7 +10,7 @@ import {
   setGlobalPermissionHandler,
   resolveGlobalPermission,
 } from '../../agent/craft-agent.ts';
-import { parseError, type AgentError } from '../../agent/errors.ts';
+import { parseSDKErrorText, isSDKErrorText, type AgentError } from '../../agent/errors.ts';
 import type { UpdateInstructionsContext, UpdateInstructionsProgressEvent } from '../../agents/instruction-updater.ts';
 import type { Message } from '../components/Messages.tsx';
 import type { FileAttachment } from '../utils/files.ts';
@@ -85,51 +85,6 @@ function messageToStoredMessage(msg: Message): StoredMessage {
     toolDuration: msg.toolDuration,
     isError: msg.isError,
   };
-}
-
-/**
- * Parse SDK error text and return a typed AgentError if detected.
- *
- * The SDK emits errors in two distinctive formats:
- * 1. "Error title · Action hint" - using middle dot (·, U+00B7) separator
- *    e.g., "Invalid API key · Fix external API key"
- * 2. "API Error: {status} {json}" - raw API error dump
- *    e.g., "API Error: 402 {"error":{"code":402,"message":"Payment required"}}"
- *
- * Returns null if text is not an SDK error.
- */
-function parseSDKErrorText(text: string): AgentError | null {
-  const trimmed = text.trim();
-  const isSingleLine = !trimmed.includes('\n');
-  const isShortMessage = trimmed.length < 200;
-
-  // Format 1: Raw API error (e.g., "API Error: 402 {...}")
-  // Extract status code and use it to determine error type
-  if (trimmed.startsWith('API Error:') && isSingleLine) {
-    const statusMatch = trimmed.match(/API Error:\s*(\d{3})/);
-    if (statusMatch) {
-      const statusCode = parseInt(statusMatch[1]!, 10);
-      // Create error message with status code for parseError to detect
-      return parseError(new Error(`${statusCode} ${trimmed}`));
-    }
-    // Fallback: just use the raw message
-    return parseError(new Error(trimmed));
-  }
-
-  // Format 2: Middle dot separator (e.g., "Invalid API key · Fix external API key")
-  if (trimmed.includes(' · ') && isShortMessage && isSingleLine) {
-    // The text before · is the error title, use it for parsing
-    return parseError(new Error(trimmed));
-  }
-
-  return null;
-}
-
-/**
- * Quick check if text looks like an SDK error (for filtering).
- */
-function isSDKErrorText(text: string): boolean {
-  return parseSDKErrorText(text) !== null;
 }
 
 /**

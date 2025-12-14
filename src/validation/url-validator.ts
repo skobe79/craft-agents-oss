@@ -9,7 +9,7 @@ import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { getDefaultOptions } from '../agent/options.ts';
 import { SUMMARIZATION_MODEL } from '../config/models.ts';
 import { debug } from '../tui/utils/debug.ts';
-import { parseError, type AgentError } from '../agent/errors.ts';
+import { parseError, parseSDKErrorText, type AgentError } from '../agent/errors.ts';
 
 export interface UrlValidationResult {
   valid: boolean;
@@ -86,6 +86,13 @@ export async function validateMcpUrl(
     }
 
     debug('[url-validator] Response:', responseText);
+
+    // Check for SDK error text (emitted as text before throwing)
+    const sdkError = parseSDKErrorText(responseText);
+    if (sdkError) {
+      debug('[url-validator] Detected SDK error in response');
+      return { valid: false, typedError: sdkError };
+    }
 
     // Parse JSON response
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
