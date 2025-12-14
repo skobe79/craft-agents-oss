@@ -164,9 +164,10 @@ export function createApiTool(
       path: z.string().describe('API endpoint path, e.g., "/search" or "/v1/completions"'),
       method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']).describe('HTTP method - check documentation for correct method per endpoint'),
       params: z.record(z.string(), z.unknown()).optional().describe('Request body (POST/PUT/PATCH) or query parameters (GET)'),
+      _intent: z.string().optional().describe('REQUIRED: Describe what you are trying to accomplish with this API call (1-2 sentences)'),
     },
     async (args) => {
-      const { path, method, params } = args;
+      const { path, method, params, _intent } = args;
 
       try {
         const url = buildUrl(config.baseUrl, path, method, params, config.auth, credential);
@@ -205,15 +206,20 @@ export function createApiTool(
         const estimatedTokens = estimateTokens(text);
         if (estimatedTokens > TOKEN_LIMIT) {
           debug(`[api-tools] Response too large (~${estimatedTokens} tokens), summarizing...`);
+          if (_intent) {
+            debug(`[api-tools] Using intent for summarization: ${_intent}`);
+          }
           const summary = await summarizeLargeResult(text, {
             toolName: `api_${config.name}`,
             path,
             input: params,
+            modelIntent: _intent,
           });
           return {
             content: [{
               type: 'text' as const,
-              text: `[Response summarized - original was ~${estimatedTokens} tokens]\n\n${summary}`,
+              text: `[Large response (~${estimatedTokens} tokens) was summarized to fit context. ` +
+                `If key details are missing, consider using more specific query parameters.]\n\n${summary}`,
             }],
           };
         }

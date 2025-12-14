@@ -27,7 +27,7 @@ export type AgentEvent =
   | { type: 'status'; message: string }
   | { type: 'text_delta'; text: string }
   | { type: 'text_complete'; text: string }
-  | { type: 'tool_start'; toolName: string; toolUseId: string; input: Record<string, unknown> }
+  | { type: 'tool_start'; toolName: string; toolUseId: string; input: Record<string, unknown>; intent?: string }
   | { type: 'tool_result'; toolUseId: string; result: string; isError: boolean; input?: Record<string, unknown> }
   | { type: 'permission_request'; requestId: string; toolName: string; command: string; description: string }
   | { type: 'ask_user'; requestId: string; questions: Question[] }
@@ -437,6 +437,8 @@ export class CraftAgent {
   private agentApiServers: Record<string, ReturnType<typeof createSdkMcpServer>> = {};
   // Temporary clarifications (not yet saved to Craft document)
   private temporaryClarifications: string | null = null;
+  // Map tool_use_id → explicit intent from _intent field (for summarization and UI display)
+  private toolIntents: Map<string, string> = new Map();
 
   // Callback for permission requests - set by TUI to receive permission prompts
   public onPermissionRequest: ((request: { requestId: string; toolName: string; command: string; description: string }) => void) | null = null;
@@ -636,6 +638,9 @@ export class CraftAgent {
     _isRetry: boolean = false // Internal flag for session expiry retry
   ): AsyncGenerator<AgentEvent> {
     try {
+      // Clear intent map for new turn
+      this.toolIntents.clear();
+
       // Check if we have binary attachments that need the AsyncIterable interface
       const hasBinaryAttachments = attachments?.some(a => a.type === 'image' || a.type === 'pdf');
 
@@ -726,6 +731,38 @@ export class CraftAgent {
               }
 
               this.onDebug?.(`PreToolUse hook: ${input.tool_name}`);
+
+              // Built-in SDK tools (don't extract _intent from these)
+              const builtInTools = new Set([
+                'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
+                'WebFetch', 'WebSearch', 'Task', 'TaskOutput', 'AskUserQuestion',
+                'TodoWrite', 'MultiEdit', 'NotebookEdit', 'KillShell',
+                'EnterPlanMode', 'ExitPlanMode', 'Skill', 'SlashCommand',
+              ]);
+
+              // Extract _intent from MCP tool inputs (not built-in SDK tools)
+              if (!builtInTools.has(input.tool_name)) {
+                const toolInput = input.tool_input as Record<string, unknown>;
+                const intent = toolInput._intent as string | undefined;
+
+                if (intent) {
+                  // Store intent for UI display and summarization
+                  this.toolIntents.set(input.tool_use_id, intent);
+                  this.onDebug?.(`Extracted intent for ${input.tool_use_id}: ${intent}`);
+
+                  // Strip _intent before forwarding to MCP server
+                  const { _intent, ...cleanInput } = toolInput;
+
+                  // Return with updatedInput - SDK will use this instead of original
+                  return {
+                    continue: true,
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      updatedInput: cleanInput,
+                    },
+                  };
+                }
+              }
 
               // For Bash, check if we need permission
               if (input.tool_name === 'Bash') {
@@ -822,49 +859,63 @@ export class CraftAgent {
                 return { continue: true };
               }
 
-              // Check if response is large enough to warrant summarization
-              const response = input.tool_response;
-              let responseStr: string;
+              // For MCP tools, always clean up stored intent after processing
+              // Use try/finally to ensure cleanup even on early returns or errors
               try {
-                responseStr = typeof response === 'string'
-                  ? response
-                  : JSON.stringify(response);
-              } catch {
-                // Response has circular references or can't be stringified
-                // Skip summarization for non-serializable responses
-                return { continue: true };
-              }
+                // Check if response is large enough to warrant summarization
+                const response = input.tool_response;
+                let responseStr: string;
+                try {
+                  responseStr = typeof response === 'string'
+                    ? response
+                    : JSON.stringify(response);
+                } catch {
+                  // Response has circular references or can't be stringified
+                  // Skip summarization for non-serializable responses
+                  return { continue: true };
+                }
 
-              const tokens = estimateTokens(responseStr);
-              if (tokens <= TOKEN_LIMIT) {
-                return { continue: true };
-              }
+                const tokens = estimateTokens(responseStr);
+                if (tokens <= TOKEN_LIMIT) {
+                  return { continue: true };
+                }
 
-              this.onDebug?.(`PostToolUse: ${input.tool_name} response too large (~${tokens} tokens), summarizing...`);
+                this.onDebug?.(`PostToolUse: ${input.tool_name} response too large (~${tokens} tokens), summarizing...`);
 
-              try {
-                const summary = await summarizeLargeResult(responseStr, {
-                  toolName: input.tool_name,
-                  input: input.tool_input as Record<string, unknown>,
-                });
+                // Get explicit intent for this tool call (from _intent field, extracted by PreToolUse hook)
+                const explicitIntent = this.toolIntents.get(input.tool_use_id);
+                this.onDebug?.(`PostToolUse: Using intent for summarization: ${explicitIntent || '(none - will use tool params)'}`);
 
-                return {
-                  continue: true,
-                  hookSpecificOutput: {
-                    hookEventName: 'PostToolUse' as const,
-                    updatedMCPToolOutput: `[Result summarized - original was ~${tokens} tokens]\n\n${summary}`,
-                  },
-                };
-              } catch (error) {
-                debug(`[PostToolUse] Summarization failed for ${input.tool_name}: ${error}`);
-                // On error, truncate rather than fail
-                return {
-                  continue: true,
-                  hookSpecificOutput: {
-                    hookEventName: 'PostToolUse' as const,
-                    updatedMCPToolOutput: responseStr.substring(0, 40000) + '\n\n[Result truncated due to size]',
-                  },
-                };
+                try {
+                  const summary = await summarizeLargeResult(responseStr, {
+                    toolName: input.tool_name,
+                    input: input.tool_input as Record<string, unknown>,
+                    // Use explicit intent if available - otherwise summarizer uses tool name/params
+                    modelIntent: explicitIntent,
+                  });
+
+                  return {
+                    continue: true,
+                    hookSpecificOutput: {
+                      hookEventName: 'PostToolUse' as const,
+                      updatedMCPToolOutput: `[Large result (~${tokens} tokens) was summarized to fit context. ` +
+                        `If key details are missing, consider re-calling with more specific filters or pagination.]\n\n${summary}`,
+                    },
+                  };
+                } catch (error) {
+                  debug(`[PostToolUse] Summarization failed for ${input.tool_name}: ${error}`);
+                  // On error, truncate rather than fail
+                  return {
+                    continue: true,
+                    hookSpecificOutput: {
+                      hookEventName: 'PostToolUse' as const,
+                      updatedMCPToolOutput: responseStr.substring(0, 40000) + '\n\n[Result truncated due to size]',
+                    },
+                  };
+                }
+              } finally {
+                // Always clean up stored intent for MCP tools to prevent memory leak
+                this.toolIntents.delete(input.tool_use_id);
               }
             }],
           }],
@@ -1247,6 +1298,21 @@ export class CraftAgent {
           if (block.type === 'text') {
             textContent += block.text;
           } else if (block.type === 'tool_use') {
+            // Extract intent from the tool_use input (_intent field) for UI display
+            // Note: PreToolUse hook also extracts and stores intent for summarization
+            // We only extract here for emitting in tool_start events (UI display)
+            const toolInput = block.input as Record<string, unknown>;
+            let intent: string | undefined = toolInput._intent as string | undefined;
+
+            // Debug: log tool input to see if _intent is present
+            debug(`[convertSDKMessage] tool_use ${block.name}: _intent=${intent}, input keys=${Object.keys(toolInput).join(', ')}`);
+
+            // For Bash, use its description field instead
+            if (!intent && block.name === 'Bash') {
+              const bashInput = block.input as { description?: string };
+              intent = bashInput.description;
+            }
+
             // Only emit if not already emitted via stream_event
             if (!emittedToolStarts.has(block.id)) {
               emittedToolStarts.add(block.id);
@@ -1259,6 +1325,7 @@ export class CraftAgent {
                 toolName: block.name,
                 toolUseId: block.id,
                 input: block.input as Record<string, unknown>,
+                intent,
               });
             } else {
               // Update input if we have more complete data now
@@ -1272,12 +1339,13 @@ export class CraftAgent {
                   name: block.name,
                   input: newInput,
                 });
-                // Emit another tool_start with the full input
+                // Emit another tool_start with the full input and intent
                 events.push({
                   type: 'tool_start',
                   toolName: block.name,
                   toolUseId: block.id,
                   input: newInput,
+                  intent,
                 });
               }
             }

@@ -332,18 +332,50 @@ createApiServer(config: ApiConfig, credential: ApiCredential)
 
 **Large Response Summarization:**
 Tool responses can be huge (e.g., full web page content, large Craft documents). To prevent context overflow:
-1. Responses >10k tokens (~40KB) are automatically summarized using Claude Haiku
-2. Summarization uses tool name and input params as context to focus on relevant information
-3. Input truncated to 20k tokens before summarization to prevent Haiku overflow
-4. Falls back to simple truncation (40k chars) if summarization fails
-5. Summaries output max 4096 tokens (~60%+ reduction for large responses)
+1. Responses >15k tokens (~60KB) are automatically summarized using Claude Haiku
+2. **Intent-aware**: Summarization uses explicit `_intent` field for focused, relevant summaries
+3. Falls back to tool name and parameters if no intent provided
+4. Input truncated to 100k tokens before summarization
+5. Falls back to simple truncation (40k chars) if summarization fails
+6. Summaries output max 4096 tokens (~60%+ reduction for large responses)
+7. Summary header tells model it can re-call with more specific parameters if needed
+
+**Intent via `_intent` Field (Schema-Enforced):**
+The `_intent` field is enforced via schema modification. The fetch interceptor (`src/cache-ttl-interceptor.ts`) intercepts Anthropic API requests and injects `_intent` into every MCP tool's schema before sending to Claude.
+
+```
+SDK subprocess → fetches tools from MCP → Anthropic API request
+                                                ↓
+                                    Fetch Interceptor: inject _intent into mcp__ tools
+                                                ↓
+                                          Claude sees modified schemas
+                                                ↓
+                                          Model MUST include _intent
+                                                ↓
+                                          PreToolUse strips _intent
+                                                ↓
+                                          Forward clean input to MCP
+```
+
+This provides:
+- **Enforced** intent per tool call (schema validation ensures model includes it)
+- **UI display** of what the model is doing (shown in ToolCall component)
+- **Better summarization** context for large results
+- **Clean conversation** - no visible markers in assistant text
+
+**Intent flow:**
+1. Fetch interceptor adds `_intent` to MCP tool schemas in Anthropic API requests
+2. Model must include `_intent` (it's in the schema)
+3. `PreToolUse` hook extracts `_intent`, stores in `toolIntents` map, strips before forwarding to MCP
+4. Intent is emitted with `tool_start` event for UI display
+5. `PostToolUse` hook retrieves intent for summarization context
 
 **What gets summarized:**
-| Tool Type | Summarized? | Where |
-|-----------|-------------|-------|
-| MCP tools (Craft, etc.) | ✅ Yes | PostToolUse hook in `craft-agent.ts` |
-| REST API tools (`api_*`) | ✅ Yes | In `api-tools.ts` handler |
-| Built-in SDK tools | ❌ No | Skipped by hook |
+| Tool Type | Summarized? | Intent Source |
+|-----------|-------------|---------------|
+| MCP tools (Craft, etc.) | ✅ Yes | `_intent` field (or tool params fallback) |
+| REST API tools (`api_*`) | ✅ Yes | `_intent` field (or tool params fallback) |
+| Built-in SDK tools | ❌ No | N/A (use their own `description` field for UI) |
 
 Shared summarization utility: `src/utils/summarize.ts`
 

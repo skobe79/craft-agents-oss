@@ -58,6 +58,10 @@ export interface SummarizationContext {
   path?: string;
   /** Tool input parameters */
   input?: Record<string, unknown>;
+  /** The model's stated intent/reasoning before calling the tool (most specific) */
+  modelIntent?: string;
+  /** The user's original request (fallback context) */
+  userRequest?: string;
 }
 
 /**
@@ -89,6 +93,13 @@ export async function summarizeLargeResult(
     ? `Endpoint: ${context.path}`
     : '';
 
+  // Build intent context - prefer model's stated intent, fall back to user request
+  const intentContext = context.modelIntent
+    ? `The AI assistant's goal: "${context.modelIntent.slice(-500)}"`
+    : context.userRequest
+      ? `User's original request: "${context.userRequest.slice(0, 300)}"`
+      : '';
+
   // Truncate response to fit within Haiku's context safely
   const maxChars = MAX_SUMMARIZATION_INPUT * 4; // ~400KB
   const truncatedResponse = response.length > maxChars
@@ -107,18 +118,19 @@ export async function summarizeLargeResult(
 Tool: ${context.toolName}
 ${endpointContext}
 ${inputContext}
+${intentContext ? `\n${intentContext}` : ''}
 ${wasTruncated ? '\nNote: The response was truncated before summarization due to extreme size.' : ''}
 
 Your task:
-1. Extract the MOST RELEVANT information based on the request
-2. Preserve key data points, IDs, URLs, and actionable information
-3. Summarize long text content but keep essential details
+1. Extract the MOST RELEVANT information based on the stated goal or request above
+2. Preserve key data points, IDs, URLs, and actionable information that relate to the goal
+3. Summarize long text content but keep essential details needed to complete the task
 4. Format the output cleanly for the AI assistant to use
 
 Tool result to summarize:
 ${truncatedResponse}
 
-Provide a concise but comprehensive summary that captures the essential information.`
+Provide a concise but comprehensive summary that captures the essential information needed to accomplish the stated goal.`
       }]
     });
 
