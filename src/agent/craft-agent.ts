@@ -914,18 +914,10 @@ export class CraftAgent {
         }
 
         // Get error message regardless of error type
-        let rawErrorMsg = sdkError instanceof Error ? sdkError.message : String(sdkError);
-
-        // Try to parse status code from SDK's "API Error: NNN {...}" format
-        // Note: SDK text errors like "API Error: 402..." are handled in useAgent.ts
-        // via text_complete event. This is a fallback for thrown errors.
-        const sdkApiErrorMatch = rawErrorMsg.match(/API Error:\s*(\d{3})/i);
-        if (sdkApiErrorMatch) {
-          const statusCode = sdkApiErrorMatch[1];
-          this.onDebug?.(`Parsed status code ${statusCode} from SDK error message`);
-          rawErrorMsg = `${statusCode} ${rawErrorMsg}`;
-        }
-
+        // Note: SDK text errors like "API Error: 402..." are primarily handled in useAgent.ts
+        // via text_complete event. This is a fallback for errors that don't emit text first.
+        // parseError() will detect status codes (402, 401, etc.) in the raw message.
+        const rawErrorMsg = sdkError instanceof Error ? sdkError.message : String(sdkError);
         const errorMsg = rawErrorMsg.toLowerCase();
 
         // Debug logging - always log the actual error and context
