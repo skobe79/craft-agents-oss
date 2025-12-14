@@ -216,6 +216,14 @@ export const WorkspaceAdd: React.FC<WorkspaceAddProps> = ({ onComplete, onCancel
       });
 
       if (!validationResult.success) {
+        // Check for API/billing errors - show ErrorBanner
+        if (validationResult.typedError) {
+          setTypedError(validationResult.typedError);
+          setValidationError(null);
+          setStep('url');
+          return;
+        }
+        // Simple validation error - show inline
         setValidationError(getValidationErrorMessage(validationResult));
         return; // Stay on validating step with error
       }
