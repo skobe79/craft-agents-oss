@@ -1449,26 +1449,6 @@ export class CraftAgent {
     // Note: MCP proxy needs to be reinitialized by the caller (useAgent hook)
   }
 
-  /**
-   * Reset all workspace-scoped state. Called when switching workspaces.
-   * Clears security whitelists, active agent, and pending operations.
-   */
-  resetWorkspaceState(): void {
-    // Clear security whitelists (CRITICAL - commands approved in one workspace shouldn't auto-approve in another)
-    this.alwaysAllowedCommands.clear();
-    this.alwaysAllowedDomains.clear();
-
-    // Clear active agent and its servers
-    this.activeAgentDefinition = null;
-    this.agentMcpServers = {};
-    this.agentApiServers = {};
-    this.temporaryClarifications = null;
-
-    // Clear pending operations (they belong to the old workspace's agent)
-    this.pendingPermissions.clear();
-    this.pendingQuestions.clear();
-  }
-
   getSessionId(): string | null {
     return this.sessionId;
   }
