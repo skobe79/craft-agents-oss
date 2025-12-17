@@ -450,6 +450,5 @@ The app supports attaching files to messages (images, PDFs, code files):
 
 ## Current Limitations
 
-1. No permission handling - bash commands execute without approval
-2. No AskUserQuestion UI - agent can't ask clarifying questions
-3. Development only - no electron-builder config for distribution
+1. No AskUserQuestion UI - agent can't ask clarifying questions
+2. Development only - no electron-builder config for distribution

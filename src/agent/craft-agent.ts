@@ -515,6 +515,11 @@ export class CraftAgent {
     this.config = config;
     this.isHeadless = config.isHeadless ?? false;
 
+    // Initialize sessionId from session config for conversation resumption
+    if (config.session?.sdkSessionId) {
+      this.sessionId = config.session.sdkSessionId;
+    }
+
     // Preserve existing plan mode state if already set (e.g., by SHIFT+TAB before agent created)
     const existingState = getPlanModeState();
 
@@ -1528,6 +1533,8 @@ export class CraftAgent {
           // Capture session ID for conversation continuity
           if ('session_id' in message && message.session_id) {
             this.sessionId = message.session_id;
+            // Notify caller of new SDK session ID (for immediate persistence)
+            this.config.onSdkSessionIdUpdate?.(message.session_id);
           }
 
           const events = this.convertSDKMessage(message, pendingToolUses, emittedToolStarts);

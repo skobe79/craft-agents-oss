@@ -11,7 +11,10 @@ export default defineConfig({
     outDir: resolve(__dirname, 'dist/renderer'),
     emptyDirBeforeWrite: true,
     rollupOptions: {
-      input: resolve(__dirname, 'src/renderer/index.html')
+      input: {
+        main: resolve(__dirname, 'src/renderer/index.html'),
+        playground: resolve(__dirname, 'src/renderer/playground.html'),
+      }
     }
   },
   resolve: {

@@ -42,7 +42,8 @@ import { cn } from "@/lib/utils"
 import { Markdown, CollapsibleMarkdownProvider, type RenderMode } from "@/components/markdown"
 import { AttachmentPreview, FileTypeIcon, getFileTypeLabel } from "./AttachmentPreview"
 import { useFocusZone } from "@/hooks/keyboard"
-import type { Session, Message, FileAttachment, StoredAttachment } from "../../../shared/types"
+import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest } from "../../../shared/types"
+import { PermissionBanner } from "./PermissionBanner"
 import { MODELS, getModelDisplayName } from "@config/models"
 import { getSessionTitle } from "@/utils/session"
 
@@ -62,6 +63,10 @@ interface ChatDisplayProps {
   textareaRef?: React.RefObject<HTMLTextAreaElement>
   /** When true, disables input (e.g., when agent needs setup) */
   disabled?: boolean
+  /** Pending permission request for this session */
+  pendingPermission?: PermissionRequest
+  /** Callback to respond to permission request */
+  onRespondToPermission?: (sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) => void
 }
 
 /**
@@ -86,6 +91,8 @@ export function ChatDisplay({
   onDelete,
   textareaRef: externalTextareaRef,
   disabled = false,
+  pendingPermission,
+  onRespondToPermission,
 }: ChatDisplayProps) {
   // Input is disabled when explicitly disabled prop is true OR session is processing
   const isInputDisabled = disabled || session?.isProcessing
@@ -413,6 +420,16 @@ export function ChatDisplay({
 
           {/* Fade gradient - overlays bottom of scroll area */}
           <div className="h-8 -mt-8 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+
+          {/* Permission Banner - shows when agent needs approval for a command */}
+          {pendingPermission && onRespondToPermission && (
+            <PermissionBanner
+              request={pendingPermission}
+              onRespond={(allowed, alwaysAllow) =>
+                onRespondToPermission(pendingPermission.sessionId, pendingPermission.requestId, allowed, alwaysAllow)
+              }
+            />
+          )}
 
           {/* === INPUT CONTAINER: Textarea + Bottom row with controls === */}
           <div className="px-4 pb-4">

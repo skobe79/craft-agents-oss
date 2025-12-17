@@ -51,6 +51,7 @@ import { invalidateDefinition, loadRegistry, clearAgentCredentialsAsync } from '
 import { CraftOAuth, getMcpBaseUrl } from '../../../../../src/auth/oauth.ts';
 import { debug } from '../../../../../src/utils/debug.ts';
 import { containsUltrathink, stripUltrathink } from '../../utils/gradient.ts';
+import { useAgentState } from './useAgentState.ts';
 
 // MCP auth request for sub-agent servers
 export interface PendingMcpAuthRequest {
@@ -259,13 +260,16 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   const [hasExecutingTool, setHasExecutingTool] = useState(false);
   const [typedError, setTypedError] = useState<AgentError | null>(null);
 
-  // Sub-agent state
+  // Sub-agent state - discovery only (activation state delegated to useAgentState)
   const [availableAgents, setAvailableAgents] = useState<string[]>([]);
-  const [activeAgentDefinition, setActiveAgentDefinition] = useState<SubAgentDefinition | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(false);
-  const [pendingMcpAuth, setPendingMcpAuth] = useState<PendingMcpAuthRequest | null>(null);
-  const [pendingApiAuth, setPendingApiAuth] = useState<PendingApiAuthRequest | null>(null);
-  const [pendingReview, setPendingReview] = useState<PendingReviewRequest | null>(null);
+  // SubAgentManager as state (not ref) so useAgentState can react to it
+  const [subAgentManager, setSubAgentManager] = useState<SubAgentManager | null>(null);
+
+  // Delegate agent activation state to useAgentState hook
+  // This manages pendingMcpAuth, pendingApiAuth, pendingReview internally
+  const agentState = useAgentState(workspace.id, subAgentManager);
+
   // Ultrathink mode (extended thinking)
   const [isUltrathink, setIsUltrathink] = useState(false);
 
@@ -278,7 +282,9 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   // Todos (from TodoWrite tool)
   const [todos, setTodos] = useState<TodoItem[]>([]);
 
+
   const agentRef = useRef<CraftAgent | null>(null);
+  // Keep ref for backward compatibility with existing code that uses agentManagerRef.current
   const agentManagerRef = useRef<SubAgentManager | null>(null);
   const mcpClientRef = useRef<CraftMcpClient | null>(null);
   const toolStartTimeRef = useRef<Map<string, number>>(new Map());
@@ -520,6 +526,10 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
           mcpToken: token || undefined,
         });
         agentManagerRef.current = manager;
+        // Also set state so useAgentState can react to it
+        if (!cancelled) {
+          setSubAgentManager(manager);
+        }
 
         // Discover agents
         const agents = await manager.discoverAgents();
@@ -546,6 +556,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
         mcpClientRef.current = null;
       }
       agentManagerRef.current = null;
+      setSubAgentManager(null);
       // Clear agent instructions callbacks
       setUpdateAgentInstructionsContextProvider(null);
       setUpdateAgentInstructionsResultCallback(null);
@@ -553,11 +564,80 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       setGlobalPermissionHandler(null);
       activeAgentContextRef.current = null;
       updateInstructionsToolMsgIdRef.current = null;
-      setActiveAgentDefinition(null);
+      // Agent state is managed by useAgentState - it will reset when subAgentManager becomes null
       // Don't clear availableAgents here - it causes race condition with token refresh
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id, workspace.mcpUrl, workspace.isPublic, getMcpToken]);
+
+  // Subscribe to agentState extraction progress for UI messages
+  // Track extraction message ID and start time for progress updates
+  const extractionMsgIdRef = useRef<string | null>(null);
+  const extractionStartTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!agentState.manager) return;
+
+    const unsubProgress = agentState.manager.on('progress', (event) => {
+      // Create or update extraction message for tool_start events
+      if (event.type === 'extraction_progress' || event.type === 'tool_start') {
+        if (!extractionMsgIdRef.current) {
+          // Create initial extraction message
+          extractionMsgIdRef.current = `extraction-${Date.now()}`;
+          extractionStartTimeRef.current = Date.now();
+          setMessages(prev => [...prev, {
+            id: extractionMsgIdRef.current!,
+            type: 'tool',
+            content: event.message || '',
+            timestamp: Date.now(),
+            toolName: 'Loading Agent',
+            toolInput: { agent: agentState.agentName || 'unknown' },
+            toolStatus: 'executing',
+          }]);
+        } else {
+          // Update existing extraction message with progress
+          setMessages(prev => prev.map(m =>
+            m.id === extractionMsgIdRef.current
+              ? { ...m, content: event.message || '' }
+              : m
+          ));
+        }
+      }
+    });
+
+    const unsubStatus = agentState.manager.on('status', (status) => {
+      // Update extraction message when extraction completes (transitions out of 'extracting')
+      if (extractionMsgIdRef.current && status.status !== 'extracting') {
+        const duration = extractionStartTimeRef.current
+          ? Date.now() - extractionStartTimeRef.current
+          : undefined;
+        const definition = 'definition' in status ? status.definition : null;
+
+        setMessages(prev => prev.map(m =>
+          m.id === extractionMsgIdRef.current
+            ? {
+                ...m,
+                toolStatus: status.status === 'error' ? 'error' as const : 'completed' as const,
+                toolResult: status.status === 'error'
+                  ? 'Failed to load agent'
+                  : `Loaded ${definition?.instructions?.length || 0} chars of instructions`,
+                toolDuration: duration,
+                isError: status.status === 'error',
+              }
+            : m
+        ));
+
+        // Clear the refs for next extraction
+        extractionMsgIdRef.current = null;
+        extractionStartTimeRef.current = null;
+      }
+    });
+
+    return () => {
+      unsubProgress();
+      unsubStatus();
+    };
+  }, [agentState.manager, agentState.agentName]);
 
   const getAgent = useCallback(() => {
     if (!agentRef.current) {
@@ -1289,7 +1369,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }]);
   }, [getAgent]);
 
-  // Sub-agent functions
+  // Sub-agent functions - now delegating state management to useAgentState
   const activateAgent = useCallback(async (name: string): Promise<boolean | 'pending_auth'> => {
     debug('[useAgent.activateAgent] Activating:', name, 'manager exists:', !!agentManagerRef.current);
     if (!agentManagerRef.current) {
@@ -1297,135 +1377,49 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       return false;
     }
 
-    // Check if fresh extraction is needed (cache miss)
-    const needsExtraction = await agentManagerRef.current.needsFreshExtractionByName(name);
-    debug('[useAgent.activateAgent] needsExtraction:', needsExtraction);
-
-    // Show extraction progress message if needed
-    let extractionMsgId: string | null = null;
-    const extractionStartTime = Date.now();
-    if (needsExtraction) {
-      extractionMsgId = `extraction-${Date.now()}`;
-      setMessages(prev => [...prev, {
-        id: extractionMsgId!,
-        type: 'tool',
-        content: '',
-        timestamp: Date.now(),
-        toolName: 'Loading Agent',
-        toolInput: { agent: name },
-        toolStatus: 'executing',
-      }]);
+    // Get the agent ID from the name
+    const agents = await agentManagerRef.current.getAvailableAgents();
+    const agentMeta = agents.find(a => a.name.toLowerCase() === name.toLowerCase());
+    if (!agentMeta) {
+      debug('[useAgent.activateAgent] Agent not found:', name);
+      return false;
     }
+    const agentId = agentMeta.id;
 
-    const definition = await agentManagerRef.current.activateAgent(name, (event: ExtractionProgressEvent) => {
-      debug('[useAgent.activateAgent] Progress event:', event.type, event.message);
-      // Update extraction message with progress
-      if (extractionMsgId && event.type === 'tool_start') {
-        debug('[useAgent.activateAgent] Updating extraction message with:', event.message);
-        setMessages(prev => prev.map(m =>
-          m.id === extractionMsgId
-            ? { ...m, content: event.message }
-            : m
-        ));
+    // Delegate to agentState - handles extraction, review, and auth checks
+    const resultStatus = await agentState.activate(agentId);
+    debug('[useAgent.activateAgent] agentState.activate returned:', resultStatus.status);
+
+    // Handle result status
+    switch (resultStatus.status) {
+      case 'ready': {
+        // All checks passed - complete activation
+        const definition = resultStatus.definition;
+        const mcpServers = await agentState.buildMcpServerConfig();
+        const apiServers = await agentState.buildApiServers();
+        const isFirstTimeSetup = true; // agentState tracks this internally
+        debug('[useAgent.activateAgent] Completing activation');
+        activationComplete(definition, mcpServers, apiServers, name, isFirstTimeSetup, agentId);
+        agentState.markActive();
+        return true;
       }
-    });
-
-    // Update extraction message on completion
-    if (extractionMsgId) {
-      const duration = Date.now() - extractionStartTime;
-      if (definition) {
-        setMessages(prev => prev.map(m =>
-          m.id === extractionMsgId
-            ? {
-                ...m,
-                toolStatus: 'completed' as const,
-                toolResult: `Loaded ${definition.instructions?.length || 0} chars of instructions`,
-                toolDuration: duration,
-              }
-            : m
-        ));
-      } else {
-        setMessages(prev => prev.map(m =>
-          m.id === extractionMsgId
-            ? {
-                ...m,
-                toolStatus: 'error' as const,
-                toolResult: 'Failed to load agent',
-                toolDuration: duration,
-                isError: true,
-              }
-            : m
-        ));
-      }
-    }
-
-    if (definition) {
-      // Get the agent ID from the registry
-      const agents = await agentManagerRef.current.getAvailableAgents();
-      const agentMeta = agents.find(a => a.name.toLowerCase() === name.toLowerCase());
-      const agentId = agentMeta?.id || name;
-
-      setActiveAgentDefinition(definition);
-
-      // Check if definition has concerns that need user input (only on fresh extraction)
-      if (needsExtraction && definition.concerns && definition.concerns.length > 0) {
-        debug('[useAgent.activateAgent] Concerns found:', definition.concerns.length);
-        setPendingReview({
-          agentId,
-          agentName: name,
-          definition,
-          concerns: definition.concerns,
-        });
-        return 'pending_auth';  // Reuse 'pending_auth' to indicate async flow
-      }
-
-      // Check if any MCP servers need authentication OR validation
-      const serversNeedingAuth = await agentManagerRef.current.getMcpServersNeedingAuth(definition);
-      const noAuthServers = agentManagerRef.current.getNoAuthMcpServers(definition);
-      const allServersToValidate = [...serversNeedingAuth, ...noAuthServers];
-
-      if (allServersToValidate.length > 0) {
-        debug('[useAgent.activateAgent] Servers needing auth/validation:', allServersToValidate.map(s => s.name));
-        // Trigger auth/validation flow - don't complete activation until done
-        setPendingMcpAuth({
-          servers: allServersToValidate,
-          agentId,
-          agentName: name,
-          definition,
-        });
+      case 'needs_review':
+      case 'needs_mcp_auth':
+      case 'needs_api_auth':
+        // Waiting for user input - return pending
+        debug('[useAgent.activateAgent] Needs user input:', resultStatus.status);
         return 'pending_auth';
-      }
-
-      // Check if any APIs need authentication
-      const apisNeedingAuth = await agentManagerRef.current.getApisNeedingAuth(definition);
-      if (apisNeedingAuth.length > 0) {
-        debug('[useAgent.activateAgent] APIs needing auth:', apisNeedingAuth.map(a => a.name));
-        // Trigger API auth flow
-        setPendingApiAuth({
-          apis: apisNeedingAuth,
-          agentId,
-          agentName: name,
-          definition,
-        });
-        return 'pending_auth';
-      }
-
-      // No auth needed - complete activation immediately
-      const mcpServers = await agentManagerRef.current.buildMcpServerConfig(definition);
-      const apiServers = await agentManagerRef.current.buildApiServers(definition);
-      debug('[useAgent.activateAgent] No auth needed, completing activation');
-      activationComplete(definition, mcpServers, apiServers, name, needsExtraction, agentId);
-      return true;
+      case 'error':
+        debug('[useAgent.activateAgent] Activation error:', resultStatus.error);
+        return false;
+      default:
+        return false;
     }
-    return false;
-  }, [getAgent, activationComplete]);
+  }, [agentState, activationComplete]);
 
   const deactivateAgent = useCallback(() => {
-    if (agentManagerRef.current) {
-      agentManagerRef.current.deactivateAgent();
-      agentManagerRef.current.clearApiServerCache();
-    }
-    setActiveAgentDefinition(null);
+    // Delegate to agentState - handles SubAgentManager cleanup
+    agentState.deactivate();
     // Clear the CraftAgent's active agent definition, MCP servers, and API servers
     if (agentRef.current) {
       agentRef.current.setActiveAgentDefinition(null, {}, {});
@@ -1435,101 +1429,95 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     setUpdateAgentInstructionsResultCallback(null);
     activeAgentContextRef.current = null;
     setReloadAgentInstructionsCallback(null);
-    // Clear review state to prevent stale UI
-    setPendingReview(null);
-  }, []);
+  }, [agentState]);
 
   // Reload current agent instructions (preserves auth credentials)
   const reloadAgent = useCallback(async (): Promise<boolean> => {
-    if (!activeAgentDefinition || !agentManagerRef.current) {
+    if (!agentState.activeDefinition) {
       return false;
     }
 
-    const agentName = activeAgentDefinition.name;
+    const agentName = agentState.agentName;
+    debug('[useAgent.reloadAgent] Reloading agent:', agentName);
 
-    // Get agent metadata to find the ID
-    const agents = await agentManagerRef.current.getAvailableAgents();
-    const agentMeta = agents.find(a => a.name.toLowerCase() === agentName.toLowerCase());
-    if (!agentMeta) {
-      return false;
+    // Delegate to agentState - handles cache invalidation and re-extraction
+    const resultStatus = await agentState.reload();
+    debug('[useAgent.reloadAgent] agentState.reload returned:', resultStatus.status);
+
+    // Handle result status
+    if (resultStatus.status === 'ready') {
+      // Complete activation with CraftAgent
+      const definition = resultStatus.definition;
+      const mcpServers = await agentState.buildMcpServerConfig();
+      const apiServers = await agentState.buildApiServers();
+      const agentId = agentState.agentId!;
+      activationComplete(definition, mcpServers, apiServers, agentName!, true, agentId);
+      agentState.markActive();
+      return true;
     }
 
-    // Invalidate file cache (not auth)
-    invalidateDefinition(workspace.id, agentMeta.id);
-    debug('[useAgent.reloadAgent] Definition cache invalidated for agent:', agentMeta.id);
+    // 'pending_auth' states mean reload is proceeding but waiting for user input
+    if (resultStatus.status === 'needs_review' ||
+        resultStatus.status === 'needs_mcp_auth' ||
+        resultStatus.status === 'needs_api_auth') {
+      return true; // Proceeding with auth flow
+    }
 
-    // Deactivate first
-    deactivateAgent();
-
-    // Re-activate (will trigger fresh extraction)
-    const result = await activateAgent(agentName);
-    debug('[useAgent.reloadAgent] Re-activation result:', result);
-
-    // 'pending_auth' means reload is proceeding but waiting for user input (review/auth)
-    return result === true || result === 'pending_auth';
-  }, [activeAgentDefinition, workspace.id, deactivateAgent, activateAgent]);
+    return false;
+  }, [agentState, activationComplete]);
 
   // Keep ref updated so the callback can access the latest version
   reloadAgentRef.current = reloadAgent;
 
   // Reset current agent (invalidate cache AND clear auth credentials, then exit to main)
   const resetAgent = useCallback(async (): Promise<boolean> => {
-    if (!activeAgentDefinition || !agentManagerRef.current) {
+    if (!agentState.activeDefinition) {
       return false;
     }
 
-    const agentName = activeAgentDefinition.name;
+    debug('[useAgent.resetAgent] Resetting agent:', agentState.agentName);
 
-    // Get agent metadata to find the ID
-    const agents = await agentManagerRef.current.getAvailableAgents();
-    const agentMeta = agents.find(a => a.name.toLowerCase() === agentName.toLowerCase());
-    if (!agentMeta) {
-      return false;
+    // Delegate to agentState - handles cache invalidation and credential clearing
+    await agentState.reset();
+    debug('[useAgent.resetAgent] agentState.reset completed');
+
+    // Clear the CraftAgent's active agent definition
+    if (agentRef.current) {
+      agentRef.current.setActiveAgentDefinition(null, {}, {});
     }
+    // Clear callbacks for agent tools
+    setUpdateAgentInstructionsContextProvider(null);
+    setUpdateAgentInstructionsResultCallback(null);
+    activeAgentContextRef.current = null;
+    setReloadAgentInstructionsCallback(null);
 
-    // Clear definition cache
-    invalidateDefinition(workspace.id, agentMeta.id);
-    debug('[useAgent.resetAgent] Definition cache cleared for agent:', agentMeta.id);
-
-    // Clear all credentials for this agent from credential store
-    await clearAgentCredentialsAsync(workspace.id, agentMeta.id);
-    debug('[useAgent.resetAgent] Credentials cleared from credential store');
-
-    // Deactivate and return to main (don't re-activate - user can re-select to restart setup)
-    deactivateAgent();
     debug('[useAgent.resetAgent] Agent deactivated, user can re-select to restart setup');
-
     return true;
-  }, [activeAgentDefinition, workspace.id, deactivateAgent]);
+  }, [agentState]);
 
   // Complete MCP auth flow - called when auth finishes (success or failure)
   const completeMcpAuth = useCallback(async (success: boolean) => {
-    if (!pendingMcpAuth || !agentManagerRef.current) {
-      setPendingMcpAuth(null);
+    if (!agentState.isNeedsMcpAuth) {
       return;
     }
 
-    // Check if APIs need auth after MCP auth completes
-    const apisNeedingAuth = await agentManagerRef.current.getApisNeedingAuth(pendingMcpAuth.definition);
-    if (apisNeedingAuth.length > 0) {
-      debug('[completeMcpAuth] APIs needing auth:', apisNeedingAuth.map(a => a.name));
-      // Clear MCP auth and trigger API auth
-      setPendingMcpAuth(null);
-      setPendingApiAuth({
-        apis: apisNeedingAuth,
-        agentId: pendingMcpAuth.agentId,
-        agentName: pendingMcpAuth.agentName,
-        definition: pendingMcpAuth.definition,
-      });
-      return;
-    }
+    debug('[completeMcpAuth] Continuing after MCP auth, success:', success);
 
-    // MCP auth done (no API auth needed) - complete activation
-    // Auth flow only happens on first-time setup, so always show info
-    const mcpServers = await agentManagerRef.current.buildMcpServerConfig(pendingMcpAuth.definition);
-    const apiServers = await agentManagerRef.current.buildApiServers(pendingMcpAuth.definition);
-    debug('[completeMcpAuth] Completing activation, success:', success);
-    activationComplete(pendingMcpAuth.definition, mcpServers, apiServers, pendingMcpAuth.agentName, true, pendingMcpAuth.agentId);
+    // Delegate to agentState - checks for API auth, transitions to ready or needs_api_auth
+    const resultStatus = await agentState.continueAfterMcpAuth();
+    debug('[completeMcpAuth] agentState.continueAfterMcpAuth returned:', resultStatus.status);
+
+    // Handle result status
+    if (resultStatus.status === 'ready') {
+      // All auth done - complete activation
+      const definition = resultStatus.definition;
+      const mcpServers = await agentState.buildMcpServerConfig();
+      const apiServers = await agentState.buildApiServers();
+      const agentId = agentState.agentId!;
+      const agentName = agentState.agentName!;
+      activationComplete(definition, mcpServers, apiServers, agentName, true, agentId);
+      agentState.markActive();
+    }
 
     if (!success) {
       // Warn user that some MCP servers may not work
@@ -1540,14 +1528,12 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
         timestamp: Date.now(),
       }]);
     }
-
-    setPendingMcpAuth(null);
-  }, [pendingMcpAuth, getAgent, activationComplete]);
+    // If status is needs_api_auth, the UI will automatically show API auth
+  }, [agentState, activationComplete]);
 
   // Cancel MCP auth flow - returns to main agent
   const cancelMcpAuth = useCallback(() => {
     debug('[cancelMcpAuth] User cancelled MCP auth, deactivating agent');
-    setPendingMcpAuth(null);
     deactivateAgent();
     setMessages(prev => [...prev, {
       id: `auth-cancelled-${Date.now()}`,
@@ -1558,8 +1544,9 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   }, [deactivateAgent]);
 
   // Trigger auth flow manually (for /auth command)
+  // Note: This manually triggers MCP auth check on the active agent
   const triggerMcpAuth = useCallback(async () => {
-    if (!agentManagerRef.current || !activeAgentDefinition) {
+    if (!agentManagerRef.current || !agentState.activeDefinition) {
       setMessages(prev => [...prev, {
         id: `auth-error-${Date.now()}`,
         type: 'system',
@@ -1569,7 +1556,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       return;
     }
 
-    const serversNeedingAuth = await agentManagerRef.current.getMcpServersNeedingAuth(activeAgentDefinition);
+    const serversNeedingAuth = await agentManagerRef.current.getMcpServersNeedingAuth(agentState.activeDefinition);
     if (serversNeedingAuth.length === 0) {
       setMessages(prev => [...prev, {
         id: `auth-ok-${Date.now()}`,
@@ -1580,20 +1567,17 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       return;
     }
 
-    // Get agent ID
-    const agentId = agentManagerRef.current.getActiveAgent()?.agentId || 'unknown';
-
-    setPendingMcpAuth({
-      servers: serversNeedingAuth,
-      agentId,
-      agentName: activeAgentDefinition.name,
-      definition: activeAgentDefinition,
-    });
-  }, [activeAgentDefinition]);
+    // Re-trigger activation to go through auth flow
+    // This will transition to needs_mcp_auth state
+    const agentId = agentState.agentId;
+    if (agentId) {
+      await agentState.activate(agentId);
+    }
+  }, [agentState]);
 
   // Trigger API auth flow manually (for reauth command)
   const triggerApiAuth = useCallback(async () => {
-    if (!agentManagerRef.current || !activeAgentDefinition) {
+    if (!agentManagerRef.current || !agentState.activeDefinition) {
       setMessages(prev => [...prev, {
         id: `api-auth-error-${Date.now()}`,
         type: 'system',
@@ -1603,7 +1587,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       return;
     }
 
-    const apisNeedingAuth = await agentManagerRef.current.getApisNeedingAuth(activeAgentDefinition);
+    const apisNeedingAuth = await agentManagerRef.current.getApisNeedingAuth(agentState.activeDefinition);
     if (apisNeedingAuth.length === 0) {
       setMessages(prev => [...prev, {
         id: `api-auth-ok-${Date.now()}`,
@@ -1614,29 +1598,36 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       return;
     }
 
-    const agentId = agentManagerRef.current.getActiveAgent()?.agentId || 'unknown';
-
-    setPendingApiAuth({
-      apis: apisNeedingAuth,
-      agentId,
-      agentName: activeAgentDefinition.name,
-      definition: activeAgentDefinition,
-    });
-  }, [activeAgentDefinition]);
+    // Re-trigger activation to go through auth flow
+    const agentId = agentState.agentId;
+    if (agentId) {
+      await agentState.activate(agentId);
+    }
+  }, [agentState]);
 
   // Complete API auth flow - called when API key entry finishes (success or failure)
   const completeApiAuth = useCallback(async (success: boolean) => {
-    if (!pendingApiAuth || !agentManagerRef.current) {
-      setPendingApiAuth(null);
+    if (!agentState.isNeedsApiAuth) {
       return;
     }
 
-    // All auth done - complete activation
-    // Auth flow only happens on first-time setup, so always show info
-    const mcpServers = await agentManagerRef.current.buildMcpServerConfig(pendingApiAuth.definition);
-    const apiServers = await agentManagerRef.current.buildApiServers(pendingApiAuth.definition);
-    debug('[completeApiAuth] Completing activation, success:', success);
-    activationComplete(pendingApiAuth.definition, mcpServers, apiServers, pendingApiAuth.agentName, true, pendingApiAuth.agentId);
+    debug('[completeApiAuth] Continuing after API auth, success:', success);
+
+    // Delegate to agentState - transitions to ready
+    const resultStatus = await agentState.continueAfterApiAuth();
+    debug('[completeApiAuth] agentState.continueAfterApiAuth returned:', resultStatus.status);
+
+    // Handle result status
+    if (resultStatus.status === 'ready') {
+      // All auth done - complete activation
+      const definition = resultStatus.definition;
+      const mcpServers = await agentState.buildMcpServerConfig();
+      const apiServers = await agentState.buildApiServers();
+      const agentId = agentState.agentId!;
+      const agentName = agentState.agentName!;
+      activationComplete(definition, mcpServers, apiServers, agentName, true, agentId);
+      agentState.markActive();
+    }
 
     if (!success) {
       // Warn user that some APIs may not work
@@ -1647,14 +1638,11 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
         timestamp: Date.now(),
       }]);
     }
-
-    setPendingApiAuth(null);
-  }, [pendingApiAuth, getAgent, activationComplete]);
+  }, [agentState, activationComplete]);
 
   // Cancel API auth flow - returns to main agent
   const cancelApiAuth = useCallback(() => {
     debug('[cancelApiAuth] User cancelled API auth, deactivating agent');
-    setPendingApiAuth(null);
     deactivateAgent();
     setMessages(prev => [...prev, {
       id: `auth-cancelled-${Date.now()}`,
@@ -1720,68 +1708,67 @@ The goal is to have clean, actionable instructions without unanswered questions.
 
   // Complete review - user answered the concerns, save and finish activation
   const completeReview = useCallback(async (answers: Record<string, string>) => {
-    if (!pendingReview) return;
+    if (!agentState.isNeedsReview) return;
 
     debug('[completeReview] User answered concerns, saving to document');
 
-    // Build clarifications object
+    // Build clarifications object for saving to Craft document
+    const pendingReviewData = pendingReview; // Get derived value
+    if (!pendingReviewData) return;
+
     const clarifications: PendingClarifications = {
-      agentName: pendingReview.agentName,
-      agentId: pendingReview.agentId,
-      definition: pendingReview.definition,
+      agentName: pendingReviewData.agentName,
+      agentId: pendingReviewData.agentId,
+      definition: pendingReviewData.definition,
       answers,
       refinementRound: 0,
     };
 
-    // Clear the review request
-    setPendingReview(null);
+    // Continue the activation flow - delegate to agentState
+    debug('[completeReview] Continuing after review with agentState');
+    const resultStatus = await agentState.continueAfterReview(answers);
+    debug('[completeReview] agentState.continueAfterReview returned:', resultStatus.status);
 
-    // Go DIRECTLY to save - pass clarifications explicitly
-    // (Can't use state because React hasn't re-rendered yet)
+    // Handle result status
+    if (resultStatus.status === 'ready') {
+      // All checks passed - complete activation
+      const definition = resultStatus.definition;
+      const mcpServers = await agentState.buildMcpServerConfig();
+      const apiServers = await agentState.buildApiServers();
+      const agentId = agentState.agentId!;
+      const agentName = agentState.agentName!;
+      activationComplete(definition, mcpServers, apiServers, agentName, true, agentId);
+      agentState.markActive();
+    }
+    // If needs_mcp_auth or needs_api_auth, UI will automatically show auth
+
+    // Save clarifications to Craft document (after continuing the flow)
     await saveClarificationsWithData(clarifications);
-  }, [pendingReview, saveClarificationsWithData]);
+  }, [agentState, pendingReview, saveClarificationsWithData, activationComplete]);
 
   // Skip review - user wants to skip clarifications and continue with activation
   const skipReview = useCallback(async () => {
-    if (!pendingReview) return;
+    if (!agentState.isNeedsReview) return;
 
     debug('[skipReview] User skipped clarifications');
 
-    const { definition, agentId, agentName } = pendingReview;
-    setPendingReview(null);
+    // Delegate to agentState - continues to auth checks
+    const resultStatus = await agentState.skipReview();
+    debug('[skipReview] agentState.skipReview returned:', resultStatus.status);
 
-    // Continue with activation flow - check for MCP auth, API auth, then complete
-    if (agentManagerRef.current) {
-      // Check if MCP servers need authentication
-      const serversNeedingAuth = await agentManagerRef.current.getMcpServersNeedingAuth(definition);
-      if (serversNeedingAuth.length > 0) {
-        setPendingMcpAuth({
-          servers: serversNeedingAuth,
-          agentId,
-          agentName,
-          definition,
-        });
-        return;
-      }
-
-      // Check if APIs need authentication
-      const apisNeedingAuth = await agentManagerRef.current.getApisNeedingAuth(definition);
-      if (apisNeedingAuth.length > 0) {
-        setPendingApiAuth({
-          apis: apisNeedingAuth,
-          agentId,
-          agentName,
-          definition,
-        });
-        return;
-      }
-
-      // No auth needed - complete activation immediately
-      const mcpServers = await agentManagerRef.current.buildMcpServerConfig(definition);
-      const apiServers = await agentManagerRef.current.buildApiServers(definition);
+    // Handle result status
+    if (resultStatus.status === 'ready') {
+      // All checks passed - complete activation
+      const definition = resultStatus.definition;
+      const mcpServers = await agentState.buildMcpServerConfig();
+      const apiServers = await agentState.buildApiServers();
+      const agentId = agentState.agentId!;
+      const agentName = agentState.agentName!;
       activationComplete(definition, mcpServers, apiServers, agentName, true, agentId);
+      agentState.markActive();
     }
-  }, [pendingReview, activationComplete]);
+    // If needs_mcp_auth or needs_api_auth, UI will automatically show auth
+  }, [agentState, activationComplete]);
 
   const refreshAgents = useCallback(async (): Promise<string[] | { error: string }> => {
     try {
@@ -1819,6 +1806,7 @@ The goal is to have clean, actionable instructions without unanswered questions.
         mcpToken: token || undefined,
       });
       agentManagerRef.current = manager;
+      setSubAgentManager(manager);
 
       // Discover agents
       const agents = await manager.refreshAgents();
@@ -1891,12 +1879,41 @@ The goal is to have clean, actionable instructions without unanswered questions.
     }
 
     return result;
-  }, [activeAgentDefinition]);
+  }, [agentState.activeDefinition]);
 
-  // Derive active agent name from definition
-  const activeAgentName = activeAgentDefinition?.name ?? null;
-  // Derive active agent MCP servers from definition
-  const activeAgentMcpServers = activeAgentDefinition?.mcpServers ?? [];
+  // Derive active agent properties from useAgentState (backward compatible)
+  const activeAgentDefinition = agentState.activeDefinition;
+  const activeAgentName = agentState.agentName;
+  const activeAgentMcpServers = agentState.activeDefinition?.mcpServers ?? [];
+
+  // Derive pending auth/review states from useAgentState for backward compatibility
+  // These match the legacy PendingMcpAuthRequest, PendingApiAuthRequest, PendingReviewRequest interfaces
+  const pendingMcpAuth: PendingMcpAuthRequest | null = agentState.isNeedsMcpAuth
+    ? {
+        servers: agentState.pendingMcpServers!,
+        agentId: agentState.agentId!,
+        agentName: agentState.agentName!,
+        definition: (agentState.status as { definition: SubAgentDefinition }).definition,
+      }
+    : null;
+
+  const pendingApiAuth: PendingApiAuthRequest | null = agentState.isNeedsApiAuth
+    ? {
+        apis: agentState.pendingApis!,
+        agentId: agentState.agentId!,
+        agentName: agentState.agentName!,
+        definition: (agentState.status as { definition: SubAgentDefinition }).definition,
+      }
+    : null;
+
+  const pendingReview: PendingReviewRequest | null = agentState.isNeedsReview
+    ? {
+        agentId: agentState.agentId!,
+        agentName: agentState.agentName!,
+        definition: (agentState.status as { definition: SubAgentDefinition }).definition,
+        concerns: agentState.pendingConcerns!,
+      }
+    : null;
 
   // ============================================
   // Plan Mode Functions
@@ -1964,7 +1981,7 @@ The goal is to have clean, actionable instructions without unanswered questions.
     respondToPermission,
     respondToQuestion,
     // NOTE: model, setModel, workspace, setWorkspace moved to GlobalContext
-    // Sub-agent related
+    // Sub-agent related (derived from useAgentState for backward compatibility)
     availableAgents,
     activeAgentName,
     activeAgentDefinition,
@@ -1976,17 +1993,17 @@ The goal is to have clean, actionable instructions without unanswered questions.
     refreshAgents,
     fetchTools,
     agentsLoading,
-    // MCP auth for sub-agent servers
+    // MCP auth for sub-agent servers (derived from useAgentState)
     pendingMcpAuth,
     completeMcpAuth,
     cancelMcpAuth,
     triggerMcpAuth,
-    // API auth for REST API integrations
+    // API auth for REST API integrations (derived from useAgentState)
     pendingApiAuth,
     completeApiAuth,
     cancelApiAuth,
     triggerApiAuth,
-    // Review mode (concerns from extraction that need user input)
+    // Review mode (derived from useAgentState)
     pendingReview,
     completeReview,
     skipReview,

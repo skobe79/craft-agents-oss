@@ -3,6 +3,7 @@ import { join } from 'path'
 import { existsSync } from 'fs'
 import { SessionManager } from './sessions'
 import { registerIpcHandlers } from './ipc'
+import { createApplicationMenu } from './menu'
 import { IPC_CHANNELS } from '../shared/types'
 
 // Check if running in development mode
@@ -98,6 +99,9 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   app.setName('Craft Agents')
+
+  // Create the application menu
+  createApplicationMenu()
 
   // Set dock icon on macOS (required for dev mode, bundled apps use Info.plist)
   if (process.platform === 'darwin' && app.dock) {

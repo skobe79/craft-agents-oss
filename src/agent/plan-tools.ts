@@ -15,7 +15,7 @@ import {
   formatPlanAsMarkdown,
   getPlansDir,
 } from '../config/storage.ts';
-import { debug } from '../tui/utils/debug.ts';
+import { debug } from '../utils/debug.ts';
 
 // ============================================================
 // Types for UI Integration

@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { SessionManager } from './sessions'
 import { agentService } from './agent-service'
-import { IPC_CHANNELS, type FileAttachment, type StoredAttachment } from '../shared/types'
+import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions } from '../shared/types'
 import { readFileAttachment } from '../../../../src/utils/files'
 import { getSessionAttachmentsPath } from '../../../../src/config/storage'
 import { MarkItDown } from 'markitdown-js'
@@ -159,6 +159,12 @@ export function registerIpcHandlers(sessionManager: SessionManager): void {
   // Rename a session
   ipcMain.handle(IPC_CHANNELS.RENAME_SESSION, async (_event, sessionId: string, name: string) => {
     return sessionManager.renameSession(sessionId, name)
+  })
+
+  // Respond to a permission request (bash command approval)
+  // Returns true if the response was delivered, false if agent/session is gone
+  ipcMain.handle(IPC_CHANNELS.RESPOND_TO_PERMISSION, async (_event, sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) => {
+    return sessionManager.respondToPermission(sessionId, requestId, allowed, alwaysAllow)
   })
 
   // Read a file (with path validation to prevent traversal attacks)
@@ -423,6 +429,55 @@ export function registerIpcHandlers(sessionManager: SessionManager): void {
   // Agent authentication - validate MCP connection
   ipcMain.handle(IPC_CHANNELS.VALIDATE_MCP_CONNECTION, async (_event, serverUrl: string, accessToken?: string) => {
     return agentService.validateMcpConnectionStatus(serverUrl, accessToken)
+  })
+
+  // ============================================================
+  // Agent State Management (unified state machine)
+  // ============================================================
+
+  // Get current agent status for a session
+  ipcMain.handle(IPC_CHANNELS.AGENT_GET_STATUS, async (_event, sessionId: string) => {
+    return sessionManager.getAgentStatus(sessionId)
+  })
+
+  // Start agent activation flow
+  ipcMain.handle(IPC_CHANNELS.AGENT_ACTIVATE, async (_event, sessionId: string, agentId: string, options?: AgentActivateOptions) => {
+    return sessionManager.activateAgentForSession(sessionId, agentId, options)
+  })
+
+  // Continue after user completes review
+  ipcMain.handle(IPC_CHANNELS.AGENT_CONTINUE_REVIEW, async (_event, sessionId: string, answers: Record<string, string>) => {
+    return sessionManager.continueAfterReview(sessionId, answers)
+  })
+
+  // Continue after MCP server auth completes
+  ipcMain.handle(IPC_CHANNELS.AGENT_CONTINUE_MCP_AUTH, async (_event, sessionId: string) => {
+    return sessionManager.continueAfterMcpAuth(sessionId)
+  })
+
+  // Continue after API auth completes
+  ipcMain.handle(IPC_CHANNELS.AGENT_CONTINUE_API_AUTH, async (_event, sessionId: string) => {
+    return sessionManager.continueAfterApiAuth(sessionId)
+  })
+
+  // Deactivate agent for a session
+  ipcMain.handle(IPC_CHANNELS.AGENT_DEACTIVATE, async (_event, sessionId: string) => {
+    return sessionManager.deactivateAgentForSession(sessionId)
+  })
+
+  // Reload agent (clear cache, re-extract)
+  ipcMain.handle(IPC_CHANNELS.AGENT_RELOAD, async (_event, sessionId: string) => {
+    return sessionManager.reloadAgentForSession(sessionId)
+  })
+
+  // Reset agent (clear cache AND credentials)
+  ipcMain.handle(IPC_CHANNELS.AGENT_RESET, async (_event, sessionId: string) => {
+    return sessionManager.resetAgentForSession(sessionId)
+  })
+
+  // Mark agent as active (after definition applied to CraftAgent)
+  ipcMain.handle(IPC_CHANNELS.AGENT_MARK_ACTIVE, async (_event, sessionId: string) => {
+    return sessionManager.markAgentActive(sessionId)
   })
 
   // Shell operations - open URL in external browser

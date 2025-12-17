@@ -18,6 +18,8 @@ export type {
   SubAgentDefinition,
   McpServerConfig,
   ApiConfig,
+  AgentStatus,
+  AgentActivateOptions,
 } from '../../../../src/agents/types.ts';
 export { generateMessageId } from '../../../../packages/core/src/types/index.ts';
 
@@ -53,6 +55,17 @@ export interface AgentSetupStatus {
   needsSetup: boolean  // Agent definition has never been extracted
   needsAuth: boolean   // Definition exists but credentials are missing
   reason?: string
+}
+
+// Re-export permission types from session-manager, extended with sessionId for multi-session context
+export type { PermissionRequest as BasePermissionRequest } from '../../../../packages/session-manager/src/index.ts';
+import type { PermissionRequest as BasePermissionRequest } from '../../../../packages/session-manager/src/index.ts';
+
+/**
+ * Permission request with session context (for multi-session Electron app)
+ */
+export interface PermissionRequest extends BasePermissionRequest {
+  sessionId: string
 }
 
 /**
@@ -131,6 +144,8 @@ export type SessionEvent =
   | { type: 'complete'; sessionId: string }
   | { type: 'status'; sessionId: string; message: string }
   | { type: 'title_generated'; sessionId: string; title: string }
+  | { type: 'agent_status'; sessionId: string; status: import('../../../../src/agents/types.ts').AgentStatus }
+  | { type: 'permission_request'; sessionId: string; request: PermissionRequest }
 
 // IPC channel names
 export const IPC_CHANNELS = {
@@ -143,6 +158,7 @@ export const IPC_CHANNELS = {
   CANCEL_PROCESSING: 'sessions:cancel',
   ARCHIVE_SESSION: 'sessions:archive',
   UNARCHIVE_SESSION: 'sessions:unarchive',
+  RESPOND_TO_PERMISSION: 'sessions:respondToPermission',
 
   // Workspace management
   GET_WORKSPACES: 'workspaces:get',
@@ -164,6 +180,17 @@ export const IPC_CHANNELS = {
   SAVE_API_CREDENTIALS: 'agents:saveApiCredentials',
   VALIDATE_MCP_CONNECTION: 'agents:validateMcpConnection',
 
+  // Agent state management (unified state machine)
+  AGENT_GET_STATUS: 'agent:getStatus',
+  AGENT_ACTIVATE: 'agent:activate',
+  AGENT_CONTINUE_REVIEW: 'agent:continueReview',
+  AGENT_CONTINUE_MCP_AUTH: 'agent:continueMcpAuth',
+  AGENT_CONTINUE_API_AUTH: 'agent:continueApiAuth',
+  AGENT_DEACTIVATE: 'agent:deactivate',
+  AGENT_RELOAD: 'agent:reload',
+  AGENT_RESET: 'agent:reset',
+  AGENT_MARK_ACTIVE: 'agent:markActive',
+
   // Events from main to renderer
   SESSION_EVENT: 'session:event',
 
@@ -184,6 +211,12 @@ export const IPC_CHANNELS = {
   // Shell operations (open external URLs/files)
   OPEN_URL: 'shell:openUrl',
   OPEN_FILE: 'shell:openFile',
+
+  // Menu actions (main → renderer)
+  MENU_NEW_CHAT: 'menu:newChat',
+  MENU_OPEN_SETTINGS: 'menu:openSettings',
+  MENU_KEYBOARD_SHORTCUTS: 'menu:keyboardShortcuts',
+  MENU_OPEN_HELP: 'menu:openHelp',
 } as const
 
 // Re-import types for ElectronAPI
@@ -201,6 +234,7 @@ export interface ElectronAPI {
   cancelProcessing(sessionId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
+  respondToPermission(sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean): Promise<boolean>
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>
@@ -222,6 +256,17 @@ export interface ElectronAPI {
   saveApiCredentials(workspaceId: string, agentId: string, apiName: string, credential: string): Promise<void>
   validateMcpConnection(serverUrl: string, accessToken?: string): Promise<McpValidationResult>
 
+  // Agent state management (unified state machine)
+  getAgentStatus(sessionId: string): Promise<import('../../../../src/agents/types.ts').AgentStatus>
+  activateAgent(sessionId: string, agentId: string, options?: import('../../../../src/agents/types.ts').AgentActivateOptions): Promise<import('../../../../src/agents/types.ts').AgentStatus>
+  continueAfterReview(sessionId: string, answers: Record<string, string>): Promise<import('../../../../src/agents/types.ts').AgentStatus>
+  continueAfterMcpAuth(sessionId: string): Promise<import('../../../../src/agents/types.ts').AgentStatus>
+  continueAfterApiAuth(sessionId: string): Promise<import('../../../../src/agents/types.ts').AgentStatus>
+  deactivateAgent(sessionId: string): Promise<void>
+  reloadAgentState(sessionId: string): Promise<import('../../../../src/agents/types.ts').AgentStatus>
+  resetAgentState(sessionId: string): Promise<void>
+  markAgentActive(sessionId: string): Promise<void>
+
   // Event listener
   onSessionEvent(callback: (event: SessionEvent) => void): () => void
 
@@ -242,6 +287,12 @@ export interface ElectronAPI {
   // Shell operations
   openUrl(url: string): Promise<void>
   openFile(path: string): Promise<void>
+
+  // Menu event listeners
+  onMenuNewChat(callback: () => void): () => void
+  onMenuOpenSettings(callback: () => void): () => void
+  onMenuKeyboardShortcuts(callback: () => void): () => void
+  onMenuOpenHelp(callback: () => void): () => void
 }
 
 declare global {

@@ -148,3 +148,41 @@ export interface AgentRegistry {
   /** When the registry was last refreshed */
   lastRefreshed: number;
 }
+
+/**
+ * Agent activation status - discriminated union representing all possible states.
+ * Used by AgentStateManager to communicate current state to UI components.
+ *
+ * State transitions:
+ * idle → extracting → [needs_review] → [needs_mcp_auth] → [needs_api_auth] → ready → active
+ *                                                                              ↓
+ *                                                                            error
+ */
+export type AgentStatus =
+  | { status: 'idle' }
+  | { status: 'extracting'; agentId: string; agentName: string; message: string }
+  | { status: 'needs_review'; agentId: string; agentName: string; definition: SubAgentDefinition; concerns: Concern[] }
+  | { status: 'needs_mcp_auth'; agentId: string; agentName: string; definition: SubAgentDefinition; servers: McpServerConfig[] }
+  | { status: 'needs_api_auth'; agentId: string; agentName: string; definition: SubAgentDefinition; apis: ApiConfig[] }
+  | { status: 'ready'; agentId: string; agentName: string; definition: SubAgentDefinition }
+  | { status: 'active'; agentId: string; agentName: string; definition: SubAgentDefinition }
+  | { status: 'error'; agentId: string; agentName: string; error: string }
+
+/**
+ * Progress event emitted during agent activation
+ */
+export interface AgentActivationProgress {
+  type: 'extraction_progress' | 'status_change';
+  message?: string;
+  status?: AgentStatus;
+}
+
+/**
+ * Options for AgentStateManager.activate()
+ */
+export interface AgentActivateOptions {
+  /** Force fresh extraction even if cached */
+  forceExtraction?: boolean;
+  /** Skip review step (auto-accept concerns) */
+  skipReview?: boolean;
+}

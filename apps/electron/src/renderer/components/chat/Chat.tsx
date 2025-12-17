@@ -50,7 +50,7 @@ import { useSession } from "@/hooks/useSession"
 import { getResizeGradientStyle } from "@/hooks/useResizeGradient"
 import { useFocusZone, useGlobalShortcuts } from "@/hooks/keyboard"
 import { useFocusContext } from "@/context/FocusContext"
-import type { Session, Workspace, SubAgentMetadata, FileAttachment } from "../../../shared/types"
+import type { Session, Workspace, SubAgentMetadata, FileAttachment, PermissionRequest } from "../../../shared/types"
 
 type ViewMode = 'inbox' | 'archive' | 'agent'
 
@@ -63,6 +63,8 @@ interface ChatProps {
   defaultCollapsed?: boolean
   // Model selection
   currentModel: string
+  // Menu bar trigger - increments when menu bar "New Chat" is clicked
+  menuNewChatTrigger?: number
   onModelChange: (model: string) => void
   // Callbacks
   onSelectWorkspace: (id: string) => void
@@ -77,6 +79,9 @@ interface ChatProps {
   onOpenSettings: () => void
   onOpenKeyboardShortcuts: () => void
   onRefreshAgents: () => void
+  // Permission handling (queue to support multiple concurrent requests)
+  pendingPermissions?: Map<string, PermissionRequest[]>
+  onRespondToPermission?: (sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) => void
 }
 
 /**
@@ -404,6 +409,7 @@ export function Chat({
   defaultLayout = [20, 32, 48],
   defaultCollapsed = false,
   currentModel,
+  menuNewChatTrigger,
   onModelChange,
   onSelectWorkspace,
   onCreateSession,
@@ -417,6 +423,8 @@ export function Chat({
   onOpenSettings,
   onOpenKeyboardShortcuts,
   onRefreshAgents,
+  pendingPermissions,
+  onRespondToPermission,
 }: ChatProps) {
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(!defaultCollapsed)
   const [sidebarWidth, setSidebarWidth] = React.useState(() => {
@@ -648,6 +656,15 @@ export function Chat({
     const newSession = await onCreateSession(activeWorkspace.id, agentId)
     setSession({ selected: newSession.id })
   }, [activeWorkspace, viewMode, selectedAgentId, onCreateSession, setSession])
+
+  // Respond to menu bar "New Chat" trigger
+  const menuTriggerRef = useRef(menuNewChatTrigger)
+  useEffect(() => {
+    // Skip initial render
+    if (menuTriggerRef.current === menuNewChatTrigger) return
+    menuTriggerRef.current = menuNewChatTrigger
+    handleNewChat(true)
+  }, [menuNewChatTrigger, handleNewChat])
 
   // Handle auth dialog completion
   const handleAuthComplete = useCallback((success: boolean) => {
@@ -1212,6 +1229,8 @@ export function Chat({
                 onDelete={selectedSession ? () => onDeleteSession(selectedSession.id) : undefined}
                 textareaRef={chatInputRef}
                 disabled={viewMode === 'agent' && bannerState.state === 'setup'}
+                pendingPermission={selectedSession ? pendingPermissions?.get(selectedSession.id)?.[0] : undefined}
+                onRespondToPermission={onRespondToPermission}
               />
             </ResizablePanel>
           </ResizablePanelGroup>

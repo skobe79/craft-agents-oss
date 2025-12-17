@@ -1,6 +1,4 @@
-import { Settings, Key } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 
 export type BannerState = 'hidden' | 'setup' | 'auth'
 
@@ -29,63 +27,30 @@ export function SetupAuthBanner({
 
   const isSetup = state === 'setup'
 
+  // Default descriptions when no reason provided
+  const defaultDescription = isSetup
+    ? "Set up this agent to start chatting."
+    : "Re-authenticate to continue using this agent."
+
   return (
-    <div
-      className={cn(
-        "w-full px-4 py-3",
-        isSetup
-          ? "bg-primary/5"
-          : "bg-amber-500/10"
-      )}
-    >
-      {/* Line 1: Icon + Title */}
-      <div className="flex items-center gap-2 min-w-0">
-        <div className={cn(
-          "shrink-0",
-          isSetup
-            ? "text-primary"
-            : "text-amber-600 dark:text-amber-500"
-        )}>
-          {isSetup ? (
-            <Settings className="h-4 w-4" />
-          ) : (
-            <Key className="h-4 w-4" />
-          )}
-        </div>
-        <p className={cn(
-          "text-sm font-medium truncate",
-          isSetup
-            ? "text-foreground"
-            : "text-amber-700 dark:text-amber-400"
-        )}>
-          {isSetup ? 'Agent needs setup' : 'Agent needs authentication'}
-        </p>
-      </div>
+    <div className="px-3 py-3">
+      <div className="rounded-lg border border-foreground/10 bg-card p-5 text-center">
+        {/* Title */}
+        <h3 className="text-sm font-semibold text-foreground font-sans">
+          {isSetup ? 'Agent needs setup' : 'Authentication required'}
+        </h3>
 
-      {/* Line 2: Reason */}
-      {reason && (
-        <p className={cn(
-          "text-xs mt-1 truncate",
-          isSetup
-            ? "text-muted-foreground"
-            : "text-amber-600/80 dark:text-amber-500/80"
-        )}>
-          {reason}
+        {/* Description */}
+        <p className="mt-2 text-xs text-muted-foreground">
+          {reason || defaultDescription}
         </p>
-      )}
 
-      {/* Line 3: Action Button */}
-      <div className="mt-2">
+        {/* Action Button */}
         <Button
-          size="sm"
-          variant={isSetup ? "default" : "outline"}
           onClick={onAction}
-          className={cn(
-            "h-7 text-xs",
-            !isSetup && "border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
-          )}
+          className="mt-4 w-full text-sm rounded-lg bg-foreground/5 text-foregdound hover:bg-foreground/10"
         >
-          {isSetup ? 'Set up' : 'Authenticate'}
+          {isSetup ? 'Set Up Agent' : 'Authenticate'}
         </Button>
       </div>
     </div>

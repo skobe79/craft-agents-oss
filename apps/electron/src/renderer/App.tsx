@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import type { Session, Workspace, SessionEvent, Message, SubAgentMetadata, FileAttachment, StoredAttachment } from '../shared/types'
+import type { Session, Workspace, SessionEvent, Message, SubAgentMetadata, FileAttachment, StoredAttachment, PermissionRequest } from '../shared/types'
 import { generateMessageId } from '../shared/types'
 import { Chat } from '@/components/chat/Chat'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -15,6 +15,9 @@ export default function App() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [currentModel, setCurrentModel] = useState(DEFAULT_MODEL)
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false)
+  const [menuNewChatTrigger, setMenuNewChatTrigger] = useState(0)
+  // Permission requests per session (queue to handle multiple concurrent requests)
+  const [pendingPermissions, setPendingPermissions] = useState<Map<string, PermissionRequest[]>>(new Map())
 
   // Global shortcut: Cmd+/ to show keyboard shortcuts
   useGlobalShortcuts({
@@ -55,6 +58,30 @@ export default function App() {
   // Listen for session events
   useEffect(() => {
     const cleanup = window.electronAPI.onSessionEvent((event: SessionEvent) => {
+      // Handle permission requests separately (outside session state)
+      // Use a queue to handle multiple concurrent permission requests
+      if (event.type === 'permission_request') {
+        setPendingPermissions(prev => {
+          const next = new Map(prev)
+          const existingQueue = next.get(event.sessionId) || []
+          next.set(event.sessionId, [...existingQueue, event.request])
+          return next
+        })
+        return
+      }
+
+      // Handle complete event - clear any pending permission for the session
+      if (event.type === 'complete') {
+        setPendingPermissions(prev => {
+          if (prev.has(event.sessionId)) {
+            const next = new Map(prev)
+            next.delete(event.sessionId)
+            return next
+          }
+          return prev
+        })
+      }
+
       setSessions(prev => {
         return prev.map(session => {
           if (session.id !== event.sessionId) return session
@@ -205,6 +232,30 @@ export default function App() {
     })
 
     return cleanup
+  }, [])
+
+  // Listen for menu bar events
+  useEffect(() => {
+    const unsubNewChat = window.electronAPI.onMenuNewChat(() => {
+      setMenuNewChatTrigger(n => n + 1)
+    })
+    const unsubSettings = window.electronAPI.onMenuOpenSettings(() => {
+      handleOpenSettings()
+    })
+    const unsubShortcuts = window.electronAPI.onMenuKeyboardShortcuts(() => {
+      setShortcutsDialogOpen(true)
+    })
+    const unsubHelp = window.electronAPI.onMenuOpenHelp(() => {
+      // Open help documentation URL
+      window.electronAPI.openUrl('https://craft.do/help')
+    })
+
+    return () => {
+      unsubNewChat()
+      unsubSettings()
+      unsubShortcuts()
+      unsubHelp()
+    }
   }, [])
 
   const handleCreateSession = useCallback(async (workspaceId: string, agentId?: string): Promise<Session> => {
@@ -364,6 +415,41 @@ export default function App() {
     }
   }, [activeWorkspaceId])
 
+  const handleRespondToPermission = useCallback(async (sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) => {
+    // Send response to main process
+    const success = await window.electronAPI.respondToPermission(sessionId, requestId, allowed, alwaysAllow)
+
+    if (success) {
+      // Remove only the first permission from the queue (the one we just responded to)
+      setPendingPermissions(prev => {
+        const next = new Map(prev)
+        const queue = next.get(sessionId) || []
+        const remainingQueue = queue.slice(1) // Remove first item
+        if (remainingQueue.length === 0) {
+          next.delete(sessionId)
+        } else {
+          next.set(sessionId, remainingQueue)
+        }
+        return next
+      })
+    } else {
+      // Response failed (agent/session gone) - clear the permission anyway
+      // to avoid UI being stuck with stale permission
+      console.error('Permission response failed - agent may be gone')
+      setPendingPermissions(prev => {
+        const next = new Map(prev)
+        const queue = next.get(sessionId) || []
+        const remainingQueue = queue.slice(1)
+        if (remainingQueue.length === 0) {
+          next.delete(sessionId)
+        } else {
+          next.set(sessionId, remainingQueue)
+        }
+        return next
+      })
+    }
+  }, [])
+
   const handleOpenFile = useCallback(async (path: string) => {
     try {
       await window.electronAPI.openFile(path)
@@ -400,6 +486,7 @@ export default function App() {
             activeWorkspaceId={activeWorkspaceId}
             defaultLayout={[20, 32, 48]}
             currentModel={currentModel}
+            menuNewChatTrigger={menuNewChatTrigger}
             onModelChange={setCurrentModel}
             onSelectWorkspace={setActiveWorkspaceId}
             onCreateSession={handleCreateSession}
@@ -413,6 +500,8 @@ export default function App() {
             onOpenSettings={handleOpenSettings}
             onOpenKeyboardShortcuts={handleOpenKeyboardShortcuts}
             onRefreshAgents={handleRefreshAgents}
+            pendingPermissions={pendingPermissions}
+            onRespondToPermission={handleRespondToPermission}
           />
         </div>
         <KeyboardShortcutsDialog

@@ -37,6 +37,9 @@ export { useHistory } from './input/useHistory.ts';
 // Core hooks
 export { useAgent } from './core/useAgent.ts';
 
+export { useAgentState } from './core/useAgentState.ts';
+export type { UseAgentStateResult } from './core/useAgentState.ts';
+
 export { useResize } from './core/useResize.ts';
 
 export { useElapsedTime } from './core/useElapsedTime.ts';

@@ -47,4 +47,7 @@ export type {
   ActiveAgentState,
   CachedSubAgent,
   AgentRegistry,
+  AgentStatus,
+  AgentActivationProgress,
+  AgentActivateOptions,
 } from './agent.ts';

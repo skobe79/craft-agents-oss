@@ -27,7 +27,8 @@ import { setAnthropicOptionsEnv, setPathToClaudeCodeExecutable } from '../../../
 import { getCraftToken } from '../../../../src/auth/craft-token'
 import { CraftMcpClient } from '../../../../src/mcp/client'
 import { SubAgentManager, type SubAgentManagerConfig } from '../../../../src/agents/manager'
-import type { SubAgentDefinition } from '../../../../src/agents/types'
+import type { SubAgentDefinition, AgentStatus, AgentActivateOptions } from '../../../../src/agents/types'
+import { AgentStateManager } from '../../../../src/agents/agent-state'
 import { type Session, type Message, type SessionEvent, type FileAttachment, type StoredAttachment, IPC_CHANNELS, generateMessageId } from '../shared/types'
 import { generateSessionTitle } from '../../../../src/utils/title-generator'
 import { DEFAULT_MODEL } from '../../../../src/config/models'
@@ -101,6 +102,10 @@ export class SessionManager {
   private mainWindow: BrowserWindow | null = null
   // Cache SubAgentManager per workspace (reused across sessions)
   private agentManagers: Map<string, SubAgentManager> = new Map()
+  // Track in-flight SubAgentManager initialization to prevent duplicate connections
+  private pendingAgentManagers: Map<string, Promise<SubAgentManager | null>> = new Map()
+  // Cache AgentStateManager per session (for unified state machine)
+  private agentStateManagers: Map<string, AgentStateManager> = new Map()
 
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window
@@ -116,6 +121,27 @@ export class SessionManager {
       return this.agentManagers.get(workspace.id)!
     }
 
+    // Check if initialization is already in progress
+    if (this.pendingAgentManagers.has(workspace.id)) {
+      return this.pendingAgentManagers.get(workspace.id)!
+    }
+
+    // Create and track the initialization promise
+    const initPromise = this.initializeAgentManager(workspace)
+    this.pendingAgentManagers.set(workspace.id, initPromise)
+
+    try {
+      return await initPromise
+    } finally {
+      this.pendingAgentManagers.delete(workspace.id)
+    }
+  }
+
+  /**
+   * Internal method to initialize a SubAgentManager
+   * Separated from getAgentManager to support pending promise tracking
+   */
+  private async initializeAgentManager(workspace: Workspace): Promise<SubAgentManager | null> {
     try {
       // Get MCP token for the workspace (returns { authType, token })
       const { token: mcpToken } = await getWorkspaceAccessTokenAsync(workspace.id)
@@ -174,6 +200,143 @@ export class SessionManager {
     } catch (error) {
       console.error(`[SessionManager] Failed to load agent definition ${agentId}:`, error)
       return null
+    }
+  }
+
+  /**
+   * Get or create an AgentStateManager for a session
+   * The manager is cached per session and handles agent activation state
+   */
+  async getAgentStateManager(sessionId: string): Promise<AgentStateManager | null> {
+    // Check cache first
+    if (this.agentStateManagers.has(sessionId)) {
+      return this.agentStateManagers.get(sessionId)!
+    }
+
+    const managed = this.sessions.get(sessionId)
+    if (!managed) {
+      console.warn(`[SessionManager] Session ${sessionId} not found`)
+      return null
+    }
+
+    const subAgentManager = await this.getAgentManager(managed.workspace)
+    if (!subAgentManager) {
+      console.warn(`[SessionManager] Could not create SubAgentManager for session ${sessionId}`)
+      return null
+    }
+
+    // Create AgentStateManager
+    const stateManager = new AgentStateManager(managed.workspace.id, subAgentManager)
+
+    // Subscribe to status changes and forward to renderer
+    stateManager.on('status', (status) => {
+      this.sendEvent({ type: 'agent_status', sessionId, status })
+    })
+
+    // Cache it
+    this.agentStateManagers.set(sessionId, stateManager)
+    console.log(`[SessionManager] Created AgentStateManager for session ${sessionId}`)
+
+    return stateManager
+  }
+
+  /**
+   * Get current agent status for a session
+   */
+  async getAgentStatus(sessionId: string): Promise<AgentStatus> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (!stateManager) {
+      return { status: 'idle' }
+    }
+    return stateManager.getStatus()
+  }
+
+  /**
+   * Activate an agent for a session
+   */
+  async activateAgentForSession(
+    sessionId: string,
+    agentId: string,
+    options?: AgentActivateOptions
+  ): Promise<AgentStatus> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (!stateManager) {
+      return { status: 'error', agentId, agentName: 'unknown', error: 'Could not create state manager' }
+    }
+    return stateManager.activate(agentId, options)
+  }
+
+  /**
+   * Continue after review step
+   */
+  async continueAfterReview(sessionId: string, answers: Record<string, string>): Promise<AgentStatus> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (!stateManager) {
+      return { status: 'idle' }
+    }
+    return stateManager.continueAfterReview(answers)
+  }
+
+  /**
+   * Continue after MCP auth step
+   */
+  async continueAfterMcpAuth(sessionId: string): Promise<AgentStatus> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (!stateManager) {
+      return { status: 'idle' }
+    }
+    return stateManager.continueAfterMcpAuth()
+  }
+
+  /**
+   * Continue after API auth step
+   */
+  async continueAfterApiAuth(sessionId: string): Promise<AgentStatus> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (!stateManager) {
+      return { status: 'idle' }
+    }
+    return stateManager.continueAfterApiAuth()
+  }
+
+  /**
+   * Deactivate agent for a session
+   */
+  async deactivateAgentForSession(sessionId: string): Promise<void> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (stateManager) {
+      stateManager.deactivate()
+    }
+  }
+
+  /**
+   * Reload agent for a session
+   */
+  async reloadAgentForSession(sessionId: string): Promise<AgentStatus> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (!stateManager) {
+      return { status: 'idle' }
+    }
+    return stateManager.reload()
+  }
+
+  /**
+   * Reset agent for a session (clear definition and credentials)
+   */
+  async resetAgentForSession(sessionId: string): Promise<void> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (stateManager) {
+      await stateManager.reset()
+    }
+  }
+
+  /**
+   * Mark agent as active for a session
+   */
+  async markAgentActive(sessionId: string): Promise<void> {
+    const stateManager = await this.getAgentStateManager(sessionId)
+    if (stateManager) {
+      stateManager.markActive()
     }
   }
 
@@ -397,6 +560,19 @@ export class SessionManager {
       })
       console.log(`[SessionManager] Created agent for session ${managed.id}${managed.sdkSessionId ? ' (resuming)' : ''}`)
 
+      // Set up permission handler to forward requests to renderer
+      managed.agent.onPermissionRequest = (request) => {
+        console.log(`[SessionManager] Permission request for session ${managed.id}:`, request.command)
+        this.sendEvent({
+          type: 'permission_request',
+          sessionId: managed.id,
+          request: {
+            ...request,
+            sessionId: managed.id,
+          }
+        })
+      }
+
       // If session has an agent, load and apply the definition
       if (managed.agentId) {
         const definition = await this.loadAgentDefinition(managed.agentId, managed.workspace)
@@ -464,6 +640,14 @@ export class SessionManager {
       }
       this.sessions.delete(sessionId)
     }
+
+    // Clean up AgentStateManager to prevent memory leaks
+    const stateManager = this.agentStateManagers.get(sessionId)
+    if (stateManager) {
+      stateManager.removeAllListeners()
+      this.agentStateManagers.delete(sessionId)
+    }
+
     // Delete from disk too
     deleteStoredSession(sessionId)
 
@@ -565,6 +749,22 @@ export class SessionManager {
   }
 
   /**
+   * Respond to a pending permission request
+   * Returns true if the response was delivered, false if agent/session is gone
+   */
+  respondToPermission(sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean): boolean {
+    const managed = this.sessions.get(sessionId)
+    if (managed?.agent) {
+      console.log(`[SessionManager] Permission response for ${requestId}: allowed=${allowed}, alwaysAllow=${alwaysAllow}`)
+      managed.agent.respondToPermission(requestId, allowed, alwaysAllow)
+      return true
+    } else {
+      console.warn(`[SessionManager] Cannot respond to permission - no agent for session ${sessionId}`)
+      return false
+    }
+  }
+
+  /**
    * Generate an AI title for a session based on the first exchange
    * Called asynchronously after the first assistant response
    */
@@ -620,6 +820,21 @@ export class SessionManager {
       case 'tool_start':
         // Track tool_use_id -> toolName mapping for later use in tool_result
         managed.pendingTools.set(event.toolUseId, event.toolName)
+
+        // Add tool message immediately (will be updated on tool_result)
+        // This ensures tool calls are persisted even if they don't complete
+        const toolStartMessage: Message = {
+          id: generateMessageId(),
+          role: 'tool',
+          content: `Running ${event.toolName}...`,
+          timestamp: Date.now(),
+          toolName: event.toolName,
+          toolUseId: event.toolUseId,
+          toolInput: event.input,
+          toolStatus: 'pending'
+        }
+        managed.messages.push(toolStartMessage)
+
         this.sendEvent({
           type: 'tool_start',
           sessionId,
@@ -634,16 +849,27 @@ export class SessionManager {
         const toolName = managed.pendingTools.get(event.toolUseId) || 'unknown'
         managed.pendingTools.delete(event.toolUseId)
 
-        const toolMessage: Message = {
-          id: generateMessageId(),
-          role: 'tool',
-          content: event.result || '',
-          timestamp: Date.now(),
-          toolName: toolName,
-          toolUseId: event.toolUseId,
-          toolResult: event.result
+        // Update existing tool message (created on tool_start) instead of creating new one
+        const existingToolMsg = managed.messages.find(m => m.toolUseId === event.toolUseId)
+        if (existingToolMsg) {
+          existingToolMsg.content = event.result || ''
+          existingToolMsg.toolResult = event.result
+          existingToolMsg.toolStatus = 'completed'
+        } else {
+          // Fallback: create new message if not found (shouldn't happen normally)
+          const toolMessage: Message = {
+            id: generateMessageId(),
+            role: 'tool',
+            content: event.result || '',
+            timestamp: Date.now(),
+            toolName: toolName,
+            toolUseId: event.toolUseId,
+            toolResult: event.result,
+            toolStatus: 'completed'
+          }
+          managed.messages.push(toolMessage)
         }
-        managed.messages.push(toolMessage)
+
         this.sendEvent({
           type: 'tool_result',
           sessionId,

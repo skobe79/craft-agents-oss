@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC_CHANNELS, type SessionEvent, type ElectronAPI, type FileAttachment } from '../shared/types'
+import { IPC_CHANNELS, type SessionEvent, type ElectronAPI, type FileAttachment, type AgentActivateOptions } from '../shared/types'
 
 const api: ElectronAPI = {
   // Session management
@@ -11,6 +11,8 @@ const api: ElectronAPI = {
   cancelProcessing: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.CANCEL_PROCESSING, sessionId),
   archiveSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.ARCHIVE_SESSION, sessionId),
   unarchiveSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.UNARCHIVE_SESSION, sessionId),
+  respondToPermission: (sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESPOND_TO_PERMISSION, sessionId, requestId, allowed, alwaysAllow),
 
   // Workspace management
   getWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.GET_WORKSPACES),
@@ -31,6 +33,17 @@ const api: ElectronAPI = {
   saveMcpBearer: (workspaceId: string, agentId: string, serverName: string, token: string) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_MCP_BEARER, workspaceId, agentId, serverName, token),
   saveApiCredentials: (workspaceId: string, agentId: string, apiName: string, credential: string) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_API_CREDENTIALS, workspaceId, agentId, apiName, credential),
   validateMcpConnection: (serverUrl: string, accessToken?: string) => ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_MCP_CONNECTION, serverUrl, accessToken),
+
+  // Agent state management (unified state machine)
+  getAgentStatus: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_GET_STATUS, sessionId),
+  activateAgent: (sessionId: string, agentId: string, options?: AgentActivateOptions) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_ACTIVATE, sessionId, agentId, options),
+  continueAfterReview: (sessionId: string, answers: Record<string, string>) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_CONTINUE_REVIEW, sessionId, answers),
+  continueAfterMcpAuth: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_CONTINUE_MCP_AUTH, sessionId),
+  continueAfterApiAuth: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_CONTINUE_API_AUTH, sessionId),
+  deactivateAgent: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_DEACTIVATE, sessionId),
+  reloadAgentState: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_RELOAD, sessionId),
+  resetAgentState: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_RESET, sessionId),
+  markAgentActive: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_MARK_ACTIVE, sessionId),
 
   // Event listener
   onSessionEvent: (callback: (event: SessionEvent) => void) => {
@@ -74,6 +87,28 @@ const api: ElectronAPI = {
   // Shell operations
   openUrl: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_URL, url),
   openFile: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_FILE, path),
+
+  // Menu event listeners
+  onMenuNewChat: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.MENU_NEW_CHAT, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_NEW_CHAT, handler)
+  },
+  onMenuOpenSettings: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.MENU_OPEN_SETTINGS, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_OPEN_SETTINGS, handler)
+  },
+  onMenuKeyboardShortcuts: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.MENU_KEYBOARD_SHORTCUTS, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_KEYBOARD_SHORTCUTS, handler)
+  },
+  onMenuOpenHelp: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.MENU_OPEN_HELP, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_OPEN_HELP, handler)
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)
