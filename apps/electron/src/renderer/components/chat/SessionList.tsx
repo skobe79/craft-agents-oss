@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { formatDistanceToNow } from "date-fns"
-import { Archive, ArchiveRestore, Trash2, Bot, Pencil, MoreHorizontal, ExternalLink } from "lucide-react"
+import { Archive, ArchiveRestore, Trash2, Pencil, MoreHorizontal, ExternalLink } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -86,7 +86,7 @@ function SessionItem({
         <button
           {...itemProps}
           className={cn(
-            "flex w-full flex-col items-start gap-2 pl-5 pr-4 py-3 text-left text-sm transition-all hover:bg-foreground/5 outline-none",
+            "flex w-full flex-col items-start gap-1.5 pl-5 pr-4 py-3 text-left text-sm transition-all hover:bg-foreground/5 outline-none",
             isSelected && "bg-muted",
             "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           )}
@@ -96,33 +96,28 @@ function SessionItem({
             onKeyDown(e, item)
           }}
         >
-          {/* Card Header Row */}
-          <div className="flex w-full flex-col gap-0.5 pr-6">
-            <div className="flex items-center gap-2">
-              {item.isProcessing && (
-                <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" />
-              )}
-              <div className="font-semibold font-sans truncate">
-                {getSessionTitle(item)}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
-              <span>
-                {item.messages.length} message{item.messages.length !== 1 ? 's' : ''}
-                {item.lastMessageAt && (
-                  <> · {formatDistanceToNow(new Date(item.lastMessageAt), { addSuffix: true })}</>
-                )}
-              </span>
-              {item.agentName && (
-                <span className="flex items-center gap-1 ml-auto">
-                  <Bot className="h-3 w-3" />
-                  {item.agentName}
-                </span>
-              )}
+          {/* Title */}
+          <div className="flex items-center gap-2 w-full pr-6">
+            {item.isProcessing && (
+              <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" />
+            )}
+            <div className="font-semibold font-sans truncate">
+              {getSessionTitle(item)}
             </div>
           </div>
+          {/* Subtitle */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground/70 w-full pr-6">
+            <span>
+              {item.agentName || (
+                <>{item.messages.length} message{item.messages.length !== 1 ? 's' : ''}</>
+              )}
+              {item.lastMessageAt && (
+                <> · {formatDistanceToNow(new Date(item.lastMessageAt), { addSuffix: true })}</>
+              )}
+            </span>
+          </div>
           {/* Preview Text */}
-          <div className="line-clamp-2 text-xs text-muted-foreground">
+          <div className="line-clamp-2 text-xs text-muted-foreground leading-relaxed">
             {preview}
           </div>
         </button>
@@ -338,7 +333,7 @@ export function SessionList({
         ) : (
           sortedItems.map((item, index) => {
             const lastMessage = item.messages[item.messages.length - 1]
-            const preview = lastMessage?.content?.slice(0, 300) || 'New conversation'
+            const preview = lastMessage?.content?.slice(0, 300) || 'New chat'
             const itemProps = getItemProps(item, index)
 
             return (

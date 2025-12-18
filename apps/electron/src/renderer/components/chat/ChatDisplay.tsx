@@ -34,7 +34,19 @@ import { LoadingIndicator } from "@/components/ui/loading-indicator"
 import { useFocusZone } from "@/hooks/keyboard"
 import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest } from "../../../shared/types"
 import { PermissionBanner } from "./PermissionBanner"
+import { SetupAuthBanner, type BannerState } from "./SetupAuthBanner"
 import { MODELS, getModelDisplayName } from "@config/models"
+
+/** Agent setup state for showing setup indicator in input area */
+interface AgentSetupState {
+  /** Banner state matching SetupAuthBanner */
+  state: BannerState
+  agentName?: string
+  /** Optional reason/message to display */
+  reason?: string
+  /** Action callback (activate, retry, authenticate) */
+  onAction: () => void
+}
 
 interface ChatDisplayProps {
   session: Session | null
@@ -52,6 +64,8 @@ interface ChatDisplayProps {
   pendingPermission?: PermissionRequest
   /** Callback to respond to permission request */
   onRespondToPermission?: (sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) => void
+  /** Agent setup state - when present, shows setup indicator in input area */
+  agentSetupState?: AgentSetupState
 }
 
 /**
@@ -75,6 +89,7 @@ export function ChatDisplay({
   disabled = false,
   pendingPermission,
   onRespondToPermission,
+  agentSetupState,
 }: ChatDisplayProps) {
   // Input is only disabled when explicitly disabled (e.g., agent needs activation)
   // User can type during streaming - submitting will stop the stream and send
@@ -316,7 +331,7 @@ export function ChatDisplay({
       {session ? (
         <div className="flex flex-1 flex-col min-h-0 min-w-0">
           {/* === MESSAGES AREA: Scrollable list of message bubbles === */}
-          <ScrollArea className="flex-1 min-w-0 font-mono">
+          <ScrollArea className="flex-1 min-w-0">
             <div className="px-5 py-4 space-y-4 min-w-0">
               {session.messages.length === 0 ? (
                 /* Empty State: Welcome message for new sessions */
@@ -405,114 +420,126 @@ export function ChatDisplay({
 
           {/* === INPUT CONTAINER: Textarea + Bottom row with controls === */}
           <div className="px-4 pb-4 font-mono">
-            <form onSubmit={handleSubmit}>
-              <div
-                className={cn(
-                  "rounded-xl border bg-background overflow-hidden transition-all",
-                  isDraggingOver && "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/5"
-                )}
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-              >
-                {/* Attachment Preview - ChatGPT-style bubbles above textarea */}
-                <AttachmentPreview
-                  attachments={attachments}
-                  onRemove={handleRemoveAttachment}
-                  disabled={isInputDisabled}
-                  loadingCount={loadingCount}
-                />
-
-                {/* Textarea - 4 lines minimum height */}
-                <textarea
-                  ref={textareaRef}
-                  className="w-full min-h-[100px] px-4 py-3 bg-transparent outline-none text-sm placeholder:text-muted-foreground resize-none focus-visible:ring-0"
-                  placeholder={`Message ${session.workspaceName || 'Chat'}...`}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
+            {agentSetupState && agentSetupState.state !== 'hidden' ? (
+              /* Agent Setup Banner - shown instead of input when agent needs setup */
+              <SetupAuthBanner
+                state={agentSetupState.state}
+                agentName={agentSetupState.agentName}
+                reason={agentSetupState.reason}
+                onAction={agentSetupState.onAction}
+                variant="inputAreaCover"
+              />
+            ) : (
+              /* Normal Input Form */
+              <form onSubmit={handleSubmit}>
+                <div
+                  className={cn(
+                    "rounded-xl border bg-background overflow-hidden transition-all",
+                    isDraggingOver && "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/5"
+                  )}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
-                  disabled={isInputDisabled}
-                  rows={3}
-                />
-
-                {/* Bottom Row: Attach, Model selector, Send */}
-                <div className="flex items-center gap-1 px-2 py-2 border-t border-border/50">
-                  {/* Attach File Button */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0"
-                    onClick={handleAttachClick}
+                >
+                  {/* Attachment Preview - ChatGPT-style bubbles above textarea */}
+                  <AttachmentPreview
+                    attachments={attachments}
+                    onRemove={handleRemoveAttachment}
                     disabled={isInputDisabled}
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </Button>
+                    loadingCount={loadingCount}
+                  />
 
-                  {/* Model Selector Dropdown */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 gap-1 text-xs shrink-0 hover:bg-foreground/5 data-[state=open]:bg-foreground/5"
-                      >
-                        <Sparkles className="h-3.5 w-3.5" />
-                        {getModelDisplayName(currentModel)}
-                        <ChevronDown className="h-3 w-3 opacity-50" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <StyledDropdownMenuContent side="top" align="start" sideOffset={8}>
-                      {MODELS.map((model) => (
-                        <StyledDropdownMenuItem
-                          key={model.id}
-                          onClick={() => onModelChange(model.id)}
-                          className={cn(currentModel === model.id && "bg-foreground/10")}
+                  {/* Textarea - 4 lines minimum height */}
+                  <textarea
+                    ref={textareaRef}
+                    className="w-full min-h-[100px] px-4 py-3 bg-transparent outline-none text-sm placeholder:text-muted-foreground resize-none focus-visible:ring-0"
+                    placeholder={`Message ${session.workspaceName || 'Chat'}...`}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    disabled={isInputDisabled}
+                    rows={3}
+                  />
+
+                  {/* Bottom Row: Attach, Model selector, Send */}
+                  <div className="flex items-center gap-1 px-2 py-2 border-t border-border/50">
+                    {/* Attach File Button */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={handleAttachClick}
+                      disabled={isInputDisabled}
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+
+                    {/* Model Selector Dropdown */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1 text-xs shrink-0 hover:bg-foreground/5 data-[state=open]:bg-foreground/5"
                         >
-                          {model.name}
-                        </StyledDropdownMenuItem>
-                      ))}
-                    </StyledDropdownMenuContent>
-                  </DropdownMenu>
+                          <Sparkles className="h-3.5 w-3.5" />
+                          {getModelDisplayName(currentModel)}
+                          <ChevronDown className="h-3 w-3 opacity-50" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <StyledDropdownMenuContent side="top" align="start" sideOffset={8}>
+                        {MODELS.map((model) => (
+                          <StyledDropdownMenuItem
+                            key={model.id}
+                            onClick={() => onModelChange(model.id)}
+                            className={cn(currentModel === model.id && "bg-foreground/10")}
+                          >
+                            {model.name}
+                          </StyledDropdownMenuItem>
+                        ))}
+                      </StyledDropdownMenuContent>
+                    </DropdownMenu>
 
-                  {/* Spacer */}
-                  <div className="flex-1" />
+                    {/* Spacer */}
+                    <div className="flex-1" />
 
-                  {/* Send/Stop Button - show send if there's content, stop if processing with no content */}
-                  {(() => {
-                    const hasContent = input.trim() || attachments.length > 0
-                    // Show send button if there's content OR not processing
-                    if (hasContent || !session?.isProcessing) {
+                    {/* Send/Stop Button - show send if there's content, stop if processing with no content */}
+                    {(() => {
+                      const hasContent = input.trim() || attachments.length > 0
+                      // Show send button if there's content OR not processing
+                      if (hasContent || !session?.isProcessing) {
+                        return (
+                          <Button
+                            type="submit"
+                            size="icon"
+                            className="h-7 w-7 rounded-full shrink-0"
+                            disabled={!hasContent || disabled}
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </Button>
+                        )
+                      }
+                      // Show stop button when processing with no content
                       return (
                         <Button
-                          type="submit"
+                          type="button"
                           size="icon"
-                          className="h-7 w-7 rounded-full shrink-0"
-                          disabled={!hasContent || disabled}
+                          variant="secondary"
+                          className="h-7 w-7 rounded-full shrink-0 hover:bg-foreground/15 active:bg-foreground/20"
+                          onClick={handleStop}
                         >
-                          <ArrowUp className="h-4 w-4" />
+                          <Square className="h-3 w-3 fill-current" />
                         </Button>
                       )
-                    }
-                    // Show stop button when processing with no content
-                    return (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="secondary"
-                        className="h-7 w-7 rounded-full shrink-0 hover:bg-foreground/15 active:bg-foreground/20"
-                        onClick={handleStop}
-                      >
-                        <Square className="h-3 w-3 fill-current" />
-                      </Button>
-                    )
-                  })()}
+                    })()}
+                  </div>
                 </div>
-              </div>
-            </form>
+              </form>
+            )}
           </div>
         </div>
       ) : null}

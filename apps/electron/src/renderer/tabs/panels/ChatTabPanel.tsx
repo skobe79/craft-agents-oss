@@ -32,7 +32,7 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
     textareaRef,
   } = useChatContext()
 
-  const { closeTab } = useTabs()
+  const { closeTab, openAgentSetupTab } = useTabs()
 
   // Find the session for this tab - check early to avoid unnecessary hook calls
   const session = sessions.find((s) => s.id === chatTab.sessionId) || null
@@ -66,6 +66,93 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
     [onOpenUrl]
   )
 
+  // Handler to activate agent directly (shows progress in this panel)
+  const handleActivateAgent = React.useCallback(() => {
+    if (session?.agentId) {
+      agentState.activate()
+    }
+  }, [session?.agentId, agentState])
+
+  // Handler to open agent setup wizard (for review/auth states)
+  const handleOpenSetupWizard = React.useCallback(() => {
+    if (session?.agentId) {
+      openAgentSetupTab(
+        session.agentId,
+        chatTab.workspaceId,
+        session?.agentName || 'Agent'
+      )
+    }
+  }, [session?.agentId, session?.agentName, chatTab.workspaceId, openAgentSetupTab])
+
+  // Auto-mark agent as active when ready (no extra click needed)
+  const { isReady, markActive } = agentState
+  React.useEffect(() => {
+    if (isReady && session?.agentId) {
+      markActive()
+    }
+  }, [isReady, session?.agentId, markActive])
+
+  // Determine agent setup state for input area indicator
+  // Maps agent state to SetupAuthBanner state
+  // Note: Main process handles auto-activation for already-configured idle agents
+  const agentSetupState = React.useMemo(() => {
+    if (!session?.agentId) return undefined
+
+    // Agent needs initial activation (main process returns 'idle' only if setup is truly needed)
+    if (agentState.isIdle) {
+      return {
+        state: 'setup' as const,
+        agentName: agentState.agentName || session.agentName,
+        onAction: handleActivateAgent,
+      }
+    }
+    // Agent is being extracted/activated
+    if (agentState.isExtracting) {
+      return {
+        state: 'activating' as const,
+        agentName: agentState.agentName || session.agentName,
+        reason: agentState.extractionMessage || undefined,
+        onAction: handleOpenSetupWizard,
+      }
+    }
+    // Agent needs review (questions to answer)
+    if (agentState.isNeedsReview) {
+      return {
+        state: 'review' as const,
+        agentName: agentState.agentName || session.agentName,
+        onAction: handleOpenSetupWizard,
+      }
+    }
+    // Agent needs MCP server authentication
+    if (agentState.isNeedsMcpAuth) {
+      return {
+        state: 'mcp_auth' as const,
+        agentName: agentState.agentName || session.agentName,
+        onAction: handleOpenSetupWizard,
+      }
+    }
+    // Agent needs API credentials
+    if (agentState.isNeedsApiAuth) {
+      return {
+        state: 'api_auth' as const,
+        agentName: agentState.agentName || session.agentName,
+        onAction: handleOpenSetupWizard,
+      }
+    }
+    // Agent activation failed
+    if (agentState.isError) {
+      return {
+        state: 'error' as const,
+        agentName: agentState.agentName || session.agentName,
+        reason: agentState.errorMessage || undefined,
+        onAction: () => agentState.reload(),
+      }
+    }
+    // Agent is ready or active - no banner needed
+    // (ready state auto-transitions to active via useEffect above)
+    return undefined
+  }, [session?.agentId, session?.agentName, agentState, handleActivateAgent, handleOpenSetupWizard])
+
   // Handle missing session (deleted while tab was open)
   if (!session) {
     return (
@@ -79,59 +166,6 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
         >
           Close Tab
         </Button>
-      </div>
-    )
-  }
-
-  // Show agent loading state (extracting definition)
-  // This shows when the first message triggers agent activation
-  if (agentState.isExtracting && session.agentId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <Spinner className="text-lg" />
-          <Bot className="h-6 w-6" />
-        </div>
-        <p className="text-sm">{agentState.extractionMessage || 'Loading agent...'}</p>
-        <p className="text-xs text-muted-foreground/60">{agentState.agentName || session.agentName}</p>
-      </div>
-    )
-  }
-
-  // Show agent error state
-  if (agentState.isError && session.agentId) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground p-4">
-        <div className="flex items-center gap-2 text-destructive">
-          <AlertCircle className="h-6 w-6" />
-          <Bot className="h-6 w-6" />
-        </div>
-        <p className="text-sm font-medium">Agent activation failed</p>
-        <p className="text-xs text-center max-w-md">{agentState.errorMessage}</p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => agentState.reload()}
-        >
-          Retry
-        </Button>
-      </div>
-    )
-  }
-
-  // Show auth required state
-  if ((agentState.isNeedsMcpAuth || agentState.isNeedsApiAuth) && session.agentId) {
-    const authType = agentState.isNeedsMcpAuth ? 'MCP server' : 'API'
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground p-4">
-        <div className="flex items-center gap-2 text-amber-500">
-          <AlertCircle className="h-6 w-6" />
-          <Bot className="h-6 w-6" />
-        </div>
-        <p className="text-sm font-medium">Authentication required</p>
-        <p className="text-xs text-center max-w-md">
-          This agent requires {authType} authentication. Please configure credentials in the agent settings.
-        </p>
       </div>
     )
   }
@@ -151,6 +185,7 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
       textareaRef={textareaRef}
       pendingPermission={pendingPermission}
       onRespondToPermission={onRespondToPermission}
+      agentSetupState={agentSetupState}
     />
   )
 }

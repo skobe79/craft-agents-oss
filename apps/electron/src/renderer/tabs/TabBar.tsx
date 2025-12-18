@@ -18,10 +18,19 @@ const MAX_TAB_WIDTH = 200
 
 interface TabBarProps {
   className?: string
+  /**
+   * Optional callback to override default close behavior.
+   * If provided, this is called instead of closeTab.
+   * Use this to add cleanup logic (e.g., deleting empty sessions).
+   */
+  onClose?: (tabId: string) => void
 }
 
-export function TabBar({ className }: TabBarProps) {
+export function TabBar({ className, onClose }: TabBarProps) {
   const { tabs, activeTabId, setActiveTab, closeTab, isTabBarVisible } = useTabs()
+
+  // Use custom onClose if provided, otherwise use default closeTab
+  const handleClose = onClose ?? closeTab
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = React.useState(0)
   const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null)
@@ -66,10 +75,10 @@ export function TabBar({ className }: TabBarProps) {
   return (
     <div
       ref={containerRef}
-      className={cn('h-[28px] shrink-0 bg-foreground/5 mx-2 mb-2 p-[1px] rounded-full overflow-x-auto scrollbar-hide', className)}
+      className={cn('h-[32px] shrink-0 bg-foreground/5 mx-2 mb-2 p-[1px] rounded-full overflow-x-auto scrollbar-hide', className)}
     >
       <div
-        className="flex items-stretch h-[26px]"
+        className="flex items-stretch h-[30px]"
         style={{ width: needsScroll ? 'max-content' : '100%' }}
       >
         {tabs.map((tab, index) => {
@@ -91,7 +100,7 @@ export function TabBar({ className }: TabBarProps) {
               isLast={isLast}
               hideSeparator={hideSeparator}
               onActivate={() => setActiveTab(tab.id)}
-              onClose={() => closeTab(tab.id)}
+              onClose={() => handleClose(tab.id)}
               onMouseEnter={() => setHoveredIndex(index)}
               onMouseLeave={() => setHoveredIndex(null)}
               width={needsScroll ? MIN_TAB_WIDTH : undefined}
@@ -123,7 +132,7 @@ function TabItem({ tab, isActive, isLast, hideSeparator, onActivate, onClose, on
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={cn(
-        'group relative flex items-center gap-1 px-2 text-[11px] font-medium select-none outline-none',
+        'group relative flex items-center gap-1 px-2 text-[12px] font-medium select-none outline-none',
         'focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring rounded-full',
         !width && 'flex-1 min-w-0',
         isActive

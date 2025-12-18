@@ -114,6 +114,8 @@ export class SessionManager {
   // Cache AgentStateManager per agent (agent-scoped: workspaceId:agentId)
   // This is the single source of truth for agent activation state
   private agentStateManagers: Map<string, AgentStateManager> = new Map()
+  // Deduplication lock for clarifications saving
+  private savingClarifications: Set<string> = new Set()
 
   setWindowManager(wm: WindowManager): void {
     this.windowManager = wm
@@ -316,12 +318,20 @@ export class SessionManager {
 
     // Get definition before continuing (may transition state)
     const definition = stateManager.getDefinition()
-    const agentName = stateManager.getAgentName()
+    const agentName = stateManager.getAgentName() || agentId
 
     // Save clarifications to Craft document NOW (during activation)
     if (Object.keys(answers).length > 0 && definition) {
-      console.log(`[SessionManager] Saving clarifications for ${agentName || agentId} (${Object.keys(answers).length} answers)`)
-      await this.saveClarificationsToDocument(workspaceId, agentId, agentName || agentId, answers, definition)
+      console.log(`[SessionManager] Saving clarifications for ${agentName} (${Object.keys(answers).length} answers)`)
+      const result = await this.saveClarificationsToDocument(workspaceId, agentId, agentName, answers, definition)
+      if (!result.success) {
+        return {
+          status: 'error',
+          agentId,
+          agentName,
+          error: `Failed to save clarifications: ${result.error}`
+        }
+      }
     }
 
     // Continue the state machine
@@ -330,6 +340,7 @@ export class SessionManager {
 
   /**
    * Save clarifications to Craft document using workspace MCP client
+   * Returns success/error result for proper error propagation
    */
   private async saveClarificationsToDocument(
     workspaceId: string,
@@ -337,13 +348,21 @@ export class SessionManager {
     agentName: string,
     answers: Record<string, string>,
     definition: SubAgentDefinition
-  ): Promise<void> {
+  ): Promise<{ success: boolean; error?: string }> {
+    // Deduplication - prevent concurrent saves for same agent
+    const lockKey = `${workspaceId}:${agentId}`
+    if (this.savingClarifications.has(lockKey)) {
+      console.log(`[SessionManager] Save already in progress for ${agentName}, skipping`)
+      return { success: true }
+    }
+    this.savingClarifications.add(lockKey)
+
     console.log(`[SessionManager] Saving clarifications for agent ${agentName}`)
 
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) {
-      console.error(`[SessionManager] Cannot save clarifications - workspace ${workspaceId} not found`)
-      return
+      this.savingClarifications.delete(lockKey)
+      return { success: false, error: `Workspace ${workspaceId} not found` }
     }
 
     // Get the document ID from the registry
@@ -391,11 +410,15 @@ The goal is to have clean, actionable instructions without unanswered questions.
       }
       console.log('[SessionManager] Clarifications saved')
 
-      // Invalidate cache
+      // Invalidate cache BEFORE returning (ensures state machine uses fresh definition)
       invalidateDefinition(workspaceId, agentId)
+
+      return { success: true }
     } catch (error) {
       console.error('[SessionManager] Error saving clarifications:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
     } finally {
+      this.savingClarifications.delete(lockKey)
       tempAgent.dispose()
     }
   }

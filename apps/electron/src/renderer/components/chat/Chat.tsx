@@ -799,7 +799,7 @@ export function Chat({
           if (result.needsSetup) {
             setBannerState({ state: 'setup', reason: result.reason })
           } else if (result.needsAuth) {
-            setBannerState({ state: 'auth', reason: result.reason })
+            setBannerState({ state: 'mcp_auth', reason: result.reason })
           } else {
             setBannerState({ state: 'hidden' })
           }

@@ -57,16 +57,23 @@ export function createApplicationMenu(): void {
       ]
     },
 
-    // View menu (dev builds only)
-    ...(!app.isPackaged ? [{
+    // View menu
+    {
       label: 'View',
       submenu: [
-        { role: 'reload' as const },
-        { role: 'forceReload' as const },
-        { type: 'separator' as const },
-        { role: 'toggleDevTools' as const }
+        { role: 'zoomIn' as const },
+        { role: 'zoomOut' as const },
+        { role: 'resetZoom' as const },
+        // Dev tools only in development
+        ...(!app.isPackaged ? [
+          { type: 'separator' as const },
+          { role: 'reload' as const },
+          { role: 'forceReload' as const },
+          { type: 'separator' as const },
+          { role: 'toggleDevTools' as const }
+        ] : [])
       ]
-    }] : []),
+    },
 
     // Window menu
     {
