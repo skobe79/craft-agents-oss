@@ -1093,6 +1093,7 @@ export interface Session {
   agentId?: string;              // Assigned agent ID (for filtering)
   agentName?: string;            // Cached agent name for display
   isArchived?: boolean;          // Whether this session is archived
+  isFlagged?: boolean;           // Whether this session is flagged
 }
 
 // Stored session with conversation data
@@ -1219,6 +1220,7 @@ export interface SessionMetadata {
   agentId?: string;        // Assigned agent ID (for filtering)
   agentName?: string;      // Cached agent name for display (e.g., "work/coder")
   isArchived?: boolean;    // Whether this session is archived
+  isFlagged?: boolean;     // Whether this session is flagged
   agents?: string[];  // Distinct agent names used in this session
   planCount?: number;  // Number of plan files for this session
 }
@@ -1269,6 +1271,7 @@ export function listSessions(workspaceId?: string): SessionMetadata[] {
           agentId: session.agentId,
           agentName: session.agentName,
           isArchived: session.isArchived,
+          isFlagged: session.isFlagged,
           agents: agents.size > 0 ? Array.from(agents) : undefined,
           planCount: planCount > 0 ? planCount : undefined,
         });
@@ -1345,16 +1348,17 @@ export function updateSessionSdkId(sessionId: string, sdkSessionId: string): voi
   }
 }
 
-// Update session metadata (agentId, agentName, isArchived, name)
+// Update session metadata (agentId, agentName, isArchived, isFlagged, name)
 export function updateSessionMetadata(
   sessionId: string,
-  updates: Partial<Pick<Session, 'agentId' | 'agentName' | 'isArchived' | 'name'>>
+  updates: Partial<Pick<Session, 'agentId' | 'agentName' | 'isArchived' | 'isFlagged' | 'name'>>
 ): void {
   const session = loadSession(sessionId);
   if (session) {
     if (updates.agentId !== undefined) session.agentId = updates.agentId;
     if (updates.agentName !== undefined) session.agentName = updates.agentName;
     if (updates.isArchived !== undefined) session.isArchived = updates.isArchived;
+    if (updates.isFlagged !== undefined) session.isFlagged = updates.isFlagged;
     if (updates.name !== undefined) session.name = updates.name;
     saveSession(session);
   }
@@ -1368,6 +1372,21 @@ export function archiveSession(sessionId: string): void {
 // Unarchive a session
 export function unarchiveSession(sessionId: string): void {
   updateSessionMetadata(sessionId, { isArchived: false });
+}
+
+// Flag a session
+export function flagSession(sessionId: string): void {
+  updateSessionMetadata(sessionId, { isFlagged: true });
+}
+
+// Unflag a session
+export function unflagSession(sessionId: string): void {
+  updateSessionMetadata(sessionId, { isFlagged: false });
+}
+
+// List flagged sessions for a workspace
+export function listFlaggedSessions(workspaceId?: string): SessionMetadata[] {
+  return listSessions(workspaceId).filter(s => s.isFlagged === true);
 }
 
 // Assign agent to a session

@@ -21,6 +21,7 @@ export interface Session {
   agentId?: string;              // Assigned agent ID (for filtering)
   agentName?: string;            // Cached agent name for display
   isArchived?: boolean;          // Whether this session is archived
+  isFlagged?: boolean;           // Whether this session is flagged
 }
 
 /**
@@ -48,4 +49,5 @@ export interface SessionMetadata {
   agentId?: string;        // Assigned agent ID (for filtering)
   agentName?: string;      // Cached agent name for display (e.g., "work/coder")
   isArchived?: boolean;    // Whether this session is archived
+  isFlagged?: boolean;     // Whether this session is flagged
 }

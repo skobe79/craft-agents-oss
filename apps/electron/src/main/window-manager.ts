@@ -1,4 +1,4 @@
-import { BrowserWindow, shell, nativeTheme } from 'electron'
+import { BrowserWindow, shell, nativeTheme, Menu, app } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { IPC_CHANNELS } from '../shared/types'
@@ -67,12 +67,28 @@ export class WindowManager {
 
     // Handle navigation in webviews to external URLs
     window.webContents.on('will-navigate', (event, url) => {
-      // Allow navigation within the app, but open external URLs in browser
-      if (!url.startsWith('file://')) {
+      // Allow navigation within the app (file:// in prod, localhost dev server)
+      const isInternalUrl = url.startsWith('file://') ||
+        (VITE_DEV_SERVER_URL && url.startsWith(VITE_DEV_SERVER_URL))
+
+      if (!isInternalUrl) {
         event.preventDefault()
         shell.openExternal(url)
       }
     })
+
+    // Enable right-click context menu in development
+    if (!app.isPackaged) {
+      window.webContents.on('context-menu', (_event, params) => {
+        Menu.buildFromTemplate([
+          { label: 'Inspect Element', click: () => window.webContents.inspectElement(params.x, params.y) },
+          { type: 'separator' },
+          { label: 'Cut', role: 'cut', enabled: params.editFlags.canCut },
+          { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
+          { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
+        ]).popup()
+      })
+    }
 
     // Load the renderer with workspace ID and mode as query params
     const query: Record<string, string> = { workspaceId }

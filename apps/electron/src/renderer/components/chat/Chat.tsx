@@ -11,8 +11,10 @@ import {
   RotateCw,
   CircleAlert,
   CloudOff,
+  CloudCheck,
   PowerOff,
   Globe,
+  Flag,
 } from "lucide-react"
 import { McpIcon } from "../icons/McpIcon"
 import { Spinner } from "@/components/ui/loading-indicator"
@@ -60,7 +62,7 @@ import { useFocusContext } from "@/context/FocusContext"
 import { getSessionTitle } from "@/utils/session"
 import type { Session, Workspace, SubAgentMetadata, FileAttachment, PermissionRequest } from "../../../shared/types"
 
-type ViewMode = 'inbox' | 'archive' | 'agent'
+type ViewMode = 'inbox' | 'archive' | 'flagged' | 'agent'
 
 interface ChatProps {
   workspaces: Workspace[]
@@ -81,6 +83,8 @@ interface ChatProps {
   onDeleteSession: (sessionId: string) => void
   onArchiveSession: (sessionId: string) => void
   onUnarchiveSession: (sessionId: string) => void
+  onFlagSession: (sessionId: string) => void
+  onUnflagSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, name: string) => void
   onSendMessage: (sessionId: string, message: string, attachments?: FileAttachment[]) => void
   onOpenFile: (path: string) => void
@@ -258,51 +262,40 @@ function AgentTree({
         {...itemProps}
         onClick={() => onSelectAgent(agent.id, agent.name)}
         className={cn(
-          "flex w-full items-center gap-2 overflow-hidden rounded-md py-[6px] px-2 text-[13px] select-none outline-none",
+          "flex w-full items-center gap-2 overflow-hidden rounded-[6px] py-[6px] px-2 text-[13px] select-none outline-none",
           "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
           isSelected(agent.id)
-            ? "bg-primary text-primary-foreground dark:bg-muted dark:text-foreground"
+            ? "bg-foreground/[0.07]"
             : "hover:bg-foreground/5",
           (isFocusedItem || isMenuOpen) && !isSelected(agent.id) && "bg-foreground/5"
         )}
         role="treeitem"
         aria-selected={isSelected(agent.id)}
       >
-        <FadingText>
-          {agent.displayName || agent.name.split('/').pop()}
-        </FadingText>
-        {/* Status indicator based on SidebarAgentStatus - visible on hover or when selected */}
+        {/* Status indicator - always visible, before title */}
         {(() => {
           const status = agentStatus?.get(agent.id)
-          const baseClasses = "ml-auto shrink-0 transition-opacity"
-          // Show on hover, or always when agent is selected
-          const visibilityClasses = isSelected(agent.id)
-            ? "opacity-100"
-            : "opacity-0 group-hover/agents:opacity-100"
-          // Color adapts to selected state background
-          const colorClasses = isSelected(agent.id)
-            ? "text-primary-foreground/60 dark:text-foreground/40"
-            : "text-foreground/40"
+          const iconClasses = "h-3.5 w-3.5 shrink-0 text-muted-foreground"
           switch (status) {
             case 'loading':
-              return <Spinner className={cn("text-sm", baseClasses, visibilityClasses, colorClasses)} />
+              return <Spinner className="text-sm shrink-0 text-muted-foreground" />
             case 'needs_setup':
-              return <PowerOff className={cn("h-3.5 w-3.5", baseClasses, visibilityClasses, colorClasses)} />
+              return <PowerOff className={iconClasses} />
             case 'needs_auth':
-              return <CloudOff className={cn("h-3.5 w-3.5", baseClasses, visibilityClasses, colorClasses)} />
+              return <CloudOff className={iconClasses} />
             case 'error':
-              return <CircleAlert className={cn("h-3.5 w-3.5", baseClasses, visibilityClasses, colorClasses)} />
+              return <CircleAlert className={iconClasses} />
             default: {
-              // Ready state - show service logos if available
+              // Ready state - show service logos if available, or check icon
               const logos = agentLogos?.get(agent.id)
               if (!logos || (logos.mcpLogos.length === 0 && logos.apiLogos.length === 0)) {
-                return null
+                return <CloudCheck className={iconClasses} />
               }
               const allServices = [...logos.mcpLogos, ...logos.apiLogos]
               return (
                 <AvatarGroup
                   max={3}
-                  className={cn(baseClasses, visibilityClasses)}
+                  className="shrink-0"
                 >
                   {allServices.map((service, i) => (
                     <ServiceLogo
@@ -314,7 +307,7 @@ function AgentTree({
                           ? <McpIcon className="h-2 w-2" />
                           : <Globe className="h-2 w-2" />
                       }
-                      className="h-4 w-4 rounded-full"
+                      className="h-4 w-4 rounded-[4px]"
                     />
                   ))}
                 </AvatarGroup>
@@ -322,6 +315,9 @@ function AgentTree({
             }
           }
         })()}
+        <FadingText>
+          {agent.displayName || agent.name.split('/').pop()}
+        </FadingText>
       </button>
     )
 
@@ -332,6 +328,7 @@ function AgentTree({
             agent={agent}
             onAction={onAgentAction}
             onOpenChange={(open) => setOpenMenuAgentId(open ? agent.id : null)}
+            canStartConversation={agentStatus?.get(agent.id) === 'ready'}
           >
             {agentButton}
           </AgentContextMenu>
@@ -450,6 +447,8 @@ export function Chat({
   onDeleteSession,
   onArchiveSession,
   onUnarchiveSession,
+  onFlagSession,
+  onUnflagSession,
   onRenameSession,
   onSendMessage,
   onOpenFile,
@@ -630,6 +629,7 @@ export function Chat({
   // Count sessions by archive status (scoped to workspace)
   const inboxCount = workspaceSessions.filter(s => !s.isArchived).length
   const archiveCount = workspaceSessions.filter(s => s.isArchived).length
+  const flaggedCount = workspaceSessions.filter(s => s.isFlagged && !s.isArchived).length
 
   // Get conversation count per agent (scoped to workspace)
   const getConversationCount = React.useCallback((agentId: string) => {
@@ -642,6 +642,8 @@ export function Chat({
       return workspaceSessions.filter(s => !s.isArchived)
     } else if (viewMode === 'archive') {
       return workspaceSessions.filter(s => s.isArchived)
+    } else if (viewMode === 'flagged') {
+      return workspaceSessions.filter(s => s.isFlagged && !s.isArchived)
     } else if (viewMode === 'agent' && selectedAgentId) {
       return workspaceSessions.filter(s => s.agentId === selectedAgentId && !s.isArchived)
     }
@@ -771,6 +773,8 @@ export function Chat({
     onSendMessage,
     onRenameSession,
     onArchiveSession,
+    onFlagSession,
+    onUnflagSession,
     onDeleteSession: handleDeleteSession,
     onRespondToPermission,
     onOpenFile,
@@ -788,6 +792,8 @@ export function Chat({
     onSendMessage,
     onRenameSession,
     onArchiveSession,
+    onFlagSession,
+    onUnflagSession,
     handleDeleteSession,
     onRespondToPermission,
     onOpenFile,
@@ -817,7 +823,6 @@ export function Chat({
         return 'ready'
       case 'extracting':
         return 'loading'
-      case 'needs_review':
       case 'needs_mcp_auth':
       case 'needs_api_auth':
         return 'needs_auth'
@@ -945,6 +950,12 @@ export function Chat({
 
   const handleArchiveClick = useCallback(() => {
     setViewMode('archive')
+    setSelectedAgentId(null)
+    setSession({ selected: null })
+  }, [setSession])
+
+  const handleFlaggedClick = useCallback(() => {
+    setViewMode('flagged')
     setSelectedAgentId(null)
     setSession({ selected: null })
   }, [setSession])
@@ -1292,6 +1303,14 @@ export function Chat({
                       onClick: handleInboxClick,
                     },
                     {
+                      id: "nav:flagged",
+                      title: "Flagged",
+                      label: String(flaggedCount),
+                      icon: Flag,
+                      variant: viewMode === 'flagged' ? "default" : "ghost",
+                      onClick: handleFlaggedClick,
+                    },
+                    {
                       id: "nav:archive",
                       title: "Archive",
                       label: String(archiveCount),
@@ -1471,6 +1490,8 @@ export function Chat({
                   onDelete={handleDeleteSession}
                   onArchive={viewMode !== 'archive' ? onArchiveSession : undefined}
                   onUnarchive={viewMode === 'archive' ? onUnarchiveSession : undefined}
+                  onFlag={onFlagSession}
+                  onUnflag={onUnflagSession}
                   onRename={onRenameSession}
                   onFocusChatInput={focusChatInput}
                   onSessionSelect={(selectedSession, { forceNewTab }) => {

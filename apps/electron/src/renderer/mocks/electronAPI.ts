@@ -133,6 +133,22 @@ export const mockElectronAPI: ElectronAPI = {
     }
   },
 
+  async flagSession(sessionId: string): Promise<void> {
+    await sleep(100)
+    const session = sessions.find(s => s.id === sessionId)
+    if (session) {
+      session.isFlagged = true
+    }
+  },
+
+  async unflagSession(sessionId: string): Promise<void> {
+    await sleep(100)
+    const session = sessions.find(s => s.id === sessionId)
+    if (session) {
+      session.isFlagged = false
+    }
+  },
+
   async sendMessage(sessionId: string, message: string, _attachments?: FileAttachment[]): Promise<void> {
     // This returns immediately - results stream via events
     const session = sessions.find(s => s.id === sessionId)
@@ -500,12 +516,6 @@ console.log(example);
     }
   },
 
-  async continueAfterReview(_workspaceId: string, _agentId: string, _answers: Record<string, string>): Promise<import('../../shared/types').AgentStatus> {
-    await sleep(200)
-    console.log('[Mock] continueAfterReview called')
-    return { status: 'idle' }
-  },
-
   async continueAfterMcpAuth(_workspaceId: string, _agentId: string): Promise<import('../../shared/types').AgentStatus> {
     await sleep(200)
     console.log('[Mock] continueAfterMcpAuth called')
@@ -556,6 +566,13 @@ console.log(example);
 
   onMenuOpenHelp(callback: () => void): () => void {
     console.log('[Mock] onMenuOpenHelp registered')
+    return () => {}
+  },
+
+  // ===== Deep Link Navigation =====
+
+  onDeepLinkNavigate(callback: (nav: import('../../shared/types').DeepLinkNavigation) => void): () => void {
+    console.log('[Mock] onDeepLinkNavigate registered')
     return () => {}
   },
 
@@ -750,6 +767,13 @@ console.log(example);
     await sleep(200)
     console.log('[Mock] updateBillingMethod called:', authType, credential ? '(with credential)' : '(no credential)')
     // Mock: just log, no actual update
+  },
+
+  async getCreditsUrl() {
+    await sleep(300)
+    console.log('[Mock] getCreditsUrl called')
+    // Mock: return a fake URL
+    return 'https://docs.craft.do/assistant-topup?token=mock-token'
   },
 
   // ===== Model Settings =====

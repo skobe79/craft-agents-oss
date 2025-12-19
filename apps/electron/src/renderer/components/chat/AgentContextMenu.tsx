@@ -18,17 +18,20 @@ interface AgentContextMenuProps {
   children: React.ReactNode
   onAction: (action: AgentAction) => void
   onOpenChange?: (open: boolean) => void
+  /** Whether the agent is ready to start a new conversation (set up and authenticated) */
+  canStartConversation?: boolean
 }
 
 /**
  * Context menu for agent items in the sidebar
- * Actions: Info, Reset
+ * Actions: New Conversation (if ready), Info, Reset
  */
 export function AgentContextMenu({
   agent,
   children,
   onAction,
   onOpenChange,
+  canStartConversation = true,
 }: AgentContextMenuProps) {
   return (
     <ContextMenu onOpenChange={onOpenChange}>
@@ -36,11 +39,15 @@ export function AgentContextMenu({
         {children}
       </ContextMenuTrigger>
       <StyledContextMenuContent>
-        <StyledContextMenuItem onClick={() => onAction({ type: 'new_conversation', agent })}>
-          <MessageSquarePlus />
-          New Conversation
-        </StyledContextMenuItem>
-        <StyledContextMenuSeparator />
+        {canStartConversation && (
+          <>
+            <StyledContextMenuItem onClick={() => onAction({ type: 'new_conversation', agent })}>
+              <MessageSquarePlus />
+              New Conversation
+            </StyledContextMenuItem>
+            <StyledContextMenuSeparator />
+          </>
+        )}
         <StyledContextMenuItem onClick={() => onAction({ type: 'info', agent })}>
           <Info />
           Info

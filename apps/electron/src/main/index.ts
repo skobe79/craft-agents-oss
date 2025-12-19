@@ -7,12 +7,16 @@ import { createApplicationMenu } from './menu'
 import { WindowManager } from './window-manager'
 import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces } from '@craft-agent/shared/config'
+import { handleDeepLink } from './deep-link'
 
 // Custom URL scheme for deeplinks (e.g., craftagents://auth-complete)
 const DEEPLINK_SCHEME = 'craftagents'
 
 let windowManager: WindowManager | null = null
 let sessionManager: SessionManager | null = null
+
+// Store pending deep link if app not ready yet (cold start)
+let pendingDeepLink: string | null = null
 
 // Register as default protocol client for craftagents:// URLs
 // This must be done before app.whenReady() on some platforms
@@ -31,14 +35,13 @@ app.on('open-url', (event, url) => {
   event.preventDefault()
   console.log('[Main] Received deeplink:', url)
 
-  // Focus any window or create one if none exist
   if (windowManager) {
-    const windows = windowManager.getAllWindows()
-    if (windows.length > 0) {
-      const win = windows[0].window
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
+    handleDeepLink(url, windowManager).catch(err => {
+      console.error('[Main] Failed to handle deep link:', err)
+    })
+  } else {
+    // App not ready - store for later
+    pendingDeepLink = url
   }
 })
 
@@ -51,12 +54,13 @@ if (!gotTheLock) {
     // Someone tried to run a second instance, we should focus our window.
     // On Windows/Linux, the deeplink is in commandLine
     const url = commandLine.find(arg => arg.startsWith(`${DEEPLINK_SCHEME}://`))
-    if (url) {
+    if (url && windowManager) {
       console.log('[Main] Received deeplink from second instance:', url)
-    }
-
-    // Focus any window or create one if none exist
-    if (windowManager) {
+      handleDeepLink(url, windowManager).catch(err => {
+        console.error('[Main] Failed to handle deep link:', err)
+      })
+    } else if (windowManager) {
+      // No deep link - just focus the first window
       const windows = windowManager.getAllWindows()
       if (windows.length > 0) {
         const win = windows[0].window
@@ -132,6 +136,13 @@ app.whenReady().then(async () => {
 
     // Initialize auth (must happen after window creation for error reporting)
     await sessionManager.initialize()
+
+    // Process pending deep link from cold start
+    if (pendingDeepLink) {
+      console.log('[Main] Processing pending deep link:', pendingDeepLink)
+      await handleDeepLink(pendingDeepLink, windowManager)
+      pendingDeepLink = null
+    }
 
     console.log('[Main] App initialized successfully')
   } catch (error) {

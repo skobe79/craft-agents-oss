@@ -150,7 +150,7 @@ export function CodeBlock({ code, language = 'text', className, mode = 'full' }:
 
     return (
       <div
-        className={cn('font-mono text-sm [&_pre]:!bg-transparent [&_pre]:!p-0 [&_code]:!bg-transparent', className)}
+        className={cn('font-mono text-sm [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:whitespace-pre-wrap [&_pre]:break-all [&_code]:!bg-transparent', className)}
         dangerouslySetInnerHTML={{ __html: highlighted }}
       />
     )
@@ -184,12 +184,12 @@ export function CodeBlock({ code, language = 'text', className, mode = 'full' }:
       {/* Code content */}
       <div className="p-3 overflow-x-auto">
         {isLoading || !highlighted ? (
-          <pre className="font-mono text-sm whitespace-pre-wrap">
+          <pre className="font-mono text-sm whitespace-pre-wrap break-all">
             <code>{code}</code>
           </pre>
         ) : (
           <div
-            className="font-mono text-sm [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!bg-transparent"
+            className="font-mono text-sm [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_pre]:whitespace-pre-wrap [&_pre]:break-all [&_code]:!bg-transparent"
             dangerouslySetInnerHTML={{ __html: highlighted }}
           />
         )}

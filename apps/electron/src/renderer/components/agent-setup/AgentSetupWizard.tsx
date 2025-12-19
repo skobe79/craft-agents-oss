@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils"
 import { StartStep } from "./StartStep"
 import { ExtractingStep } from "./ExtractingStep"
-import { ReviewConcernsStep, type Concern } from "./ReviewConcernsStep"
 import { McpAuthStep, type McpServerConfig, type McpServerAuthStatus } from "./McpAuthStep"
 import { ApiAuthStep, type ApiConfig, type ApiAuthStatus } from "./ApiAuthStep"
 import { ReadyStep } from "./ReadyStep"
@@ -11,7 +10,6 @@ import { ErrorStep } from "./ErrorStep"
 export type AgentSetupStep =
   | 'start'
   | 'extracting'
-  | 'review'
   | 'mcp-auth'
   | 'api-auth'
   | 'ready'
@@ -19,7 +17,7 @@ export type AgentSetupStep =
   | 'error'
 
 // Re-export types for convenience
-export type { Concern, McpServerConfig, McpServerAuthStatus, ApiConfig, ApiAuthStatus }
+export type { McpServerConfig, McpServerAuthStatus, ApiConfig, ApiAuthStatus }
 
 export interface AgentSetupState {
   /** Current step in the flow */
@@ -32,8 +30,6 @@ export interface AgentSetupState {
   agentName: string
   /** Extraction status message */
   extractionMessage?: string
-  /** Concerns that need review */
-  concerns?: Concern[]
   /** MCP servers that need auth */
   mcpServers?: McpServerConfig[]
   /** Auth status per MCP server */
@@ -59,8 +55,6 @@ interface AgentSetupWizardProps {
   onBack?: () => void
   /** Called when user starts the setup (from start step) */
   onStart?: () => void
-  /** Called when user submits concern answers */
-  onSubmitReview?: (answers: Record<number, string>) => void
   /** Called to start OAuth for an MCP server */
   onStartMcpOAuth?: (serverName: string) => void
   /** Called when user enters bearer token for an MCP server */
@@ -96,7 +90,6 @@ export function AgentSetupWizard({
   onCancel,
   onBack,
   onStart,
-  onSubmitReview,
   onStartMcpOAuth,
   onSubmitMcpBearer,
   onSkipMcpServer,
@@ -116,7 +109,6 @@ export function AgentSetupWizard({
     agentId,
     agentName,
     extractionMessage,
-    concerns = [],
     mcpServers = [],
     mcpServerStatus = {},
     apis = [],
@@ -143,17 +135,6 @@ export function AgentSetupWizard({
             agentName={agentName}
             message={extractionMessage}
             onCancel={onCancel}
-          />
-        )
-
-      case 'review':
-        return (
-          <ReviewConcernsStep
-            agentName={agentName}
-            concerns={concerns}
-            onContinue={onSubmitReview}
-            onCancel={onCancel}
-            isLoading={isLoading}
           />
         )
 

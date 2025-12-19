@@ -37,8 +37,6 @@ function mapStatusToWizardStep(status: AgentStatus): AgentSetupStep {
       return 'start'
     case 'extracting':
       return 'extracting'
-    case 'needs_review':
-      return 'review'
     case 'needs_mcp_auth':
       return 'mcp-auth'
     case 'needs_api_auth':
@@ -167,24 +165,6 @@ export default function AgentSetupTabPanel({ tab }: AgentSetupTabPanelProps) {
     await agentState.continueAfterApiAuth()
   }, [agentState])
 
-  // Review submission handler
-  const handleSubmitReview = useCallback(async (answers: Record<number, string>) => {
-    // Convert numeric indices to actual question text as keys
-    // This matches TUI behavior where keys are the question strings
-    const stringAnswers: Record<string, string> = {}
-    const concerns = agentState.pendingConcerns || []
-    for (const [indexStr, value] of Object.entries(answers)) {
-      const index = parseInt(indexStr, 10)
-      const concern = concerns[index]
-      if (concern) {
-        // Use the question text (suggestedQuestion or description) as the key
-        const question = concern.suggestedQuestion || concern.description
-        stringAnswers[question] = value
-      }
-    }
-    await agentState.continueAfterReview(stringAnswers)
-  }, [agentState])
-
   // Retry handler
   const handleRetry = useCallback(async () => {
     // Reset local state
@@ -231,7 +211,6 @@ export default function AgentSetupTabPanel({ tab }: AgentSetupTabPanelProps) {
     agentId,
     agentName: agentState.agentName || agentName,
     extractionMessage: agentState.extractionMessage || undefined,
-    concerns: agentState.pendingConcerns || [],
     mcpServers: agentState.activeDefinition?.mcpServers || agentState.pendingMcpServers || [],
     mcpServerStatus,
     apis: agentState.activeDefinition?.apis || agentState.pendingApis || [],
@@ -248,7 +227,6 @@ export default function AgentSetupTabPanel({ tab }: AgentSetupTabPanelProps) {
         onCancel={handleClose}
         onBack={handleClose}
         onStart={handleStart}
-        onSubmitReview={handleSubmitReview}
         onStartMcpOAuth={handleStartMcpOAuth}
         onSubmitMcpBearer={handleSubmitMcpBearer}
         onSkipMcpServer={handleSkipMcpServer}

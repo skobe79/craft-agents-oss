@@ -129,7 +129,7 @@ export function TabContent({ className }: TabContentProps) {
 
   if (!activeTab) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
+      <div className="flex-1 flex items-center justify-center text-muted-foreground pt-[50px]">
         <p className="text-sm">No tab selected</p>
       </div>
     )

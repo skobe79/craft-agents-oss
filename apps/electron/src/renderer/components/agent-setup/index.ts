@@ -3,7 +3,6 @@
 
 export { StartStep } from './StartStep'
 export { ExtractingStep } from './ExtractingStep'
-export { ReviewConcernsStep } from './ReviewConcernsStep'
 export { McpAuthStep } from './McpAuthStep'
 export { ApiAuthStep } from './ApiAuthStep'
 export { ReadyStep } from './ReadyStep'

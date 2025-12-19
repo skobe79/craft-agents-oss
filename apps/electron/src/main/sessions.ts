@@ -19,6 +19,8 @@ import {
   deleteSession as deleteStoredSession,
   archiveSession as archiveStoredSession,
   unarchiveSession as unarchiveStoredSession,
+  flagSession as flagStoredSession,
+  unflagSession as unflagStoredSession,
   type StoredSession,
   type StoredMessage,
   type SessionMetadata,
@@ -51,6 +53,7 @@ interface ManagedSession {
   agentId?: string
   agentName?: string
   isArchived: boolean
+  isFlagged: boolean
   // SDK session ID for conversation continuity
   sdkSessionId?: string
   // Track whether agent was successfully activated via AgentStateManager
@@ -114,8 +117,6 @@ export class SessionManager {
   // Cache AgentStateManager per agent (agent-scoped: workspaceId:agentId)
   // This is the single source of truth for agent activation state
   private agentStateManagers: Map<string, AgentStateManager> = new Map()
-  // Deduplication lock for clarifications saving
-  private savingClarifications: Set<string> = new Set()
 
   setWindowManager(wm: WindowManager): void {
     this.windowManager = wm
@@ -350,123 +351,6 @@ export class SessionManager {
   }
 
   /**
-   * Continue after review step (agent-scoped)
-   * Saves clarifications to Craft document during activation
-   */
-  async continueAfterReview(workspaceId: string, agentId: string, answers: Record<string, string>): Promise<AgentStatus> {
-    const stateManager = this.getAgentStateManager(workspaceId, agentId)
-    if (!stateManager) {
-      return { status: 'idle' }
-    }
-
-    // Get definition before continuing (may transition state)
-    const definition = stateManager.getDefinition()
-    const agentName = stateManager.getAgentName() || agentId
-
-    // Save clarifications to Craft document NOW (during activation)
-    if (Object.keys(answers).length > 0 && definition) {
-      console.log(`[SessionManager] Saving clarifications for ${agentName} (${Object.keys(answers).length} answers)`)
-      const result = await this.saveClarificationsToDocument(workspaceId, agentId, agentName, answers, definition)
-      if (!result.success) {
-        return {
-          status: 'error',
-          agentId,
-          agentName,
-          error: `Failed to save clarifications: ${result.error}`
-        }
-      }
-    }
-
-    // Continue the state machine
-    return stateManager.continueAfterReview(answers)
-  }
-
-  /**
-   * Save clarifications to Craft document using workspace MCP client
-   * Returns success/error result for proper error propagation
-   */
-  private async saveClarificationsToDocument(
-    workspaceId: string,
-    agentId: string,
-    agentName: string,
-    answers: Record<string, string>,
-    definition: SubAgentDefinition
-  ): Promise<{ success: boolean; error?: string }> {
-    // Deduplication - prevent concurrent saves for same agent
-    const lockKey = `${workspaceId}:${agentId}`
-    if (this.savingClarifications.has(lockKey)) {
-      console.log(`[SessionManager] Save already in progress for ${agentName}, skipping`)
-      return { success: true }
-    }
-    this.savingClarifications.add(lockKey)
-
-    console.log(`[SessionManager] Saving clarifications for agent ${agentName}`)
-
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) {
-      this.savingClarifications.delete(lockKey)
-      return { success: false, error: `Workspace ${workspaceId} not found` }
-    }
-
-    // Get the document ID from the registry
-    const registry = loadRegistry(workspaceId)
-    const agentMeta = registry?.agents.find(a => a.id === agentId)
-    const documentId = agentMeta?.documentId || 'unknown'
-    const blockId = definition.instructionsBlockId || 'unknown'
-
-    // Build clarifications text
-    const clarificationsText = Object.entries(answers)
-      .map(([question, answer]) => `Q: ${question}\nA: ${answer}`)
-      .join('\n\n')
-
-    // Build save prompt
-    const savePrompt = `Update your Instructions document in Craft with these clarifications. This is important:
-
-1. First, use blocks_get to read the current instructions content
-2. Find any open questions or concerns in the instructions that these clarifications answer
-3. REPLACE those questions/concerns with the actual answers - don't just append
-4. Use blocks_update to save the complete updated instructions
-
-Document ID: ${documentId}
-Instructions Block ID: ${blockId}
-
-Clarifications (answers to questions in your instructions):
-${clarificationsText}
-
-The goal is to have clean, actionable instructions without unanswered questions. Remove the questions and integrate the answers naturally into the relevant sections.`
-
-    // Create agent with workspace MCP
-    const config = loadStoredConfig()
-    const tempAgent = new CraftAgent({
-      workspace,
-      model: config?.model,
-    })
-
-    try {
-      console.log('[SessionManager] Sending save clarifications message...')
-      for await (const event of tempAgent.chat(savePrompt)) {
-        if (event.type === 'tool_start') {
-          console.log(`[SessionManager] Clarifications: ${event.toolName}`)
-        } else if (event.type === 'error') {
-          console.error(`[SessionManager] Clarifications error: ${event.message}`)
-        }
-      }
-      console.log('[SessionManager] Clarifications saved')
-
-      // Invalidate cache BEFORE returning (ensures state machine uses fresh definition)
-      invalidateDefinition(workspaceId, agentId)
-
-      return { success: true }
-    } catch (error) {
-      console.error('[SessionManager] Error saving clarifications:', error)
-      return { success: false, error: error instanceof Error ? error.message : String(error) }
-    } finally {
-      this.savingClarifications.delete(lockKey)
-      tempAgent.dispose()
-    }
-  }
-
-  /**
    * Continue after MCP auth step (agent-scoped)
    */
   async continueAfterMcpAuth(workspaceId: string, agentId: string): Promise<AgentStatus> {
@@ -623,6 +507,7 @@ The goal is to have clean, actionable instructions without unanswered questions.
           agentId: storedSession.agentId,
           agentName: storedSession.agentName,
           isArchived: storedSession.isArchived ?? false,
+          isFlagged: storedSession.isFlagged ?? false,
           sdkSessionId: storedSession.sdkSessionId,
           tokenUsage: storedSession.tokenUsage,
         }
@@ -653,6 +538,7 @@ The goal is to have clean, actionable instructions without unanswered questions.
         agentId: managed.agentId,
         agentName: managed.agentName,
         isArchived: managed.isArchived,
+        isFlagged: managed.isFlagged,
         messages: persistableMessages.map(messageToStored),
         tokenUsage: managed.tokenUsage ?? {
           inputTokens: 0,
@@ -686,7 +572,8 @@ The goal is to have clean, actionable instructions without unanswered questions.
         isProcessing: m.isProcessing,
         agentId: m.agentId,
         agentName: m.agentName,
-        isArchived: m.isArchived
+        isArchived: m.isArchived,
+        isFlagged: m.isFlagged
       }))
       .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
   }
@@ -711,7 +598,8 @@ The goal is to have clean, actionable instructions without unanswered questions.
       pendingTools: new Map(),
       agentId,
       agentName,
-      isArchived: false
+      isArchived: false,
+      isFlagged: false
     }
 
     this.sessions.set(storedSession.id, managed)
@@ -730,7 +618,8 @@ The goal is to have clean, actionable instructions without unanswered questions.
       isProcessing: false,
       agentId,
       agentName,
-      isArchived: false
+      isArchived: false,
+      isFlagged: false
     }
   }
 
@@ -787,6 +676,22 @@ The goal is to have clean, actionable instructions without unanswered questions.
     if (managed) {
       managed.isArchived = false
       unarchiveStoredSession(sessionId)
+    }
+  }
+
+  async flagSession(sessionId: string): Promise<void> {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      managed.isFlagged = true
+      flagStoredSession(sessionId)
+    }
+  }
+
+  async unflagSession(sessionId: string): Promise<void> {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      managed.isFlagged = false
+      unflagStoredSession(sessionId)
     }
   }
 
@@ -877,7 +782,7 @@ The goal is to have clean, actionable instructions without unanswered questions.
         // Only activate if not already activated (could be ready/active from setup wizard)
         if (status.status === 'idle') {
           // Activate via state machine (handles registry population, extraction, auth checks)
-          status = await stateManager.activate(managed.agentId, { skipReview: true })
+          status = await stateManager.activate(managed.agentId)
         }
         console.log(`[SessionManager] Agent activation result: ${status.status}`)
 

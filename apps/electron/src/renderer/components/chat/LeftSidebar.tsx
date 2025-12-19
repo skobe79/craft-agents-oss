@@ -40,7 +40,7 @@ interface LeftSidebarProps {
  */
 export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId }: LeftSidebarProps) {
   return (
-    <div className="flex flex-col py-2">
+    <div className="flex flex-col py-2 select-none">
       <nav className="grid gap-0.5 px-2" role="navigation" aria-label="Main navigation">
         {links.map((link) => {
           const itemProps = getItemProps?.(link.id)
@@ -51,30 +51,18 @@ export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId }:
               {...itemProps}
               onClick={link.onClick}
               className={cn(
-                "flex w-full items-center gap-2 rounded-md py-[7px] px-2 text-[13px] select-none outline-none",
+                "flex w-full items-center gap-2 rounded-[6px] py-[7px] px-2 text-[13px] select-none outline-none",
                 "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
                 link.variant === "default"
-                  ? "bg-primary text-primary-foreground dark:bg-muted dark:text-foreground"
+                  ? "bg-foreground/[0.07]"
                   : "hover:bg-foreground/5"
               )}
             >
-              <link.icon className={cn(
-                "h-3.5 w-3.5 shrink-0",
-                link.variant === "default"
-                  ? "text-primary-foreground dark:text-foreground"
-                  : "text-muted-foreground"
-              )} />
+              <link.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               {link.title}
               {/* Label Badge: Shows count or status on the right */}
               {link.label && (
-                <span
-                  className={cn(
-                    "ml-auto text-xs",
-                    link.variant === "default"
-                      ? "text-primary-foreground/50 dark:text-foreground/50"
-                      : "text-muted-foreground/50"
-                  )}
-                >
+                <span className="ml-auto text-xs text-muted-foreground/50">
                   {link.label}
                 </span>
               )}

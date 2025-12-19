@@ -207,6 +207,7 @@ export interface Session {
   agentId?: string
   agentName?: string
   isArchived?: boolean
+  isFlagged?: boolean
 }
 
 // Events sent from main to renderer
@@ -236,6 +237,8 @@ export const IPC_CHANNELS = {
   CANCEL_PROCESSING: 'sessions:cancel',
   ARCHIVE_SESSION: 'sessions:archive',
   UNARCHIVE_SESSION: 'sessions:unarchive',
+  FLAG_SESSION: 'sessions:flag',
+  UNFLAG_SESSION: 'sessions:unflag',
   RESPOND_TO_PERMISSION: 'sessions:respondToPermission',
 
   // Workspace management
@@ -307,6 +310,9 @@ export const IPC_CHANNELS = {
   MENU_KEYBOARD_SHORTCUTS: 'menu:keyboardShortcuts',
   MENU_OPEN_HELP: 'menu:openHelp',
 
+  // Deep link navigation (main → renderer)
+  DEEP_LINK_NAVIGATE: 'deeplink:navigate',
+
   // Auth
   LOGOUT: 'auth:logout',
   SHOW_LOGOUT_CONFIRMATION: 'auth:showLogoutConfirmation',
@@ -328,6 +334,7 @@ export const IPC_CHANNELS = {
   // Settings - Billing
   SETTINGS_GET_BILLING_METHOD: 'settings:getBillingMethod',
   SETTINGS_UPDATE_BILLING_METHOD: 'settings:updateBillingMethod',
+  SETTINGS_GET_CREDITS_URL: 'settings:getCreditsUrl',
 
   // Settings - Model
   SETTINGS_GET_MODEL: 'settings:getModel',
@@ -353,6 +360,8 @@ export interface ElectronAPI {
   cancelProcessing(sessionId: string): Promise<void>
   archiveSession(sessionId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
+  flagSession(sessionId: string): Promise<void>
+  unflagSession(sessionId: string): Promise<void>
   respondToPermission(sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean): Promise<boolean>
 
   // Workspace management
@@ -385,7 +394,6 @@ export interface ElectronAPI {
   // Agent state management (unified state machine, agent-scoped)
   getAgentStatus(workspaceId: string, agentId: string): Promise<AgentStatus>
   activateAgent(workspaceId: string, agentId: string, options?: AgentActivateOptions): Promise<AgentStatus>
-  continueAfterReview(workspaceId: string, agentId: string, answers: Record<string, string>): Promise<AgentStatus>
   continueAfterMcpAuth(workspaceId: string, agentId: string): Promise<AgentStatus>
   continueAfterApiAuth(workspaceId: string, agentId: string): Promise<AgentStatus>
   deactivateAgent(workspaceId: string, agentId: string): Promise<void>
@@ -425,6 +433,9 @@ export interface ElectronAPI {
   onMenuKeyboardShortcuts(callback: () => void): () => void
   onMenuOpenHelp(callback: () => void): () => void
 
+  // Deep link navigation listener
+  onDeepLinkNavigate(callback: (nav: DeepLinkNavigation) => void): () => void
+
   // Auth
   showLogoutConfirmation(): Promise<boolean>
   logout(): Promise<void>
@@ -451,6 +462,7 @@ export interface ElectronAPI {
   // Settings - Billing
   getBillingMethod(): Promise<BillingMethodInfo>
   updateBillingMethod(authType: AuthType, credential?: string): Promise<void>
+  getCreditsUrl(): Promise<string | null>
 
   // Settings - Model
   getModel(): Promise<string | null>
@@ -476,6 +488,16 @@ export interface ClaudeOAuthResult {
 export interface BillingMethodInfo {
   authType: AuthType
   hasCredential: boolean
+}
+
+/**
+ * Navigation payload for deep links (main → renderer)
+ */
+export interface DeepLinkNavigation {
+  tabType?: string
+  tabParams?: Record<string, string>
+  action?: string
+  actionParams?: Record<string, string>
 }
 
 declare global {

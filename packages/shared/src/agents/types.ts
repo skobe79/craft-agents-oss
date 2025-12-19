@@ -45,10 +45,10 @@ export interface SubAgentDefinition {
   mcpServers?: McpServerConfig[];
   /** REST API configs extracted from curl examples or documentation */
   apis?: ApiConfig[];
-  /** Info messages from extraction (warnings, notices, etc.) */
+  /** Info messages from extraction (notices, etc.) */
   info?: string[];
-  /** Concerns identified during extraction that need user clarification */
-  concerns?: Concern[];
+  /** Warnings identified during extraction (non-blocking, informational) */
+  warnings?: string[];
   /** Auto-generated list of key capabilities this agent has */
   capabilities?: string[];
   /** Full raw content for reference */
@@ -125,22 +125,6 @@ export interface ApiConfig {
 }
 
 /**
- * Concern identified during agent definition extraction
- */
-export interface Concern {
-  /** Type of concern */
-  type: 'confusing' | 'conflicting' | 'missing' | 'general';
-  /** Description of the concern */
-  description: string;
-  /** Relevant text from instructions (optional) */
-  context?: string;
-  /** Suggested question to ask user (optional) */
-  suggestedQuestion?: string;
-  /** Pre-defined answer options if logical choices exist (optional) */
-  suggestedAnswers?: string[];
-}
-
-/**
  * Current active agent state
  */
 export interface ActiveAgentState {
@@ -180,14 +164,13 @@ export interface AgentRegistry {
  * Used by AgentStateManager to communicate current state to UI components.
  *
  * State transitions:
- * idle → extracting → [needs_review] → [needs_mcp_auth] → [needs_api_auth] → ready → active
- *                                                                              ↓
- *                                                                            error
+ * idle → extracting → [needs_mcp_auth] → [needs_api_auth] → ready → active
+ *                                                             ↓
+ *                                                           error
  */
 export type AgentStatus =
   | { status: 'idle'; needsSetup?: boolean; needsAuth?: boolean; reason?: string }
   | { status: 'extracting'; agentId: string; agentName: string; message: string }
-  | { status: 'needs_review'; agentId: string; agentName: string; definition: SubAgentDefinition; concerns: Concern[] }
   | { status: 'needs_mcp_auth'; agentId: string; agentName: string; definition: SubAgentDefinition; servers: McpServerConfig[] }
   | { status: 'needs_api_auth'; agentId: string; agentName: string; definition: SubAgentDefinition; apis: ApiConfig[] }
   | { status: 'ready'; agentId: string; agentName: string; definition: SubAgentDefinition }
@@ -209,6 +192,4 @@ export interface AgentActivationProgress {
 export interface AgentActivateOptions {
   /** Force fresh extraction even if cached */
   forceExtraction?: boolean;
-  /** Skip review step (auto-accept concerns) */
-  skipReview?: boolean;
 }

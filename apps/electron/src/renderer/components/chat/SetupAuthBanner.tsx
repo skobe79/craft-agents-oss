@@ -5,7 +5,6 @@ export type BannerState =
   | 'hidden'
   | 'setup'
   | 'activating'
-  | 'review'
   | 'mcp_auth'
   | 'api_auth'
   | 'ready'
@@ -27,7 +26,6 @@ interface SetupAuthBannerProps {
  * - 'hidden': No banner shown
  * - 'setup': Agent has never been configured (needs initial activation)
  * - 'activating': Agent activation/extraction is in progress
- * - 'review': Agent has questions that need user answers
  * - 'mcp_auth': Agent needs MCP server authentication
  * - 'api_auth': Agent needs API credentials
  * - 'ready': Agent is ready to be marked active
@@ -49,8 +47,6 @@ export function SetupAuthBanner({
         return `Activate ${agentName || 'agent'}`
       case 'activating':
         return `Activating ${agentName || 'agent'}...`
-      case 'review':
-        return 'Setup required'
       case 'mcp_auth':
         return 'Connection required'
       case 'api_auth':
@@ -72,8 +68,6 @@ export function SetupAuthBanner({
         return 'Activate this agent to start chatting.'
       case 'activating':
         return 'Setting up agent configuration...'
-      case 'review':
-        return 'This agent needs some information before it can be used.'
       case 'mcp_auth':
         return 'Connect to required services to use this agent.'
       case 'api_auth':
@@ -94,8 +88,6 @@ export function SetupAuthBanner({
         return 'Activate'
       case 'activating':
         return 'View Progress'
-      case 'review':
-        return 'Continue Setup'
       case 'mcp_auth':
         return 'Connect'
       case 'api_auth':
@@ -135,22 +127,20 @@ export function SetupAuthBanner({
     )
   }
 
-  // banner variant (default) - single line for chat list
+  // banner variant (default) - single line for session list (48px, full width, snapped to top)
   return (
-    <div className="px-3 py-3">
-      <div className="rounded-lg border border-foreground/10 bg-card px-4 py-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium text-foreground font-sans flex items-center gap-2">
-          {isActivating && <Spinner className="text-sm" />}
-          {getTitle()}
-        </h3>
-        <Button
-          onClick={onAction}
-          size="sm"
-          className="shrink-0 text-xs"
-        >
-          {getButtonText()}
-        </Button>
-      </div>
+    <div className="h-12 shrink-0 pl-4 pr-2 flex items-center justify-between gap-3 border-b border-border/50 bg-card select-none">
+      <h3 className="text-sm font-medium text-foreground font-sans flex items-center gap-2 min-w-0">
+        {isActivating && <Spinner className="text-sm shrink-0" />}
+        <span className="truncate">{getTitle()}</span>
+      </h3>
+      <Button
+        onClick={onAction}
+        size="sm"
+        className="shrink-0 text-xs rounded-[8px]"
+      >
+        {getButtonText()}
+      </Button>
     </div>
   )
 }

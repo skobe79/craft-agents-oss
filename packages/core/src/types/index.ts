@@ -46,7 +46,6 @@ export type {
   SubAgentDefinition,
   McpServerConfig,
   ApiConfig,
-  Concern,
   ActiveAgentState,
   CachedSubAgent,
   AgentRegistry,

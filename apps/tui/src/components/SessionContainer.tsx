@@ -16,7 +16,6 @@ import { PlanReview } from './PlanReview.tsx';
 import { TodoList } from './TodoList.tsx';
 import { McpAuth } from './McpAuth.tsx';
 import { ApiAuth } from './ApiAuth.tsx';
-import { AgentReview } from './AgentReview.tsx';
 import { PlanMenu, type PlanAction } from './PlanMenu.tsx';
 import { PlanSelector, type PlanFile } from './PlanSelector.tsx';
 import { SessionMenu } from './SessionMenu.tsx';
@@ -165,10 +164,6 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
     completeApiAuth,
     cancelApiAuth,
     triggerApiAuth,
-    // Review mode
-    pendingReview,
-    completeReview,
-    skipReview,
     // Plan mode
     activePlan,
     planMode,
@@ -334,7 +329,6 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
       initialPromptPendingRef.current &&
       !pendingMcpAuth &&
       !pendingApiAuth &&
-      !pendingReview &&
       activeAgentName
     ) {
       debug('[SessionContainer] Auth completed, sending pending initial prompt');
@@ -342,7 +336,7 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
       initialPromptPendingRef.current = null;
       sendMessage(prompt);
     }
-  }, [pendingMcpAuth, pendingApiAuth, pendingReview, activeAgentName, sendMessage]);
+  }, [pendingMcpAuth, pendingApiAuth, activeAgentName, sendMessage]);
 
   // Handle terminal resize
   const handleTerminalResize = useCallback(() => {
@@ -721,7 +715,7 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
     }
 
     if (input === '\x03' || (key.ctrl && input === 'c')) {
-      debug('[SessionContainer] main useInput Ctrl+C detected:', { pendingPermission: !!pendingPermission, isProcessing, hasOpenModal, pendingQuestion: !!pendingQuestion, pendingMcpAuth: !!pendingMcpAuth, pendingApiAuth: !!pendingApiAuth, pendingReview: !!pendingReview });
+      debug('[SessionContainer] main useInput Ctrl+C detected:', { pendingPermission: !!pendingPermission, isProcessing, hasOpenModal, pendingQuestion: !!pendingQuestion, pendingMcpAuth: !!pendingMcpAuth, pendingApiAuth: !!pendingApiAuth });
       if (pendingPermission) {
         debug('[SessionContainer] Denying permission');
         respondToPermission(false, false);
@@ -730,7 +724,7 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
         interrupt();
       } else {
         // Only handle if Input is not rendered (Input handles its own Ctrl+C)
-        const inputIsRendered = !hasOpenModal && !pendingPermission && !pendingQuestion && !pendingMcpAuth && !pendingApiAuth && !pendingReview;
+        const inputIsRendered = !hasOpenModal && !pendingPermission && !pendingQuestion && !pendingMcpAuth && !pendingApiAuth;
         debug('[SessionContainer] inputIsRendered:', inputIsRendered);
         if (!inputIsRendered) {
           // Double-press logic for modals/overlays
@@ -954,18 +948,6 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
         />
       )}
 
-      {/* Agent review */}
-      {pendingReview && (
-        <Box marginTop={1} paddingX={1}>
-          <AgentReview
-            agentName={pendingReview.agentName}
-            concerns={pendingReview.concerns}
-            onSubmit={completeReview}
-            onSkip={skipReview}
-          />
-        </Box>
-      )}
-
       {/* Input + Status bar + Header together at bottom */}
       <Box flexDirection="column" width="100%" paddingX={1}>
         {/* Typed error banner */}
@@ -1045,7 +1027,7 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
           </Box>
         )}
 
-        {!hasOpenModal && !pendingPermission && !pendingQuestion && !pendingCraftQuestion && !pendingPlanReview && !pendingMcpAuth && !pendingApiAuth && !pendingReview && (
+        {!hasOpenModal && !pendingPermission && !pendingQuestion && !pendingCraftQuestion && !pendingPlanReview && !pendingMcpAuth && !pendingApiAuth && (
           <Input
             onSubmit={handleSubmit}
             onPaste={handlePaste}

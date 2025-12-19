@@ -2,7 +2,6 @@ import * as React from "react"
 import { useEffect } from "react"
 import { useAtom } from "jotai"
 import {
-  Sparkles,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -330,8 +329,10 @@ export function ChatDisplay({
       {session ? (
         <div className="flex flex-1 flex-col min-h-0 min-w-0">
           {/* === MESSAGES AREA: Scrollable list of message bubbles === */}
+          {/* Top fade gradient - overlays top of scroll area (pr-2 avoids scrollbar) */}
+          <div className="h-8 mb-[-2rem] relative z-10 bg-gradient-to-b from-background to-transparent pointer-events-none pr-2" />
           <ScrollArea className="flex-1 min-w-0">
-            <div className="px-5 py-4 space-y-4 min-w-0">
+            <div className="px-5 py-8 space-y-4 min-w-0">
               {session.messages.length === 0 ? (
                 /* Empty State: Welcome message for new sessions */
                 <div className="flex flex-col items-center justify-center h-64 text-muted-foreground px-8">
@@ -397,8 +398,8 @@ export function ChatDisplay({
             </div>
           </ScrollArea>
 
-          {/* Fade gradient - overlays bottom of scroll area */}
-          <div className="h-8 -mt-8 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+          {/* Bottom fade gradient - overlays bottom of scroll area (pr-2 avoids scrollbar) */}
+          <div className="h-8 -mt-8 relative z-10 bg-gradient-to-t from-background to-transparent pointer-events-none pr-2" />
 
           {/* Permission Banner - shows when agent needs approval for a command */}
           {pendingPermission && onRespondToPermission && (
@@ -411,7 +412,7 @@ export function ChatDisplay({
           )}
 
           {/* === INPUT CONTAINER: Textarea + Bottom row with controls === */}
-          <div className="px-4 pb-4 font-mono">
+          <div className="px-4 pb-4 mt-1">
             {agentSetupState && agentSetupState.state !== 'hidden' ? (
               /* Agent Setup Banner - shown instead of input when agent needs setup */
               <SetupAuthBanner
@@ -426,7 +427,7 @@ export function ChatDisplay({
               <form onSubmit={handleSubmit}>
                 <div
                   className={cn(
-                    "rounded-xl border bg-background overflow-hidden transition-all",
+                    "rounded-[8px] bg-background overflow-hidden transition-all shadow-middle",
                     isDraggingOver && "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/5"
                   )}
                   onDragEnter={handleDragEnter}
@@ -478,7 +479,6 @@ export function ChatDisplay({
                           size="sm"
                           className="h-7 gap-1 text-xs shrink-0 hover:bg-foreground/5 data-[state=open]:bg-foreground/5"
                         >
-                          <Sparkles className="h-3.5 w-3.5" />
                           {getModelDisplayName(currentModel)}
                           <ChevronDown className="h-3 w-3 opacity-50" />
                         </Button>
@@ -566,15 +566,10 @@ function ToolGroup({ messages, onOpenFile, onOpenUrl }: ToolGroupProps) {
   const hiddenCount = messages.length - COLLAPSED_COUNT
 
   return (
-    <div className="my-2">
-      <div className="border rounded-lg overflow-hidden">
+    <div className="mt-2 mb-4">
+      <div className="overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 border-b">
-          <div className={cn(
-            "w-2 h-2 rounded-full",
-            hasRunningTool ? "bg-amber-500 animate-pulse" :
-            hasError ? "bg-destructive" : "bg-green-500"
-          )} />
+        <div className="px-3 pb-0.5">
           <span className="text-xs font-medium text-muted-foreground">
             {hasRunningTool ? 'Running tools...' :
              `${messages.length} tool${messages.length > 1 ? 's' : ''} completed`}
@@ -582,7 +577,7 @@ function ToolGroup({ messages, onOpenFile, onOpenUrl }: ToolGroupProps) {
         </div>
 
         {/* Tool list */}
-        <div className="py-1">
+        <div>
           {visibleMessages.map(msg => (
             <MessageBubble
               key={msg.id}
@@ -598,7 +593,7 @@ function ToolGroup({ messages, onOpenFile, onOpenUrl }: ToolGroupProps) {
         {messages.length > COLLAPSED_COUNT && allCompleted && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="w-full px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 border-t transition-colors flex items-center justify-center gap-1"
+            className="w-full px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/50 transition-colors flex items-center justify-center gap-1"
           >
             {expanded ? (
               <>
@@ -761,12 +756,12 @@ function MessageBubble({
           </div>
         )}
         {/* Text content bubble */}
-        <div className="max-w-[80%] bg-primary text-primary-foreground rounded-lg px-4 py-1 break-words min-w-0">
+        <div className="max-w-[80%] bg-foreground/5 rounded-[16px] px-4 py-1 break-words min-w-0">
           <Markdown
             mode="minimal"
             onUrlClick={onOpenUrl}
             onFileClick={onOpenFile}
-            className="text-sm [&_a]:text-primary-foreground [&_a]:underline [&_code]:bg-primary-foreground/20 [&_code]:text-primary-foreground"
+            className="text-sm [&_a]:underline [&_code]:bg-foreground/10"
           >
             {message.content}
           </Markdown>
@@ -790,7 +785,7 @@ function MessageBubble({
 
     return (
       <div className="flex justify-start">
-        <div className="max-w-[80%] bg-muted rounded-lg pl-6 pr-4 py-3 break-words min-w-0">
+        <div className="max-w-[80%] bg-white shadow-minimal rounded-[8px] pl-6 pr-4 py-3 break-words min-w-0">
           <CollapsibleMarkdownProvider>
             <Markdown
               mode={renderMode}

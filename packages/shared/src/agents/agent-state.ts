@@ -3,7 +3,6 @@
  *
  * Manages the activation lifecycle for sub-agents, handling:
  * - Extraction from Craft documents
- * - Review of concerns
  * - MCP server authentication
  * - API authentication
  * - Final activation with CraftAgent
@@ -70,7 +69,7 @@ export interface AgentStateEvents {
  * AgentStateManager orchestrates the agent activation flow.
  *
  * State transitions:
- * idle → extracting → [needs_review] → [needs_mcp_auth] → [needs_api_auth] → ready → active
+ * idle → extracting → [needs_mcp_auth] → [needs_api_auth] → ready → active
  *
  * The flow pauses at needs_* states waiting for user input.
  * Call continueAfter*() methods to resume the flow.
@@ -142,7 +141,7 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
    *
    * Returns when:
    * - Activation completes successfully (status = 'ready')
-   * - User input is needed (status = 'needs_review' | 'needs_mcp_auth' | 'needs_api_auth')
+   * - User input is needed (status = 'needs_mcp_auth' | 'needs_api_auth')
    * - An error occurs (status = 'error')
    *
    * @param agentId - Agent ID to activate
@@ -153,18 +152,24 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
     // Prevent concurrent activation calls
     if (this.isActivating) {
       debug('[AgentStateManager.activate] Already activating, ignoring request');
+      console.log('[AgentStateManager.activate] Already activating, ignoring request');
       return this.currentStatus;
     }
 
     this.isActivating = true;
     debug('[AgentStateManager.activate] Starting activation for:', agentId);
+    console.log('[AgentStateManager.activate] Starting activation for:', agentId);
 
     try {
       // Get agent metadata to get the name
+      console.log('[AgentStateManager.activate] Getting available agents...');
       const agents = await this.subAgentManager.getAvailableAgents();
+      console.log('[AgentStateManager.activate] Found', agents.length, 'agents');
+      console.log('[AgentStateManager.activate] Agent IDs:', agents.map(a => a.id).join(', '));
       const agent = agents.find((a) => a.id === agentId);
 
       if (!agent) {
+        console.log('[AgentStateManager.activate] ERROR: Agent not found:', agentId);
         const errorStatus: AgentStatus = {
           status: 'error',
           agentId,
@@ -175,6 +180,7 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
         return errorStatus;
       }
 
+      console.log('[AgentStateManager.activate] Found agent:', agent.name, 'displayName:', agent.displayName);
       this.pendingAgentId = agentId;
       // Use displayName (original document title) if available, fallback to normalized name
       this.pendingAgentName = agent.displayName || agent.name;
@@ -182,6 +188,7 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
       // Check if extraction is needed
       const needsExtraction = options?.forceExtraction || this.subAgentManager.needsFreshExtraction(agentId);
       debug('[AgentStateManager.activate] needsExtraction:', needsExtraction);
+      console.log('[AgentStateManager.activate] needsExtraction:', needsExtraction);
 
       // Set extracting status
       const displayName = agent.displayName || agent.name;
@@ -193,7 +200,9 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
       });
 
       // Get definition (from cache or extract)
+      console.log('[AgentStateManager.activate] Getting definition...');
       const definition = await this.subAgentManager.getDefinition(agentId, (event: ExtractionProgressEvent) => {
+        console.log('[AgentStateManager.activate] Extraction progress:', event.message);
         // Update progress
         this.emit('progress', {
           type: 'extraction_progress',
@@ -210,7 +219,10 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
         }
       });
 
+      console.log('[AgentStateManager.activate] Definition result:', definition ? `got definition "${definition.name}"` : 'NULL');
+
       if (!definition) {
+        console.log('[AgentStateManager.activate] ERROR: Failed to load agent definition');
         const errorStatus: AgentStatus = {
           status: 'error',
           agentId,
@@ -226,43 +238,34 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
       // Set active agent in SubAgentManager for credential lookups
       this.subAgentManager.setActiveAgentId(agentId);
 
-      // Check for concerns (needs review)
-      if (definition.concerns?.length && !options?.skipReview) {
-        debug('[AgentStateManager.activate] Agent has concerns, needs review');
-        const reviewStatus: AgentStatus = {
-          status: 'needs_review',
-          agentId,
-          agentName: displayName,
-          definition,
-          concerns: definition.concerns,
-        };
-        this.setStatus(reviewStatus);
-        return reviewStatus;
+      // Continue to auth checks
+      console.log('[AgentStateManager.activate] Proceeding to auth checks...');
+      return this.checkAuthAndProceed(agentId, displayName, definition);
+    } catch (error) {
+      console.error('[AgentStateManager.activate] EXCEPTION:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Parse error codes from formatted error messages [error_code] message
+      let userFriendlyError = `Activation failed: ${errorMessage}`;
+      if (errorMessage.includes('[insufficient_credits]')) {
+        userFriendlyError = errorMessage.replace('[insufficient_credits] ', '');
+      } else if (errorMessage.includes('[auth_error]')) {
+        userFriendlyError = errorMessage.replace('[auth_error] ', '');
+      } else if (errorMessage.includes('[extraction_failed]')) {
+        userFriendlyError = errorMessage.replace('[extraction_failed] ', '');
       }
 
-      // Continue to auth checks
-      return this.checkAuthAndProceed(agentId, displayName, definition);
+      const errorStatus: AgentStatus = {
+        status: 'error',
+        agentId,
+        agentName: this.pendingAgentName || 'unknown',
+        error: userFriendlyError,
+      };
+      this.setStatus(errorStatus);
+      return errorStatus;
     } finally {
       this.isActivating = false;
     }
-  }
-
-  /**
-   * Continue activation after user completes review
-   * @param _answers - Map of question -> answer from user (caller is responsible for saving to Craft)
-   */
-  async continueAfterReview(_answers: Record<string, string>): Promise<AgentStatus> {
-    debug('[AgentStateManager.continueAfterReview] Resuming after review');
-
-    if (this.currentStatus.status !== 'needs_review') {
-      debug('[AgentStateManager.continueAfterReview] Invalid state:', this.currentStatus.status);
-      return this.currentStatus;
-    }
-
-    const { agentId, agentName, definition } = this.currentStatus;
-
-    // Continue to auth checks
-    return this.checkAuthAndProceed(agentId, agentName, definition);
   }
 
   /**

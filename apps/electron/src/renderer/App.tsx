@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { FocusProvider } from '@/context/FocusContext'
 import { useGlobalShortcuts } from '@/hooks/keyboard'
 import { useOnboarding } from '@/hooks/useOnboarding'
+import { useDeepLinkNavigation } from '@/hooks/useDeepLinkNavigation'
 import { useTabs } from '@/tabs'
 import { Spinner } from '@/components/ui/loading-indicator'
 import { DEFAULT_MODEL } from '@config/models'
@@ -459,6 +460,14 @@ export default function App() {
     return session
   }, [agents])
 
+  // Deep link navigation - handles craftagents:// URLs
+  // Must be after handleCreateSession is defined
+  useDeepLinkNavigation({
+    workspaceId: windowWorkspaceId,
+    onCreateSession: handleCreateSession,
+    isReady: appState === 'ready',
+  })
+
   const handleDeleteSession = useCallback(async (sessionId: string) => {
     // Close the tab first to prevent race conditions where the tab
     // tries to render while the session is being deleted
@@ -478,6 +487,20 @@ export default function App() {
     await window.electronAPI.unarchiveSession(sessionId)
     setSessions(prev => prev.map(s =>
       s.id === sessionId ? { ...s, isArchived: false } : s
+    ))
+  }, [])
+
+  const handleFlagSession = useCallback(async (sessionId: string) => {
+    await window.electronAPI.flagSession(sessionId)
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, isFlagged: true } : s
+    ))
+  }, [])
+
+  const handleUnflagSession = useCallback(async (sessionId: string) => {
+    await window.electronAPI.unflagSession(sessionId)
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, isFlagged: false } : s
     ))
   }, [])
 
@@ -803,6 +826,8 @@ export default function App() {
             onDeleteSession={handleDeleteSession}
             onArchiveSession={handleArchiveSession}
             onUnarchiveSession={handleUnarchiveSession}
+            onFlagSession={handleFlagSession}
+            onUnflagSession={handleUnflagSession}
             onRenameSession={handleRenameSession}
             onSendMessage={handleSendMessage}
             onOpenFile={handleOpenFile}

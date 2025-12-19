@@ -133,6 +133,82 @@ function ThemeButton({ selected, onClick, icon, label }: ThemeButtonProps) {
 }
 
 // ============================================
+// Craft Credits Option (with Check Credits link)
+// ============================================
+
+interface CraftCreditsOptionProps {
+  selected: boolean
+  onClick: () => void
+}
+
+function CraftCreditsOption({ selected, onClick }: CraftCreditsOptionProps) {
+  const [isLoadingUrl, setIsLoadingUrl] = useState(false)
+
+  const handleCheckCredits = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation() // Don't trigger the parent onClick
+    if (!window.electronAPI) return
+
+    setIsLoadingUrl(true)
+    try {
+      const url = await window.electronAPI.getCreditsUrl()
+      if (url) {
+        await window.electronAPI.openUrl(url)
+      }
+    } catch (error) {
+      console.error('Failed to get credits URL:', error)
+    } finally {
+      setIsLoadingUrl(false)
+    }
+  }, [])
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'w-full flex items-center justify-between py-1.5 text-left transition-colors rounded',
+          'hover:bg-foreground/[0.02]'
+        )}
+      >
+        <div className="flex-1 min-w-0">
+          <span className="text-sm">Craft Credits</span>
+          <span className="text-sm text-muted-foreground ml-1.5">— included with Craft</span>
+        </div>
+        <div
+          className={cn(
+            'w-[14px] h-[14px] rounded-full border-[1.5px] grid place-items-center transition-colors shrink-0 ml-4',
+            selected ? 'border-primary bg-primary' : 'border-muted-foreground/30'
+          )}
+        >
+          {selected && <div className="w-[6px] h-[6px] rounded-full bg-primary-foreground" />}
+        </div>
+      </button>
+      {selected && (
+        <button
+          type="button"
+          onClick={handleCheckCredits}
+          disabled={isLoadingUrl}
+          className="ml-0 mt-0.5 mb-1 text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+        >
+          {isLoadingUrl ? (
+            <>
+              <Spinner className="text-[10px]" />
+              <span>Loading...</span>
+            </>
+          ) : (
+            <>
+              <ExternalLink className="size-3" />
+              <span>Check Credits</span>
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ============================================
 // API Key Input Component
 // ============================================
 
@@ -649,12 +725,10 @@ export default function SettingsTabPanel({
           <div>
             <SectionHeader>Billing</SectionHeader>
             <div>
-              {/* Craft Credits - always visible */}
-              <RadioOption
+              {/* Craft Credits - always visible, with Check Credits link when selected */}
+              <CraftCreditsOption
                 selected={authType === 'craft_credits'}
                 onClick={() => handleMethodClick('craft_credits')}
-                label="Craft Credits"
-                description="— included with Craft"
               />
 
               {/* API Key - show radio OR input box (not both) */}

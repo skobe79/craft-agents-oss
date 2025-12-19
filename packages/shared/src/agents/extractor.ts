@@ -8,7 +8,7 @@
 
 import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { getDefaultOptions } from '../agent/options.ts';
-import type { McpServerConfig, ApiConfig, Concern } from './types.ts';
+import type { McpServerConfig, ApiConfig } from './types.ts';
 import { debug } from '../utils/debug.ts';
 import { EXTRACTION_MODEL } from '../config/models.ts';
 
@@ -17,9 +17,13 @@ export interface ExtractionResult {
   instructionsBlockId?: string;
   mcpServers?: McpServerConfig[];
   apis?: ApiConfig[];  // REST API configurations extracted from curl examples or docs
-  info?: string[];  // Info messages for users (warnings, notices, etc.)
-  concerns?: Concern[];  // Issues identified that need user clarification
+  info?: string[];  // Info messages for users (notices, etc.)
+  warnings?: string[];  // Warnings about potential issues (non-blocking, informational)
   capabilities?: string[];  // Auto-generated list of key capabilities
+  error?: {
+    code: 'insufficient_credits' | 'auth_error' | 'extraction_failed';
+    message: string;
+  };
 }
 
 export interface ExtractionProgressEvent {
@@ -336,54 +340,42 @@ If instructions mention external services (email, Slack, Discord, GitHub, calend
   * Email: "To send emails, add an API config for SendGrid, Resend, or similar email service."
   * Slack/Discord: "To post messages, add a Slack/Discord API config or MCP server."
   * GitHub: "To interact with GitHub, add the GitHub API or an MCP server config."
-- Do NOT treat missing integrations as concerns - just provide helpful guidance.
+- Do NOT treat missing integrations as warnings - just provide helpful guidance as info messages.
 
-Do NOT create concerns or ask questions about these limitations - they cannot be resolved. Just inform the user.
+Do NOT create warnings that require user action about these limitations - they cannot be resolved. Just inform the user via info messages.
 
 5. CAPABILITIES SUMMARY
 Analyze the instructions and extract a list of 3-8 key capabilities this agent has.
 Each capability should be a concise phrase (5-15 words) describing what the agent can do.
 Examples: "Search the web using Exa neural search", "Create and edit Craft documents", "Write and debug TypeScript code"
 
-6. CONCERNS EXTRACTION - BE SELECTIVE
-ONLY extract concerns that are ACTUAL issues that could prevent the agent from working correctly.
-DO NOT include trivial, obvious, or non-actionable items. Quality over quantity.
+6. WARNINGS (NON-BLOCKING)
+Generate simple warning strings for issues the user should be aware of.
+Warnings are informational only - they do NOT block agent activation.
 
-CRITICAL: Concerns must be based on EXISTING content in the document.
-- If no Instructions section is found, DO NOT create concerns asking "What should this agent do?"
-- If instructions are empty or minimal, DO NOT suggest general capabilities or features
-- Suggested answers must NEVER imply new functionality not already in the document
-- A concern is about CLARIFYING existing content, not ADDING new content
+Generate warnings ONLY for:
+1. Empty/minimal document - "Document has no content" or "Instructions are very minimal"
+2. Clear contradictions - "Instructions contain conflicting requirements: [brief description]"
+3. Platform limitations - "[Feature X] requires automation/scheduling which is not supported"
+
+DO NOT generate warnings for:
+- Minor ambiguities that Claude can handle
+- Suggestions for improvement
+- Missing integrations (use info messages instead)
+- Anything that would require user input to resolve
+
+NEVER include API keys, tokens, or sensitive information in warnings.
 
 When document is EMPTY (no content at all):
 - Return empty instructions string ""
-- Use the info array to notify: "Document has no content."
-- Return empty concerns array []
+- Add warning: "Document has no content."
 
 When document has content but no "Instructions" subpage:
 - The root content IS the instructions - extract it normally
 - Leave instructionsBlockId empty/null (no dedicated instructions block exists)
-- This is NOT an error - do not add info messages about it
+- This is NOT an error - do not add warnings about it
 
-Types:
-1. CONFUSING: Instructions that could genuinely be interpreted multiple ways
-2. CONFLICTING: Clear contradictions that need resolution
-3. MISSING: Critical info WITHOUT which existing functionality cannot work
-4. GENERAL: Significant risks or issues (not minor edge cases)
-
-For each concern, include:
-- type: One of the four types above
-- description: Concise explanation of the actual issue
-- context: The relevant text from instructions (if applicable)
-- suggestedQuestion: A clear question to ask the user
-- suggestedAnswers: Array of 2-4 MEANINGFUL pre-defined answers (MAX 4, user can always type custom)
-  Examples:
-  - For "Which API version?" → ["v1 (stable)", "v2 (latest features)", "Both with fallback"]
-  - For "When to confirm deletions?" → ["Always", "Only for important items", "Never"]
-  Skip suggestedAnswers if no logical options exist (open-ended questions).
-  IMPORTANT: Maximum 4 suggested answers. The UI always shows a "Custom" option for free-form input.
-
-If instructions are clear and complete, return empty concerns array []. Do NOT invent concerns.
+If instructions are clear and complete, return empty warnings array [].
 
 REMEMBER: "${documentId}" is the DOCUMENT ID. The instructionsBlockId should be:
 - The block ID of the Instructions subpage (if one exists), OR
@@ -405,21 +397,15 @@ Return ONLY valid JSON:
   }],
   "info": ["Found API 'exa'."],
   "capabilities": ["Search the web using Exa neural search", "Process and analyze search results"],
-  "concerns": [{
-    "type": "confusing",
-    "description": "Unclear when to use neural vs keyword search",
-    "context": "type ('neural' for semantic search, 'keyword' for exact match)",
-    "suggestedQuestion": "When should I use neural search vs keyword search?",
-    "suggestedAnswers": ["Always use neural search", "Use keyword for exact phrases, neural otherwise", "Ask user each time"]
-  }]
+  "warnings": []
 }
 
 Rules:
 - mcpServers: Empty array [] if no HTTP/HTTPS MCP servers found
 - apis: Empty array [] if no REST APIs found. Include APIs even if only one endpoint is detected.
-- info: Empty array [] if nothing to report. MUST contain messages for any issues, warnings, or important information.
+- info: Empty array [] if nothing to report. MUST contain messages for any issues or important information.
 - capabilities: List of 3-8 key capabilities. Empty array [] if instructions are empty.
-- concerns: Empty array [] if instructions are clear and complete. Do NOT invent concerns.
+- warnings: Empty array [] if instructions are clear. Only add for empty docs, contradictions, or platform limitations.
 - instructions: Empty string "" if document is empty or not found`;
 
     const options: Options = {
@@ -503,38 +489,10 @@ Rules:
               description: 'List of 3-8 key capabilities this agent has',
               items: { type: 'string' },
             },
-            concerns: {
+            warnings: {
               type: 'array',
-              description: 'Concerns identified during extraction that need user clarification',
-              items: {
-                type: 'object',
-                properties: {
-                  type: {
-                    type: 'string',
-                    enum: ['confusing', 'conflicting', 'missing', 'general'],
-                    description: 'Type of concern',
-                  },
-                  description: {
-                    type: 'string',
-                    description: 'Concise explanation of the actual issue',
-                  },
-                  context: {
-                    type: 'string',
-                    description: 'Relevant text from instructions',
-                  },
-                  suggestedQuestion: {
-                    type: 'string',
-                    description: 'Clear question to ask the user',
-                  },
-                  suggestedAnswers: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    maxItems: 4,
-                    description: 'Max 4 meaningful pre-defined answers if logical choices exist',
-                  },
-                },
-                required: ['type', 'description'],
-              },
+              description: 'Warnings about potential issues (non-blocking, informational)',
+              items: { type: 'string' },
             },
           },
           required: ['instructions', 'instructionsBlockId'],
@@ -617,7 +575,7 @@ Rules:
 
     if (!result) {
       debug('[extractor] No structured output received');
-      return { instructions: '', mcpServers: [], apis: [], concerns: [], capabilities: [] };
+      return { instructions: '', mcpServers: [], apis: [], warnings: [], capabilities: [] };
     }
 
     debug(
@@ -632,8 +590,8 @@ Rules:
       'info messages,',
       result.capabilities?.length || 0,
       'capabilities,',
-      result.concerns?.length || 0,
-      'concerns',
+      result.warnings?.length || 0,
+      'warnings',
     );
 
     return {
@@ -642,7 +600,7 @@ Rules:
       mcpServers: result.mcpServers || [],
       apis: result.apis || [],
       info: result.info || [],
-      concerns: result.concerns || [],
+      warnings: result.warnings || [],
       capabilities: result.capabilities || [],
     };
   } catch (error) {
@@ -653,7 +611,7 @@ Rules:
       instructions: '',
       mcpServers: [],
       apis: [],
-      concerns: [],
+      warnings: [],
       capabilities: [],
     };
   }
@@ -683,6 +641,10 @@ export function startExtraction(
     // Delegate to the existing extraction function but with cancellation check
     // We need to run the extraction in a way that we can interrupt it
     debug('[extractor] Starting cancellable extraction for agent:', agentName);
+    console.log('[extractor] Starting extraction for:', agentName, 'documentId:', documentId);
+
+    // Track 402 errors that may come through stderr (defined outside try so it's accessible in catch)
+    let stderrDetected402 = false;
 
     try {
       // Build options just like extractAgentDefinition
@@ -694,8 +656,12 @@ export function startExtraction(
         },
       };
 
+      console.log('[extractor] MCP URL:', mcpUrl, 'hasToken:', !!mcpToken);
+
       const systemPrompt = buildExtractionSystemPrompt();
       const prompt = buildExtractionPrompt(documentId, agentName);
+
+      console.log('[extractor] Using model:', EXTRACTION_MODEL);
 
       const options: Options = {
         ...getDefaultOptions(),
@@ -710,21 +676,34 @@ export function startExtraction(
         },
         stderr: (data: string) => {
           debug('[extractor] SDK stderr:', data);
+          // Also log to console for debugging
+          console.log('[extractor] SDK stderr:', data);
+          // Check for 402 errors in stderr (these may come before result messages)
+          if (data.includes('402') || data.toLowerCase().includes('payment required') || data.toLowerCase().includes('insufficient credits')) {
+            console.log('[extractor] Detected 402 error in stderr');
+            stderrDetected402 = true;
+          }
         },
         outputFormat: buildExtractionOutputFormat(),
       };
 
       debug('[extractor] Running cancellable query with MCP URL:', mcpUrl);
+      console.log('[extractor] Starting query...');
 
       // Create query and store handle for interrupt
       queryHandle = query({ prompt, options });
 
       let extractionResult: ExtractionResult | null = null;
+      let messageCount = 0;
 
       for await (const message of queryHandle) {
+        messageCount++;
+        console.log('[extractor] Message #' + messageCount + ' type:', message.type, 'subtype:', (message as any).subtype || 'N/A');
+
         // Check if cancelled
         if (cancelled) {
           debug('[extractor] Extraction cancelled, breaking loop');
+          console.log('[extractor] Cancelled, breaking');
           break;
         }
 
@@ -733,34 +712,92 @@ export function startExtraction(
           for (const block of message.message.content) {
             if (block.type === 'tool_use') {
               debug('[extractor] Tool call:', block.name, JSON.stringify(block.input));
+              console.log('[extractor] Tool call:', block.name);
               onProgress?.({
                 type: 'tool_start',
                 toolName: block.name,
                 message: formatToolMessage(block.name),
               });
+            } else if (block.type === 'text') {
+              console.log('[extractor] Assistant text (first 200 chars):', (block as any).text?.substring(0, 200));
             }
           }
         }
 
         // Extract result
-        if (message.type === 'result' && message.subtype === 'success') {
-          if (message.structured_output) {
-            extractionResult = message.structured_output as ExtractionResult;
-          } else if (message.result) {
-            extractionResult = parseExtractionResult(message.result);
+        if (message.type === 'result') {
+          console.log('[extractor] Got result message, subtype:', (message as any).subtype);
+          console.log('[extractor] Has structured_output:', !!(message as any).structured_output);
+          console.log('[extractor] Has result:', !!(message as any).result);
+
+          if ((message as any).subtype === 'error') {
+            const errorInfo = JSON.stringify((message as any).errors || (message as any).error || 'unknown error');
+            console.log('[extractor] ERROR result:', errorInfo);
+
+            // Check for 402 Payment Required errors
+            if (errorInfo.includes('402') || errorInfo.toLowerCase().includes('payment required') || errorInfo.toLowerCase().includes('insufficient credits')) {
+              console.log('[extractor] Detected 402 error in result, returning error');
+              return {
+                instructions: '',
+                mcpServers: [],
+                apis: [],
+                warnings: [],
+                capabilities: [],
+                error: {
+                  code: 'insufficient_credits',
+                  message: 'Your Craft Credits balance is empty. Please top up your credits to continue.',
+                },
+              };
+            }
+          }
+
+          if (message.subtype === 'success') {
+            console.log('[extractor] Success! Checking for structured_output...');
+            if (message.structured_output) {
+              console.log('[extractor] Got structured_output, instructions length:', (message.structured_output as any)?.instructions?.length || 0);
+              extractionResult = message.structured_output as ExtractionResult;
+            } else if (message.result) {
+              console.log('[extractor] No structured_output, parsing result text (first 500 chars):', message.result.substring(0, 500));
+              extractionResult = parseExtractionResult(message.result);
+              console.log('[extractor] Parsed result, instructions length:', extractionResult?.instructions?.length || 0);
+            } else {
+              console.log('[extractor] No structured_output AND no result text!');
+            }
           }
         }
       }
 
+      console.log('[extractor] Query loop finished. Total messages:', messageCount, 'stderrDetected402:', stderrDetected402);
+
       if (cancelled) {
         debug('[extractor] Returning empty result due to cancellation');
-        return { instructions: '', mcpServers: [], apis: [], concerns: [], capabilities: [] };
+        console.log('[extractor] Returning empty (cancelled)');
+        return { instructions: '', mcpServers: [], apis: [], warnings: [], capabilities: [] };
+      }
+
+      // If we detected a 402 error via stderr, return it
+      if (stderrDetected402) {
+        console.log('[extractor] Returning insufficient credits error');
+        return {
+          instructions: '',
+          mcpServers: [],
+          apis: [],
+          warnings: [],
+          capabilities: [],
+          error: {
+            code: 'insufficient_credits',
+            message: 'Your Craft Credits balance is empty. Please top up your credits to continue.',
+          },
+        };
       }
 
       if (!extractionResult) {
         debug('[extractor] No structured output received');
-        return { instructions: '', mcpServers: [], apis: [], concerns: [], capabilities: [] };
+        console.log('[extractor] ERROR: No extraction result after', messageCount, 'messages');
+        return { instructions: '', mcpServers: [], apis: [], warnings: [], capabilities: [] };
       }
+
+      console.log('[extractor] Final result - instructions:', extractionResult.instructions?.length || 0, 'chars');
 
       debug(
         '[extractor] Extracted',
@@ -770,8 +807,8 @@ export function startExtraction(
         'MCP servers,',
         extractionResult.apis?.length || 0,
         'APIs,',
-        extractionResult.concerns?.length || 0,
-        'concerns',
+        extractionResult.warnings?.length || 0,
+        'warnings',
       );
 
       return {
@@ -780,17 +817,54 @@ export function startExtraction(
         mcpServers: extractionResult.mcpServers || [],
         apis: extractionResult.apis || [],
         info: extractionResult.info || [],
-        concerns: extractionResult.concerns || [],
+        warnings: extractionResult.warnings || [],
         capabilities: extractionResult.capabilities || [],
       };
     } catch (error) {
       if (cancelled) {
         debug('[extractor] Extraction cancelled (error in cancelled state)');
-        return { instructions: '', mcpServers: [], apis: [], concerns: [], capabilities: [] };
+        console.log('[extractor] Cancelled with error');
+        return { instructions: '', mcpServers: [], apis: [], warnings: [], capabilities: [] };
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
       debug('[extractor] Cancellable extraction failed:', errorMessage);
-      return { instructions: '', mcpServers: [], apis: [], concerns: [], capabilities: [] };
+      console.error('[extractor] EXCEPTION:', error);
+      console.error('[extractor] Stack:', error instanceof Error ? error.stack : 'no stack');
+      console.log('[extractor] stderrDetected402 in catch:', stderrDetected402);
+
+      // Check for 402 Payment Required (insufficient credits) - check both error message AND stderr flag
+      if (stderrDetected402 || errorMessage.includes('402') || errorMessage.toLowerCase().includes('payment required') || errorMessage.toLowerCase().includes('insufficient credits')) {
+        console.log('[extractor] Returning insufficient credits error (stderrDetected402:', stderrDetected402, ')');
+        return {
+          instructions: '',
+          mcpServers: [],
+          apis: [],
+          warnings: [],
+          capabilities: [],
+          error: {
+            code: 'insufficient_credits',
+            message: 'Your Craft Credits balance is empty. Please top up your credits to continue.',
+          },
+        };
+      }
+
+      // Check for auth errors
+      if (errorMessage.includes('401') || errorMessage.toLowerCase().includes('unauthorized') || errorMessage.toLowerCase().includes('authentication')) {
+        console.log('[extractor] Detected authentication error');
+        return {
+          instructions: '',
+          mcpServers: [],
+          apis: [],
+          warnings: [],
+          capabilities: [],
+          error: {
+            code: 'auth_error',
+            message: 'Authentication failed. Please check your credentials.',
+          },
+        };
+      }
+
+      return { instructions: '', mcpServers: [], apis: [], warnings: [], capabilities: [] };
     }
   })();
 
@@ -798,6 +872,7 @@ export function startExtraction(
     result,
     cancel: () => {
       debug('[extractor] Cancel requested');
+      console.log('[extractor] Cancel requested');
       cancelled = true;
       if (queryHandle) {
         queryHandle.interrupt();
@@ -904,9 +979,9 @@ From the loaded content, extract:
 1. INSTRUCTIONS - Extract EXACT original instructions without modification
 2. MCP SERVER CONFIGURATIONS - Only HTTP/HTTPS URLs
 3. REST API DOCUMENTATION - Comprehensive API docs
-4. INFO MESSAGES - Warnings and notices
+4. INFO MESSAGES - Notices
 5. CAPABILITIES SUMMARY - 3-8 key capabilities
-6. CONCERNS - Issues needing clarification
+6. WARNINGS - Non-blocking warnings about potential issues
 
 === OUTPUT FORMAT ===
 
@@ -918,7 +993,7 @@ Return ONLY valid JSON:
   "apis": [{ "name": "exa", "baseUrl": "https://api.exa.ai", "auth": { "type": "header", "headerName": "x-api-key" }, "documentation": "..." }],
   "info": [],
   "capabilities": [],
-  "concerns": []
+  "warnings": []
 }`;
 }
 
@@ -984,19 +1059,10 @@ function buildExtractionOutputFormat(): Options['outputFormat'] {
           type: 'array',
           items: { type: 'string' },
         },
-        concerns: {
+        warnings: {
           type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['confusing', 'conflicting', 'missing', 'general'] },
-              description: { type: 'string' },
-              context: { type: 'string' },
-              suggestedQuestion: { type: 'string' },
-              suggestedAnswers: { type: 'array', items: { type: 'string' }, maxItems: 4 },
-            },
-            required: ['type', 'description'],
-          },
+          description: 'Non-blocking warnings about potential issues',
+          items: { type: 'string' },
         },
       },
       required: ['instructions', 'instructionsBlockId'],

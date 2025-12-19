@@ -44,7 +44,7 @@ import { DEFAULT_MODEL } from '@craft-agent/shared/config';
 import { getCredentialManager } from '@craft-agent/shared/credentials';
 import { CraftMcpClient } from '@craft-agent/shared/mcp';
 import { SubAgentManager } from '@craft-agent/shared/agents';
-import type { SubAgentDefinition, McpServerConfig, ApiConfig, Concern } from '@craft-agent/shared/agents';
+import type { SubAgentDefinition, McpServerConfig, ApiConfig } from '@craft-agent/shared/agents';
 import type { ExtractionProgressEvent } from '@craft-agent/shared/agents';
 import type { Plan } from '@craft-agent/shared/agents';
 import { invalidateDefinition, loadRegistry, clearAgentCredentialsAsync } from '@craft-agent/shared/agents';
@@ -67,23 +67,6 @@ export interface PendingApiAuthRequest {
   agentId: string;
   agentName: string;
   definition: SubAgentDefinition;
-}
-
-// Pending clarifications (for saving to Craft document)
-export interface PendingClarifications {
-  agentName: string;
-  agentId: string;
-  definition: SubAgentDefinition;
-  answers: Record<string, string>;
-  refinementRound: number;
-}
-
-// Pending review request (concerns from extraction that need user input)
-export interface PendingReviewRequest {
-  agentId: string;
-  agentName: string;
-  definition: SubAgentDefinition;
-  concerns: Concern[];
 }
 
 // Helper to convert Message to StoredMessage for persistence
@@ -208,10 +191,6 @@ export interface UseAgentResult {
   completeApiAuth: (success: boolean) => Promise<void>;
   cancelApiAuth: () => void;
   triggerApiAuth: () => void;  // For reauth command
-  // Review mode (concerns from extraction that need user input)
-  pendingReview: PendingReviewRequest | null;
-  completeReview: (answers: Record<string, string>) => Promise<void>;
-  skipReview: () => Promise<void>;
   // Plan mode
   activePlan: Plan | null;
   planMode: boolean;
@@ -267,7 +246,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   const [subAgentManager, setSubAgentManager] = useState<SubAgentManager | null>(null);
 
   // Delegate agent activation state to useAgentState hook
-  // This manages pendingMcpAuth, pendingApiAuth, pendingReview internally
+  // This manages pendingMcpAuth, pendingApiAuth internally
   const agentState = useAgentState(workspace.id, subAgentManager);
 
   // Ultrathink mode (extended thinking)
@@ -1403,7 +1382,6 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
         agentState.markActive();
         return true;
       }
-      case 'needs_review':
       case 'needs_mcp_auth':
       case 'needs_api_auth':
         // Waiting for user input - return pending
@@ -1457,8 +1435,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }
 
     // 'pending_auth' states mean reload is proceeding but waiting for user input
-    if (resultStatus.status === 'needs_review' ||
-        resultStatus.status === 'needs_mcp_auth' ||
+    if (resultStatus.status === 'needs_mcp_auth' ||
         resultStatus.status === 'needs_api_auth') {
       return true; // Proceeding with auth flow
     }
@@ -1652,125 +1629,6 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }]);
   }, [deactivateAgent]);
 
-  // Save clarifications to Craft document - sends HIDDEN message to agent
-  // Accepts clarifications directly to avoid React state timing issues
-  const saveClarificationsWithData = useCallback(async (clarifications: PendingClarifications) => {
-    debug('[saveClarifications] Sending hidden save request to agent');
-
-    // Clear temporary clarifications - they'll be saved permanently
-    const agent = getAgent();
-    agent.setTemporaryClarifications(null);
-
-    // Build clarifications text
-    const clarificationsText = Object.entries(clarifications.answers)
-      .map(([question, answer]) => `Q: ${question}\nA: ${answer}`)
-      .join('\n\n');
-
-    // Get document ID from the registry
-    const registry = loadRegistry(workspace.id);
-    const agentMeta = registry?.agents.find(a => a.id === clarifications.agentId);
-    const documentId = agentMeta?.documentId;
-    const blockId = clarifications.definition.instructionsBlockId;
-
-    // Build save prompt (NOT shown in UI due to hideUserMessage option)
-    const savePrompt = `Update your Instructions document in Craft with these clarifications. This is important:
-
-1. First, use blocks_get to read the current instructions content
-2. Find any open questions or concerns in the instructions that these clarifications answer
-3. REPLACE those questions/concerns with the actual answers - don't just append
-4. Use blocks_update to save the complete updated instructions
-
-Document ID: ${documentId || 'unknown'}
-Instructions Block ID: ${blockId || 'unknown'}
-
-Clarifications (answers to questions in your instructions):
-${clarificationsText}
-
-The goal is to have clean, actionable instructions without unanswered questions. Remove the questions and integrate the answers naturally into the relevant sections.`;
-
-    try {
-      // Use sendMessage with hideUserMessage - reuses all event handling logic
-      await sendMessageRef.current?.(savePrompt, undefined, { hideUserMessage: true });
-
-      // After save completes, reload the agent to use updated instructions
-      if (reloadAgentRef.current) {
-        await reloadAgentRef.current();
-      }
-    } catch (err) {
-      setMessages(prev => [...prev, {
-        id: `save-error-${Date.now()}`,
-        type: 'error',
-        content: `Failed to save clarifications: ${err instanceof Error ? err.message : 'Unknown error'}`,
-        timestamp: Date.now(),
-      }]);
-    }
-  }, [getAgent, workspace.id]);
-
-  // Complete review - user answered the concerns, save and finish activation
-  const completeReview = useCallback(async (answers: Record<string, string>) => {
-    if (!agentState.isNeedsReview) return;
-
-    debug('[completeReview] User answered concerns, saving to document');
-
-    // Derive pending review data directly from agentState to avoid circular reference
-    // (pendingReview is defined later in this hook)
-    const currentStatus = agentState.status;
-    if (currentStatus.status !== 'needs_review') return;
-
-    const clarifications: PendingClarifications = {
-      agentName: currentStatus.agentName,
-      agentId: currentStatus.agentId,
-      definition: currentStatus.definition,
-      answers,
-      refinementRound: 0,
-    };
-
-    // Continue the activation flow - delegate to agentState
-    debug('[completeReview] Continuing after review with agentState');
-    const resultStatus = await agentState.continueAfterReview(answers);
-    debug('[completeReview] agentState.continueAfterReview returned:', resultStatus.status);
-
-    // Handle result status
-    if (resultStatus.status === 'ready') {
-      // All checks passed - complete activation
-      const definition = resultStatus.definition;
-      const mcpServers = await agentState.buildMcpServerConfig();
-      const apiServers = await agentState.buildApiServers();
-      const agentId = agentState.agentId!;
-      const agentName = agentState.agentName!;
-      activationComplete(definition, mcpServers, apiServers, agentName, true, agentId);
-      agentState.markActive();
-    }
-    // If needs_mcp_auth or needs_api_auth, UI will automatically show auth
-
-    // Save clarifications to Craft document (after continuing the flow)
-    await saveClarificationsWithData(clarifications);
-  }, [agentState, saveClarificationsWithData, activationComplete]);
-
-  // Skip review - user wants to skip clarifications and continue with activation
-  const skipReview = useCallback(async () => {
-    if (!agentState.isNeedsReview) return;
-
-    debug('[skipReview] User skipped clarifications');
-
-    // Delegate to agentState - continues to auth checks
-    const resultStatus = await agentState.skipReview();
-    debug('[skipReview] agentState.skipReview returned:', resultStatus.status);
-
-    // Handle result status
-    if (resultStatus.status === 'ready') {
-      // All checks passed - complete activation
-      const definition = resultStatus.definition;
-      const mcpServers = await agentState.buildMcpServerConfig();
-      const apiServers = await agentState.buildApiServers();
-      const agentId = agentState.agentId!;
-      const agentName = agentState.agentName!;
-      activationComplete(definition, mcpServers, apiServers, agentName, true, agentId);
-      agentState.markActive();
-    }
-    // If needs_mcp_auth or needs_api_auth, UI will automatically show auth
-  }, [agentState, activationComplete]);
-
   const refreshAgents = useCallback(async (): Promise<string[] | { error: string }> => {
     try {
       // Build MCP URL
@@ -1887,8 +1745,8 @@ The goal is to have clean, actionable instructions without unanswered questions.
   const activeAgentName = agentState.agentName;
   const activeAgentMcpServers = agentState.activeDefinition?.mcpServers ?? [];
 
-  // Derive pending auth/review states from useAgentState for backward compatibility
-  // These match the legacy PendingMcpAuthRequest, PendingApiAuthRequest, PendingReviewRequest interfaces
+  // Derive pending auth states from useAgentState for backward compatibility
+  // These match the legacy PendingMcpAuthRequest, PendingApiAuthRequest interfaces
   // Use status discriminator for proper type narrowing instead of type assertions
   const agentStatus = agentState.status;
 
@@ -1909,16 +1767,6 @@ The goal is to have clean, actionable instructions without unanswered questions.
           agentId: agentStatus.agentId,
           agentName: agentStatus.agentName,
           definition: agentStatus.definition,
-        }
-      : null;
-
-  const pendingReview: PendingReviewRequest | null =
-    agentStatus.status === 'needs_review'
-      ? {
-          agentId: agentStatus.agentId,
-          agentName: agentStatus.agentName,
-          definition: agentStatus.definition,
-          concerns: agentStatus.concerns,
         }
       : null;
 
@@ -2010,10 +1858,6 @@ The goal is to have clean, actionable instructions without unanswered questions.
     completeApiAuth,
     cancelApiAuth,
     triggerApiAuth,
-    // Review mode (derived from useAgentState)
-    pendingReview,
-    completeReview,
-    skipReview,
     // Plan mode
     activePlan,
     planMode,

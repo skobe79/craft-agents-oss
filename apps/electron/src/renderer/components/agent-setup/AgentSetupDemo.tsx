@@ -1,31 +1,9 @@
 import { useState, useCallback } from "react"
 import { AgentSetupWizard, type AgentSetupState, type McpServerAuthStatus, type ApiAuthStatus } from "./AgentSetupWizard"
-import type { Concern } from "./ReviewConcernsStep"
 import type { McpServerConfig } from "./McpAuthStep"
 import type { ApiConfig } from "./ApiAuthStep"
 
-// Sample data for the demo - the most advanced case
-const demoConcerns: Concern[] = [
-  {
-    type: 'confusing',
-    description: 'The instructions mention "project files" but don\'t specify which file types.',
-    context: 'When working with project files, always check for conflicts first.',
-    suggestedQuestion: 'What file types should the agent focus on?',
-    suggestedAnswers: ['All files', 'Only code files (.ts, .js, .py)', 'Documentation only (.md, .txt)'],
-  },
-  {
-    type: 'conflicting',
-    description: 'The agent is told to both "always ask before making changes" and "work autonomously".',
-    suggestedQuestion: 'How should the agent handle making changes?',
-    suggestedAnswers: ['Always ask first', 'Ask for major changes only', 'Work autonomously'],
-  },
-  {
-    type: 'missing',
-    description: 'No preferred coding style or formatting rules are specified.',
-    suggestedQuestion: 'What coding style should the agent follow?',
-  },
-]
-
+// Sample data for the demo
 const demoMcpServers: McpServerConfig[] = [
   {
     name: 'GitHub',
@@ -84,7 +62,6 @@ export function AgentSetupDemo() {
     agentId: 'demo-agent-123',
     agentName: 'Code Assistant',
     extractionMessage: 'Reading agent configuration...',
-    concerns: demoConcerns,
     mcpServers: demoMcpServers,
     mcpServerStatus: {},
     apis: demoApis,
@@ -101,11 +78,11 @@ export function AgentSetupDemo() {
     }, 500)
 
     setTimeout(() => {
-      setState(s => ({ ...s, extractionMessage: 'Analyzing concerns...' }))
+      setState(s => ({ ...s, extractionMessage: 'Checking configurations...' }))
     }, 1000)
 
     setTimeout(() => {
-      setState(s => ({ ...s, step: 'review', isLoading: false }))
+      setState(s => ({ ...s, step: 'mcp-auth', isLoading: false }))
     }, 1500)
   }, [])
 
@@ -122,23 +99,12 @@ export function AgentSetupDemo() {
       agentId: 'demo-agent-123',
       agentName: 'Code Assistant',
       extractionMessage: 'Reading agent configuration...',
-      concerns: demoConcerns,
       mcpServers: demoMcpServers,
       mcpServerStatus: {},
       apis: demoApis,
       apiStatus: {},
       capabilities: demoCapabilities,
     })
-  }, [])
-
-  // Submit review answers
-  const handleSubmitReview = useCallback((answers: Record<number, string>) => {
-    console.log('[Demo] Review answers:', answers)
-    setState(s => ({ ...s, isLoading: true }))
-
-    setTimeout(() => {
-      setState(s => ({ ...s, step: 'mcp-auth', isLoading: false }))
-    }, 500)
   }, [])
 
   // Start OAuth for MCP server
@@ -275,7 +241,6 @@ export function AgentSetupDemo() {
         state={state}
         onCancel={handleCancel}
         onBack={handleBack}
-        onSubmitReview={handleSubmitReview}
         onStartMcpOAuth={handleStartMcpOAuth}
         onSubmitMcpBearer={handleSubmitMcpBearer}
         onSkipMcpServer={handleSkipMcpServer}

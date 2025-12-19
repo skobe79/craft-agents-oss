@@ -340,6 +340,19 @@ html[data-theme-override] {
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  /* Custom shadow utilities */
+  .shadow-minimal {
+    box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px, rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px, rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px;
+  }
+
+  .shadow-middle {
+    box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px, rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px, rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px, rgba(0, 0, 0, 0.06) 0px 6px 6px -3px;
+  }
+
+  .shadow-strong {
+    box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px, rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px, rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px, rgba(0, 0, 0, 0.06) 0px 6px 6px -3px, rgba(0, 0, 0, 0.04) 0px 12px 12px -6px, rgba(0, 0, 0, 0.04) 0px 24px 24px -12px;
+  }
 }
 
 /* Draggable title bar region for transparent window */
@@ -403,6 +416,13 @@ html[data-theme-override] {
 [data-radix-alert-dialog-overlay],
 [data-radix-alert-dialog-content] {
   animation: none !important;
+}
+
+/* Fix ScrollArea internal div preventing content shrink
+   Radix injects a div with min-width: 100%; display: table; which prevents shrinking */
+[data-radix-scroll-area-viewport] > div {
+  min-width: 0 !important;
+  display: block !important;
 }
 
 /* =============================================================================
@@ -470,6 +490,25 @@ html[data-theme-override] {
 /* Focus zone containers - subtle indicator when zone has focus */
 [data-focus-zone]:focus-visible {
   outline: none;
+}
+
+/* =============================================================================
+   SESSION LIST - SEPARATOR VISIBILITY
+
+   Hide separators when session items are hovered or selected.
+   Uses :has() to target adjacent sibling separators.
+============================================================================= */
+
+/* Hide own separator when item is hovered or selected */
+.session-item:hover > .session-separator,
+.session-item[data-selected] > .session-separator {
+  opacity: 0;
+}
+
+/* Hide next item's separator when current item is hovered or selected */
+.session-item:hover + .session-item > .session-separator,
+.session-item[data-selected] + .session-item > .session-separator {
+  opacity: 0;
 }
 
 /* =============================================================================

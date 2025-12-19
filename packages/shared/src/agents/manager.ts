@@ -91,6 +91,7 @@ export class SubAgentManager {
 
     // Try to load cached registry
     this.registry = loadRegistry(workspaceId);
+    console.log('[SubAgentManager] Constructor - workspaceId:', workspaceId, 'cachedRegistry:', this.registry ? `${this.registry.agents?.length || 0} agents` : 'null');
   }
 
   /**
@@ -123,14 +124,18 @@ export class SubAgentManager {
    * Throws on MCP errors (callers should handle)
    */
   async discoverAgents(): Promise<SubAgentMetadata[]> {
+    console.log('[SubAgentManager.discoverAgents] Starting agent discovery...');
     // 1. List all folders and parse as tree to find "Agents" folder with children
     const foldersResult = await this.callMcpTool('folders_list', {});
+    console.log('[SubAgentManager.discoverAgents] Got folders response');
     const folderTree = this.parseFoldersTree(foldersResult);
+    console.log('[SubAgentManager.discoverAgents] Parsed folder tree with', folderTree.length, 'top-level folders');
 
     const agentsFolder = this.findFolderInTree(folderTree, 'agents');
 
     if (!agentsFolder) {
       // No Agents folder found - not an error, just empty
+      console.log('[SubAgentManager.discoverAgents] No "Agents" folder found');
       this.registry = {
         agents: [],
         lastRefreshed: Date.now(),
@@ -140,8 +145,11 @@ export class SubAgentManager {
       return [];
     }
 
+    console.log('[SubAgentManager.discoverAgents] Found Agents folder:', agentsFolder.id, 'with', agentsFolder.children.length, 'child folders');
+
     // 2. Recursively discover agents in Agents folder and subfolders (up to 3 levels)
     const agents = await this.discoverAgentsInFolder(agentsFolder, [], 0);
+    console.log('[SubAgentManager.discoverAgents] Discovered', agents.length, 'agents');
 
     // Save to registry
     this.registry = {
@@ -152,6 +160,7 @@ export class SubAgentManager {
     saveRegistry(this.workspaceId, this.registry);
 
     debug('[discoverAgents] Found agents:', agents.map(a => a.name));
+    console.log('[SubAgentManager.discoverAgents] Saved registry, agents:', agents.map(a => `${a.name} (${a.id})`).join(', '));
     return agents;
   }
 
@@ -205,9 +214,12 @@ export class SubAgentManager {
    * Get list of available agents (from cache or discovery)
    */
   async getAvailableAgents(): Promise<SubAgentMetadata[]> {
+    console.log('[SubAgentManager.getAvailableAgents] registry:', this.registry ? `exists with ${this.registry.agents?.length || 0} agents` : 'null');
     if (this.registry?.agents) {
+      console.log('[SubAgentManager.getAvailableAgents] Returning cached agents:', this.registry.agents.map(a => `${a.name} (${a.id})`).join(', '));
       return this.registry.agents;
     }
+    console.log('[SubAgentManager.getAvailableAgents] No cached registry, discovering...');
     return this.discoverAgents();
   }
 
@@ -230,24 +242,31 @@ export class SubAgentManager {
     onProgress?: (event: ExtractionProgressEvent) => void,
   ): Promise<SubAgentDefinition | null> {
     debug('[getDefinition] agentId:', agentId);
+    console.log('[SubAgentManager.getDefinition] Starting for agentId:', agentId);
 
     // Check file cache
     const fileCached = loadDefinition(this.workspaceId, agentId);
     debug('[getDefinition] file cache:', fileCached ? 'HIT' : 'MISS');
+    console.log('[SubAgentManager.getDefinition] File cache:', fileCached ? 'HIT' : 'MISS');
     if (fileCached?.definition) {
+      console.log('[SubAgentManager.getDefinition] Returning cached definition:', fileCached.definition.name);
       return fileCached.definition;
     }
 
     // Fetch from Craft
+    console.log('[SubAgentManager.getDefinition] Registry agents:', this.registry?.agents?.length || 0);
     const metadata = this.registry?.agents.find((a) => a.id === agentId);
     if (!metadata) {
       debug('[getDefinition] agent not found in registry');
+      console.log('[SubAgentManager.getDefinition] ERROR: Agent not found in registry. Available IDs:', this.registry?.agents?.map(a => a.id).join(', ') || 'none');
       return null;
     }
+    console.log('[SubAgentManager.getDefinition] Found metadata:', metadata.name, 'documentId:', metadata.documentId);
 
     try {
       // Use cancellable extraction - Claude will fetch the document using MCP tools
       debug('[getDefinition] starting cancellable extraction for documentId:', metadata.documentId, 'onProgress:', !!onProgress);
+      console.log('[SubAgentManager.getDefinition] Starting extraction for documentId:', metadata.documentId);
 
       // Create extraction handle for potential cancellation
       const handle = startExtraction(
@@ -265,17 +284,32 @@ export class SubAgentManager {
       // Await the result
       let extracted;
       try {
+        console.log('[SubAgentManager.getDefinition] Awaiting extraction result...');
         extracted = await handle.result;
+        console.log('[SubAgentManager.getDefinition] Extraction completed:', extracted ? 'got result' : 'null');
+      } catch (extractionError) {
+        console.error('[SubAgentManager.getDefinition] Extraction threw error:', extractionError);
+        throw extractionError;
       } finally {
         // Remove from pending map regardless of outcome
         this.pendingExtractions.delete(agentId);
       }
 
+      // Check for extraction errors (402 insufficient credits, auth errors, etc.)
+      if (extracted.error) {
+        console.log('[SubAgentManager.getDefinition] Extraction error:', extracted.error.code, extracted.error.message);
+        // Throw with a formatted message that includes the error code for upstream handling
+        throw new Error(`[${extracted.error.code}] ${extracted.error.message}`);
+      }
+
       // Check if extraction actually got content
       if (!extracted.instructions || extracted.instructions.trim().length === 0) {
         debug('[getDefinition] extraction returned empty instructions - treating as failure');
+        console.log('[SubAgentManager.getDefinition] ERROR: Extraction returned empty instructions');
         return null;
       }
+
+      console.log('[SubAgentManager.getDefinition] Instructions length:', extracted.instructions.length);
 
       const definition: SubAgentDefinition = {
         name: metadata.name, // Already normalized with path
@@ -284,7 +318,7 @@ export class SubAgentManager {
         mcpServers: extracted.mcpServers?.length ? extracted.mcpServers : undefined,
         apis: extracted.apis?.length ? extracted.apis : undefined,
         info: extracted.info?.length ? extracted.info : undefined,
-        concerns: extracted.concerns?.length ? extracted.concerns : undefined,
+        warnings: extracted.warnings?.length ? extracted.warnings : undefined,
         capabilities: extracted.capabilities?.length ? extracted.capabilities : undefined,
         rawContent: extracted.instructions, // Use instructions as raw content since we don't have separate raw
         parsedAt: Date.now(),
@@ -295,15 +329,19 @@ export class SubAgentManager {
         'instructionsBlockId:', definition.instructionsBlockId || 'none',
         'mcpServers:', definition.mcpServers?.length || 0);
 
+      console.log('[SubAgentManager.getDefinition] Created definition:', definition.name);
+
       // Add logo URLs for MCP servers and APIs
       this.enrichWithLogos(definition);
 
       // Cache the definition to file
       saveDefinition(this.workspaceId, metadata, definition);
 
+      console.log('[SubAgentManager.getDefinition] Saved to cache, returning definition');
       return definition;
     } catch (error) {
       debug('[getDefinition] failed to fetch agent definition:', error);
+      console.error('[SubAgentManager.getDefinition] EXCEPTION:', error);
       return null;
     }
   }

@@ -8,7 +8,7 @@
 
 import * as React from 'react'
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { AlertCircle, CheckCircle2, ChevronRight, Lock, Globe } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle2, ChevronRight, Lock, Globe } from 'lucide-react'
 import { ServiceLogo } from '@/components/ui/service-logo'
 import { McpIcon } from '@/components/icons/McpIcon'
 import { Spinner } from '@/components/ui/loading-indicator'
@@ -153,6 +153,24 @@ export default function AgentInfoTabPanel({ tab }: AgentInfoTabPanelProps) {
                   {definition.info.map((msg, i) => (
                     <li key={i} className="flex items-start gap-2">
                       <span className="text-blue-500 shrink-0">i</span>
+                      <span>{msg}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Warnings */}
+            {definition.warnings && definition.warnings.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  Warnings
+                </h4>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  {definition.warnings.map((msg, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-amber-500 shrink-0">!</span>
                       <span>{msg}</span>
                     </li>
                   ))}

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { formatDistanceToNow } from "date-fns"
-import { Archive, ArchiveRestore, Trash2, Pencil, MoreHorizontal, ExternalLink } from "lucide-react"
+import { Archive, ArchiveRestore, Trash2, Pencil, MoreHorizontal, ExternalLink, Flag, FlagOff } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -48,6 +48,8 @@ interface SessionItemProps {
   onRenameClick: (sessionId: string, currentName: string) => void
   onArchive?: (sessionId: string) => void
   onUnarchive?: (sessionId: string) => void
+  onFlag?: (sessionId: string) => void
+  onUnflag?: (sessionId: string) => void
   onDelete: (sessionId: string) => void
   onSelect: (forceNewTab: boolean) => void
   onOpenInNewTab: () => void
@@ -68,6 +70,8 @@ function SessionItem({
   onRenameClick,
   onArchive,
   onUnarchive,
+  onFlag,
+  onUnflag,
   onDelete,
   onSelect,
   onOpenInNewTab,
@@ -81,15 +85,21 @@ function SessionItem({
   }
 
   return (
-    <div>
-      {index > 0 && <Separator />}
+    <div className="session-item" data-selected={isSelected || undefined}>
+      {index > 0 && (
+        <div className="session-separator pl-8 pr-4">
+          <Separator />
+        </div>
+      )}
       {/* Wrapper for button + dropdown, group for hover state */}
-      <div className="relative group">
+      <div className="session-content relative group select-none pl-2 mr-2">
         <button
           {...itemProps}
           className={cn(
-            "flex w-full flex-col items-start gap-1.5 pl-5 pr-4 py-3 text-left text-sm transition-all hover:bg-foreground/5 outline-none",
-            isSelected && "bg-muted",
+            "flex w-full flex-col items-start gap-1.5 pl-7 pr-4 py-3 text-left text-sm transition-all outline-none rounded-[8px]",
+            isSelected
+              ? "bg-foreground/5 hover:bg-foreground/7"
+              : "hover:bg-foreground/2",
             "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           )}
           onClick={handleClick}
@@ -98,17 +108,21 @@ function SessionItem({
             onKeyDown(e, item)
           }}
         >
+          {/* Flag - positioned in left margin */}
+          {item.isFlagged && (
+            <Flag className="absolute left-[16px] top-[15px] h-[12px] w-[12px] text-amber-500 fill-amber-500" />
+          )}
           {/* Title */}
-          <div className="flex items-center gap-2 w-full pr-6">
+          <div className="flex items-center gap-2 w-full pr-6 min-w-0">
             {item.isProcessing && (
               <span className="flex h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" />
             )}
-            <div className="font-semibold font-sans truncate">
+            <div className="font-semibold font-sans truncate min-w-0 -mb-[2px]">
               {getSessionTitle(item)}
             </div>
           </div>
           {/* Subtitle */}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground/70 w-full pr-6">
+          <div className="flex items-center gap-2 text-xs text-foreground/70 w-full -mb-[2px] pr-6">
             <span>
               {item.agentName || (
                 <>{item.messages.length} message{item.messages.length !== 1 ? 's' : ''}</>
@@ -119,14 +133,14 @@ function SessionItem({
             </span>
           </div>
           {/* Preview Text */}
-          <div className="line-clamp-2 text-xs text-muted-foreground leading-relaxed">
+          <div className="line-clamp-2 text-xs text-muted-foreground leading-relaxed w-full">
             {preview}
           </div>
         </button>
         {/* Action buttons - visible on hover or when menu is open */}
         <div
           className={cn(
-            "absolute right-2 top-3 transition-opacity z-10",
+            "absolute right-2 top-2 transition-opacity z-10",
             menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
           )}
         >
@@ -183,6 +197,18 @@ function SessionItem({
                 Rename
               </StyledDropdownMenuItem>
               <StyledDropdownMenuSeparator />
+              {onFlag && !item.isFlagged && (
+                <StyledDropdownMenuItem onClick={() => onFlag(item.id)}>
+                  <Flag />
+                  Flag
+                </StyledDropdownMenuItem>
+              )}
+              {onUnflag && item.isFlagged && (
+                <StyledDropdownMenuItem onClick={() => onUnflag(item.id)}>
+                  <FlagOff />
+                  Unflag
+                </StyledDropdownMenuItem>
+              )}
               {onArchive && (
                 <StyledDropdownMenuItem onClick={() => onArchive(item.id)}>
                   <Archive />
@@ -204,7 +230,6 @@ function SessionItem({
           </div>
         </div>
       </div>
-      {isLast && <Separator />}
     </div>
   )
 }
@@ -214,6 +239,8 @@ interface SessionListProps {
   onDelete: (sessionId: string) => void
   onArchive?: (sessionId: string) => void
   onUnarchive?: (sessionId: string) => void
+  onFlag?: (sessionId: string) => void
+  onUnflag?: (sessionId: string) => void
   onRename: (sessionId: string, name: string) => void
   /** Called when Enter is pressed to focus chat input */
   onFocusChatInput?: () => void
@@ -236,6 +263,8 @@ export function SessionList({
   onDelete,
   onArchive,
   onUnarchive,
+  onFlag,
+  onUnflag,
   onRename,
   onFocusChatInput,
   onSessionSelect,
@@ -356,21 +385,28 @@ export function SessionList({
     setRenameName("")
   }
 
+  // Empty state - render outside ScrollArea to avoid scroll
+  if (sortedItems.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm text-muted-foreground">
+          No conversations yet
+        </p>
+      </div>
+    )
+  }
+
   return (
-    <ScrollArea className="h-screen" ref={scrollRef}>
-      <div
-        ref={zoneRef}
-        className="flex flex-col pb-14"
-        data-focus-zone="session-list"
-        role="listbox"
-        aria-label="Sessions"
-      >
-        {sortedItems.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-8">
-            No conversations yet
-          </p>
-        ) : (
-          sortedItems.map((item, index) => {
+    <>
+      <ScrollArea className="h-screen select-none" ref={scrollRef}>
+        <div
+          ref={zoneRef}
+          className="flex flex-col pb-14 min-w-0 pt-2"
+          data-focus-zone="session-list"
+          role="listbox"
+          aria-label="Sessions"
+        >
+          {sortedItems.map((item, index) => {
             const preview = getSessionPreview(item.messages)
             const itemProps = getItemProps(item, index)
 
@@ -387,6 +423,8 @@ export function SessionList({
                 onRenameClick={handleRenameClick}
                 onArchive={onArchive}
                 onUnarchive={onUnarchive}
+                onFlag={onFlag}
+                onUnflag={onUnflag}
                 onDelete={onDelete}
                 onSelect={(forceNewTab) => {
                   // Always update selection
@@ -400,9 +438,9 @@ export function SessionList({
                 }}
               />
             )
-          })
-        )}
-      </div>
+          })}
+        </div>
+      </ScrollArea>
 
       {/* Rename Dialog */}
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
@@ -433,6 +471,6 @@ export function SessionList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </>
   )
 }

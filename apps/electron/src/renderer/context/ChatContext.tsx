@@ -30,6 +30,8 @@ export interface ChatContextType {
   onSendMessage: (sessionId: string, message: string, attachments?: FileAttachment[]) => void
   onRenameSession: (sessionId: string, name: string) => void
   onArchiveSession: (sessionId: string) => void
+  onFlagSession: (sessionId: string) => void
+  onUnflagSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
 
   // Permission handling

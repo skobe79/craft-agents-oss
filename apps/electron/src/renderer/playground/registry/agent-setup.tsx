@@ -1,6 +1,5 @@
 import type { ComponentEntry } from './types'
 import { ExtractingStep } from '@/components/agent-setup/ExtractingStep'
-import { ReviewConcernsStep, type Concern } from '@/components/agent-setup/ReviewConcernsStep'
 import { McpAuthStep, type McpServerConfig, type McpServerAuthStatus } from '@/components/agent-setup/McpAuthStep'
 import { ApiAuthStep, type ApiConfig, type ApiAuthStatus } from '@/components/agent-setup/ApiAuthStep'
 import { ReadyStep } from '@/components/agent-setup/ReadyStep'
@@ -10,27 +9,6 @@ import { AgentSetupWizard, type AgentSetupState } from '@/components/agent-setup
 import { AgentSetupDemo } from '@/components/agent-setup/AgentSetupDemo'
 
 // Sample data for testing
-const sampleConcerns: Concern[] = [
-  {
-    type: 'confusing',
-    description: 'The instructions mention "project files" but don\'t specify which file types.',
-    context: 'When working with project files, always check for conflicts first.',
-    suggestedQuestion: 'What file types should the agent focus on?',
-    suggestedAnswers: ['All files', 'Only code files (.ts, .js, .py)', 'Documentation only (.md, .txt)'],
-  },
-  {
-    type: 'conflicting',
-    description: 'The agent is told to both "always ask before making changes" and "work autonomously".',
-    suggestedQuestion: 'How should the agent handle making changes?',
-    suggestedAnswers: ['Always ask first', 'Ask for major changes only', 'Work autonomously'],
-  },
-  {
-    type: 'missing',
-    description: 'No preferred coding style or formatting rules are specified.',
-    suggestedQuestion: 'What coding style should the agent follow?',
-  },
-]
-
 const sampleMcpServers: McpServerConfig[] = [
   {
     name: 'GitHub',
@@ -125,40 +103,6 @@ export const agentSetupComponents: ComponentEntry[] = [
       { name: 'Detecting APIs', props: { agentName: 'API Helper', message: 'Detecting REST API integrations...' } },
     ],
     mockData: () => ({
-      onCancel: noopHandler,
-    }),
-  },
-
-  // Review Concerns Step
-  {
-    id: 'review-concerns-step',
-    name: 'ReviewConcernsStep',
-    category: 'Agent Setup',
-    description: 'User reviews and answers concerns from agent extraction',
-    component: ReviewConcernsStep,
-    props: [
-      {
-        name: 'agentName',
-        description: 'Name of the agent',
-        control: { type: 'string', placeholder: 'Agent name' },
-        defaultValue: 'Code Assistant',
-      },
-      {
-        name: 'isLoading',
-        description: 'Show loading state',
-        control: { type: 'boolean' },
-        defaultValue: false,
-      },
-    ],
-    variants: [
-      { name: 'Multiple Concerns', props: { agentName: 'Code Assistant', concerns: sampleConcerns } },
-      { name: 'Single Concern', props: { agentName: 'Writer', concerns: [sampleConcerns[0]] } },
-      { name: 'No Suggested Answers', props: { agentName: 'Custom Agent', concerns: [sampleConcerns[2]] } },
-      { name: 'Loading', props: { agentName: 'Code Assistant', concerns: sampleConcerns, isLoading: true } },
-    ],
-    mockData: () => ({
-      concerns: sampleConcerns,
-      onContinue: (answers: Record<number, string>) => console.log('[Playground] Submitted answers:', answers),
       onCancel: noopHandler,
     }),
   },
@@ -515,22 +459,11 @@ export const agentSetupComponents: ComponentEntry[] = [
         },
       },
       {
-        name: 'Review Concerns',
-        props: {
-          state: createAgentSetupState({
-            step: 'review',
-            agentName: 'Code Assistant',
-            concerns: sampleConcerns,
-          }),
-        },
-      },
-      {
         name: 'MCP Auth',
         props: {
           state: createAgentSetupState({
             step: 'mcp-auth',
             agentName: 'Code Assistant',
-            concerns: sampleConcerns,
             mcpServers: sampleMcpServers,
             mcpServerStatus: { 'GitHub': 'authenticated' },
           }),
@@ -542,7 +475,6 @@ export const agentSetupComponents: ComponentEntry[] = [
           state: createAgentSetupState({
             step: 'api-auth',
             agentName: 'Code Assistant',
-            concerns: sampleConcerns,
             mcpServers: sampleMcpServers,
             apis: sampleApis,
             apiStatus: { 'OpenAI': 'configured' },

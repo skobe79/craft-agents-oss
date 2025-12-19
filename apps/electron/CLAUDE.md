@@ -267,6 +267,7 @@ apps/electron/
 │   │   ├── ipc.ts         # IPC handler registration
 │   │   ├── menu.ts        # Application menu (File, Edit, View, Help menus)
 │   │   ├── sessions.ts    # SessionManager - CraftAgent integration
+│   │   ├── deep-link.ts   # Deep link URL parsing and handling
 │   │   └── agent-service.ts # Agent listing, caching, auth checking
 │   ├── preload/           # Context bridge (main ↔ renderer)
 │   │   └── index.ts       # Exposes electronAPI to renderer (incl. theme APIs)
@@ -283,7 +284,8 @@ apps/electron/
 │   │   │   ├── NavigationContext.tsx  # Agent selection
 │   │   │   └── ThemeContext.tsx       # Theme state management
 │   │   ├── hooks/
-│   │   │   └── useAgentState.ts  # Agent activation state machine (IPC-based)
+│   │   │   ├── useAgentState.ts  # Agent activation state machine (IPC-based)
+│   │   │   └── useDeepLinkNavigation.ts  # Deep link tab navigation
 │   │   ├── mocks/         # Browser dev mode mock APIs
 │   │   └── playground/    # Component development playground
 │   │       ├── PlaygroundApp.tsx     # Main playground component
@@ -313,8 +315,48 @@ The app uses Electron's IPC for main ↔ renderer communication:
 | `shell:openUrl` | renderer → main | Open URL in external browser |
 | `shell:openFile` | renderer → main | Open file in default application |
 | `theme:*` | both | Theme preference sync |
+| `deeplink:navigate` | main → renderer | Deep link tab navigation |
 
 **Event streaming pattern:** `sendMessage` returns immediately. Results stream via `SESSION_EVENT` channel.
+
+### Deep Links
+
+The app registers the `craftagents://` URL scheme for deep linking to specific tabs.
+
+**URL Format:**
+```
+craftagents://workspace/{workspaceId}/tab/{tabType}[/{id}][?params]
+craftagents://workspace/{workspaceId}/action/{actionName}[?params]
+```
+
+**Examples:**
+| Use Case | URL |
+|----------|-----|
+| Chat session | `craftagents://workspace/ws123/tab/chat/session456` |
+| Agent setup | `craftagents://workspace/ws123/tab/agent-setup/my-agent` |
+| Agent info | `craftagents://workspace/ws123/tab/agent-info/my-agent` |
+| Settings | `craftagents://workspace/ws123/tab/settings` |
+| Shortcuts | `craftagents://workspace/ws123/tab/shortcuts` |
+| Preferences | `craftagents://workspace/ws123/tab/preferences` |
+| File | `craftagents://workspace/ws123/tab/file?path=/path/to/file.txt` |
+| New chat | `craftagents://workspace/ws123/action/new-chat?agentId=my-agent` |
+
+**Key Files:**
+- `main/deep-link.ts` - URL parsing and handling
+- `main/index.ts` - Protocol registration, `app.on('open-url')` handler
+- `renderer/hooks/useDeepLinkNavigation.ts` - React hook for navigation
+- `preload/index.ts` - `onDeepLinkNavigate` listener
+
+**Flow:**
+1. User clicks `craftagents://` URL or app launched with URL
+2. Main process parses URL via `parseDeepLink()`
+3. `handleDeepLink()` focuses/creates workspace window
+4. Sends `DEEP_LINK_NAVIGATE` IPC to renderer
+5. `useDeepLinkNavigation` hook receives event
+6. Calls appropriate `useTabs()` method (e.g., `openAgentSetupTab`)
+7. Tab system deduplicates (activates existing tab if ID matches)
+
+**Cold Start:** If app isn't running, URL is stored in `pendingDeepLink` and processed after `app.whenReady()`.
 
 ### Key Integration Points
 
@@ -592,9 +634,9 @@ The `useAgentState` hook manages agent activation flow via IPC with the main pro
 
 **State Machine:**
 ```
-idle → extracting → needs_review → needs_mcp_auth → needs_api_auth → ready → active
-                         ↓              ↓                ↓
-                       error          error            error
+idle → extracting → [needs_mcp_auth] → [needs_api_auth] → ready → active
+                          ↓                  ↓
+                        error              error
 ```
 
 **Hook API:**
@@ -604,7 +646,6 @@ const agentState = useAgentState(workspaceId, agentId)
 // Status checks
 agentState.isIdle           // No agent selected
 agentState.isExtracting     // Loading agent definition
-agentState.isNeedsReview    // Waiting for concern review
 agentState.isNeedsMcpAuth   // Waiting for MCP server OAuth
 agentState.isNeedsApiAuth   // Waiting for API key entry
 agentState.isReady          // Auth complete, ready to activate
@@ -612,7 +653,6 @@ agentState.isActive         // Agent fully activated
 
 // Actions
 await agentState.activate(agentId)           // Start activation
-await agentState.continueAfterReview(answers) // After user answers concerns (saves to Craft)
 await agentState.continueAfterMcpAuth()      // After MCP OAuth complete
 await agentState.continueAfterApiAuth()      // After API key entered
 agentState.deactivate()                      // Return to idle
@@ -620,14 +660,11 @@ agentState.deactivate()                      // Return to idle
 // Derived state
 agentState.activeDefinition   // SubAgentDefinition when active
 agentState.agentName          // Display name
-agentState.pendingConcerns    // Concerns awaiting review
 agentState.pendingMcpServers  // MCP servers needing auth
 agentState.pendingApis        // APIs needing credentials
 ```
 
 **IPC Communication:** The hook communicates with `AgentStateManager` in the main process via `window.electronAPI` calls, keeping the renderer stateless.
-
-**Concern Answers (Clarifications):** When the user answers concerns during agent setup (`continueAfterReview`), the answers are saved back to the source Craft document. The main process creates a temporary agent that sends a hidden message asking Claude to update the Instructions document with the user's answers. After saving, the definition cache is invalidated so the next activation gets fresh instructions.
 
 ## Application Menu
 

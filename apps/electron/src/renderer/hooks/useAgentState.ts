@@ -27,7 +27,6 @@ import type {
   SubAgentDefinition,
   McpServerConfig,
   ApiConfig,
-  Concern,
 } from '@craft-agent/shared/agents'
 import type { BannerState } from '../components/chat/SetupAuthBanner'
 
@@ -38,7 +37,6 @@ export interface UseAgentStateResult {
   // Convenience booleans for status checking
   isIdle: boolean
   isExtracting: boolean
-  isNeedsReview: boolean
   isNeedsMcpAuth: boolean
   isNeedsApiAuth: boolean
   isReady: boolean
@@ -57,15 +55,12 @@ export interface UseAgentStateResult {
   extractionMessage: string | null
   errorMessage: string | null
 
-  // Pending auth/review data (derived from status)
-  pendingConcerns: Concern[] | null
+  // Pending auth data (derived from status)
   pendingMcpServers: McpServerConfig[] | null
   pendingApis: ApiConfig[] | null
 
   // Actions (no agentId param needed - it's in the hook signature)
   activate: (options?: AgentActivateOptions) => Promise<AgentStatus>
-  continueAfterReview: (answers: Record<string, string>) => Promise<AgentStatus>
-  skipReview: () => Promise<AgentStatus>
   continueAfterMcpAuth: () => Promise<AgentStatus>
   continueAfterApiAuth: () => Promise<AgentStatus>
   deactivate: () => void
@@ -125,7 +120,6 @@ export function useAgentState(workspaceId: string | null, agentId: string | null
   // Derive convenience booleans from status
   const isIdle = status.status === 'idle'
   const isExtracting = status.status === 'extracting'
-  const isNeedsReview = status.status === 'needs_review'
   const isNeedsMcpAuth = status.status === 'needs_mcp_auth'
   const isNeedsApiAuth = status.status === 'needs_api_auth'
   const isReady = status.status === 'ready'
@@ -142,7 +136,6 @@ export function useAgentState(workspaceId: string | null, agentId: string | null
   const extractionMessage = status.status === 'extracting' ? status.message : null
   const errorMessage = status.status === 'error' ? status.error : null
 
-  const pendingConcerns = status.status === 'needs_review' ? status.concerns : null
   const pendingMcpServers = status.status === 'needs_mcp_auth' ? status.servers : null
   const pendingApis = status.status === 'needs_api_auth' ? status.apis : null
 
@@ -162,8 +155,6 @@ export function useAgentState(workspaceId: string | null, agentId: string | null
         return 'setup'
       case 'extracting':
         return 'activating'
-      case 'needs_review':
-        return 'review'
       case 'needs_mcp_auth':
         return 'mcp_auth'
       case 'needs_api_auth':
@@ -208,27 +199,6 @@ export function useAgentState(workspaceId: string | null, agentId: string | null
     },
     [workspaceId, agentId]
   )
-
-  const continueAfterReview = useCallback(
-    async (answers: Record<string, string>): Promise<AgentStatus> => {
-      if (!workspaceId || !agentId) {
-        return status
-      }
-      setIsLoading(true)
-      try {
-        const result = await window.electronAPI.continueAfterReview(workspaceId, agentId, answers)
-        setStatus(result)
-        return result
-      } finally {
-        setIsLoading(false)
-      }
-    },
-    [workspaceId, agentId, status]
-  )
-
-  const skipReview = useCallback(async (): Promise<AgentStatus> => {
-    return continueAfterReview({})
-  }, [continueAfterReview])
 
   const continueAfterMcpAuth = useCallback(async (): Promise<AgentStatus> => {
     if (!workspaceId || !agentId) {
@@ -299,7 +269,6 @@ export function useAgentState(workspaceId: string | null, agentId: string | null
     status,
     isIdle,
     isExtracting,
-    isNeedsReview,
     isNeedsMcpAuth,
     isNeedsApiAuth,
     isReady,
@@ -313,12 +282,9 @@ export function useAgentState(workspaceId: string | null, agentId: string | null
     agentName: derivedAgentName,
     extractionMessage,
     errorMessage,
-    pendingConcerns,
     pendingMcpServers,
     pendingApis,
     activate,
-    continueAfterReview,
-    skipReview,
     continueAfterMcpAuth,
     continueAfterApiAuth,
     deactivate,

@@ -10,6 +10,7 @@ import { agentService } from './agent-service'
 import { registerOnboardingHandlers } from './onboarding'
 import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo } from '../shared/types'
 import { readFileAttachment } from '@craft-agent/shared/utils'
+import { getAiCreditTopUpUrl } from '@craft-agent/shared/auth'
 import { getSessionAttachmentsPath, getAuthType, setAuthType, getPreferencesPath, getModel, setModel } from '@craft-agent/shared/config'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { MarkItDown } from 'markitdown-js'
@@ -192,6 +193,16 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Unarchive a session
   ipcMain.handle(IPC_CHANNELS.UNARCHIVE_SESSION, async (_event, sessionId: string) => {
     return sessionManager.unarchiveSession(sessionId)
+  })
+
+  // Flag a session
+  ipcMain.handle(IPC_CHANNELS.FLAG_SESSION, async (_event, sessionId: string) => {
+    return sessionManager.flagSession(sessionId)
+  })
+
+  // Unflag a session
+  ipcMain.handle(IPC_CHANNELS.UNFLAG_SESSION, async (_event, sessionId: string) => {
+    return sessionManager.unflagSession(sessionId)
   })
 
   // Rename a session
@@ -496,11 +507,6 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     return sessionManager.activateAgent(workspaceId, agentId, options)
   })
 
-  // Continue after user completes review (agent-scoped)
-  ipcMain.handle(IPC_CHANNELS.AGENT_CONTINUE_REVIEW, async (_event, workspaceId: string, agentId: string, answers: Record<string, string>) => {
-    return sessionManager.continueAfterReview(workspaceId, agentId, answers)
-  })
-
   // Continue after MCP server auth completes (agent-scoped)
   ipcMain.handle(IPC_CHANNELS.AGENT_CONTINUE_MCP_AUTH, async (_event, workspaceId: string, agentId: string) => {
     return sessionManager.continueAfterMcpAuth(workspaceId, agentId)
@@ -645,6 +651,16 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     }
 
     return { authType, hasCredential }
+  })
+
+  // Get credits URL (for top-up)
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_CREDITS_URL, async (): Promise<string | null> => {
+    try {
+      return await getAiCreditTopUpUrl()
+    } catch (error) {
+      console.error('[IPC] Failed to get credits URL:', error)
+      return null
+    }
   })
 
   // Update billing method and credential
