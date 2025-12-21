@@ -7,9 +7,12 @@ import { randomUUID } from 'crypto'
 import { SessionManager } from './sessions'
 import { WindowManager } from './window-manager'
 import { PreviewWindowManager } from './preview-window'
+import { DiffPreviewWindowManager } from './diff-preview-window'
+import { CodePreviewWindowManager } from './code-preview-window'
+import { TerminalPreviewWindowManager } from './terminal-preview-window'
 import { agentService } from './agent-service'
 import { registerOnboardingHandlers } from './onboarding'
-import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions } from '../shared/types'
+import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions, type DiffPreviewData, type CodePreviewData, type TerminalPreviewData } from '../shared/types'
 import { readFileAttachment } from '@craft-agent/shared/utils'
 import { getAiCreditTopUpUrl } from '@craft-agent/shared/auth'
 import { getSessionAttachmentsPath, getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts } from '@craft-agent/shared/config'
@@ -99,7 +102,7 @@ async function validateFilePath(filePath: string): Promise<string> {
   return realPath
 }
 
-export function registerIpcHandlers(sessionManager: SessionManager, windowManager: WindowManager, previewWindowManager: PreviewWindowManager): void {
+export function registerIpcHandlers(sessionManager: SessionManager, windowManager: WindowManager, previewWindowManager: PreviewWindowManager, diffPreviewWindowManager: DiffPreviewWindowManager, codePreviewWindowManager: CodePreviewWindowManager, terminalPreviewWindowManager: TerminalPreviewWindowManager): void {
   // Get all sessions
   ipcMain.handle(IPC_CHANNELS.GET_SESSIONS, async () => {
     return sessionManager.getSessions()
@@ -785,6 +788,48 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     previewWindowManager.updateOriginalContent(sessionId, messageId, content)
     // Broadcast to main window so it can update its UI
     windowManager.broadcastToAll(IPC_CHANNELS.PREVIEW_MESSAGE_UPDATED, sessionId, messageId, content)
+  })
+
+  // ============================================================
+  // Diff Preview Window
+  // ============================================================
+
+  // Open diff preview window
+  ipcMain.handle(IPC_CHANNELS.DIFF_PREVIEW_OPEN, async (_event, sessionId: string, diffId: string, data: DiffPreviewData) => {
+    diffPreviewWindowManager.openDiffPreview(sessionId, diffId, data)
+  })
+
+  // Get data for a diff preview (called from diff preview window on mount)
+  ipcMain.handle(IPC_CHANNELS.DIFF_PREVIEW_GET_DATA, async (_event, sessionId: string, diffId: string) => {
+    return diffPreviewWindowManager.getData(sessionId, diffId)
+  })
+
+  // ============================================================
+  // Code Preview Window (Read/Write tools)
+  // ============================================================
+
+  // Open code preview window
+  ipcMain.handle(IPC_CHANNELS.CODE_PREVIEW_OPEN, async (_event, sessionId: string, previewId: string, data: CodePreviewData) => {
+    codePreviewWindowManager.openCodePreview(sessionId, previewId, data)
+  })
+
+  // Get data for a code preview (called from code preview window on mount)
+  ipcMain.handle(IPC_CHANNELS.CODE_PREVIEW_GET_DATA, async (_event, sessionId: string, previewId: string) => {
+    return codePreviewWindowManager.getData(sessionId, previewId)
+  })
+
+  // ============================================================
+  // Terminal Preview Window (Bash tools)
+  // ============================================================
+
+  // Open terminal preview window
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_PREVIEW_OPEN, async (_event, sessionId: string, previewId: string, data: TerminalPreviewData) => {
+    terminalPreviewWindowManager.openTerminalPreview(sessionId, previewId, data)
+  })
+
+  // Get data for a terminal preview (called from terminal preview window on mount)
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_PREVIEW_GET_DATA, async (_event, sessionId: string, previewId: string) => {
+    return terminalPreviewWindowManager.getData(sessionId, previewId)
   })
 
   // Register onboarding handlers

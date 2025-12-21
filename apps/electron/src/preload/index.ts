@@ -200,6 +200,24 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PREVIEW_MESSAGE_UPDATED, handler)
   },
 
+  // Diff preview window
+  openDiffPreview: (sessionId: string, diffId: string, data: import('../shared/types').DiffPreviewData) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DIFF_PREVIEW_OPEN, sessionId, diffId, data),
+  getDiffPreviewData: (sessionId: string, diffId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DIFF_PREVIEW_GET_DATA, sessionId, diffId),
+
+  // Code preview window (Read/Write tools)
+  openCodePreview: (sessionId: string, previewId: string, data: import('../shared/types').CodePreviewData) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CODE_PREVIEW_OPEN, sessionId, previewId, data),
+  getCodePreviewData: (sessionId: string, previewId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CODE_PREVIEW_GET_DATA, sessionId, previewId),
+
+  // Terminal preview window (Bash tools)
+  openTerminalPreview: (sessionId: string, previewId: string, data: import('../shared/types').TerminalPreviewData) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_PREVIEW_OPEN, sessionId, previewId, data),
+  getTerminalPreviewData: (sessionId: string, previewId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_PREVIEW_GET_DATA, sessionId, previewId),
+
   // Session Drafts (persisted input text)
   getDraft: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_GET, sessionId),
   setDraft: (sessionId: string, text: string) => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_SET, sessionId, text),

@@ -466,8 +466,170 @@ export function ChatDisplay({
                         }}
                         onOpenActivityDetails={(activity) => {
                           if (session) {
-                            const markdown = formatActivityAsMarkdown(activity)
-                            window.electronAPI.openPreview(session.id, `activity-${activity.id}`, markdown)
+                            const input = activity.toolInput as Record<string, unknown> | undefined
+
+                            // Edit tool → Diff preview (Monaco DiffEditor)
+                            if (activity.toolName === 'Edit' && input) {
+                              const filePath = (input.file_path as string) || 'unknown'
+                              const oldString = (input.old_string as string) || ''
+                              const newString = (input.new_string as string) || ''
+                              window.electronAPI.openDiffPreview(session.id, `diff-${activity.id}`, {
+                                filePath,
+                                original: oldString,
+                                modified: newString,
+                              })
+                            }
+                            // Read tool → Code preview (read mode)
+                            else if (activity.toolName === 'Read' && input) {
+                              // Read result may be JSON with file metadata
+                              let filePath = (input.file_path as string) || 'unknown'
+                              let content = activity.content || ''
+                              let numLines: number | undefined
+                              let startLine: number | undefined
+                              let totalLines: number | undefined
+
+                              // Try to parse JSON structure from Read tool result
+                              try {
+                                const parsed = JSON.parse(content)
+                                if (parsed.file) {
+                                  filePath = parsed.file.filePath || filePath
+                                  content = parsed.file.content || ''
+                                  numLines = parsed.file.numLines
+                                  startLine = parsed.file.startLine
+                                  totalLines = parsed.file.totalLines
+                                }
+                              } catch {
+                                // Not JSON, use as plain text
+                              }
+
+                              window.electronAPI.openCodePreview(session.id, `code-${activity.id}`, {
+                                filePath,
+                                content,
+                                mode: 'read',
+                                numLines,
+                                startLine,
+                                totalLines,
+                              })
+                            }
+                            // Write tool → Code preview (write mode)
+                            else if (activity.toolName === 'Write' && input) {
+                              const filePath = (input.file_path as string) || 'unknown'
+                              const content = (input.content as string) || ''
+                              window.electronAPI.openCodePreview(session.id, `code-${activity.id}`, {
+                                filePath,
+                                content,
+                                mode: 'write',
+                              })
+                            }
+                            // Bash tool → Terminal preview
+                            else if (activity.toolName === 'Bash' && input) {
+                              const command = (input.command as string) || ''
+                              const description = (input.description as string) || undefined
+                              // Parse exit code and output from JSON result
+                              let exitCode: number | undefined
+                              let output = activity.content || ''
+
+                              // Try to parse JSON structure from Bash tool result
+                              try {
+                                const parsed = JSON.parse(output)
+                                if (parsed.stdout !== undefined || parsed.stderr !== undefined) {
+                                  // Combine stdout and stderr, preserving formatting
+                                  const stdout = parsed.stdout || ''
+                                  const stderr = parsed.stderr || ''
+                                  output = stdout + (stderr ? `\n${stderr}` : '')
+                                  // exitCode might not be in the result, check interrupted flag
+                                  if (parsed.interrupted) {
+                                    exitCode = 130 // Standard SIGINT exit code
+                                  }
+                                }
+                              } catch {
+                                // Not JSON, parse exit code from text if present
+                                const exitMatch = output.match(/Exit code: (\d+)/)
+                                if (exitMatch) {
+                                  exitCode = parseInt(exitMatch[1], 10)
+                                }
+                              }
+
+                              window.electronAPI.openTerminalPreview(session.id, `terminal-${activity.id}`, {
+                                command,
+                                output,
+                                description,
+                                exitCode,
+                              })
+                            }
+                            // Grep tool → Terminal preview (search results)
+                            else if (activity.toolName === 'Grep' && input) {
+                              const pattern = (input.pattern as string) || ''
+                              const searchPath = (input.path as string) || '.'
+                              const outputMode = (input.output_mode as string) || 'files_with_matches'
+                              const rawOutput = activity.content || ''
+
+                              // Try to parse JSON structure from Grep tool result
+                              let output = rawOutput
+                              let description = `Search for "${pattern}"`
+                              try {
+                                const parsed = JSON.parse(rawOutput)
+                                if (parsed.content !== undefined) {
+                                  output = parsed.content || ''
+                                  // Add file count info if available
+                                  if (parsed.numFiles !== undefined) {
+                                    description = `Search for "${pattern}" (${parsed.numFiles} files, ${parsed.numLines || 0} lines)`
+                                  }
+                                } else if (parsed.filenames) {
+                                  // files_with_matches mode returns filenames array
+                                  output = parsed.filenames.join('\n')
+                                  description = `Search for "${pattern}" (${parsed.filenames.length} files)`
+                                }
+                              } catch {
+                                // Not JSON, use as plain text
+                              }
+
+                              const command = `grep "${pattern}" ${searchPath} --${outputMode}`
+
+                              window.electronAPI.openTerminalPreview(session.id, `terminal-${activity.id}`, {
+                                command,
+                                output,
+                                description,
+                              })
+                            }
+                            // Glob tool → Terminal preview (file list)
+                            else if (activity.toolName === 'Glob' && input) {
+                              const pattern = (input.pattern as string) || '*'
+                              const searchPath = (input.path as string) || '.'
+                              const rawOutput = activity.content || ''
+
+                              // Try to parse JSON structure from Glob tool result
+                              let output = rawOutput
+                              let description = `Find files matching "${pattern}"`
+                              try {
+                                const parsed = JSON.parse(rawOutput)
+                                if (parsed.filenames && Array.isArray(parsed.filenames)) {
+                                  // Standard Glob result format: { filenames: [...], numFiles, durationMs, truncated }
+                                  output = parsed.filenames.join('\n')
+                                  const truncatedNote = parsed.truncated ? ' (truncated)' : ''
+                                  description = `Find files matching "${pattern}" (${parsed.numFiles || parsed.filenames.length} files${truncatedNote})`
+                                } else if (Array.isArray(parsed)) {
+                                  // Simple array format
+                                  output = parsed.join('\n')
+                                  description = `Find files matching "${pattern}" (${parsed.length} matches)`
+                                }
+                              } catch {
+                                // Not JSON, use as plain text
+                              }
+
+                              const command = `glob "${pattern}" in ${searchPath}`
+
+                              window.electronAPI.openTerminalPreview(session.id, `terminal-${activity.id}`, {
+                                command,
+                                output,
+                                description,
+                              })
+                            }
+                            // Default → Markdown preview
+                            else {
+                              const markdown = formatActivityAsMarkdown(activity)
+                              window.electronAPI.openPreview(session.id, `activity-${activity.id}`, markdown)
+                            }
                           }
                         }}
                       />

@@ -247,17 +247,7 @@ function isResponseBuffering(response: ResponseContent | undefined): boolean {
 /** Get display name for a tool (strip MCP prefixes) */
 function getToolDisplayName(name: string): string {
   const stripped = name.replace(/^mcp__[^_]+__/, '')
-  const displayNames: Record<string, string> = {
-    'WebFetch': 'Fetching',
-    'WebSearch': 'Searching',
-    'Read': 'Reading',
-    'Write': 'Writing',
-    'Edit': 'Editing',
-    'Glob': 'Finding files',
-    'Grep': 'Searching code',
-    'Bash': 'Running command',
-  }
-  return displayNames[stripped] || stripped
+  return stripped
 }
 
 /** Format tool input as a concise summary - CSS truncate handles overflow */
@@ -265,7 +255,8 @@ function formatToolInput(input?: Record<string, unknown>): string {
   if (!input || Object.keys(input).length === 0) return ''
   const parts: string[] = []
   for (const [key, value] of Object.entries(input)) {
-    if (key === '_intent' || value === undefined || value === null) continue
+    // Skip meta fields and description (shown separately)
+    if (key === '_intent' || key === 'description' || value === undefined || value === null) continue
     const valStr = typeof value === 'string'
       ? value.replace(/\s+/g, ' ').trim()
       : JSON.stringify(value)
@@ -402,21 +393,33 @@ function ActivityRow({ activity, onOpenDetails }: ActivityRowProps) {
   }
 
   // Tool activities - show with status icon
-  const displayName = activity.toolName
+  // Format: "Description · ToolName [lighter details]"
+  const toolName = activity.toolName
     ? getToolDisplayName(activity.toolName)
     : activity.type === 'thinking'
     ? 'Thinking'
     : 'Processing'
 
+  // Extract description from toolInput if available (e.g., Bash commands have a description field)
+  const description = activity.toolInput?.description as string | undefined
   const inputSummary = formatToolInput(activity.toolInput)
   const isComplete = activity.status === 'completed' || activity.status === 'error'
 
   return (
     <div className={cn("group/row flex items-center gap-2 py-0.5 text-muted-foreground", SIZE_CONFIG.fontSize)}>
       <ActivityStatusIcon status={activity.status} />
-      <span className="font-medium shrink-0">{displayName}</span>
+      {/* Tool name (always shown, darker) */}
+      <span className="font-medium shrink-0">{toolName}</span>
+      {/* Description if available (darker, after interpunct) */}
+      {description && (
+        <>
+          <span className="opacity-60 shrink-0">·</span>
+          <span className="font-medium shrink-0">{description}</span>
+        </>
+      )}
+      {/* Additional params (lighter) */}
       {inputSummary && (
-        <span className="opacity-60 truncate flex-1 min-w-0">{inputSummary}</span>
+        <span className="opacity-50 truncate flex-1 min-w-0">{inputSummary}</span>
       )}
       {activity.status === 'error' && activity.error && (
         <span className="text-destructive truncate max-w-[150px]">

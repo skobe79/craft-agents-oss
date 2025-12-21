@@ -853,6 +853,84 @@ console.log(example);
     return () => {}
   },
 
+  // ===== Diff Preview Window =====
+
+  async openDiffPreview(sessionId: string, diffId: string, data: import('../../shared/types').DiffPreviewData): Promise<void> {
+    console.log('[Mock] openDiffPreview called:', { sessionId, diffId, filePath: data.filePath })
+    // In browser dev mode, store data and open in new tab
+    const key = `diffPreview:${sessionId}:${diffId}`
+    sessionStorage.setItem(key, JSON.stringify(data))
+    window.open(`/diff-preview.html?sessionId=${encodeURIComponent(sessionId)}&diffId=${encodeURIComponent(diffId)}`, '_blank')
+  },
+
+  async getDiffPreviewData(sessionId: string, diffId: string): Promise<import('../../shared/types').DiffPreviewData | null> {
+    console.log('[Mock] getDiffPreviewData called:', { sessionId, diffId })
+    const key = `diffPreview:${sessionId}:${diffId}`
+    const data = sessionStorage.getItem(key)
+    if (data) {
+      return JSON.parse(data)
+    }
+    // Return mock data if not found
+    return {
+      filePath: '/mock/file.ts',
+      original: 'const x = 1;',
+      modified: 'const x = 2;',
+      language: 'typescript',
+    }
+  },
+
+  // ===== Code Preview Window (Read/Write tools) =====
+
+  async openCodePreview(sessionId: string, previewId: string, data: import('../../shared/types').CodePreviewData): Promise<void> {
+    console.log('[Mock] openCodePreview called:', { sessionId, previewId, filePath: data.filePath, mode: data.mode })
+    // In browser dev mode, store data and open in new tab
+    const key = `codePreview:${sessionId}:${previewId}`
+    sessionStorage.setItem(key, JSON.stringify(data))
+    window.open(`/code-preview.html?sessionId=${encodeURIComponent(sessionId)}&previewId=${encodeURIComponent(previewId)}`, '_blank')
+  },
+
+  async getCodePreviewData(sessionId: string, previewId: string): Promise<import('../../shared/types').CodePreviewData | null> {
+    console.log('[Mock] getCodePreviewData called:', { sessionId, previewId })
+    const key = `codePreview:${sessionId}:${previewId}`
+    const data = sessionStorage.getItem(key)
+    if (data) {
+      return JSON.parse(data)
+    }
+    // Return mock data if not found
+    return {
+      filePath: '/mock/example.ts',
+      content: `// Mock file content\nimport React from 'react';\n\nfunction Example() {\n  return <div>Hello World</div>;\n}\n\nexport default Example;\n`,
+      language: 'typescript',
+      mode: 'read',
+    }
+  },
+
+  // ===== Terminal Preview Window (Bash tools) =====
+
+  async openTerminalPreview(sessionId: string, previewId: string, data: import('../../shared/types').TerminalPreviewData): Promise<void> {
+    console.log('[Mock] openTerminalPreview called:', { sessionId, previewId, command: data.command })
+    // In browser dev mode, store data and open in new tab
+    const key = `terminalPreview:${sessionId}:${previewId}`
+    sessionStorage.setItem(key, JSON.stringify(data))
+    window.open(`/terminal-preview.html?sessionId=${encodeURIComponent(sessionId)}&previewId=${encodeURIComponent(previewId)}`, '_blank')
+  },
+
+  async getTerminalPreviewData(sessionId: string, previewId: string): Promise<import('../../shared/types').TerminalPreviewData | null> {
+    console.log('[Mock] getTerminalPreviewData called:', { sessionId, previewId })
+    const key = `terminalPreview:${sessionId}:${previewId}`
+    const data = sessionStorage.getItem(key)
+    if (data) {
+      return JSON.parse(data)
+    }
+    // Return mock data if not found
+    return {
+      command: 'echo "Hello World"',
+      output: 'Hello World\n',
+      description: 'Print greeting',
+      exitCode: 0,
+    }
+  },
+
   // ===== Session Drafts =====
 
   async getDraft(sessionId: string): Promise<string | null> {

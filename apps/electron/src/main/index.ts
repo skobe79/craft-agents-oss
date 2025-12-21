@@ -6,6 +6,9 @@ import { registerIpcHandlers } from './ipc'
 import { createApplicationMenu } from './menu'
 import { WindowManager } from './window-manager'
 import { PreviewWindowManager } from './preview-window'
+import { DiffPreviewWindowManager } from './diff-preview-window'
+import { CodePreviewWindowManager } from './code-preview-window'
+import { TerminalPreviewWindowManager } from './terminal-preview-window'
 import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces } from '@craft-agent/shared/config'
 import { handleDeepLink } from './deep-link'
@@ -16,6 +19,9 @@ const DEEPLINK_SCHEME = 'craftagents'
 let windowManager: WindowManager | null = null
 let sessionManager: SessionManager | null = null
 let previewWindowManager: PreviewWindowManager | null = null
+let diffPreviewWindowManager: DiffPreviewWindowManager | null = null
+let codePreviewWindowManager: CodePreviewWindowManager | null = null
+let terminalPreviewWindowManager: TerminalPreviewWindowManager | null = null
 
 // Store pending deep link if app not ready yet (cold start)
 let pendingDeepLink: string | null = null
@@ -129,12 +135,21 @@ app.whenReady().then(async () => {
     // Initialize preview window manager
     previewWindowManager = new PreviewWindowManager()
 
+    // Initialize diff preview window manager
+    diffPreviewWindowManager = new DiffPreviewWindowManager()
+
+    // Initialize code preview window manager
+    codePreviewWindowManager = new CodePreviewWindowManager()
+
+    // Initialize terminal preview window manager
+    terminalPreviewWindowManager = new TerminalPreviewWindowManager()
+
     // Initialize session manager
     sessionManager = new SessionManager()
     sessionManager.setWindowManager(windowManager)
 
     // Register IPC handlers (must happen before window creation)
-    registerIpcHandlers(sessionManager, windowManager, previewWindowManager)
+    registerIpcHandlers(sessionManager, windowManager, previewWindowManager, diffPreviewWindowManager, codePreviewWindowManager, terminalPreviewWindowManager)
 
     // Create initial windows (restores from saved state or opens first workspace)
     await createInitialWindows()

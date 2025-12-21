@@ -366,7 +366,55 @@ export const IPC_CHANNELS = {
   PREVIEW_SAVE: 'preview:save',
   PREVIEW_MESSAGE_UPDATED: 'preview:messageUpdated',
 
+  // Diff preview window
+  DIFF_PREVIEW_OPEN: 'diffPreview:open',
+  DIFF_PREVIEW_GET_DATA: 'diffPreview:getData',
+
+  // Code preview window (Read/Write tools)
+  CODE_PREVIEW_OPEN: 'codePreview:open',
+  CODE_PREVIEW_GET_DATA: 'codePreview:getData',
+
+  // Terminal preview window (Bash tools)
+  TERMINAL_PREVIEW_OPEN: 'terminalPreview:open',
+  TERMINAL_PREVIEW_GET_DATA: 'terminalPreview:getData',
 } as const
+
+/**
+ * Data for diff preview window
+ */
+export interface DiffPreviewData {
+  filePath: string
+  original: string
+  modified: string
+  language?: string
+}
+
+/**
+ * Data for code preview window (Read/Write tools)
+ */
+export interface CodePreviewData {
+  filePath: string
+  content: string
+  language?: string
+  /** 'read' for Read tool, 'write' for Write tool */
+  mode: 'read' | 'write'
+  /** File metadata from Read tool */
+  numLines?: number
+  startLine?: number
+  totalLines?: number
+}
+
+/**
+ * Data for terminal preview window (Bash tools)
+ */
+export interface TerminalPreviewData {
+  command: string
+  output: string
+  /** Optional description of what the command does */
+  description?: string
+  /** Exit status if available */
+  exitCode?: number
+}
 
 // Re-import types for ElectronAPI
 import type { Workspace, SessionMetadata, StoredAttachment as StoredAttachmentType } from '@craft-agent/core/types';
@@ -500,6 +548,18 @@ export interface ElectronAPI {
   getPreviewContent(sessionId: string, messageId: string): Promise<string>
   savePreview(sessionId: string, messageId: string, content: string): Promise<void>
   onMessageUpdated(callback: (sessionId: string, messageId: string, content: string) => void): () => void
+
+  // Diff preview window
+  openDiffPreview(sessionId: string, diffId: string, data: DiffPreviewData): Promise<void>
+  getDiffPreviewData(sessionId: string, diffId: string): Promise<DiffPreviewData | null>
+
+  // Code preview window (Read/Write tools)
+  openCodePreview(sessionId: string, previewId: string, data: CodePreviewData): Promise<void>
+  getCodePreviewData(sessionId: string, previewId: string): Promise<CodePreviewData | null>
+
+  // Terminal preview window (Bash tools)
+  openTerminalPreview(sessionId: string, previewId: string, data: TerminalPreviewData): Promise<void>
+  getTerminalPreviewData(sessionId: string, previewId: string): Promise<TerminalPreviewData | null>
 
   // Session Drafts (persisted input text)
   getDraft(sessionId: string): Promise<string | null>
