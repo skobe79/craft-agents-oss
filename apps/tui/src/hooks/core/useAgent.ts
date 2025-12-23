@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   CraftAgent,
   type CraftAgentConfig,
@@ -51,6 +51,7 @@ import { CraftOAuth, getMcpBaseUrl } from '@craft-agent/shared/auth';
 import { debug } from '@craft-agent/shared/utils';
 import { containsUltrathink, stripUltrathink } from '../../utils/gradient.ts';
 import { useAgentState } from './useAgentState.ts';
+import { useSafeMode } from './useModeState.ts';
 
 // MCP auth request for sub-agent servers
 export interface PendingMcpAuthRequest {
@@ -184,7 +185,9 @@ export interface UseAgentResult {
   cancelPlan: () => void;
   approvePlan: () => void;
   shouldSuggestPlanning: (message: string) => boolean;
-  // Safe mode toggle (for SHIFT+TAB or Ctrl+S)
+  // Generic mode toggle API
+  setMode: (mode: Mode, enabled: boolean) => void;
+  // Legacy mode toggle aliases (deprecated - use setMode instead)
   startSafeMode: () => void;
   exitSafeModeAction: () => void;
   // Todos (from TodoWrite tool)
@@ -234,9 +237,10 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   // Ultrathink mode (extended thinking)
   const [isUltrathink, setIsUltrathink] = useState(false);
 
-  // Safe mode state (read-only exploration mode)
+  // Safe mode state - uses useSyncExternalStore for direct Mode Manager integration
+  // No more React state duplication - Mode Manager is the single source of truth
+  const safeMode = useSafeMode(session?.id);
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
-  const [safeMode, setSafeMode] = useState(false);
   // Todos (from TodoWrite tool)
   const [todos, setTodos] = useState<TodoItem[]>([]);
 
@@ -612,11 +616,7 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
       agentRef.current.onDebug = (message) => {
         debug('[SDK]', message);
       };
-      // Set up safe mode change callback to sync React state
-      agentRef.current.onSafeModeChange = (mode) => {
-        debug('[SDK] Safe mode changed:', mode);
-        setSafeMode(mode);
-      };
+      // Note: onSafeModeChange callback removed - useSafeMode hook subscribes directly to Mode Manager
       // Set up plan submitted callback - injects plan as a message
       agentRef.current.onPlanSubmitted = (planPath) => {
         debug('[SDK] Plan submitted:', planPath);
@@ -686,25 +686,23 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }
   }, [pendingQuestion]);
 
-  // Enter Safe Mode (for SHIFT+TAB or Ctrl+S)
-  const startSafeMode = useCallback(() => {
+  // Generic mode toggle API - works with any mode type
+  const setMode = useCallback((mode: Mode, enabled: boolean) => {
     if (!session?.id) {
-      debug('[startSafeMode] No session ID, cannot enter safe mode');
+      debug(`[setMode] No session ID, cannot ${enabled ? 'enter' : 'exit'} ${mode} mode`);
       return;
     }
-    debug('[startSafeMode] Entering safe mode for session:', session.id);
-    enterMode(session.id, 'safe');
+    debug(`[setMode] ${enabled ? 'Entering' : 'Exiting'} ${mode} mode for session:`, session.id);
+    if (enabled) {
+      enterMode(session.id, mode);
+    } else {
+      exitMode(session.id, mode);
+    }
   }, [session?.id]);
 
-  // Exit Safe Mode (for SHIFT+TAB or Ctrl+S)
-  const exitSafeModeAction = useCallback(() => {
-    if (!session?.id) {
-      debug('[exitSafeModeAction] No session ID, cannot exit safe mode');
-      return;
-    }
-    debug('[exitSafeModeAction] Exiting safe mode for session:', session.id);
-    exitMode(session.id, 'safe');
-  }, [session?.id]);
+  // Legacy aliases for backward compatibility (use setMode instead)
+  const startSafeMode = useCallback(() => setMode('safe', true), [setMode]);
+  const exitSafeModeAction = useCallback(() => setMode('safe', false), [setMode]);
 
   const dismissTypedError = useCallback(() => {
     setTypedError(null);
@@ -1798,7 +1796,9 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     cancelPlan,
     approvePlan,
     shouldSuggestPlanning,
-    // Safe mode toggle (for SHIFT+TAB or Ctrl+S)
+    // Generic mode toggle API
+    setMode,
+    // Legacy mode toggle aliases (deprecated - use setMode instead)
     startSafeMode,
     exitSafeModeAction,
     // Todos (from TodoWrite tool)

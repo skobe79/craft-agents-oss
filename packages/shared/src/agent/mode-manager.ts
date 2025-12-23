@@ -108,6 +108,7 @@ export const MODE_CONFIGS: Record<Mode, ModeConfig> = {
 class ModeManager {
   private states: Map<string, ModeState> = new Map();
   private callbacks: Map<string, ModeCallbacks> = new Map();
+  private subscribers: Map<string, Set<() => void>> = new Map();
 
   /**
    * Get or create state for a session
@@ -132,11 +133,14 @@ class ModeManager {
     const newState = { ...existing, activeModes: new Set(activeModes) };
     this.states.set(sessionId, newState);
 
-    // Notify callbacks
+    // Notify callbacks (for CraftAgent internal sync)
     const callbacks = this.callbacks.get(sessionId);
     if (callbacks?.onStateChange) {
       callbacks.onStateChange(newState);
     }
+
+    // Notify React subscribers (for useSyncExternalStore)
+    this.subscribers.get(sessionId)?.forEach(cb => cb());
   }
 
   /**
@@ -159,6 +163,23 @@ class ModeManager {
   cleanupSession(sessionId: string): void {
     this.states.delete(sessionId);
     this.callbacks.delete(sessionId);
+    this.subscribers.delete(sessionId);
+  }
+
+  /**
+   * Subscribe to mode changes for a session (for React useSyncExternalStore)
+   * Returns an unsubscribe function
+   */
+  subscribe(sessionId: string, callback: () => void): () => void {
+    if (!this.subscribers.has(sessionId)) {
+      this.subscribers.set(sessionId, new Set());
+    }
+    this.subscribers.get(sessionId)!.add(callback);
+
+    // Return unsubscribe function
+    return () => {
+      this.subscribers.get(sessionId)?.delete(callback);
+    };
   }
 }
 
@@ -217,6 +238,14 @@ export function toggleMode(sessionId: string, mode: Mode): boolean {
  */
 export function getActiveModes(sessionId: string): Mode[] {
   return Array.from(modeManager.getState(sessionId).activeModes);
+}
+
+/**
+ * Subscribe to mode changes for a session (for React useSyncExternalStore)
+ * Returns an unsubscribe function
+ */
+export function subscribeModeChanges(sessionId: string, callback: () => void): () => void {
+  return modeManager.subscribe(sessionId, callback);
 }
 
 /**

@@ -46,6 +46,7 @@ export {
   enterMode,
   exitMode,
   toggleMode,
+  subscribeModeChanges,
   type Mode,
 } from './mode-manager.ts';
 // Documentation is now served via external HTTP MCP at agents.craft.do/docs/mcp

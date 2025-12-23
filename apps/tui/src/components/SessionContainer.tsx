@@ -168,7 +168,9 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
     safeMode,
     cancelPlan,
     approvePlan,
-    // Safe mode toggle (for SHIFT+TAB or Ctrl+S)
+    // Generic mode toggle API
+    setMode,
+    // Legacy mode toggle aliases (deprecated - use setMode instead)
     startSafeMode,
     exitSafeModeAction,
     // Todos (from TodoWrite tool)
@@ -373,6 +375,7 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
     safeMode,
     approvePlan,
     cancelPlan,
+    setMode,
     startSafeMode,
     exitSafeModeAction,
     exitApp,
@@ -693,7 +696,7 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
       const internalSafeMode = isModeActive(session.id, 'safe');
       if (internalSafeMode) {
         // Exit Safe Mode
-        exitSafeModeAction();
+        setMode('safe', false);
         addLocalMessage(SAFE_MODE_EXIT_MESSAGE, 'system');
         // Only send exit prompt if not already processing
         if (!isProcessing) {
@@ -701,7 +704,7 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
         }
       } else if (!isProcessing) {
         // Enter Safe Mode
-        startSafeMode();
+        setMode('safe', true);
         addLocalMessage(SAFE_MODE_ENTER_MESSAGE, 'system');
         sendMessage(SAFE_MODE_ENTER_PROMPT);
       }

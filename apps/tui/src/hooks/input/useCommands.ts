@@ -16,6 +16,7 @@ import type { ModalName } from '../modals/useModalState.ts';
 import type { Message } from '../../components/Messages.tsx';
 import type { SubAgentDefinition } from '@craft-agent/shared/agents';
 import { SAFE_MODE_ENTER_MESSAGE, SAFE_MODE_ENTER_PROMPT } from '@craft-agent/shared/agents';
+import type { Mode } from '@craft-agent/shared/agent';
 
 /**
  * Result of command execution
@@ -71,7 +72,9 @@ export interface UseCommandsProps {
   safeMode: boolean;
   approvePlan: () => void;
   cancelPlan: () => void;
-  // Safe mode toggle (blocks writes during exploration)
+  // Generic mode toggle API
+  setMode: (mode: Mode, enabled: boolean) => void;
+  // Legacy mode toggle aliases (deprecated - use setMode instead)
   startSafeMode: () => void;
   exitSafeModeAction: () => void;
 
@@ -123,6 +126,7 @@ export function useCommands(props: UseCommandsProps) {
     safeMode,
     approvePlan,
     cancelPlan,
+    setMode,
     startSafeMode,
     exitSafeModeAction,
     exitApp,
@@ -482,7 +486,7 @@ export function useCommands(props: UseCommandsProps) {
             };
           }
           // Start Safe Mode (blocks writes during exploration)
-          startSafeMode();
+          setMode('safe', true);
           return {
             handled: true,
             message: {
@@ -580,7 +584,7 @@ export function useCommands(props: UseCommandsProps) {
               message: { content: 'No active safe mode to cancel.', type: 'error' },
             };
           }
-          exitSafeModeAction();
+          setMode('safe', false);
           return {
             handled: true,
             message: { content: 'Safe mode cancelled. Returned to normal mode.', type: 'system' },
@@ -796,8 +800,7 @@ export function useCommands(props: UseCommandsProps) {
     safeMode,
     approvePlan,
     cancelPlan,
-    startSafeMode,
-    exitSafeModeAction,
+    setMode,
     exitApp,
   ]);
 
