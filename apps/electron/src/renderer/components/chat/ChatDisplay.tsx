@@ -2,13 +2,13 @@ import * as React from "react"
 import { useEffect } from "react"
 import {
   AlertTriangle,
-  Brain,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   CircleAlert,
   ExternalLink,
   Info,
+  ListTodo,
   ShieldOff,
   X,
 } from "lucide-react"
@@ -722,7 +722,7 @@ export function ChatDisplay({
                         className="h-[30px] pl-2.5 pr-2 text-xs font-medium rounded-[8px] flex items-center gap-1.5 transition-all bg-emerald-500/5 text-emerald-700 hover:bg-emerald-500/10 shadow-tinted"
                         style={{ '--shadow-color': '6, 95, 70' } as React.CSSProperties}
                       >
-                        <Brain className="h-3.5 w-3.5" />
+                        <ListTodo className="h-3.5 w-3.5" />
                         <span>Plan Mode</span>
                         <X className="h-3.5 w-3.5 opacity-60 hover:opacity-100" />
                       </button>

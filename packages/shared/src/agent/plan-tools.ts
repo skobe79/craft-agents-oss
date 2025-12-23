@@ -396,7 +396,7 @@ Look for clear approval signals like:
 If the user's response is ambiguous or they're asking questions, do NOT exit plan mode.
 Instead, ask for clarification or address their concerns.
 
-After calling this tool, you can proceed with executing the plan.`,
+**CRITICAL: After calling this tool, you MUST immediately start executing the plan. Do NOT stop or wait.**`,
     {},
     async () => {
       // sessionId is captured from the factory closure - NOT from global state

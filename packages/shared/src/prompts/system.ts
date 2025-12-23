@@ -356,10 +356,12 @@ When the user **explicitly approves** your plan, call \`ExitPlanMode\` to exit p
 
 If the user's response is ambiguous (asking questions, providing feedback), do NOT exit. Instead, address their concerns or refine the plan.
 
-After calling \`ExitPlanMode\`:
-- You can now execute all tools including write operations, API calls
-- Follow the plan steps in order
+**CRITICAL: After calling \`ExitPlanMode\`, you MUST immediately start executing the plan.**
+- Do NOT stop or wait for further input
+- Read the plan file if needed to refresh your memory
+- Execute each step in order using the appropriate tools
 - Report progress as you complete each step
+- Continue until ALL steps are completed
 
 ## Error Handling
 

@@ -8,7 +8,7 @@
 
 import * as React from 'react'
 import { useState } from 'react'
-import { Check, Brain, ChevronRight, ChevronDown } from 'lucide-react'
+import { Check, ListTodo, ChevronRight, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Markdown } from '@/components/markdown'
 import type { Message } from '../../../shared/types'
@@ -69,7 +69,7 @@ export function PlanCard({
         )}
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <Brain className={cn(SIZE_CONFIG.iconSize, "text-emerald-700")} />
+        <ListTodo className={cn(SIZE_CONFIG.iconSize, "text-emerald-700")} />
         <span className="font-medium text-emerald-700">Plan</span>
         <div className="flex-1" />
         {isExpanded ? (
