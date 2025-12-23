@@ -32,20 +32,23 @@ interface StyledDropdownMenuContentProps
   extends React.ComponentPropsWithoutRef<typeof DropdownMenuContent> {
   /** Minimum width - defaults to min-w-40 */
   minWidth?: string
+  /** Force light mode instead of dark */
+  light?: boolean
 }
 
 export const StyledDropdownMenuContent = React.forwardRef<
   React.ComponentRef<typeof DropdownMenuContent>,
   StyledDropdownMenuContentProps
->(({ className, minWidth = "min-w-40", ...props }, ref) => (
+>(({ className, minWidth = "min-w-40", light = false, ...props }, ref) => (
   <DropdownMenuContent
     ref={ref}
     className={cn(
-      "w-fit font-sans whitespace-nowrap text-xs dark bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-border/50 flex flex-col gap-0.5",
+      "w-fit font-sans whitespace-nowrap text-xs bg-background/80 backdrop-blur-xl backdrop-saturate-150 flex flex-col gap-0.5 border-0 shadow-modal-small",
+      light ? "light" : "dark",
       minWidth,
       className
     )}
-    style={{ borderRadius: '8px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)' }}
+    style={{ borderRadius: '8px' }}
     {...props}
   />
 ))
@@ -65,8 +68,8 @@ export const StyledDropdownMenuItem = React.forwardRef<
   <DropdownMenuItem
     ref={ref}
     className={cn(
-      "gap-3 pr-4 rounded-[4px] hover:bg-foreground/10 focus:bg-foreground/10",
-      "[&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:shrink-0 [&>svg]:text-foreground/60",
+      "gap-3 pr-4 rounded-[4px] hover:bg-foreground/[0.03] focus:bg-foreground/[0.03]",
+      "[&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:shrink-0",
       variant === "destructive" && "text-destructive focus:text-destructive hover:text-destructive [&>svg]:text-destructive",
       className
     )}

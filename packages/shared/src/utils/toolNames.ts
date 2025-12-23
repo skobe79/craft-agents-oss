@@ -12,6 +12,8 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   // Plan mode tools
   'ExitCraftAgentsPlanMode': 'Plan Ready',
   'CraftAgentsPlanModeAskQuestion': 'Questions',
+  // Documentation tools
+  'SearchCraftAgents': 'Search Documentation',
 };
 
 /**
@@ -58,7 +60,7 @@ export function getToolDisplayName(toolName: string): string {
   }
 
   // For MCP tools, also check mapping with just the base tool name
-  // e.g., "mcp__preferences__EnterCraftAgentsPlanMode" -> check "EnterCraftAgentsPlanMode"
+  // e.g., "mcp__preferences__ExitCraftAgentsPlanMode" -> check "ExitCraftAgentsPlanMode"
   if (toolName.startsWith('mcp__')) {
     const parts = toolName.split('__');
     const baseName = parts[parts.length - 1] || toolName;

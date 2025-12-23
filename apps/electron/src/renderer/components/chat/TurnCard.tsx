@@ -360,7 +360,7 @@ function ActivityStatusIcon({ status }: { status: ActivityStatus }) {
     case 'running':
       return (
         <div className={cn(SIZE_CONFIG.iconSize, "flex items-center justify-center")}>
-          <Spinner className={cn(SIZE_CONFIG.spinnerSize, "text-amber-500")} />
+          <Spinner className={SIZE_CONFIG.spinnerSize} />
         </div>
       )
     case 'completed':
@@ -651,7 +651,7 @@ function StreamingResponsePreview({
               )}
             >
               <ExternalLink className={SIZE_CONFIG.iconSize} />
-              <span>Open in Editor</span>
+              <span>View as Markdown</span>
             </button>
           )}
         </div>
@@ -699,7 +699,7 @@ function TodoStatusIcon({ status }: { status: TodoStatus }) {
     case 'in_progress':
       return (
         <div className={cn(SIZE_CONFIG.iconSize, "flex items-center justify-center")}>
-          <Spinner className={cn(SIZE_CONFIG.spinnerSize, "text-amber-500")} />
+          <Spinner className={SIZE_CONFIG.spinnerSize} />
         </div>
       )
     case 'completed':
@@ -831,7 +831,7 @@ export function TurnCard({
     <div className="space-y-1">
       {/* Activity Section */}
       {hasActivities && (
-        <div className="group">
+        <div className="group select-none">
           {/* Collapsed Header / Toggle */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
@@ -875,8 +875,8 @@ export function TurnCard({
               </AnimatePresence>
             </span>
 
-            {/* Open details button - shown when turn is complete */}
-            {onOpenDetails && isComplete && (
+            {/* Open details button - always visible to show raw data */}
+            {onOpenDetails && (
               <div
                 role="button"
                 tabIndex={0}
@@ -974,7 +974,7 @@ export function TurnCard({
 
       {/* Response Section - only shown when not buffering */}
       {response && !isBuffering && (
-        <div className={cn(hasActivities && "mt-2")}>
+        <div className={cn("select-text", hasActivities && "mt-2")}>
           <StreamingResponsePreview
             text={response.text}
             isStreaming={response.isStreaming}

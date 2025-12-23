@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import type { Session, Workspace, SessionEvent, Message, SubAgentMetadata, FileAttachment, StoredAttachment, PermissionRequest, SetupNeeds, TodoState } from '../shared/types'
+import { getToolDisplayName } from '@craft-agent/shared/utils/toolNames'
 import { generateMessageId } from '../shared/types'
 import { Chat } from '@/components/chat/Chat'
 import { OnboardingWizard, ReauthScreen } from '@/components/onboarding'
@@ -32,10 +33,6 @@ export default function App() {
   const [menuNewChatTrigger, setMenuNewChatTrigger] = useState(0)
   // Permission requests per session (queue to handle multiple concurrent requests)
   const [pendingPermissions, setPendingPermissions] = useState<Map<string, PermissionRequest[]>>(new Map())
-  // Plan review requests per session
-  const [pendingPlanReviews, setPendingPlanReviews] = useState<Map<string, import('../shared/types').PlanReviewRequest>>(new Map())
-  // Ask question requests per session
-  const [pendingAskQuestions, setPendingAskQuestions] = useState<Map<string, import('../shared/types').AskQuestionRequest>>(new Map())
   // Draft input text per session (preserved across mode switches and conversation changes)
   const [sessionDrafts, setSessionDrafts] = useState<Map<string, string>>(new Map())
   // Advanced options (all session-scoped)
@@ -48,7 +45,7 @@ export default function App() {
 
   // Queue for tool_result events that arrive before their tool_start (out-of-order handling)
   // Using ref to avoid stale closure issues in the useEffect event handler
-  const orphanedToolResultsRef = useRef<Map<string, { result: string; toolName: string; turnId?: string }>>(new Map())
+  const orphanedToolResultsRef = useRef<Map<string, { result: string; toolName: string; turnId?: string; parentToolUseId?: string }>>(new Map())
   // Ref for skipPermissionsSessions to access current value in event handlers without re-registering
   const skipPermissionsSessionsRef = useRef(skipPermissionsSessions)
   // Keep ref in sync with state
@@ -347,46 +344,22 @@ export default function App() {
         return
       }
 
-      if (event.type === 'plan_review_request') {
-        console.log('[App] plan_review_request:', event.sessionId, event.request.plan.title)
-        setPendingPlanReviews(prev => {
-          const next = new Map(prev)
-          next.set(event.sessionId, event.request)
-          return next
-        })
-        return
-      }
-
-      if (event.type === 'ask_question_request') {
-        console.log('[App] ask_question_request:', event.sessionId, event.request.questions.length, 'questions')
-        setPendingAskQuestions(prev => {
-          const next = new Map(prev)
-          next.set(event.sessionId, event.request)
-          return next
-        })
+      // Handle plan submitted event - add plan message to session
+      if (event.type === 'plan_submitted') {
+        console.log('[App] plan_submitted:', event.sessionId)
+        setSessions(prev => prev.map(session => {
+          if (session.id !== event.sessionId) return session
+          return {
+            ...session,
+            messages: [...session.messages, event.message],
+          }
+        }))
         return
       }
 
       // Handle complete event - clear any pending requests for the session
       if (event.type === 'complete') {
         setPendingPermissions(prev => {
-          if (prev.has(event.sessionId)) {
-            const next = new Map(prev)
-            next.delete(event.sessionId)
-            return next
-          }
-          return prev
-        })
-        // Also clear pending plan reviews and ask questions
-        setPendingPlanReviews(prev => {
-          if (prev.has(event.sessionId)) {
-            const next = new Map(prev)
-            next.delete(event.sessionId)
-            return next
-          }
-          return prev
-        })
-        setPendingAskQuestions(prev => {
           if (prev.has(event.sessionId)) {
             const next = new Map(prev)
             next.delete(event.sessionId)
@@ -460,11 +433,58 @@ export default function App() {
         return // Don't process through normal setSessions below
       }
 
-      // Handle text_complete - flush any pending deltas and clean up
+      // Handle text_complete - flush pending deltas AND update message state in ONE atomic operation
+      // This prevents race conditions where separate setSessions calls could leave the message
+      // in a partially-updated state (content flushed but isStreaming still true)
       if (event.type === 'text_complete') {
-        flushStreamingText(event.sessionId, false)
-        // Full cleanup - streaming for this session is done
-        streamingTextRef.current.delete(event.sessionId)
+        const streaming = streamingTextRef.current.get(event.sessionId)
+
+        // Clear timer and discard any pending content (event.text has the complete final text)
+        if (streaming) {
+          if (streaming.timer) {
+            clearTimeout(streaming.timer)
+            streaming.timer = undefined
+          }
+          // Full cleanup - streaming for this session is done
+          streamingTextRef.current.delete(event.sessionId)
+        }
+
+        // Single atomic state update: flush pending content AND mark complete
+        setSessions(prev => prev.map(session => {
+          if (session.id !== event.sessionId) return session
+
+          const msgs = session.messages
+          // Find assistant message by turnId (not by position, since tools may be inserted after)
+          const assistantIndex = event.turnId
+            ? msgs.findIndex(m => m.role === 'assistant' && m.turnId === event.turnId)
+            : msgs.findLastIndex(m => m.role === 'assistant' && m.isStreaming)
+
+          if (assistantIndex !== -1) {
+            const assistantMsg = msgs[assistantIndex]
+            // event.text contains the complete final text from the SDK
+            return {
+              ...session,
+              // Note: Do NOT set isProcessing here - only 'complete' event signals the agent loop is done.
+              // Setting it false here causes a brief "idle" flash before the next tool_start.
+              messages: [
+                ...msgs.slice(0, assistantIndex),
+                {
+                  ...assistantMsg,
+                  content: event.text,
+                  isStreaming: false,
+                  isPending: false,
+                  isIntermediate: event.isIntermediate,
+                  turnId: event.turnId,
+                  // For intermediate messages, parentToolUseId enables nesting under parent tool
+                  parentToolUseId: event.parentToolUseId,
+                },
+                ...msgs.slice(assistantIndex + 1)
+              ]
+            }
+          }
+          return session
+        }))
+        return // Don't fall through to the switch below
       }
 
       setSessions(prev => prev.map(session => {
@@ -473,29 +493,7 @@ export default function App() {
           switch (event.type) {
             // Note: text_delta is handled above with throttling for performance
             // It accumulates deltas in a ref and flushes every 100ms
-
-            case 'text_complete': {
-              const msgs = session.messages
-              // Find assistant message by turnId (not by position, since tools may be inserted after)
-              const assistantIndex = event.turnId
-                ? msgs.findIndex(m => m.role === 'assistant' && m.turnId === event.turnId)
-                : msgs.findLastIndex(m => m.role === 'assistant' && m.isStreaming)
-
-              if (assistantIndex !== -1) {
-                const assistantMsg = msgs[assistantIndex]
-                return {
-                  ...session,
-                  // Note: Do NOT set isProcessing here - only 'complete' event signals the agent loop is done.
-                  // Setting it false here causes a brief "idle" flash before the next tool_start.
-                  messages: [
-                    ...msgs.slice(0, assistantIndex),
-                    { ...assistantMsg, content: event.text, isStreaming: false, isPending: false, isIntermediate: event.isIntermediate, turnId: event.turnId },
-                    ...msgs.slice(assistantIndex + 1)
-                  ]
-                }
-              }
-              return session
-            }
+            // Note: text_complete is also handled above with atomic flush + state update
 
             case 'tool_start': {
               console.log('[App] tool_start received:', {
@@ -515,7 +513,7 @@ export default function App() {
                   // isProcessing already true from user message send, stays true until 'complete'
                   messages: session.messages.map((m, i) =>
                     i === existingIndex
-                      ? { ...m, toolInput: event.toolInput }
+                      ? { ...m, toolInput: event.toolInput, parentToolUseId: event.parentToolUseId || m.parentToolUseId }
                       : m
                   )
                 }
@@ -543,7 +541,8 @@ export default function App() {
                       toolInput: event.toolInput,
                       toolResult: queuedResult.result,
                       toolStatus: 'completed',  // Already complete!
-                      turnId: event.turnId
+                      turnId: event.turnId,
+                      parentToolUseId: event.parentToolUseId || queuedResult.parentToolUseId,  // Preserve hierarchy from either source
                     }
                   ]
                 }
@@ -558,12 +557,13 @@ export default function App() {
                   {
                     id: generateMessageId(),
                     role: 'tool' as const,
-                    content: `Running ${event.toolName}...`,
+                    content: `Running ${getToolDisplayName(event.toolName)}...`,
                     timestamp: Date.now(),
                     toolName: event.toolName,
                     toolUseId: event.toolUseId,
                     toolInput: event.toolInput,
-                    turnId: event.turnId
+                    turnId: event.turnId,
+                    parentToolUseId: event.parentToolUseId,  // Preserve hierarchy
                   }
                 ]
               }
@@ -595,11 +595,12 @@ export default function App() {
               if (matchingTool) {
                 console.log('[App] tool_result: marking tool as completed:', event.toolUseId)
                 // Normal case - message exists, update it
+                // Preserve parentToolUseId (from tool_start) or use event's if available
                 return {
                   ...session,
                   messages: toolMsgs.map(m =>
                     m.toolUseId === event.toolUseId
-                      ? { ...m, content: event.result, toolResult: event.result, toolStatus: 'completed' }
+                      ? { ...m, content: event.result, toolResult: event.result, toolStatus: 'completed', parentToolUseId: event.parentToolUseId || m.parentToolUseId }
                       : m
                   )
                 }
@@ -610,7 +611,8 @@ export default function App() {
               orphanedToolResultsRef.current.set(event.toolUseId, {
                 result: event.result,
                 toolName: event.toolName,
-                turnId: event.turnId
+                turnId: event.turnId,
+                parentToolUseId: event.parentToolUseId,  // Preserve hierarchy for out-of-order case
               })
               console.warn(`[App] tool_result arrived before tool_start for ${event.toolUseId} (${event.toolName}) - queued`)
 
@@ -1179,56 +1181,6 @@ export default function App() {
     }
   }, [])
 
-  const handleRespondToPlanReview = useCallback(async (sessionId: string, requestId: string, response: import('../shared/types').PlanReviewResponse) => {
-    console.log('[App] handleRespondToPlanReview called:', { sessionId, requestId, action: response.action })
-
-    const success = await window.electronAPI.respondToPlanReview(sessionId, requestId, response)
-    console.log('[App] handleRespondToPlanReview IPC result:', { success })
-
-    if (success) {
-      // Clear the pending plan review
-      setPendingPlanReviews(prev => {
-        const next = new Map(prev)
-        next.delete(sessionId)
-        return next
-      })
-      // Force sessions state refresh
-      setSessions(prev => [...prev])
-    } else {
-      // Clear anyway to avoid UI stuck
-      setPendingPlanReviews(prev => {
-        const next = new Map(prev)
-        next.delete(sessionId)
-        return next
-      })
-    }
-  }, [])
-
-  const handleRespondToAskQuestion = useCallback(async (sessionId: string, requestId: string, answers: import('../shared/types').AskQuestionResponse) => {
-    console.log('[App] handleRespondToAskQuestion called:', { sessionId, requestId, answerCount: Object.keys(answers).length })
-
-    const success = await window.electronAPI.respondToAskQuestion(sessionId, requestId, answers)
-    console.log('[App] handleRespondToAskQuestion IPC result:', { success })
-
-    if (success) {
-      // Clear the pending ask question
-      setPendingAskQuestions(prev => {
-        const next = new Map(prev)
-        next.delete(sessionId)
-        return next
-      })
-      // Force sessions state refresh
-      setSessions(prev => [...prev])
-    } else {
-      // Clear anyway to avoid UI stuck
-      setPendingAskQuestions(prev => {
-        const next = new Map(prev)
-        next.delete(sessionId)
-        return next
-      })
-    }
-  }, [])
-
   const handleOpenFile = useCallback(async (path: string) => {
     try {
       await window.electronAPI.openFile(path)
@@ -1397,11 +1349,6 @@ export default function App() {
             onAddWorkspace={handleAddWorkspace}
             pendingPermissions={pendingPermissions}
             onRespondToPermission={handleRespondToPermission}
-            // Plan mode
-            pendingPlanReviews={pendingPlanReviews}
-            onRespondToPlanReview={handleRespondToPlanReview}
-            pendingAskQuestions={pendingAskQuestions}
-            onRespondToAskQuestion={handleRespondToAskQuestion}
             // Advanced options (all session-scoped)
             ultrathinkSessions={ultrathinkSessions}
             onUltrathinkChange={handleUltrathinkChange}

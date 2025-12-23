@@ -45,14 +45,14 @@ export const DEFAULT_TODO_STATES: TodoState[] = [
     id: 'in-progress',
     label: 'In Progress',
     icon: <CircleProgress className={MENU_ICON_SIZE} />,
-    color: 'text-amber-500',
+    color: 'text-blue-500',
     shortcut: 'p',
   },
   {
     id: 'needs-review',
     label: 'Needs Review',
     icon: <CircleEye className={MENU_ICON_SIZE} />,
-    color: 'text-teal-500',
+    color: 'text-amber-500',
     shortcut: 'v',
   },
   {

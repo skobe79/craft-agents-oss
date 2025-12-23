@@ -8,18 +8,12 @@ import { toast } from 'sonner'
 import { FreeFormInput } from '@/components/chat/input/FreeFormInput'
 import { InputContainer } from '@/components/chat/input/InputContainer'
 import { PermissionRequest } from '@/components/chat/input/structured/PermissionRequest'
-import { ClarificationQuestion } from '@/components/chat/input/structured/ClarificationQuestion'
-import { PlanReview } from '@/components/chat/input/structured/PlanReview'
 import type { StructuredInputState } from '@/components/chat/input/structured/types'
 
 // Import adapters for mock data generation
 import {
   mockPermissionRequest,
-  mockClarificationQuestion,
-  mockPlanReview,
   type PermissionRequestPlaygroundProps,
-  type ClarificationQuestionPlaygroundProps,
-  type PlanReviewPlaygroundProps,
 } from '../adapters/input-adapters'
 
 // ============================================================================
@@ -110,59 +104,6 @@ function PermissionRequestPlayground({
   )
 }
 
-/**
- * ClarificationQuestion wrapper for playground - provides mock data
- */
-function ClarificationQuestionPlayground({
-  header = 'Budget',
-  question = "What's your budget for this trip?",
-  options = [
-    { label: 'Under €500', description: 'Budget-friendly options' },
-    { label: '€500-1000', description: 'Mid-range options' },
-    { label: '€1000+', description: 'Premium options' },
-  ],
-  multiSelect = false,
-  onAction,
-  unstyled = false,
-}: ClarificationQuestionPlaygroundProps) {
-  const mockQuestion = mockClarificationQuestion({ header, question, options, multiSelect })
-
-  return (
-    <ClarificationQuestion
-      question={mockQuestion}
-      onResponse={() => onAction?.()}
-      unstyled={unstyled}
-    />
-  )
-}
-
-/**
- * PlanReview wrapper for playground - provides mock data
- */
-function PlanReviewPlayground({
-  title = 'Trip Planning Workflow',
-  summary = 'Search for flights and hotels, compare options, and create a detailed itinerary document.',
-  steps = [
-    { description: 'Search for available flights to Barcelona', tools: ['WebSearch', 'WebFetch'] },
-    { description: 'Compare hotel options near the city center', tools: ['WebSearch'] },
-    { description: 'Create itinerary document in Craft', tools: ['mcp__craft__documents_create', 'mcp__craft__blocks_add'] },
-    { description: 'Add flight and hotel details to the document' },
-  ],
-  questions = [],
-  onAction,
-  unstyled = false,
-}: PlanReviewPlaygroundProps) {
-  const mockPlan = mockPlanReview({ title, summary, steps, questions })
-
-  return (
-    <PlanReview
-      plan={mockPlan}
-      onResponse={() => onAction?.()}
-      unstyled={unstyled}
-    />
-  )
-}
-
 // ============================================================================
 // Input Transitions - Full app-like layout for testing animations
 // Uses InputContainer directly (single source of truth for height/animation logic)
@@ -180,11 +121,9 @@ const PLACEHOLDER_MESSAGES = [
 const MODE_OPTIONS = [
   { id: 'freeform', label: 'Input', color: null },
   { id: 'permission', label: 'Permission', color: 'bg-amber-500' },
-  { id: 'clarification', label: 'Clarification', color: 'bg-primary' },
-  { id: 'plan_review', label: 'Plan Review', color: 'bg-green-500' },
 ]
 
-type HeightMode = 'freeform' | 'permission' | 'clarification' | 'plan_review'
+type HeightMode = 'freeform' | 'permission'
 
 /**
  * Create mock StructuredInputState for playground testing
@@ -192,45 +131,12 @@ type HeightMode = 'freeform' | 'permission' | 'clarification' | 'plan_review'
 function createMockStructuredInput(mode: HeightMode): StructuredInputState | undefined {
   if (mode === 'freeform') return undefined
 
-  if (mode === 'permission') {
-    return {
-      type: 'permission',
-      data: mockPermissionRequest({
-        toolName: 'Bash',
-        description: 'Execute a shell command to install dependencies',
-        command: 'npm install && npm run build',
-      }),
-    }
-  }
-
-  if (mode === 'clarification') {
-    return {
-      type: 'clarification',
-      data: mockClarificationQuestion({
-        header: 'Budget',
-        question: "What's your budget for this trip?",
-        options: [
-          { label: 'Under €500', description: 'Budget-friendly options' },
-          { label: '€500-1000', description: 'Mid-range options' },
-          { label: '€1000+', description: 'Premium options' },
-        ],
-        multiSelect: false,
-      }),
-    }
-  }
-
-  // plan_review
   return {
-    type: 'plan_review',
-    data: mockPlanReview({
-      title: 'Trip Planning Workflow',
-      summary: 'Search for flights and hotels, then create an itinerary.',
-      steps: [
-        { description: 'Search for flights to Barcelona', tools: ['WebSearch'] },
-        { description: 'Compare hotel options', tools: ['WebSearch'] },
-        { description: 'Create itinerary in Craft', tools: ['mcp__craft__blocks_add'] },
-      ],
-      questions: [],
+    type: 'permission',
+    data: mockPermissionRequest({
+      toolName: 'Bash',
+      description: 'Execute a shell command to install dependencies',
+      command: 'npm install && npm run build',
     }),
   }
 }
@@ -546,76 +452,5 @@ export const inputComponents: ComponentEntry[] = [
       { name: 'Write File', props: { toolName: 'Write', description: 'Create or overwrite a file', command: '/tmp/output.txt' } },
     ],
     mockData: () => ({}),
-  },
-  {
-    id: 'clarification-question',
-    name: 'ClarificationQuestion',
-    category: 'Chat Inputs',
-    description: 'Structured input for answering clarification questions with options',
-    component: ClarificationQuestionPlayground,
-    props: [
-      {
-        name: 'header',
-        description: 'Optional header label above the question',
-        control: { type: 'string', placeholder: 'Header' },
-        defaultValue: 'Budget',
-      },
-      {
-        name: 'question',
-        description: 'The question to ask',
-        control: { type: 'textarea', placeholder: 'Question...', rows: 2 },
-        defaultValue: "What's your budget for this trip?",
-      },
-      {
-        name: 'multiSelect',
-        description: 'Allow multiple selections',
-        control: { type: 'boolean' },
-        defaultValue: false,
-      },
-    ],
-    variants: [
-      { name: 'Single Select', props: { header: 'Budget', question: "What's your budget?", multiSelect: false } },
-      { name: 'Multi Select', props: { header: 'Features', question: 'Which features do you need?', multiSelect: true } },
-    ],
-    mockData: () => ({
-      options: [
-        { label: 'Option A', description: 'First option' },
-        { label: 'Option B', description: 'Second option' },
-        { label: 'Option C', description: 'Third option' },
-      ],
-    }),
-  },
-  {
-    id: 'plan-review',
-    name: 'PlanReview',
-    category: 'Chat Inputs',
-    description: 'Structured input for reviewing and approving execution plans',
-    component: PlanReviewPlayground,
-    props: [
-      {
-        name: 'title',
-        description: 'Plan title',
-        control: { type: 'string', placeholder: 'Plan title...' },
-        defaultValue: 'Trip Planning Workflow',
-      },
-      {
-        name: 'summary',
-        description: 'Brief summary of the plan',
-        control: { type: 'textarea', placeholder: 'Summary...', rows: 2 },
-        defaultValue: 'Search for flights and hotels, compare options, and create a detailed itinerary.',
-      },
-    ],
-    variants: [
-      { name: 'Simple Plan', props: { title: 'Simple Task', summary: 'A straightforward task with few steps.' } },
-      { name: 'Complex Plan', props: { title: 'Complex Workflow', summary: 'A multi-step workflow involving multiple tools and APIs.' } },
-    ],
-    mockData: () => ({
-      steps: [
-        { description: 'First step', tools: ['WebSearch'] },
-        { description: 'Second step', tools: ['Read', 'Write'] },
-        { description: 'Third step' },
-      ],
-      questions: [],
-    }),
   },
 ]

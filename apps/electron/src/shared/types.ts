@@ -121,30 +121,6 @@ export interface Plan {
 }
 
 /**
- * Plan review request from the agent
- */
-export interface PlanReviewRequest {
-  sessionId: string
-  requestId: string
-  plan: Plan
-  questions: string[]
-}
-
-/**
- * Plan review response action
- */
-export type PlanReviewAction = 'approve' | 'refine' | 'saveOnly' | 'cancel'
-
-/**
- * Plan review response to send back to the agent
- */
-export interface PlanReviewResponse {
-  action: PlanReviewAction
-  feedback?: string  // Required when action is 'refine'
-  modifiedPlan?: Plan  // Optional modified plan (for step edits)
-}
-
-/**
  * Question option for CraftAgentsPlanModeAskQuestion
  */
 export interface PlanQuestionOption {
@@ -314,7 +290,7 @@ export interface Session {
 // turnId: Correlation ID from the API's message.id, groups all events in an assistant turn
 export type SessionEvent =
   | { type: 'text_delta'; sessionId: string; delta: string; turnId?: string }
-  | { type: 'text_complete'; sessionId: string; text: string; isIntermediate?: boolean; turnId?: string }
+  | { type: 'text_complete'; sessionId: string; text: string; isIntermediate?: boolean; turnId?: string; parentToolUseId?: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; toolUseId: string; toolInput: Record<string, unknown>; turnId?: string; parentToolUseId?: string }
   | { type: 'tool_result'; sessionId: string; toolUseId: string; toolName: string; result: string; turnId?: string; parentToolUseId?: string }
   | { type: 'error'; sessionId: string; error: string }
@@ -328,7 +304,7 @@ export type SessionEvent =
   | { type: 'permission_request'; sessionId: string; request: PermissionRequest }
   // Plan mode events
   | { type: 'plan_mode_changed'; sessionId: string; enabled: boolean }
-  | { type: 'plan_review_request'; sessionId: string; request: PlanReviewRequest }
+  | { type: 'plan_submitted'; sessionId: string; message: CoreMessage }
   | { type: 'ask_question_request'; sessionId: string; request: AskQuestionRequest }
 
 // Options for sendMessage
@@ -355,7 +331,6 @@ export const IPC_CHANNELS = {
   RESPOND_TO_PERMISSION: 'sessions:respondToPermission',
 
   // Plan mode
-  RESPOND_TO_PLAN_REVIEW: 'sessions:respondToPlanReview',
   RESPOND_TO_ASK_QUESTION: 'sessions:respondToAskQuestion',
   SET_PLAN_MODE: 'sessions:setPlanMode',
 
@@ -475,11 +450,10 @@ export const IPC_CHANNELS = {
   DRAFTS_DELETE: 'drafts:delete',
   DRAFTS_GET_ALL: 'drafts:getAll',
 
-  // Preview window
-  PREVIEW_OPEN: 'preview:open',
-  PREVIEW_GET_CONTENT: 'preview:getContent',
-  PREVIEW_SAVE: 'preview:save',
-  PREVIEW_MESSAGE_UPDATED: 'preview:messageUpdated',
+  // Markdown preview window
+  MARKDOWN_PREVIEW_OPEN: 'markdownPreview:open',
+  MARKDOWN_PREVIEW_GET_DATA: 'markdownPreview:getData',
+  MARKDOWN_PREVIEW_SAVE: 'markdownPreview:save',
 
   // Diff preview window
   DIFF_PREVIEW_OPEN: 'diffPreview:open',
@@ -533,6 +507,37 @@ export interface TerminalPreviewData {
   toolType?: 'bash' | 'grep' | 'glob'
 }
 
+/**
+ * Data for markdown preview window
+ * - readOnly mode: view-only, no save button
+ * - readWrite mode: editable with save functionality (requires filePath)
+ */
+export type MarkdownPreviewData =
+  | {
+      /** Read-only mode - content from memory (no save) */
+      mode: 'readOnly'
+      /** Raw markdown content to display */
+      content: string
+      /** Optional title for the window */
+      title?: string
+    }
+  | {
+      /** Read-only mode - content from file (no save) */
+      mode: 'readOnly'
+      /** File path to read content from */
+      filePath: string
+      /** Optional title for the window */
+      title?: string
+    }
+  | {
+      /** Read-write mode - editable with save to file */
+      mode: 'readWrite'
+      /** File path to read from and save to */
+      filePath: string
+      /** Optional title for the window */
+      title?: string
+    }
+
 // Re-import types for ElectronAPI
 import type { Workspace, SessionMetadata, StoredAttachment as StoredAttachmentType } from '@craft-agent/core/types';
 import type { SubAgentMetadata } from '@craft-agent/core/types';
@@ -554,7 +559,6 @@ export interface ElectronAPI {
   respondToPermission(sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean): Promise<boolean>
 
   // Plan mode
-  respondToPlanReview(sessionId: string, requestId: string, response: PlanReviewResponse): Promise<boolean>
   respondToAskQuestion(sessionId: string, requestId: string, answers: AskQuestionResponse): Promise<boolean>
   setPlanMode(sessionId: string, enabled: boolean): Promise<void>
 
@@ -673,11 +677,10 @@ export interface ElectronAPI {
   readPreferences(): Promise<{ content: string; exists: boolean }>
   writePreferences(content: string): Promise<{ success: boolean; error?: string }>
 
-  // Preview window
-  openPreview(sessionId: string, messageId: string, content: string): Promise<void>
-  getPreviewContent(sessionId: string, messageId: string): Promise<string>
-  savePreview(sessionId: string, messageId: string, content: string): Promise<void>
-  onMessageUpdated(callback: (sessionId: string, messageId: string, content: string) => void): () => void
+  // Markdown preview window
+  openMarkdownPreview(previewId: string, data: MarkdownPreviewData): Promise<void>
+  getMarkdownPreviewData(previewId: string): Promise<{ data: MarkdownPreviewData; content: string } | null>
+  saveMarkdownPreview(previewId: string, content: string): Promise<void>
 
   // Diff preview window
   openDiffPreview(sessionId: string, diffId: string, data: DiffPreviewData): Promise<void>

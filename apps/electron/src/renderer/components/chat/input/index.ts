@@ -5,8 +5,6 @@ export { StructuredInput } from './StructuredInput'
 
 // Structured input components
 export { PermissionRequest } from './structured/PermissionRequest'
-export { ClarificationQuestion } from './structured/ClarificationQuestion'
-export { PlanReview } from './structured/PlanReview'
 
 // Hooks
 export { useAutoGrow } from './useAutoGrow'
@@ -19,10 +17,4 @@ export type {
   StructuredInputData,
   StructuredResponse,
   PermissionResponse,
-  ClarificationQuestion as ClarificationQuestionType,
-  ClarificationOption,
-  ClarificationResponse,
-  PlanReview as PlanReviewType,
-  PlanStep,
-  PlanReviewResponse,
 } from './structured/types'

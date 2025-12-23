@@ -124,6 +124,27 @@ export interface PlanSuggestion {
 }
 
 /**
+ * Request sent to UI when a plan is ready for review
+ */
+export interface PlanReviewRequest {
+  /** Unique identifier for this review request */
+  requestId: string;
+  /** The plan to review */
+  plan: Plan;
+  /** Optional questions from Claude that need user input */
+  questions?: string[];
+}
+
+/**
+ * Result of a plan review from the user
+ */
+export type PlanReviewResult =
+  | { action: 'approve'; modifiedPlan?: Plan }
+  | { action: 'refine'; feedback: string }
+  | { action: 'saveOnly'; modifiedPlan?: Plan }
+  | { action: 'cancel' };
+
+/**
  * Helper to create a new plan
  */
 export function createPlan(title: string, context: string): Plan {

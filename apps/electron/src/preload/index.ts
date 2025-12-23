@@ -19,8 +19,6 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.RESPOND_TO_PERMISSION, sessionId, requestId, allowed, alwaysAllow),
 
   // Plan mode
-  respondToPlanReview: (sessionId: string, requestId: string, response: import('../shared/types').PlanReviewResponse) =>
-    ipcRenderer.invoke(IPC_CHANNELS.RESPOND_TO_PLAN_REVIEW, sessionId, requestId, response),
   respondToAskQuestion: (sessionId: string, requestId: string, answers: import('../shared/types').AskQuestionResponse) =>
     ipcRenderer.invoke(IPC_CHANNELS.RESPOND_TO_ASK_QUESTION, sessionId, requestId, answers),
   setPlanMode: (sessionId: string, enabled: boolean) =>
@@ -201,20 +199,13 @@ const api: ElectronAPI = {
   readPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_READ),
   writePreferences: (content: string) => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_WRITE, content),
 
-  // Preview window
-  openPreview: (sessionId: string, messageId: string, content: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_OPEN, sessionId, messageId, content),
-  getPreviewContent: (sessionId: string, messageId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_GET_CONTENT, sessionId, messageId),
-  savePreview: (sessionId: string, messageId: string, content: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_SAVE, sessionId, messageId, content),
-  onMessageUpdated: (callback: (sessionId: string, messageId: string, content: string) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, sessionId: string, messageId: string, content: string) => {
-      callback(sessionId, messageId, content)
-    }
-    ipcRenderer.on(IPC_CHANNELS.PREVIEW_MESSAGE_UPDATED, handler)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.PREVIEW_MESSAGE_UPDATED, handler)
-  },
+  // Markdown preview window
+  openMarkdownPreview: (previewId: string, data: import('../shared/types').MarkdownPreviewData) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MARKDOWN_PREVIEW_OPEN, previewId, data),
+  getMarkdownPreviewData: (previewId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MARKDOWN_PREVIEW_GET_DATA, previewId),
+  saveMarkdownPreview: (previewId: string, content: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MARKDOWN_PREVIEW_SAVE, previewId, content),
 
   // Diff preview window
   openDiffPreview: (sessionId: string, diffId: string, data: import('../shared/types').DiffPreviewData) =>

@@ -4,11 +4,11 @@ import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 import { z } from 'zod';
 import { getSystemPrompt, getDateTimeContext } from '../prompts/system.ts';
 import type { SubAgentDefinition } from '../agents/types.ts';
-import type { Plan } from '../agents/plan-types.ts';
+import type { Plan, PlanReviewResult } from '../agents/plan-types.ts';
 import { parseError, type AgentError } from './errors.ts';
 import { runErrorDiagnostics } from './diagnostics.ts';
 import { updateAgentInstructions as agenticUpdateInstructions, type UpdateInstructionsContext, type UpdateInstructionsResult, type UpdateInstructionsProgressEvent } from '../agents/instruction-updater.ts';
-import { getWorkspaceAccessTokenAsync, isWorkspaceTokenExpiredAsync, updateWorkspaceOAuthTokensAsync, shouldUseExtendedCacheTtl, loadStoredConfig, type Workspace, type Session } from '../config/storage.ts';
+import { getWorkspaceAccessTokenAsync, isWorkspaceTokenExpiredAsync, updateWorkspaceOAuthTokensAsync, shouldUseExtendedCacheTtl, loadStoredConfig, loadPlanFromPath, type Workspace, type Session } from '../config/storage.ts';
 import { DEFAULT_MODEL } from '../config/models.ts';
 import { getCredentialManager } from '../credentials/index.ts';
 import { updatePreferences, loadPreferences, type UserPreferences } from '../config/preferences.ts';
@@ -17,29 +17,28 @@ import type { FileAttachment } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
 import { estimateTokens, summarizeLargeResult, TOKEN_LIMIT } from '../utils/summarize.ts';
 import {
-  exitCraftAgentsPlanModeTool,
-  craftAgentsPlanModeAskQuestionTool,
+  createSubmitPlanTool,
+  createEnterPlanModeTool,
+  createExitPlanModeTool,
   setPlanModeState,
-  getPlanModeState,
+  getPlanModeStateForSession,
   enterCraftPlanMode,
   exitCraftPlanMode,
-  respondToPlanReview,
-  respondToAskQuestion,
   isReadOnlyMcpTool,
   isReadOnlyApiMethod,
   BLOCKED_IN_PLAN_MODE,
-  getCurrentPlanFilePath,
-  setCurrentPlanModeSession,
+  getPlanFilePath,
   planModeManager,
   getPlanModeUserMessageContext,
-  type PlanReviewResult,
-  type PlanQuestion,
+  getPlanModeExitContext,
+  getSessionPlansDir,
+  registerAgentCallbacks,
+  unregisterAgentCallbacks,
 } from './plan-tools.ts';
 import { getPlansDir } from '../config/storage.ts';
 
-// Re-export PlanReviewResult, PlanQuestion, and plan mode functions for TUI usage
-export type { PlanReviewResult, PlanQuestion } from './plan-tools.ts';
-export { enterCraftPlanMode, exitCraftPlanMode, getCurrentPlanFilePath, planModeManager, setCurrentPlanModeSession } from './plan-tools.ts';
+// Re-export plan mode functions for TUI usage
+export { enterCraftPlanMode, exitCraftPlanMode, getPlanFilePath, planModeManager } from './plan-tools.ts';
 // Documentation is now served via external HTTP MCP at agents.craft.do/docs/mcp
 
 // Import and re-export AgentEvent from core (single source of truth)
@@ -421,37 +420,57 @@ Example bad content:
   }
 );
 
-// Create the preferences MCP server dynamically based on whether an agent is active
-// Cached servers for performance (recreated when agent state changes)
+// Cached MCP servers for performance (recreated when agent state changes)
 let cachedPrefToolsServerForBase: ReturnType<typeof createSdkMcpServer> | null = null;
 let cachedPrefToolsServerForAgent: ReturnType<typeof createSdkMcpServer> | null = null;
 
-function getPreferencesServer(hasActiveAgent: boolean): ReturnType<typeof createSdkMcpServer> {
-  // Base tools always available (preferences + plan mode tools)
-  // Note: EnterCraftAgentsPlanMode removed - plan mode is entered via UI toggle
-  const baseTools = [
-    updateUserPreferencesTool,
-    exitCraftAgentsPlanModeTool,
-    craftAgentsPlanModeAskQuestionTool,
-  ];
+// Per-session plan server cache - keyed by sessionId to prevent cross-session contamination
+const planServerCache = new Map<string, ReturnType<typeof createSdkMcpServer>>();
 
+// Plan mode tools in their own MCP server (cleaner tool names)
+// Each session gets its own server with session-scoped tools
+function getPlanServer(sessionId: string): ReturnType<typeof createSdkMcpServer> {
+  let cached = planServerCache.get(sessionId);
+  if (!cached) {
+    // Create session-scoped tools that capture the sessionId in their closures
+    cached = createSdkMcpServer({
+      name: 'plan',
+      version: '1.0.0',
+      tools: [
+        createSubmitPlanTool(sessionId),
+        createEnterPlanModeTool(sessionId),
+        createExitPlanModeTool(sessionId),
+      ],
+    });
+    planServerCache.set(sessionId, cached);
+  }
+  return cached;
+}
+
+// Clean up plan server when session is disposed
+function cleanupPlanServer(sessionId: string): void {
+  planServerCache.delete(sessionId);
+}
+
+// Preferences MCP server - user preferences and agent instruction tools
+function getPreferencesServer(hasActiveAgent: boolean): ReturnType<typeof createSdkMcpServer> {
   if (hasActiveAgent) {
-    // Agent is active - include all tools including agent-specific ones
+    // Agent is active - include agent-specific tools
     if (!cachedPrefToolsServerForAgent) {
       cachedPrefToolsServerForAgent = createSdkMcpServer({
         name: 'preferences',
         version: '1.0.0',
-        tools: [...baseTools, reloadAgentInstructionsTool, updateAgentInstructionsTool],
+        tools: [updateUserPreferencesTool, reloadAgentInstructionsTool, updateAgentInstructionsTool],
       });
     }
     return cachedPrefToolsServerForAgent;
   } else {
-    // No agent - only include base tools
+    // No agent - only user preferences
     if (!cachedPrefToolsServerForBase) {
       cachedPrefToolsServerForBase = createSdkMcpServer({
         name: 'preferences',
         version: '1.0.0',
-        tools: baseTools,
+        tools: [updateUserPreferencesTool],
       });
     }
     return cachedPrefToolsServerForBase;
@@ -484,6 +503,14 @@ export class CraftAgent {
   // Ultrathink mode - when enabled, sets maxThinkingTokens for extended reasoning
   private ultrathinkMode: boolean = false;
 
+  /**
+   * Get the session ID for plan mode operations.
+   * Returns a temp ID if no session is configured (shouldn't happen in practice).
+   */
+  private get planSessionId(): string {
+    return this.config.session?.id || `temp-${Date.now()}`;
+  }
+
   // Callback for permission requests - set by TUI to receive permission prompts
   public onPermissionRequest: ((request: { requestId: string; toolName: string; command: string; description: string; type?: 'bash' | 'plan_mode' }) => void) | null = null;
 
@@ -496,11 +523,21 @@ export class CraftAgent {
   // Callback for plan mode changes - set by TUI to sync React state
   public onPlanModeChange: ((planMode: boolean) => void) | null = null;
 
-  // Callback for plan review - set by TUI to receive plan review requests
-  public onPlanReview: ((request: { requestId: string; plan: Plan; questions: string[] }) => void) | null = null;
+  // Callback when a plan is submitted - set by TUI to display plan message
+  public onPlanSubmitted: ((planPath: string) => void) | null = null;
 
-  // Callback for Craft plan mode questions - set by TUI to receive question requests
-  public onCraftAskQuestion: ((request: { requestId: string; questions: PlanQuestion[] }) => void) | null = null;
+  // Callback for plan review - set by electron app to receive plan review requests
+  // This is called when SubmitPlan tool is invoked with a valid plan
+  public onPlanReview: ((request: { requestId: string; plan: Plan; questions?: string[] }) => void) | null = null;
+
+  // Pending plan review promises - keyed by requestId
+  private pendingPlanReviews: Map<string, { resolve: (result: PlanReviewResult) => void }> = new Map();
+
+  // Callback when plan mode is entered by the LLM - set by TUI to display enter message
+  public onPlanModeEntered: (() => void) | null = null;
+
+  // Callback when plan mode is exited by the LLM - set by TUI to display exit message
+  public onPlanModeExited: (() => void) | null = null;
 
   constructor(config: CraftAgentConfig) {
     this.config = config;
@@ -512,14 +549,18 @@ export class CraftAgent {
     }
 
     // Preserve existing plan mode state if already set (e.g., by SHIFT+TAB before agent created)
-    const existingState = getPlanModeState();
+    // IMPORTANT: Get state for THIS session specifically, not the "current" session
+    // Otherwise we could copy another session's active state when creating a new agent
+    const sessionId = config.session?.id || `temp-${Date.now()}`;  // Require sessionId
+    const existingState = getPlanModeStateForSession(sessionId);
 
     // Initialize Craft Agents plan mode state with callbacks
-    // Preserve isActive and userInitiatedPlanMode if already set
+    // Preserve isActive and userInitiatedPlanMode if already set for this session
     setPlanModeState({
       isActive: existingState.isActive,
       userInitiatedPlanMode: existingState.userInitiatedPlanMode,
-      sessionId: config.session?.id || null,  // Session ID for plan storage
+      exitedBy: existingState.exitedBy,
+      sessionId,  // Session ID for plan storage (already computed above)
       plan: existingState.plan,
       planFilePath: existingState.planFilePath,
       taskDescription: existingState.taskDescription,
@@ -530,29 +571,39 @@ export class CraftAgent {
         // Notify TUI of plan mode changes
         this.onPlanModeChange?.(state.isActive);
       },
-      onPlanReviewRequest: (request) => {
-        // Forward plan review request to TUI
-        this.onPlanReview?.(request);
+      onPlanSubmitted: (planPath) => {
+        // Forward plan submission to TUI for display
+        this.onDebug?.(`[CraftAgent] onPlanSubmitted received: ${planPath}`);
+        this.onDebug?.(`[CraftAgent] Has TUI callback: ${!!this.onPlanSubmitted}, Has electron callback: ${!!this.onPlanReview}`);
+
+        // Always call TUI callback if set
+        this.onPlanSubmitted?.(planPath);
+
+        // If electron callback is set, load the plan and trigger review
+        if (this.onPlanReview) {
+          try {
+            const plan = loadPlanFromPath(planPath);
+            if (plan) {
+              const requestId = `plan-review-${Date.now()}`;
+              this.onDebug?.(`[CraftAgent] Triggering onPlanReview with plan: ${plan.title}`);
+              this.onPlanReview({ requestId, plan });
+            } else {
+              this.onDebug?.(`[CraftAgent] Failed to load plan from path: ${planPath}`);
+            }
+          } catch (error) {
+            this.onDebug?.(`[CraftAgent] Error loading plan: ${error}`);
+          }
+        }
       },
-      onAskUserQuestion: (request) => {
-        // Forward ask question request to TUI
-        this.onCraftAskQuestion?.(request);
+      onPlanModeEntered: () => {
+        // Forward LLM-initiated plan mode entry to TUI
+        this.onPlanModeEntered?.();
+      },
+      onPlanModeExited: () => {
+        // Forward LLM-initiated plan mode exit to TUI
+        this.onPlanModeExited?.();
       },
     });
-  }
-
-  /**
-   * Respond to a pending plan review (called by TUI when user makes a choice)
-   */
-  respondToPlanReview(requestId: string, result: PlanReviewResult): void {
-    respondToPlanReview(requestId, result);
-  }
-
-  /**
-   * Respond to a pending CraftAgentsPlanModeAskQuestion request (called by TUI when user answers)
-   */
-  respondToCraftAskQuestion(requestId: string, answers: Record<string, string>): void {
-    respondToAskQuestion(requestId, answers);
   }
 
   /**
@@ -639,6 +690,20 @@ export class CraftAgent {
     if (pending) {
       pending.resolve(answers);
       this.pendingQuestions.delete(requestId);
+    }
+  }
+
+  /**
+   * Respond to a pending plan review request
+   */
+  respondToPlanReview(requestId: string, result: PlanReviewResult): void {
+    this.onDebug?.(`respondToPlanReview: ${requestId}, action=${result.action}`);
+    const pending = this.pendingPlanReviews.get(requestId);
+    if (pending) {
+      pending.resolve(result);
+      this.pendingPlanReviews.delete(requestId);
+    } else {
+      this.onDebug?.(`No pending plan review found for ${requestId}`);
     }
   }
 
@@ -829,11 +894,19 @@ export class CraftAgent {
     _isRetry: boolean = false // Internal flag for session expiry retry
   ): AsyncGenerator<AgentEvent> {
     try {
-      // Set this session as the current active session for plan mode tools
-      // This ensures tools use this session's state and callbacks
-      if (this.config.session?.id) {
-        setCurrentPlanModeSession(this.config.session.id);
-      }
+      // Register callbacks so plan tools can call them directly for this session
+      // Session-scoped tools capture sessionId at creation, so no global state needed
+      const sessionId = this.config.session?.id || `temp-${Date.now()}`;
+      registerAgentCallbacks(sessionId, {
+        onPlanSubmitted: (planPath) => this.onPlanSubmitted?.(planPath),
+        onPlanModeEntered: () => this.onPlanModeEntered?.(),
+        onPlanModeExited: () => this.onPlanModeExited?.(),
+        onStateChange: (state) => {
+          this.planMode = state.isActive;
+          this.activePlan = state.plan;
+          this.onPlanModeChange?.(state.isActive);
+        },
+      });
 
       // Clear intent map for new turn
       this.toolIntents.clear();
@@ -876,6 +949,9 @@ export class CraftAgent {
           ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
         },
         preferences: getPreferencesServer(hasActiveAgent),
+        // Plan mode tools in their own server for cleaner tool names
+        // Session-scoped to prevent cross-session contamination
+        plan: getPlanServer(sessionId),
         // External docs MCP server (public, no auth required)
         // Provides Craft Agent documentation for agents, MCP servers, APIs, and setup
         docs: {
@@ -949,8 +1025,7 @@ export class CraftAgent {
               // ============================================================
               if (this.isHeadless) {
                 const planModeTools = [
-                  'ExitCraftAgentsPlanMode',
-                  'CraftAgentsPlanModeAskQuestion',
+                  'SubmitPlan',
                 ];
                 // Also check MCP-prefixed versions
                 const isPlanModeTool = planModeTools.some(t =>
@@ -970,46 +1045,56 @@ export class CraftAgent {
               }
 
               // ============================================================
-              // BLOCK SDK's plan mode tools - plan mode is entered via UI
+              // HANDLE PLAN MODE TOOLS - block when user controls plan mode via UI
               // ============================================================
-              if (input.tool_name === 'EnterPlanMode') {
-                this.onDebug?.('EnterPlanMode blocked - plan mode is entered via UI toggle');
-                return {
-                  continue: false,
-                  hookSpecificOutput: {
-                    hookEventName: 'PreToolUse' as const,
-                    decision: 'block',
-                    reason: 'EnterPlanMode is not available. Plan mode is controlled via the UI toggle.',
-                  },
-                };
-              }
+              const isPlanModeTool = input.tool_name === 'EnterPlanMode' ||
+                input.tool_name === 'ExitPlanMode' ||
+                input.tool_name === 'mcp__plan__EnterPlanMode' ||
+                input.tool_name === 'mcp__plan__ExitPlanMode';
 
-              if (input.tool_name === 'ExitPlanMode') {
-                this.onDebug?.('ExitPlanMode blocked - use ExitCraftAgentsPlanMode');
-                return {
-                  continue: false,
-                  hookSpecificOutput: {
-                    hookEventName: 'PreToolUse' as const,
-                    decision: 'block',
-                    reason: 'ExitPlanMode is not available. Use ExitCraftAgentsPlanMode instead to present your plan for user approval.',
-                  },
-                };
+              if (isPlanModeTool) {
+                // Get current plan mode state for this session
+                const planState = getPlanModeStateForSession(sessionId);
+
+                // If user initiated plan mode via UI, block these tools entirely
+                if (planState.userInitiatedPlanMode) {
+                  this.onDebug?.(`${input.tool_name} blocked - plan mode is controlled via UI`);
+                  return {
+                    continue: false,
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      decision: 'block',
+                      reason: `Plan mode is controlled via the UI. The user will toggle it when ready.`,
+                    },
+                  };
+                }
+
+                // If plan mode is not active and agent tries to exit, provide helpful message
+                if (!planState.isActive && (input.tool_name === 'ExitPlanMode' || input.tool_name === 'mcp__plan__ExitPlanMode')) {
+                  this.onDebug?.(`${input.tool_name} blocked - plan mode is not active`);
+                  return {
+                    continue: false,
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      decision: 'block',
+                      reason: `Plan mode is not currently active. The user may have already exited via the UI.`,
+                    },
+                  };
+                }
               }
 
               // ============================================================
               // CRAFT AGENTS PLAN MODE: Allow read-only MCP/API operations
               // This is our custom plan mode, separate from SDK's plan mode
               // ============================================================
-              const craftPlanMode = getPlanModeState();
+              // Use this session's plan mode state specifically to avoid cross-session issues
+              const craftPlanMode = getPlanModeStateForSession(sessionId);
               if (craftPlanMode.isActive) {
                 this.onDebug?.(`Craft plan mode active, checking tool: ${input.tool_name}`);
 
                 // Always allow our own plan mode tools (check both raw and MCP-prefixed names)
-                // Tools from preferences server have format: mcp__preferences__ToolName
-                const isPlanModeTool = input.tool_name === 'ExitCraftAgentsPlanMode' ||
-                  input.tool_name === 'CraftAgentsPlanModeAskQuestion' ||
-                  input.tool_name.endsWith('__ExitCraftAgentsPlanMode') ||
-                  input.tool_name.endsWith('__CraftAgentsPlanModeAskQuestion');
+                const isPlanModeTool = input.tool_name === 'SubmitPlan' ||
+                  input.tool_name.endsWith('__SubmitPlan');
                 if (isPlanModeTool) {
                   this.onDebug?.(`Allowing plan mode tool: ${input.tool_name}`);
                   return { continue: true };
@@ -1027,6 +1112,27 @@ export class CraftAgent {
                   return { continue: true };
                 }
 
+                // Allow Write/Edit but ONLY to the plans directory
+                if (input.tool_name === 'Write' || input.tool_name === 'Edit') {
+                  const sessionId = this.config.session?.id;
+                  const plansDir = sessionId ? getSessionPlansDir(sessionId) : null;
+                  const toolInput = input.tool_input as Record<string, unknown>;
+                  const filePath = toolInput.file_path as string | undefined;
+
+                  if (plansDir && filePath && filePath.startsWith(plansDir)) {
+                    this.onDebug?.(`Allowing ${input.tool_name} to plan file in Craft plan mode: ${filePath}`);
+                    return { continue: true };
+                  }
+
+                  // Block writes/edits outside plans directory
+                  this.onDebug?.(`BLOCKED ${input.tool_name} in Craft plan mode: ${filePath} (must be in ${plansDir})`);
+                  return {
+                    continue: false,
+                    decision: 'block' as const,
+                    reason: `In plan mode, ${input.tool_name} is only allowed to the plans directory: ${plansDir}. Use an absolute path like "${plansDir}/my-plan.md". After writing, call SubmitPlan.`,
+                  };
+                }
+
                 // Allow read-only MCP tools (blocks_read, spaces_list, etc.)
                 // But NOT our preferences server tools (those are handled above)
                 if (input.tool_name.startsWith('mcp__')) {
@@ -1041,7 +1147,7 @@ export class CraftAgent {
                     return {
                       continue: false,
                       decision: 'block' as const,
-                      reason: `This tool is not allowed in plan mode. Use CraftAgentsPlanModeAskQuestion to ask the user questions.`,
+                      reason: `This tool is not allowed in plan mode. Ask questions in plain text.`,
                     };
                   }
 
@@ -1054,7 +1160,7 @@ export class CraftAgent {
                   return {
                     continue: false,
                     decision: 'block' as const,
-                    reason: `MCP write operations are blocked in plan mode. Call ExitCraftAgentsPlanMode to present your plan first.`,
+                    reason: `MCP write operations are blocked in plan mode. Write your plan to the plans directory, then call SubmitPlan.`,
                   };
                 }
 
@@ -1065,7 +1171,7 @@ export class CraftAgent {
                   return {
                     continue: false,
                     decision: 'block' as const,
-                    reason: `API calls are blocked in plan mode. Plan WHAT you will call, then call ExitCraftAgentsPlanMode. The actual API calls happen after plan approval.`,
+                    reason: `API calls are blocked in plan mode. Plan WHAT you will call, then call SubmitPlan. The actual API calls happen after plan approval.`,
                   };
                 }
 
@@ -1075,7 +1181,7 @@ export class CraftAgent {
                   return {
                     continue: false,
                     decision: 'block' as const,
-                    reason: `${input.tool_name} is blocked in plan mode. Call ExitCraftAgentsPlanMode to present your plan first.`,
+                    reason: `${input.tool_name} is blocked in plan mode. Write your plan first, then call SubmitPlan.`,
                   };
                 }
 
@@ -1085,7 +1191,6 @@ export class CraftAgent {
 
               // PLAN MODE: Block non-read-only tools during planning
               // SDK's permissionMode: 'plan' is not currently supported, so we enforce it here
-              // ExitPlanMode is allowed and handled natively by the SDK (shows permission prompt)
               if (this.planMode) {
                 // Tools allowed during plan mode - restricted but with research capability
                 // In plan mode, Claude should ONLY create a plan document, not execute actions
@@ -1096,38 +1201,38 @@ export class CraftAgent {
                   'Task',
                   // Web research (allowed but should be used sparingly - see system prompt)
                   'WebFetch', 'WebSearch',
-                  // Plan mode tools
-                  'ExitPlanMode',
-                  // Write is allowed ONLY for plan files (checked below)
-                  'Write',
-                  // Craft Agents plan mode tools (in-process SDK tools from plan-tools.ts)
-                  'ExitCraftAgentsPlanMode',
-                  'CraftAgentsPlanModeAskQuestion',
+                  // Write/Edit are allowed ONLY for plan files (checked below)
+                  'Write', 'Edit',
+                  // Craft Agents plan mode tool (in-process SDK tool from plan-tools.ts)
+                  'SubmitPlan',
+                  // Also allow via MCP server prefix
+                  'mcp__plan__SubmitPlan',
                 ]);
 
                 // NOTE: The following are explicitly NOT allowed during planning:
                 // - Bash: No command execution during planning
-                // - AskUserQuestion: Use CraftAgentsPlanModeAskQuestion instead
                 // - Any MCP write tools: No external actions during planning
 
-                // Special handling for Write tool - only allow writing to ~/.claude/plans/
-                if (input.tool_name === 'Write') {
+                // Get the session's plans directory
+                const sessionId = this.config.session?.id;
+                const plansDir = sessionId ? getSessionPlansDir(sessionId) : null;
+
+                // Special handling for Write/Edit tool - only allow in plans directory
+                if (input.tool_name === 'Write' || input.tool_name === 'Edit') {
                   const toolInput = input.tool_input as Record<string, unknown>;
                   const filePath = toolInput.file_path as string | undefined;
-                  const homeDir = process.env.HOME || '';
-                  const planDir = `${homeDir}/.claude/plans/`;
 
-                  // Allow writes to ~/.claude/plans/ (SDK's plan directory)
-                  if (!filePath || !filePath.startsWith(planDir)) {
-                    this.onDebug?.(`BLOCKED Write in plan mode: ${filePath} (must be in ${planDir})`);
+                  // Allow writes/edits to session's plans directory
+                  if (!plansDir || !filePath || !filePath.startsWith(plansDir)) {
+                    this.onDebug?.(`BLOCKED ${input.tool_name} in plan mode: ${filePath} (must be in ${plansDir})`);
                     return {
                       continue: false,
                       decision: 'block' as const,
-                      reason: `Write is only allowed to ${planDir} during planning. Use an absolute path like "${planDir}my-plan.md". After writing, call ExitPlanMode.`,
+                      reason: `${input.tool_name} is only allowed to ${plansDir} during planning. Use an absolute path like "${plansDir}/my-plan.md". After writing, call SubmitPlan.`,
                     };
                   }
-                  // Allow writing to plan files
-                  this.onDebug?.(`Allowing Write to plan file: ${filePath}`);
+                  // Allow writing/editing plan files
+                  this.onDebug?.(`Allowing ${input.tool_name} to plan file: ${filePath}`);
                 }
 
                 if (!planModeAllowedTools.has(input.tool_name)) {
@@ -1135,14 +1240,8 @@ export class CraftAgent {
                   return {
                     continue: false,
                     decision: 'block' as const,
-                    reason: `Tool "${input.tool_name}" is not allowed during planning. In plan mode, only read-only tools are permitted. Write your plan to .claude/plans/, then call ExitPlanMode to get user approval before executing.`,
+                    reason: `Tool "${input.tool_name}" is not allowed during planning. In plan mode, only read-only tools are permitted. Write your plan to the plans directory, then call SubmitPlan to present it for review.`,
                   };
-                }
-
-                // ExitPlanMode is allowed during plan mode - SDK will present plan for approval
-                // Plan mode will be exited when we detect ExitPlanMode completion in tool results
-                if (input.tool_name === 'ExitPlanMode') {
-                  this.onDebug?.('ExitPlanMode called - SDK will present plan for approval');
                 }
               }
 
@@ -1252,25 +1351,18 @@ export class CraftAgent {
                 return { continue: true };
               }
 
-              // CRITICAL: Override ExitPlanMode result to prevent auto-execution
-              // SDK returns "User has approved your plan. You can now start coding."
-              // But we want Claude to present the plan and wait for explicit user approval
-              if (input.tool_name === 'ExitPlanMode') {
-                this.onDebug?.('PostToolUse: Overriding ExitPlanMode result to require user approval');
-                const planContent = typeof input.tool_response === 'string'
-                  ? input.tool_response
-                  : JSON.stringify(input.tool_response);
-
+              // ExitPlanMode: User has approved the plan, LLM MUST proceed with execution
+              if (input.tool_name === 'ExitPlanMode' || input.tool_name === 'mcp__plan__ExitPlanMode') {
+                this.onDebug?.('PostToolUse: ExitPlanMode completed - plan approved, execution must begin');
+                const planPath = getPlanFilePath(sessionId);
+                const planPathMessage = planPath
+                  ? `\n\nIMPORTANT: Read the plan at "${planPath}", create sub-tasks using TodoWrite if needed, and execute each step until the entire plan is complete.`
+                  : '\n\nIMPORTANT: Create sub-tasks using TodoWrite if needed and execute each step until the entire plan is complete.';
                 return {
                   continue: true,
                   hookSpecificOutput: {
                     hookEventName: 'PostToolUse' as const,
-                    updatedMCPToolOutput: `Plan submitted for review. The plan content is:\n\n${planContent}\n\n` +
-                      `⚠️ IMPORTANT: Do NOT start executing yet! You must:\n` +
-                      `1. Display the FULL plan content above to the user\n` +
-                      `2. Ask: "**Do you approve this plan?** (yes/no)"\n` +
-                      `3. WAIT for explicit user approval before taking ANY action\n` +
-                      `4. Only proceed when user says "yes", "approve", "go ahead", etc.`,
+                    updatedMCPToolOutput: `Plan mode exited. The user has approved your plan. You MUST now start executing the plan immediately.${planPathMessage}`,
                   },
                 };
               }
@@ -1280,7 +1372,7 @@ export class CraftAgent {
                 'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
                 'WebFetch', 'WebSearch', 'Task', 'AskUserQuestion',
                 'TodoWrite', 'MultiEdit', 'NotebookEdit', 'KillShell',
-                'EnterPlanMode', 'Skill', 'SlashCommand',
+                'EnterPlanMode', 'ExitPlanMode', 'Skill', 'SlashCommand',
               ]);
 
               // Skip in-process MCP tools (preferences, agent management)
@@ -1448,6 +1540,46 @@ export class CraftAgent {
       // SDK emits tool_use in both stream_event (partial) and assistant (complete) messages
       // Track emitted tool_starts to avoid duplicate UI updates
       const emittedToolStarts = new Set<string>();
+      // Track tool IDs that have been matched to results (but not yet deleted from pendingToolUses)
+      // This prevents the FIFO fallback from matching multiple results to the same tool
+      const matchedToolIds = new Set<string>();
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // PARENT-CHILD TOOL TRACKING (for Task/subagent tools)
+      // ═══════════════════════════════════════════════════════════════════════════
+      //
+      // The SDK's `parent_tool_use_id` field has different semantics depending on context:
+      //
+      // 1. REGULAR TOOLS (Read, Grep, Bash, etc.):
+      //    - parent_tool_use_id = the tool's own ID (self-reference)
+      //    - OR null for in-process MCP tools (preferences, plan mode tools)
+      //
+      // 2. SUBAGENT CHILD TOOLS (tools running inside Task):
+      //    - parent_tool_use_id = the PARENT Task's ID, NOT the child tool's ID
+      //    - SDK is saying "this result belongs to a child of Task"
+      //
+      // Example flow:
+      //   tool_start: Task (toolu_PARENT)     ← Parent starts
+      //   tool_start: Grep (toolu_CHILD1)     ← Child starts inside Task
+      //   tool_start: Read (toolu_CHILD2)     ← Another child
+      //   tool_result: parent_tool_use_id=toolu_PARENT  ← Result for CHILD1!
+      //   tool_result: parent_tool_use_id=toolu_PARENT  ← Result for CHILD2!
+      //
+      // Without tracking, we'd match all results to Task (wrong!).
+      // Solution: Track which tools are children of which parent, match results
+      // to children in FIFO order when parent_tool_use_id points to a parent tool.
+      //
+      // See also: apps/electron/src/main/sessions.ts implements similar tracking
+      // at the session manager level (parentToolStack, toolToParentMap).
+      // ═══════════════════════════════════════════════════════════════════════════
+      const PARENT_TOOL_NAMES = ['Task', 'AgentOutputTool'];
+      // Track parent tools that are currently running
+      const activeParentTools = new Set<string>();
+      // Track which tools are children of which parent (parentId -> childIds in order)
+      // Using array to preserve insertion order for FIFO matching
+      const parentToChildren = new Map<string, string[]>();
+      // Track child's parent for hierarchy (childId -> parentId)
+      const childToParent = new Map<string, string>();
 
       // Process SDK messages and convert to AgentEvents
       let receivedComplete = false;
@@ -1468,6 +1600,8 @@ export class CraftAgent {
             message,
             pendingToolUses,
             emittedToolStarts,
+            matchedToolIds,
+            { PARENT_TOOL_NAMES, activeParentTools, parentToChildren, childToParent },
             pendingTextForStopReason,
             (text) => { pendingTextForStopReason = text; },
             currentTurnId,
@@ -1675,9 +1809,15 @@ export class CraftAgent {
     parts.push(getDateTimeContext());
 
     // Add plan mode context if active (injected into user message to preserve caching)
-    const planModeContext = getPlanModeUserMessageContext(this.config.session?.id);
+    const planModeContext = getPlanModeUserMessageContext(this.planSessionId);
     if (planModeContext) {
       parts.push(planModeContext);
+    }
+
+    // Add plan mode exit notification if user exited plan mode via UI
+    const planModeExitContext = getPlanModeExitContext(this.planSessionId);
+    if (planModeExitContext) {
+      parts.push(planModeExitContext);
     }
 
     // Add file attachments
@@ -1709,9 +1849,15 @@ export class CraftAgent {
     contentBlocks.push({ type: 'text', text: getDateTimeContext() });
 
     // Add plan mode context if active (injected into user message to preserve caching)
-    const planModeContext = getPlanModeUserMessageContext(this.config.session?.id);
+    const planModeContext = getPlanModeUserMessageContext(this.planSessionId);
     if (planModeContext) {
       contentBlocks.push({ type: 'text', text: planModeContext });
+    }
+
+    // Add plan mode exit notification if user exited plan mode via UI
+    const planModeExitContext = getPlanModeExitContext(this.planSessionId);
+    if (planModeExitContext) {
+      contentBlocks.push({ type: 'text', text: planModeExitContext });
     }
 
     // Add attachments
@@ -1790,6 +1936,13 @@ export class CraftAgent {
     message: SDKMessage,
     pendingToolUses: Map<string, { name: string; input: Record<string, unknown> }>,
     emittedToolStarts: Set<string>,
+    matchedToolIds: Set<string>,
+    parentChildTracking: {
+      PARENT_TOOL_NAMES: string[];
+      activeParentTools: Set<string>;
+      parentToChildren: Map<string, string[]>;
+      childToParent: Map<string, string>;
+    },
     pendingText: string | null,
     setPendingText: (text: string | null) => void,
     turnId: string | null,
@@ -1842,6 +1995,32 @@ export class CraftAgent {
                 name: block.name,
                 input: block.input as Record<string, unknown>,
               });
+
+              // ─────────────────────────────────────────────────────────────────────
+              // PARENT-CHILD TRACKING: Register this tool in the hierarchy
+              // ─────────────────────────────────────────────────────────────────────
+              const { PARENT_TOOL_NAMES, activeParentTools, parentToChildren, childToParent } = parentChildTracking;
+              const isParentTool = PARENT_TOOL_NAMES.includes(block.name);
+
+              let parentToolUseId: string | undefined;
+              if (isParentTool) {
+                // This is a parent tool (Task, AgentOutputTool) - it can spawn children
+                activeParentTools.add(block.id);
+                parentToChildren.set(block.id, []);
+                this.onDebug?.(`Parent tool started: ${block.name} (${block.id})`);
+              } else if (activeParentTools.size > 0) {
+                // This is a child tool - associate it with the most recent parent
+                // Note: We use the last active parent (most recently started)
+                const parentIds = Array.from(activeParentTools);
+                const lastParentId = parentIds[parentIds.length - 1];
+                if (lastParentId) {
+                  parentToChildren.get(lastParentId)?.push(block.id);
+                  childToParent.set(block.id, lastParentId);
+                  parentToolUseId = lastParentId;
+                  this.onDebug?.(`Child tool started: ${block.name} (${block.id}) under parent ${lastParentId}`);
+                }
+              }
+
               events.push({
                 type: 'tool_start',
                 toolName: block.name,
@@ -1849,6 +2028,7 @@ export class CraftAgent {
                 input: block.input as Record<string, unknown>,
                 intent,
                 turnId: turnId || undefined,
+                parentToolUseId, // Include parent for hierarchy tracking
               });
             } else {
               // Update input if we have more complete data now
@@ -1920,12 +2100,40 @@ export class CraftAgent {
               name: toolBlock.name,
               input: {},
             });
+
+            // ─────────────────────────────────────────────────────────────────────
+            // PARENT-CHILD TRACKING: Register this tool in the hierarchy
+            // This MUST happen here (stream_event), not just in assistant message,
+            // because stream_event arrives first and sets emittedToolStarts
+            // ─────────────────────────────────────────────────────────────────────
+            const { PARENT_TOOL_NAMES, activeParentTools, parentToChildren, childToParent } = parentChildTracking;
+            const isParentTool = PARENT_TOOL_NAMES.includes(toolBlock.name);
+
+            let parentToolUseId: string | undefined;
+            if (isParentTool) {
+              // This is a parent tool (Task, AgentOutputTool) - it can spawn children
+              activeParentTools.add(toolBlock.id);
+              parentToChildren.set(toolBlock.id, []);
+              console.log(`[CraftAgent] PARENT REGISTERED (stream): ${toolBlock.name} (${toolBlock.id})`);
+            } else if (activeParentTools.size > 0) {
+              // This is a child tool - associate it with the most recent parent
+              const parentIds = Array.from(activeParentTools);
+              const lastParentId = parentIds[parentIds.length - 1];
+              if (lastParentId) {
+                parentToChildren.get(lastParentId)?.push(toolBlock.id);
+                childToParent.set(toolBlock.id, lastParentId);
+                parentToolUseId = lastParentId;
+                console.log(`[CraftAgent] CHILD REGISTERED (stream): ${toolBlock.name} (${toolBlock.id}) under parent ${lastParentId}`);
+              }
+            }
+
             events.push({
               type: 'tool_start',
               toolName: toolBlock.name,
               toolUseId: toolBlock.id,
               input: {},
               turnId: turnId || undefined,
+              parentToolUseId,
             });
           }
         }
@@ -1944,22 +2152,63 @@ export class CraftAgent {
           this.onDebug(`User message for tool ${message.parent_tool_use_id}: hasResult=${hasResult}, pendingTools=${pendingToolUses.size}`);
         }
 
-        // User message (including tool results)
-        // For in-process MCP tools, parent_tool_use_id may be null
-        // In that case, match with the oldest pending tool
+        // ─────────────────────────────────────────────────────────────────────────
+        // TOOL RESULT MATCHING
+        // ─────────────────────────────────────────────────────────────────────────
+        // Three cases to handle:
+        //
+        // Case 1: parent_tool_use_id is a PARENT tool (Task, AgentOutputTool)
+        //   → Result is for a CHILD of that parent, match using FIFO
+        //
+        // Case 2: parent_tool_use_id is a regular tool ID
+        //   → Result is for that tool directly
+        //
+        // Case 3: parent_tool_use_id is null (in-process MCP tools)
+        //   → Use FIFO fallback with matchedToolIds to avoid double-matching
+        // ─────────────────────────────────────────────────────────────────────────
         if (message.tool_use_result !== undefined) {
           let toolUseId = message.parent_tool_use_id;
           let toolUse: { name: string; input: Record<string, unknown> } | undefined;
 
-          if (toolUseId) {
+          const { activeParentTools, parentToChildren, childToParent } = parentChildTracking;
+
+          if (toolUseId && activeParentTools.has(toolUseId)) {
+            // Case 1: parent_tool_use_id points to a PARENT tool (Task, AgentOutputTool)
+            // This result is for a CHILD of that parent, not the parent itself
+            // Match to the first unmatched child in FIFO order
+            const children = parentToChildren.get(toolUseId);
+            console.log(`[CraftAgent] RESULT MATCHING: parent=${toolUseId}, children.length=${children?.length || 0}`);
+            if (children && children.length > 0) {
+              const firstChild = children.shift()!; // Remove first child (FIFO)
+              console.log(`[CraftAgent] MATCHED TO CHILD: ${firstChild}`);
+              this.onDebug?.(`Matched child result: parent=${toolUseId}, child=${firstChild}`);
+              toolUseId = firstChild;
+              toolUse = pendingToolUses.get(toolUseId);
+              // Clean up child-to-parent mapping
+              childToParent.delete(firstChild);
+            } else {
+              // No more children - this must be the parent's own result
+              console.log(`[CraftAgent] NO CHILDREN LEFT - treating as parent's own result: ${toolUseId}`);
+              this.onDebug?.(`Parent tool completing: ${toolUseId} (no more children)`);
+              toolUse = pendingToolUses.get(toolUseId);
+              // Clean up parent tracking
+              activeParentTools.delete(toolUseId);
+              parentToChildren.delete(toolUseId);
+            }
+          } else if (toolUseId) {
+            // Case 2: Regular tool result - parent_tool_use_id is the tool's own ID
             toolUse = pendingToolUses.get(toolUseId);
           } else if (pendingToolUses.size > 0) {
-            // parent_tool_use_id is null - match with first pending tool (FIFO order)
-            // Map iteration is in insertion order per ES6 spec
-            const firstEntry = pendingToolUses.entries().next().value;
-            if (firstEntry) {
-              [toolUseId, toolUse] = firstEntry;
-              this.onDebug?.(`Matched null parent_tool_use_id to pending tool: ${toolUseId} (${toolUse.name})`);
+            // Case 3: parent_tool_use_id is null (in-process MCP tools)
+            // Match with first pending tool not yet matched (FIFO)
+            for (const [id, use] of pendingToolUses.entries()) {
+              if (!matchedToolIds.has(id)) {
+                toolUseId = id;
+                toolUse = use;
+                matchedToolIds.add(id);
+                this.onDebug?.(`Matched null parent_tool_use_id to pending tool: ${toolUseId} (${toolUse.name})`);
+                break;
+              }
             }
           }
 
@@ -1974,24 +2223,6 @@ export class CraftAgent {
               } catch {
                 resultStr = '[Result contains non-serializable data]';
               }
-            }
-
-            // Detect EnterPlanMode result - SDK handles this internally without PreToolUse
-            // We detect it from the result content or tool name
-            if (toolUse?.name === 'EnterPlanMode' || resultStr.includes('Entered plan mode')) {
-              this.onDebug?.('Detected EnterPlanMode result - entering plan mode');
-              this.planMode = true;
-              // Emit callback so UI can update React state
-              this.onPlanModeChange?.(true);
-            }
-
-            // Detect ExitPlanMode result - exit plan mode
-            // The SDK's ExitPlanMode presents the plan for approval, then normal conversation resumes
-            // Claude will wait for user approval before executing (per system prompt guidance)
-            if (toolUse?.name === 'ExitPlanMode') {
-              this.onDebug?.('Detected ExitPlanMode result - exiting plan mode, plan presented for approval');
-              this.planMode = false;
-              this.onPlanModeChange?.(false);
             }
 
             // Check if result indicates an error
@@ -2009,6 +2240,7 @@ export class CraftAgent {
             });
 
             pendingToolUses.delete(toolUseId);
+            matchedToolIds.delete(toolUseId);
           }
         }
         break;
@@ -2254,12 +2486,16 @@ export class CraftAgent {
 
     // Clear plan mode callbacks and state for this session
     this.onPlanModeChange = null;
-    this.onPlanReview = null;
-    this.onCraftAskQuestion = null;
+    this.onPlanSubmitted = null;
+    this.onPlanModeEntered = null;
+    this.onPlanModeExited = null;
 
-    // Clean up session-specific plan mode state in the manager
-    if (this.sessionId) {
-      planModeManager.cleanupSession(this.sessionId);
+    // Clean up session-specific plan mode state and plan server cache
+    const configSessionId = this.config.session?.id;
+    if (configSessionId) {
+      planModeManager.cleanupSession(configSessionId);
+      unregisterAgentCallbacks(configSessionId);
+      cleanupPlanServer(configSessionId);
     }
 
     // Clear session

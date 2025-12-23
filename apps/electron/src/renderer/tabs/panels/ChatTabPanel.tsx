@@ -10,7 +10,7 @@ import { AlertCircle, Bot } from 'lucide-react'
 import { ChatDisplay } from '@/components/chat/ChatDisplay'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/loading-indicator'
-import { useChatContext, usePendingPermission, usePendingPlanReview, usePendingAskQuestion } from '@/context/ChatContext'
+import { useChatContext, usePendingPermission } from '@/context/ChatContext'
 import { useAgentState } from '../../hooks/useAgentState'
 import type { Tab, ChatTab } from '../types'
 import { useTabs } from '../useTabs'
@@ -29,8 +29,6 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
     onOpenUrl,
     onModelChange,
     onRespondToPermission,
-    onRespondToPlanReview,
-    onRespondToAskQuestion,
     onMarkSessionRead,
     textareaRef,
     // Advanced options (all session-scoped)
@@ -71,10 +69,6 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
 
   // Get pending permission for this session
   const pendingPermission = usePendingPermission(chatTab.sessionId)
-
-  // Get pending plan review and ask question for this session
-  const pendingPlanReview = usePendingPlanReview(chatTab.sessionId)
-  const pendingAskQuestion = usePendingAskQuestion(chatTab.sessionId)
 
   // Get draft input value for this session
   const inputValue = sessionDrafts.get(chatTab.sessionId) ?? ''
@@ -188,10 +182,6 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
       textareaRef={textareaRef}
       pendingPermission={pendingPermission}
       onRespondToPermission={onRespondToPermission}
-      pendingPlanReview={pendingPlanReview}
-      onRespondToPlanReview={onRespondToPlanReview}
-      pendingAskQuestion={pendingAskQuestion}
-      onRespondToAskQuestion={onRespondToAskQuestion}
       agentSetupState={agentSetupState}
       // Advanced options (all session-scoped)
       ultrathinkEnabled={ultrathinkSessions.has(chatTab.sessionId)}

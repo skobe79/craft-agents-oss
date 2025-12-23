@@ -504,11 +504,6 @@ console.log(example);
 
   // ===== Plan Mode =====
 
-  async respondToPlanReview(_sessionId: string, _requestId: string, response: import('../../shared/types').PlanReviewResponse): Promise<boolean> {
-    console.log('[Mock] respondToPlanReview called:', response.action)
-    return true
-  },
-
   async respondToAskQuestion(_sessionId: string, _requestId: string, answers: import('../../shared/types').AskQuestionResponse): Promise<boolean> {
     console.log('[Mock] respondToAskQuestion called:', Object.keys(answers).length, 'answers')
     return true
@@ -871,49 +866,44 @@ console.log(example);
     return { success: true }
   },
 
-  // ===== Preview Window =====
+  // ===== Markdown Preview Window =====
 
-  async openPreview(sessionId: string, messageId: string, content: string): Promise<void> {
-    console.log('[Mock] openPreview called:', { sessionId, messageId, contentLength: content.length })
-    // In browser dev mode, open in a new tab/window with content stored in sessionStorage
-    const key = `preview:${sessionId}:${messageId}`
-    sessionStorage.setItem(key, content)
-    window.open(`/preview.html?sessionId=${encodeURIComponent(sessionId)}&messageId=${encodeURIComponent(messageId)}`, '_blank')
+  async openMarkdownPreview(previewId: string, data: import('../../shared/types').MarkdownPreviewData): Promise<void> {
+    console.log('[Mock] openMarkdownPreview called:', { previewId, mode: data.mode })
+    // In browser dev mode, store data and open in new tab
+    const key = `markdownPreview:${previewId}`
+    const content = 'content' in data ? data.content : `[Mock: would read from ${data.filePath}]`
+    sessionStorage.setItem(key, JSON.stringify({ data, content }))
+    window.open(`/preview.html?previewId=${encodeURIComponent(previewId)}`, '_blank')
   },
 
-  async getPreviewContent(sessionId: string, messageId: string): Promise<string> {
+  async getMarkdownPreviewData(previewId: string): Promise<{ data: import('../../shared/types').MarkdownPreviewData; content: string } | null> {
     await sleep(100)
-    console.log('[Mock] getPreviewContent called:', { sessionId, messageId })
+    console.log('[Mock] getMarkdownPreviewData called:', { previewId })
     // In browser dev mode, get from sessionStorage
-    const key = `preview:${sessionId}:${messageId}`
-    const content = sessionStorage.getItem(key)
-    if (content) {
-      return content
+    const key = `markdownPreview:${previewId}`
+    const stored = sessionStorage.getItem(key)
+    if (stored) {
+      return JSON.parse(stored)
     }
     // Return mock content if not found
-    return `# Preview Content\n\nThis is mock preview content for message **${messageId}** in session **${sessionId}**.\n\n## Features\n\n- Table of Contents\n- Markdown editing\n- Syntax highlighting\n\n\`\`\`typescript\nconst hello = "world";\nconsole.log(hello);\n\`\`\`\n`
-  },
-
-  async savePreview(sessionId: string, messageId: string, content: string): Promise<void> {
-    await sleep(200)
-    console.log('[Mock] savePreview called:', { sessionId, messageId, contentLength: content.length })
-    // In browser dev mode, update sessionStorage and find the original message
-    const key = `preview:${sessionId}:${messageId}`
-    sessionStorage.setItem(key, content)
-    // Also update the mock session message if it exists
-    const session = sessions.find(s => s.id === sessionId)
-    if (session) {
-      const message = session.messages.find(m => m.id === messageId)
-      if (message) {
-        message.content = content
-      }
+    return {
+      data: { mode: 'readOnly', content: '# Mock Preview\n\nThis is mock preview content.' },
+      content: '# Mock Preview\n\nThis is mock preview content.',
     }
   },
 
-  onMessageUpdated(callback: (sessionId: string, messageId: string, content: string) => void): () => void {
-    console.log('[Mock] onMessageUpdated registered')
-    // Mock: no-op in browser mode - we could implement a BroadcastChannel for cross-tab sync
-    return () => {}
+  async saveMarkdownPreview(previewId: string, content: string): Promise<void> {
+    await sleep(200)
+    console.log('[Mock] saveMarkdownPreview called:', { previewId, contentLength: content.length })
+    // In browser dev mode, update sessionStorage
+    const key = `markdownPreview:${previewId}`
+    const stored = sessionStorage.getItem(key)
+    if (stored) {
+      const data = JSON.parse(stored)
+      data.content = content
+      sessionStorage.setItem(key, JSON.stringify(data))
+    }
   },
 
   // ===== Diff Preview Window =====

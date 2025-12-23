@@ -13,7 +13,8 @@ export type MessageRole =
   | 'status'
   | 'system'
   | 'info'
-  | 'warning';
+  | 'warning'
+  | 'plan';
 
 /**
  * Tool execution status
@@ -93,6 +94,8 @@ export interface Message {
   errorCanRetry?: boolean;
   // Ultrathink mode - indicates this user message was sent with extended thinking
   ultrathink?: boolean;
+  // Plan-specific fields (for role='plan')
+  planPath?: string;  // Path to the plan markdown file
 }
 
 /**
@@ -128,6 +131,8 @@ export interface StoredMessage {
   errorCanRetry?: boolean;
   // Ultrathink mode - indicates this user message was sent with extended thinking
   ultrathink?: boolean;
+  // Plan-specific fields (for role='plan')
+  planPath?: string;
 }
 
 /**

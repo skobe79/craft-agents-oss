@@ -40,7 +40,14 @@ export interface SystemTurn {
   timestamp: number
 }
 
-export type Turn = AssistantTurn | UserTurn | SystemTurn
+/** Represents a plan message for review */
+export interface PlanTurn {
+  type: 'plan'
+  message: Message
+  timestamp: number
+}
+
+export type Turn = AssistantTurn | UserTurn | SystemTurn | PlanTurn
 
 // ============================================================================
 // Helper Functions
@@ -235,6 +242,17 @@ export function groupMessagesByTurn(messages: Message[]): Turn[] {
       flushCurrentTurn(isInterruption)
       turns.push({
         type: 'system',
+        message,
+        timestamp: message.timestamp,
+      })
+      continue
+    }
+
+    // Plan messages are standalone (for plan review)
+    if (message.role === 'plan') {
+      flushCurrentTurn()
+      turns.push({
+        type: 'plan',
         message,
         timestamp: message.timestamp,
       })

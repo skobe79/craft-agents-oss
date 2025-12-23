@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { formatDuration, truncateText } from '../utils/markdown.ts';
 import { AnimatedSpinner } from './Spinner.tsx';
 import { useElapsedTime } from '../hooks/index.ts';
-import { getToolDisplayName } from '../utils/toolNames.ts';
+import { getToolDisplayName } from '@craft-agent/shared/utils';
 
 export interface ToolCallProps {
   toolName: string;

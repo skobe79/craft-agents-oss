@@ -21,10 +21,8 @@ const TRANSITION_EASE = [0.4, 0, 0.2, 1] as const
 
 // Fallback heights (used on first render before measurement)
 const FALLBACK_HEIGHTS: Record<InputMode | string, number> = {
-  freeform: 116,
+  freeform: 114,
   permission: 200,
-  clarification: 280,
-  plan_review: 300,
 }
 
 /**

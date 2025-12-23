@@ -8,53 +8,64 @@ import { useTheme } from '@/context/ThemeContext'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Kbd } from '@/components/ui/kbd'
+import type { MarkdownPreviewData } from '../../../shared/types'
 
 // Configure loader to use local monaco-editor package (not CDN)
 // This is required because CSP blocks external scripts from cdn.jsdelivr.net
 loader.config({ monaco })
 
 interface PreviewAppProps {
-  sessionId: string
-  messageId: string
+  previewId: string
 }
 
 /**
  * PreviewApp - Monaco markdown editor with toolbar
+ *
+ * Supports two modes:
+ * - readOnly: View-only mode, no save button
+ * - readWrite: Editable with save functionality
  */
-export function PreviewApp({ sessionId, messageId }: PreviewAppProps) {
+export function PreviewApp({ previewId }: PreviewAppProps) {
   const { resolvedMode } = useTheme()
+  const [data, setData] = useState<MarkdownPreviewData | null>(null)
   const [originalContent, setOriginalContent] = useState<string | null>(null)
   const [content, setContent] = useState<string | null>(null)
   const [isEditorReady, setIsEditorReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
-  const hasUnsavedChanges = content !== null && originalContent !== null && content !== originalContent
+  const isReadOnly = data?.mode === 'readOnly'
+  const hasUnsavedChanges = !isReadOnly && content !== null && originalContent !== null && content !== originalContent
 
-  // Fetch content on mount
+  // Fetch data on mount
   useEffect(() => {
-    async function fetchContent() {
-      if (!sessionId || !messageId) {
-        setError('Missing session or message ID')
+    async function fetchData() {
+      if (!previewId) {
+        setError('Missing preview ID')
         return
       }
 
-      if (!window.electronAPI?.getPreviewContent) {
+      if (!window.electronAPI?.getMarkdownPreviewData) {
         setError('API not available')
         return
       }
 
       try {
-        const result = await window.electronAPI.getPreviewContent(sessionId, messageId)
-        setOriginalContent(result ?? '')
-        setContent(result ?? '')
+        const result = await window.electronAPI.getMarkdownPreviewData(previewId)
+        if (!result) {
+          setError('Preview data not found')
+          return
+        }
+        setData(result.data)
+        setOriginalContent(result.content)
+        setContent(result.content)
       } catch (err) {
         setError(String(err))
       }
     }
 
-    fetchContent()
-  }, [sessionId, messageId])
+    fetchData()
+  }, [previewId])
 
   // Monaco mounted callback
   const handleEditorMount = useCallback(() => {
@@ -69,17 +80,19 @@ export function PreviewApp({ sessionId, messageId }: PreviewAppProps) {
 
     setIsSaving(true)
     try {
-      await window.electronAPI.savePreview(sessionId, messageId, content)
+      await window.electronAPI.saveMarkdownPreview(previewId, content)
       setOriginalContent(content)
     } catch (err) {
       console.error('[PreviewApp] Save failed:', err)
     } finally {
       setIsSaving(false)
     }
-  }, [sessionId, messageId, content, hasUnsavedChanges, isSaving])
+  }, [previewId, content, hasUnsavedChanges, isSaving])
 
-  // Keyboard shortcut for save
+  // Keyboard shortcut for save (only in readWrite mode)
   useEffect(() => {
+    if (isReadOnly) return
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey && e.key === 's') {
         e.preventDefault()
@@ -88,7 +101,7 @@ export function PreviewApp({ sessionId, messageId }: PreviewAppProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleSave])
+  }, [handleSave, isReadOnly])
 
   // Monaco theme backgrounds
   const monacoBackground = resolvedMode === 'dark' ? '#1e1e1e' : '#ffffff'
@@ -120,25 +133,27 @@ export function PreviewApp({ sessionId, messageId }: PreviewAppProps) {
             )}
           </div>
 
-          {/* Right side - actions */}
+          {/* Right side - actions (only show save in readWrite mode) */}
           <div className="flex items-center gap-1 titlebar-no-drag">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleSave}
-                  disabled={!hasUnsavedChanges || isSaving}
-                  className="h-7 w-7 rounded-[4px] hover:bg-foreground/10 disabled:opacity-30"
-                >
-                  <Save className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <span>Save</span>
-                <Kbd className="ml-2">⌘S</Kbd>
-              </TooltipContent>
-            </Tooltip>
+            {!isReadOnly && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleSave}
+                    disabled={!hasUnsavedChanges || isSaving}
+                    className="h-7 w-7 rounded-[4px] hover:bg-foreground/10 disabled:opacity-30"
+                  >
+                    <Save className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <span>Save</span>
+                  <Kbd className="ml-2">⌘S</Kbd>
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </div>
 
@@ -160,7 +175,7 @@ export function PreviewApp({ sessionId, messageId }: PreviewAppProps) {
               language="markdown"
               theme={resolvedMode === 'dark' ? 'vs-dark' : 'vs'}
               value={content}
-              onChange={(value) => setContent(value ?? '')}
+              onChange={(value) => !isReadOnly && setContent(value ?? '')}
               onMount={handleEditorMount}
               loading={null}
               options={{
@@ -169,6 +184,10 @@ export function PreviewApp({ sessionId, messageId }: PreviewAppProps) {
                 fontSize: 14,
                 lineHeight: 1.6,
                 wordWrap: 'on',
+
+                // Read-only mode
+                readOnly: isReadOnly,
+                domReadOnly: isReadOnly,
 
                 // Clean layout
                 minimap: { enabled: false },

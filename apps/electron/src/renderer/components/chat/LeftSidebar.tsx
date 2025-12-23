@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react"
+import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -6,7 +7,8 @@ export interface LinkItem {
   id: string            // Unique ID for navigation (e.g., 'nav:inbox')
   title: string
   label?: string        // Optional badge (e.g., count)
-  icon: LucideIcon
+  icon: LucideIcon | React.ReactNode  // LucideIcon or custom React element
+  iconColor?: string    // Optional color class for the icon
   variant: "default" | "ghost"  // "default" = highlighted, "ghost" = subtle
   onClick?: () => void
 }
@@ -58,7 +60,22 @@ export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId }:
                   : "hover:bg-foreground/5"
               )}
             >
-              <link.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              {/* Render icon - either component (function/forwardRef) or React element */}
+              {(() => {
+                // Check if it's a component (function or forwardRef object with render)
+                const isComponent = typeof link.icon === 'function' ||
+                  (typeof link.icon === 'object' && link.icon !== null && 'render' in link.icon)
+                if (isComponent) {
+                  const Icon = link.icon as React.ComponentType<{ className?: string }>
+                  return <Icon className={cn("h-3.5 w-3.5 shrink-0", link.iconColor || "text-muted-foreground")} />
+                }
+                // Already a React element or primitive ReactNode
+                return (
+                  <span className={cn("h-3.5 w-3.5 shrink-0 flex items-center justify-center", link.iconColor || "text-muted-foreground")}>
+                    {link.icon}
+                  </span>
+                )
+              })()}
               {link.title}
               {/* Label Badge: Shows count or status on the right */}
               {link.label && (

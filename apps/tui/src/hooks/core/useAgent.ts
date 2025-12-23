@@ -3,8 +3,6 @@ import {
   CraftAgent,
   type CraftAgentConfig,
   type Question,
-  type PlanReviewResult,
-  type PlanQuestion,
   setUpdateAgentInstructionsContextProvider,
   setUpdateAgentInstructionsResultCallback,
   setUpdateAgentInstructionsProgressCallback,
@@ -134,18 +132,6 @@ export interface AskUserQuestionRequest {
   questions: Question[];
 }
 
-// Pending plan review request (from Craft Agents plan mode)
-export interface PendingPlanReviewRequest {
-  requestId: string;
-  plan: Plan;
-  questions: string[];
-}
-
-// Pending CraftAgentsPlanModeAskQuestion request (from Craft Agents plan mode)
-export interface PendingCraftQuestionRequest {
-  requestId: string;
-  questions: PlanQuestion[];
-}
 
 export interface UseAgentResult {
   messages: Message[];
@@ -196,11 +182,6 @@ export interface UseAgentResult {
   cancelPlan: () => void;
   approvePlan: () => void;
   shouldSuggestPlanning: (message: string) => boolean;
-  // Craft Agents plan mode UI interactions
-  pendingPlanReview: PendingPlanReviewRequest | null;
-  respondToPlanReview: (result: PlanReviewResult) => void;
-  pendingCraftQuestion: PendingCraftQuestionRequest | null;
-  respondToCraftQuestion: (answers: Record<string, string>) => void;
   // Craft Agents plan mode toggle (for SHIFT+TAB)
   startCraftPlanning: () => void;
   cancelCraftPlanning: () => void;
@@ -254,9 +235,6 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
   // Plan mode state
   const [activePlan, setActivePlan] = useState<Plan | null>(null);
   const [planMode, setPlanMode] = useState(false);
-  // Craft Agents plan mode UI state
-  const [pendingPlanReview, setPendingPlanReview] = useState<PendingPlanReviewRequest | null>(null);
-  const [pendingCraftQuestion, setPendingCraftQuestion] = useState<PendingCraftQuestionRequest | null>(null);
   // Todos (from TodoWrite tool)
   const [todos, setTodos] = useState<TodoItem[]>([]);
 
@@ -637,15 +615,45 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
         debug('[SDK] Plan mode changed:', mode);
         setPlanMode(mode);
       };
-      // Set up Craft Agents plan review callback
-      agentRef.current.onPlanReview = (request) => {
-        debug('[SDK] Plan review requested:', request.requestId);
-        setPendingPlanReview(request);
+      // Set up plan submitted callback - injects plan as a message
+      agentRef.current.onPlanSubmitted = (planPath) => {
+        debug('[SDK] Plan submitted:', planPath);
+        // Add plan message to the conversation
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `plan-${Date.now()}`,
+            type: 'plan',
+            content: planPath,  // The path to the plan file
+            timestamp: Date.now(),
+          },
+        ]);
       };
-      // Set up Craft Agents ask question callback
-      agentRef.current.onCraftAskQuestion = (request) => {
-        debug('[SDK] Craft ask question requested:', request.requestId);
-        setPendingCraftQuestion(request);
+      // Set up plan mode entered callback - shows system message when LLM enters plan mode
+      agentRef.current.onPlanModeEntered = () => {
+        debug('[SDK] Plan mode entered by LLM');
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `system-${Date.now()}`,
+            type: 'system',
+            content: 'Entered plan mode',
+            timestamp: Date.now(),
+          },
+        ]);
+      };
+      // Set up plan mode exited callback - shows system message when LLM exits plan mode
+      agentRef.current.onPlanModeExited = () => {
+        debug('[SDK] Plan mode exited by LLM');
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `system-${Date.now()}`,
+            type: 'system',
+            content: 'Exited plan mode',
+            timestamp: Date.now(),
+          },
+        ]);
       };
       // Sync current model to the newly created agent
       agentRef.current.setModel(config.model || DEFAULT_MODEL);
@@ -702,38 +710,25 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     }
   }, [pendingQuestion]);
 
-  // Respond to Craft Agents plan review
-  const respondToPlanReview = useCallback((result: PlanReviewResult) => {
-    if (pendingPlanReview && agentRef.current) {
-      debug('[respondToPlanReview] Responding with:', result);
-      agentRef.current.respondToPlanReview(pendingPlanReview.requestId, result);
-      setPendingPlanReview(null);
-    }
-  }, [pendingPlanReview]);
-
-  // Respond to Craft Agents CraftAgentsPlanModeAskQuestion
-  const respondToCraftQuestion = useCallback((answers: Record<string, string>) => {
-    if (pendingCraftQuestion && agentRef.current) {
-      debug('[respondToCraftQuestion] Responding with:', Object.keys(answers));
-      agentRef.current.respondToCraftAskQuestion(pendingCraftQuestion.requestId, answers);
-      setPendingCraftQuestion(null);
-    }
-  }, [pendingCraftQuestion]);
-
   // Start Craft Agents plan mode (for SHIFT+TAB)
   const startCraftPlanning = useCallback(() => {
-    debug('[startCraftPlanning] Entering Craft Agents plan mode');
-    enterCraftPlanMode();
-  }, []);
+    if (!session?.id) {
+      debug('[startCraftPlanning] No session ID, cannot enter plan mode');
+      return;
+    }
+    debug('[startCraftPlanning] Entering Craft Agents plan mode for session:', session.id);
+    enterCraftPlanMode(session.id);
+  }, [session?.id]);
 
   // Cancel Craft Agents plan mode (for SHIFT+TAB)
   const cancelCraftPlanning = useCallback(() => {
-    debug('[cancelCraftPlanning] Exiting Craft Agents plan mode');
-    exitCraftPlanMode();
-    // Also clear any pending UI states
-    setPendingPlanReview(null);
-    setPendingCraftQuestion(null);
-  }, []);
+    if (!session?.id) {
+      debug('[cancelCraftPlanning] No session ID, cannot exit plan mode');
+      return;
+    }
+    debug('[cancelCraftPlanning] Exiting Craft Agents plan mode for session:', session.id);
+    exitCraftPlanMode(session.id);
+  }, [session?.id]);
 
   const dismissTypedError = useCallback(() => {
     setTypedError(null);
@@ -895,8 +890,8 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
               break;
             }
 
-            // Plan mode: Claude calls ExitCraftAgentsPlanMode when ready, which triggers onPlanReady callback
-            // No text parsing needed here - the ExitCraftAgentsPlanMode tool handles everything via PlanReview UI
+            // Plan mode: Claude writes plan to file and calls SubmitPlan, which triggers onPlanSubmitted callback
+            // The plan is rendered as a special message type in the conversation
 
             // Normal assistant message
             if (assistantText.trim()) {
@@ -1166,9 +1161,9 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     setStatus('');
 
     // Clear plan mode state to avoid being stuck
-    exitCraftPlanMode();
-    setPendingPlanReview(null);
-    setPendingCraftQuestion(null);
+    if (session?.id) {
+      exitCraftPlanMode(session.id);
+    }
 
     setMessages((prev) => [
       ...prev,
@@ -1846,11 +1841,6 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
     cancelPlan,
     approvePlan,
     shouldSuggestPlanning,
-    // Craft Agents plan mode UI interactions
-    pendingPlanReview,
-    respondToPlanReview,
-    pendingCraftQuestion,
-    respondToCraftQuestion,
     // Craft Agents plan mode toggle (for SHIFT+TAB)
     startCraftPlanning,
     cancelCraftPlanning,

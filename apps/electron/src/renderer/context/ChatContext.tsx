@@ -14,10 +14,6 @@ import type {
   SubAgentMetadata,
   FileAttachment,
   PermissionRequest,
-  PlanReviewRequest,
-  PlanReviewResponse,
-  AskQuestionRequest,
-  AskQuestionResponse,
 } from '../../shared/types'
 
 export interface ChatContextType {
@@ -28,10 +24,6 @@ export interface ChatContextType {
   activeWorkspaceId: string | null
   currentModel: string
   pendingPermissions: Map<string, PermissionRequest[]>
-  /** Pending plan review requests per session */
-  pendingPlanReviews: Map<string, PlanReviewRequest>
-  /** Pending ask question requests per session */
-  pendingAskQuestions: Map<string, AskQuestionRequest>
   /** Draft input text per session - preserved across mode switches and conversation changes */
   sessionDrafts: Map<string, string>
 
@@ -58,18 +50,6 @@ export interface ChatContextType {
     requestId: string,
     allowed: boolean,
     alwaysAllow: boolean
-  ) => void
-
-  // Plan mode handling
-  onRespondToPlanReview?: (
-    sessionId: string,
-    requestId: string,
-    response: PlanReviewResponse
-  ) => void
-  onRespondToAskQuestion?: (
-    sessionId: string,
-    requestId: string,
-    answers: AskQuestionResponse
   ) => void
 
   // File/URL handlers - these can open in tabs or external apps
@@ -136,18 +116,3 @@ export function usePendingPermission(sessionId: string): PermissionRequest | und
   return pendingPermissions.get(sessionId)?.[0]
 }
 
-/**
- * Get pending plan review for a session
- */
-export function usePendingPlanReview(sessionId: string): PlanReviewRequest | undefined {
-  const { pendingPlanReviews } = useChatContext()
-  return pendingPlanReviews.get(sessionId)
-}
-
-/**
- * Get pending ask question for a session
- */
-export function usePendingAskQuestion(sessionId: string): AskQuestionRequest | undefined {
-  const { pendingAskQuestions } = useChatContext()
-  return pendingAskQuestions.get(sessionId)
-}

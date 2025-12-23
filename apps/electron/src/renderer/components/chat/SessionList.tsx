@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { formatDistanceToNow, isToday, isYesterday, format, startOfDay } from "date-fns"
-import { Trash2, Pencil, MoreHorizontal, ExternalLink, Flag, FlagOff, MailOpen } from "lucide-react"
+import { Trash2, Pencil, MoreHorizontal, ExternalLink, Flag, FlagOff, MailOpen, Search, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { TodoStateMenu, DEFAULT_TODO_STATES, type TodoStateId } from "@/components/ui/todo-filter-menu"
+import { TodoStateMenu, DEFAULT_TODO_STATES, getStateColor, type TodoStateId } from "@/components/ui/todo-filter-menu"
 import {
   CircleDashed,
   CircleProgress,
@@ -167,21 +167,39 @@ function getTodoStateIcon(state: TodoStateId, className: string) {
 
 /**
  * Get the color class for a todo state
+ * Uses centralized colors from todo-filter-menu, with fallback for 'todo' hover state
  */
 function getTodoStateColor(state: TodoStateId): string {
-  switch (state) {
-    case 'done':
-      return 'text-[#9570BE]'
-    case 'cancelled':
-      return 'text-muted-foreground/60'
-    case 'needs-review':
-      return 'text-teal-500'
-    case 'in-progress':
-      return 'text-amber-500'
-    case 'todo':
-    default:
-      return 'text-muted-foreground/50 hover:text-muted-foreground'
+  if (state === 'todo') {
+    return 'text-muted-foreground/50 hover:text-muted-foreground'
   }
+  return getStateColor(state) ?? 'text-muted-foreground'
+}
+
+/**
+ * Highlight matching text in a string
+ * Returns React nodes with matched portions wrapped in a highlight span
+ */
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text
+
+  const lowerText = text.toLowerCase()
+  const lowerQuery = query.toLowerCase()
+  const index = lowerText.indexOf(lowerQuery)
+
+  if (index === -1) return text
+
+  const before = text.slice(0, index)
+  const match = text.slice(index, index + query.length)
+  const after = text.slice(index + query.length)
+
+  return (
+    <>
+      {before}
+      <span className="bg-yellow-500/30 rounded-sm">{match}</span>
+      {highlightMatch(after, query)}
+    </>
+  )
 }
 
 interface SessionItemProps {
@@ -210,6 +228,8 @@ interface SessionItemProps {
   onOpenInNewTab: () => void
   /** Whether plan mode is enabled for this session (from real-time state) */
   isPlanModeEnabled?: boolean
+  /** Current search query for highlighting matches */
+  searchQuery?: string
 }
 
 /**
@@ -233,6 +253,7 @@ function SessionItem({
   onSelect,
   onOpenInNewTab,
   isPlanModeEnabled,
+  searchQuery,
 }: SessionItemProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [todoMenuOpen, setTodoMenuOpen] = useState(false)
@@ -264,7 +285,40 @@ function SessionItem({
       )}
       {/* Wrapper for button + dropdown, group for hover state */}
       <div className="session-content relative group select-none pl-2 mr-2">
-        {/* Main content button - includes checkbox */}
+        {/* Todo State Icon - positioned absolutely, outside the button */}
+        <Popover modal={true} open={todoMenuOpen} onOpenChange={setTodoMenuOpen}>
+          <PopoverTrigger asChild>
+            <div
+              className="absolute left-4 top-3 z-10 flex items-center justify-center w-5 h-5"
+            >
+              <div
+                className={cn(
+                  "w-5 h-5 flex items-center justify-center rounded-full transition-colors cursor-pointer",
+                  "hover:bg-foreground/10",
+                  getTodoStateColor(currentTodoState)
+                )}
+                role="button"
+                aria-haspopup="menu"
+                aria-expanded={todoMenuOpen}
+                aria-label="Change todo state"
+              >
+                {getTodoStateIcon(currentTodoState, "w-4 h-4")}
+              </div>
+            </div>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-auto p-0 border-0 shadow-none bg-transparent"
+            align="start"
+            side="bottom"
+            sideOffset={4}
+          >
+            <TodoStateMenu
+              activeState={currentTodoState}
+              onSelect={handleTodoStateSelect}
+            />
+          </PopoverContent>
+        </Popover>
+        {/* Main content button */}
         <button
           {...itemProps}
           className={cn(
@@ -279,49 +333,14 @@ function SessionItem({
             onKeyDown(e, item)
           }}
         >
-          {/* Todo State Icon - opens dropdown menu */}
-          <Popover modal={true} open={todoMenuOpen} onOpenChange={setTodoMenuOpen}>
-            <PopoverTrigger asChild>
-              <div
-                className="flex items-center justify-center w-5 h-5 shrink-0"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setTodoMenuOpen(true)
-                }}
-              >
-                <div
-                  className={cn(
-                    "w-5 h-5 flex items-center justify-center rounded-full transition-colors",
-                    "hover:bg-foreground/10",
-                    getTodoStateColor(currentTodoState)
-                  )}
-                  role="button"
-                  aria-haspopup="menu"
-                  aria-expanded={todoMenuOpen}
-                  aria-label="Change todo state"
-                >
-                  {getTodoStateIcon(currentTodoState, "w-4 h-4")}
-                </div>
-              </div>
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-auto p-0 border-0 shadow-none bg-transparent"
-              align="start"
-              side="bottom"
-              sideOffset={4}
-            >
-              <TodoStateMenu
-                activeState={currentTodoState}
-                onSelect={handleTodoStateSelect}
-              />
-            </PopoverContent>
-          </Popover>
+          {/* Spacer for todo icon */}
+          <div className="w-5 h-5 shrink-0" />
           {/* Content column */}
           <div className="flex flex-col gap-1.5 min-w-0 flex-1">
             {/* Title - up to 2 lines */}
             <div className="flex items-start gap-2 w-full pr-6 min-w-0">
               <div className="font-medium font-sans line-clamp-2 min-w-0 -mb-[2px]">
-                {getSessionTitle(item)}
+                {searchQuery ? highlightMatch(getSessionTitle(item), searchQuery) : getSessionTitle(item)}
               </div>
             </div>
             {/* Subtitle - with optional flag at start, single line with truncation */}
@@ -341,7 +360,7 @@ function SessionItem({
                 </span>
               )}
               <span className="truncate">
-                {item.agentName || (
+                {searchQuery && item.agentName ? highlightMatch(item.agentName, searchQuery) : item.agentName || (
                   !item.isProcessing && hasUnreadMessages(item) ? (
                     <>{countUnreadMessages(item)} new</>
                   ) : null
@@ -459,6 +478,14 @@ interface SessionListProps {
   onNavigateToView?: (view: 'inbox' | 'completed' | 'flagged') => void
   /** Set of session IDs with plan mode enabled (real-time state) */
   planModeSessions?: Set<string>
+  /** Whether search mode is active */
+  searchActive?: boolean
+  /** Current search query */
+  searchQuery?: string
+  /** Called when search query changes */
+  onSearchChange?: (query: string) => void
+  /** Called when search is closed */
+  onSearchClose?: () => void
 }
 
 // Re-export TodoStateId for use by parent components
@@ -486,6 +513,10 @@ export function SessionList({
   onSessionSelect,
   onNavigateToView,
   planModeSessions,
+  searchActive,
+  searchQuery = '',
+  onSearchChange,
+  onSearchClose,
 }: SessionListProps) {
   const [session, setSession] = useSession()
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
@@ -493,14 +524,36 @@ export function SessionList({
   const [renameName, setRenameName] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Focus search input when search becomes active (with delay to let dropdown close)
+  useEffect(() => {
+    if (searchActive) {
+      const timer = setTimeout(() => {
+        searchInputRef.current?.focus()
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [searchActive])
 
   // Sort by most recent activity first
   const sortedItems = [...items].sort((a, b) =>
     (b.lastMessageAt || 0) - (a.lastMessageAt || 0)
   )
 
-  // Group sessions by date
-  const dateGroups = useMemo(() => groupSessionsByDate(sortedItems), [sortedItems])
+  // Filter items by search query
+  const searchFilteredItems = useMemo(() => {
+    if (!searchQuery.trim()) return sortedItems
+    const query = searchQuery.toLowerCase()
+    return sortedItems.filter(item => {
+      const title = getSessionTitle(item).toLowerCase()
+      const agentName = (item.agentName || '').toLowerCase()
+      return title.includes(query) || agentName.includes(query)
+    })
+  }, [sortedItems, searchQuery])
+
+  // Group sessions by date (use filtered items when searching)
+  const dateGroups = useMemo(() => groupSessionsByDate(searchFilteredItems), [searchFilteredItems])
 
   // Create flat list for keyboard navigation (maintains order across groups)
   const flatItems = useMemo(() => {
@@ -598,12 +651,12 @@ export function SessionList({
     }
   }, [session.selected, flatItems, activeIndex, setActiveIndex])
 
-  // Focus active item when zone gains focus
+  // Focus active item when zone gains focus (but not while search input is active)
   useEffect(() => {
-    if (isFocused && flatItems.length > 0) {
+    if (isFocused && flatItems.length > 0 && !searchActive) {
       focusActiveItem()
     }
-  }, [isFocused, focusActiveItem, flatItems.length])
+  }, [isFocused, focusActiveItem, flatItems.length, searchActive])
 
   // Handle single-key shortcuts when focused
   // Todo state shortcuts: T (todo), P (in-progress), V (needs-review), D (done), X (cancelled)
@@ -671,8 +724,16 @@ export function SessionList({
     setRenameName("")
   }
 
+  // Handle search input key events
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      onSearchClose?.()
+    }
+  }
+
   // Empty state - render outside ScrollArea to avoid scroll
-  if (flatItems.length === 0) {
+  if (flatItems.length === 0 && !searchActive) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-sm text-muted-foreground">
@@ -685,6 +746,30 @@ export function SessionList({
   return (
     <>
       <ScrollArea className="h-screen select-none" ref={scrollRef}>
+        {/* Search input - shown when search is active */}
+        {searchActive && (
+          <div className="sticky top-0 z-20 bg-background px-2 py-2 border-b border-border/50">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchChange?.(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Search conversations..."
+                className="w-full h-8 pl-8 pr-8 text-sm bg-foreground/5 border-0 rounded-[8px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+              />
+              <button
+                onClick={onSearchClose}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-foreground/10 rounded"
+                title="Close search"
+              >
+                <X className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+        )}
         <div
           ref={zoneRef}
           className="flex flex-col pb-14 min-w-0"
@@ -692,6 +777,18 @@ export function SessionList({
           role="listbox"
           aria-label="Sessions"
         >
+          {/* No results message when searching */}
+          {searchActive && searchQuery && flatItems.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-12 px-4">
+              <p className="text-sm text-muted-foreground">No conversations found</p>
+              <button
+                onClick={() => onSearchChange?.('')}
+                className="text-xs text-primary hover:underline mt-1"
+              >
+                Clear search
+              </button>
+            </div>
+          )}
           {dateGroups.map((group) => (
             <div key={group.date.toISOString()}>
               {/* Date header */}
@@ -728,6 +825,7 @@ export function SessionList({
                       onSessionSelect?.(item, { forceNewTab: true })
                     }}
                     isPlanModeEnabled={planModeSessions?.has(item.id)}
+                    searchQuery={searchQuery}
                   />
                 )
               })}

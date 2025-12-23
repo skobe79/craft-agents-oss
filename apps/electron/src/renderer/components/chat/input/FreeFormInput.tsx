@@ -137,6 +137,7 @@ export function FreeFormInput({
       }
     }
   }, [onInputChange])
+
   const [isDraggingOver, setIsDraggingOver] = React.useState(false)
   const [loadingCount, setLoadingCount] = React.useState(0)
   const [slashDropdownOpen, setSlashDropdownOpen] = React.useState(false)
@@ -148,6 +149,28 @@ export function FreeFormInput({
   // Merge refs
   const internalRef = React.useRef<HTMLTextAreaElement>(null)
   const textareaRef = externalTextareaRef || internalRef
+
+  // Listen for craft:insert-text events (generic mechanism for inserting text into input)
+  // Used by PlanCard's Approve button to insert "Go ahead"
+  React.useEffect(() => {
+    const handleInsertText = (e: CustomEvent<{ text: string }>) => {
+      const { text } = e.detail
+      setInput(text)
+      syncToParent(text)
+      // Focus the textarea after inserting
+      setTimeout(() => {
+        textareaRef.current?.focus()
+        // Move cursor to end
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = text.length
+          textareaRef.current.selectionEnd = text.length
+        }
+      }, 0)
+    }
+
+    window.addEventListener('craft:insert-text', handleInsertText as EventListener)
+    return () => window.removeEventListener('craft:insert-text', handleInsertText as EventListener)
+  }, [syncToParent, textareaRef])
 
   // Build active commands list for slash command menu
   const activeCommands = React.useMemo(() => {
@@ -354,10 +377,20 @@ export function FreeFormInput({
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      // If processing, first Return stops - second Return sends
+      if (isProcessing) {
+        handleStop()
+        return
+      }
       handleSubmit(e)
     }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
+      // Cmd/Ctrl+Enter also stops first if processing
+      if (isProcessing) {
+        handleStop()
+        return
+      }
       handleSubmit(e)
     }
     if (e.key === 'Escape') {
@@ -522,17 +555,8 @@ export function FreeFormInput({
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Send/Stop Button */}
-          {hasContent || !isProcessing ? (
-            <Button
-              type="submit"
-              size="icon"
-              className="h-7 w-7 rounded-full shrink-0"
-              disabled={!hasContent || disabled}
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-          ) : (
+          {/* Send/Stop Button - Always show stop when processing */}
+          {isProcessing ? (
             <Button
               type="button"
               size="icon"
@@ -541,6 +565,15 @@ export function FreeFormInput({
               onClick={handleStop}
             >
               <Square className="h-3 w-3 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="icon"
+              className="h-7 w-7 rounded-full shrink-0"
+              disabled={!hasContent || disabled}
+            >
+              <ArrowUp className="h-4 w-4" />
             </Button>
           )}
         </div>

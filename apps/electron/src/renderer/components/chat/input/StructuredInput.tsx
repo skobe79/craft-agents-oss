@@ -1,13 +1,6 @@
 import type { PermissionRequest as PermissionRequestType } from '../../../../shared/types'
 import { PermissionRequest } from './structured/PermissionRequest'
-import { ClarificationQuestion } from './structured/ClarificationQuestion'
-import { PlanReview } from './structured/PlanReview'
-import type {
-  StructuredInputState,
-  StructuredResponse,
-  ClarificationQuestion as ClarificationQuestionType,
-  PlanReview as PlanReviewType,
-} from './structured/types'
+import type { StructuredInputState, StructuredResponse } from './structured/types'
 
 interface StructuredInputProps {
   state: StructuredInputState
@@ -21,8 +14,6 @@ interface StructuredInputProps {
  *
  * Routes to the appropriate component based on the input type:
  * - permission: PermissionRequest
- * - clarification: ClarificationQuestion
- * - plan_review: PlanReview
  */
 export function StructuredInput({ state, onResponse, unstyled = false }: StructuredInputProps) {
   switch (state.type) {
@@ -30,22 +21,6 @@ export function StructuredInput({ state, onResponse, unstyled = false }: Structu
       return (
         <PermissionRequest
           request={state.data as PermissionRequestType}
-          onResponse={onResponse}
-          unstyled={unstyled}
-        />
-      )
-    case 'clarification':
-      return (
-        <ClarificationQuestion
-          question={state.data as ClarificationQuestionType}
-          onResponse={onResponse}
-          unstyled={unstyled}
-        />
-      )
-    case 'plan_review':
-      return (
-        <PlanReview
-          plan={state.data as PlanReviewType}
           onResponse={onResponse}
           unstyled={unstyled}
         />

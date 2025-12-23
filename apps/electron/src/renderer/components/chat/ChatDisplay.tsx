@@ -21,11 +21,12 @@ import { AnimatedCollapsibleContent } from "@/components/ui/collapsible"
 import { FileTypeIcon, getFileTypeLabel } from "./AttachmentPreview"
 import { Spinner } from "@/components/ui/loading-indicator"
 import { useFocusZone } from "@/hooks/keyboard"
-import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest, PlanReviewRequest, PlanReviewResponse, AskQuestionRequest, AskQuestionResponse } from "../../../shared/types"
+import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest } from "../../../shared/types"
 import { SetupAuthBanner, type BannerState } from "./SetupAuthBanner"
 import { TurnCard } from "./TurnCard"
-import { groupMessagesByTurn, formatTurnAsMarkdown, formatActivityAsMarkdown, type Turn, type AssistantTurn, type UserTurn, type SystemTurn } from "./turn-utils"
-import { InputContainer, type StructuredInputState, type StructuredResponse, type PermissionResponse, type ClarificationResponse, type PlanReviewResponse as StructuredPlanReviewResponse } from "./input"
+import { PlanCard } from "./PlanCard"
+import { groupMessagesByTurn, formatTurnAsMarkdown, formatActivityAsMarkdown, type Turn, type AssistantTurn, type UserTurn, type SystemTurn, type PlanTurn } from "./turn-utils"
+import { InputContainer, type StructuredInputState, type StructuredResponse, type PermissionResponse } from "./input"
 
 /** Agent setup state for showing setup indicator in input area */
 interface AgentSetupState {
@@ -54,14 +55,6 @@ interface ChatDisplayProps {
   pendingPermission?: PermissionRequest
   /** Callback to respond to permission request */
   onRespondToPermission?: (sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) => void
-  /** Pending plan review request for this session */
-  pendingPlanReview?: PlanReviewRequest
-  /** Callback to respond to plan review */
-  onRespondToPlanReview?: (sessionId: string, requestId: string, response: PlanReviewResponse) => void
-  /** Pending ask question request for this session */
-  pendingAskQuestion?: AskQuestionRequest
-  /** Callback to respond to ask question */
-  onRespondToAskQuestion?: (sessionId: string, requestId: string, answers: AskQuestionResponse) => void
   /** Agent setup state - when present, shows setup indicator in input area */
   agentSetupState?: AgentSetupState
   // Advanced options
@@ -242,10 +235,6 @@ export function ChatDisplay({
   disabled = false,
   pendingPermission,
   onRespondToPermission,
-  pendingPlanReview,
-  onRespondToPlanReview,
-  pendingAskQuestion,
-  onRespondToAskQuestion,
   agentSetupState,
   // Advanced options
   ultrathinkEnabled = false,
@@ -284,10 +273,14 @@ export function ChatDisplay({
     }
   }, [isFocused, session])
 
-  // Pop-out handler - opens message in a new preview window
+  // Pop-out handler - opens message in a new preview window (read-only)
   const handlePopOut = React.useCallback((message: Message) => {
     if (!session) return
-    window.electronAPI.openPreview(session.id, message.id, message.content)
+    window.electronAPI.openMarkdownPreview(`${session.id}:${message.id}`, {
+      mode: 'readOnly',
+      content: message.content,
+      title: 'Message Preview',
+    })
   }, [session])
 
   // Track scroll position to toggle sticky-bottom behavior
@@ -381,7 +374,7 @@ export function ChatDisplay({
     })
   }
 
-  // Handle structured input responses (permissions, clarifications, plan reviews)
+  // Handle structured input responses (permissions)
   const handleStructuredResponse = (response: StructuredResponse) => {
     if (response.type === 'permission' && pendingPermission && onRespondToPermission) {
       const permResponse = response as PermissionResponse
@@ -391,85 +384,16 @@ export function ChatDisplay({
         permResponse.allowed,
         permResponse.alwaysAllow
       )
-    } else if (response.type === 'plan_review' && pendingPlanReview && onRespondToPlanReview) {
-      const planResponse = response as StructuredPlanReviewResponse
-      onRespondToPlanReview(
-        pendingPlanReview.sessionId,
-        pendingPlanReview.requestId,
-        {
-          action: planResponse.action,
-          feedback: planResponse.feedback,
-        }
-      )
-    } else if (response.type === 'clarification' && pendingAskQuestion && onRespondToAskQuestion) {
-      const clarificationResponse = response as ClarificationResponse
-      // Convert selected options to answer format
-      // Currently the UI shows one question at a time (first question)
-      // TODO: Implement multi-question stepper UI to handle all questions in sequence
-      const answers: AskQuestionResponse = {}
-      const question = pendingAskQuestion.questions[0]
-      if (question && !clarificationResponse.skipped) {
-        // Map selected indices to option labels
-        const selectedLabels = clarificationResponse.selectedOptions
-          .map(idx => question.options[idx]?.label)
-          .filter(Boolean)
-          .join(', ')
-        answers[question.question] = selectedLabels
-      }
-      // For questions beyond the first, mark them as skipped (empty string)
-      // This ensures the agent gets a complete response even if UI only showed first question
-      for (let i = 1; i < pendingAskQuestion.questions.length; i++) {
-        const q = pendingAskQuestion.questions[i]
-        if (q) {
-          answers[q.question] = '' // Skipped - user didn't see this question
-        }
-      }
-      onRespondToAskQuestion(
-        pendingAskQuestion.sessionId,
-        pendingAskQuestion.requestId,
-        answers
-      )
     }
   }
 
-  // Build structured input state from pending requests (priority: permission > plan_review > clarification)
+  // Build structured input state from pending requests
   const structuredInput: StructuredInputState | undefined = React.useMemo(() => {
     if (pendingPermission) {
       return { type: 'permission', data: pendingPermission }
     }
-    if (pendingPlanReview) {
-      return {
-        type: 'plan_review',
-        data: {
-          id: pendingPlanReview.requestId,
-          title: pendingPlanReview.plan.title,
-          summary: pendingPlanReview.plan.summary || '',
-          steps: pendingPlanReview.plan.steps.map(step => ({
-            description: step.description,
-            tools: step.tools,
-          })),
-          questions: pendingPlanReview.questions,
-        },
-      }
-    }
-    if (pendingAskQuestion && pendingAskQuestion.questions.length > 0) {
-      const firstQuestion = pendingAskQuestion.questions[0]
-      return {
-        type: 'clarification',
-        data: {
-          id: pendingAskQuestion.requestId,
-          question: firstQuestion.question,
-          header: firstQuestion.header,
-          options: firstQuestion.options.map(opt => ({
-            label: opt.label,
-            description: opt.description,
-          })),
-          multiSelect: firstQuestion.multiSelect,
-        },
-      }
-    }
     return undefined
-  }, [pendingPermission, pendingPlanReview, pendingAskQuestion])
+  }, [pendingPermission])
 
   // Memoize turn grouping - avoids O(n) iteration on every render/keystroke
   const turns = React.useMemo(() => {
@@ -497,7 +421,7 @@ export function ChatDisplay({
               ) : (
                 /* Turn-based Message Display - memoized to avoid re-grouping on every render */
                 (() => {
-                  return turns.map((turn) => {
+                  return turns.map((turn, index) => {
                     // User turns - render with MemoizedMessageBubble
                     // Extra top margin creates visual separation after AI responses
                     if (turn.type === 'user') {
@@ -524,6 +448,21 @@ export function ChatDisplay({
                       )
                     }
 
+                    // Plan turns - render with PlanCard for inline plan review
+                    if (turn.type === 'plan') {
+                      // Check if any subsequent turn is a user message (hide footer if so)
+                      const hasUserResponse = turns.slice(index + 1).some(t => t.type === 'user')
+                      return (
+                        <PlanCard
+                          key={`plan-${turn.message.id}`}
+                          message={turn.message}
+                          onOpenFile={onOpenFile}
+                          onOpenUrl={onOpenUrl}
+                          hasUserResponse={hasUserResponse}
+                        />
+                      )
+                    }
+
                     // Assistant turns - render with TurnCard (buffered streaming)
                     return (
                       <TurnCard
@@ -538,13 +477,21 @@ export function ChatDisplay({
                         onOpenUrl={onOpenUrl}
                         onPopOut={(text) => {
                           if (session) {
-                            window.electronAPI.openPreview(session.id, turn.turnId, text)
+                            window.electronAPI.openMarkdownPreview(`${session.id}:${turn.turnId}`, {
+                              mode: 'readOnly',
+                              content: text,
+                              title: 'Response Preview',
+                            })
                           }
                         }}
                         onOpenDetails={() => {
                           if (session) {
                             const markdown = formatTurnAsMarkdown(turn)
-                            window.electronAPI.openPreview(session.id, `details-${turn.turnId}`, markdown)
+                            window.electronAPI.openMarkdownPreview(`${session.id}:details-${turn.turnId}`, {
+                              mode: 'readOnly',
+                              content: markdown,
+                              title: 'Turn Details',
+                            })
                           }
                         }}
                         onOpenActivityDetails={(activity) => {
@@ -714,7 +661,11 @@ export function ChatDisplay({
                             // Default → Markdown preview
                             else {
                               const markdown = formatActivityAsMarkdown(activity)
-                              window.electronAPI.openPreview(session.id, `activity-${activity.id}`, markdown)
+                              window.electronAPI.openMarkdownPreview(`${session.id}:activity-${activity.id}`, {
+                                mode: 'readOnly',
+                                content: markdown,
+                                title: 'Activity Details',
+                              })
                             }
                           }
                         }}
@@ -960,7 +911,7 @@ function MessageBubble({
           </div>
         )}
         {/* Text content bubble */}
-        <div className="max-w-[80%] bg-foreground/5 rounded-[16px] px-4 py-1 break-words min-w-0">
+        <div className="max-w-[80%] bg-foreground/5 rounded-[16px] px-4 py-1 break-words min-w-0 select-text">
           <Markdown
             mode="minimal"
             onUrlClick={onOpenUrl}
@@ -978,7 +929,7 @@ function MessageBubble({
   if (message.role === 'assistant') {
     return (
       <div className="flex justify-start group">
-        <div className="relative max-w-[90%] bg-white shadow-minimal rounded-[8px] pl-6 pr-4 py-3 break-words min-w-0">
+        <div className="relative max-w-[90%] bg-white shadow-minimal rounded-[8px] pl-6 pr-4 py-3 break-words min-w-0 select-text">
           {/* Pop-out button - visible on hover */}
           {onPopOut && !message.isStreaming && (
             <button

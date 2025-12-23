@@ -702,7 +702,7 @@ export type { StoredAttachment };
 // Stored message format (simplified for persistence)
 export interface StoredMessage {
   id: string;
-  type: 'user' | 'assistant' | 'tool' | 'error' | 'status' | 'system' | 'info' | 'warning';
+  type: 'user' | 'assistant' | 'tool' | 'error' | 'status' | 'system' | 'info' | 'warning' | 'plan';
   content: string;
   timestamp?: number;
   toolName?: string;

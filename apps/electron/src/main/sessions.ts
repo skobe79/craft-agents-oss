@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { rm } from 'fs/promises'
+import { rm, readFile } from 'fs/promises'
 import { CraftAgent, type AgentEvent, enterCraftPlanMode, exitCraftPlanMode } from '@craft-agent/shared/agent'
 import type { WindowManager } from './window-manager'
 import {
@@ -759,18 +759,34 @@ export class SessionManager {
         }, managed.workspace.id)
       }
 
-      managed.agent.onPlanReview = (request) => {
-        console.log(`[SessionManager] Plan review request for session ${managed.id}:`, request.plan.title)
-        this.sendEvent({
-          type: 'plan_review_request',
-          sessionId: managed.id,
-          request: {
-            sessionId: managed.id,
-            requestId: request.requestId,
-            plan: request.plan,
-            questions: request.questions,
+      // Wire up onPlanSubmitted to add plan message to conversation
+      managed.agent.onPlanSubmitted = async (planPath) => {
+        console.log(`[SessionManager] Plan submitted for session ${managed.id}:`, planPath)
+        try {
+          // Read the plan file content
+          const planContent = await readFile(planPath, 'utf-8')
+
+          // Create a plan message
+          const planMessage = {
+            id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            role: 'plan' as const,
+            content: planContent,
+            timestamp: Date.now(),
+            planPath,
           }
-        }, managed.workspace.id)
+
+          // Add to session messages
+          managed.messages.push(planMessage)
+
+          // Send event to renderer
+          this.sendEvent({
+            type: 'plan_submitted',
+            sessionId: managed.id,
+            message: planMessage,
+          }, managed.workspace.id)
+        } catch (error) {
+          console.error(`[SessionManager] Failed to read plan file:`, error)
+        }
       }
 
       managed.agent.onCraftAskQuestion = (request) => {
@@ -1181,39 +1197,6 @@ export class SessionManager {
   }
 
   /**
-   * Respond to a pending plan review request
-   * Returns true if the response was delivered, false if agent/session is gone
-   */
-  respondToPlanReview(sessionId: string, requestId: string, response: { action: string; feedback?: string; modifiedPlan?: unknown }): boolean {
-    const managed = this.sessions.get(sessionId)
-    if (managed?.agent) {
-      console.log(`[SessionManager] Plan review response for ${requestId}: action=${response.action}`)
-      // Map the response to the format expected by the agent
-      let result: import('@craft-agent/shared/agent').PlanReviewResult
-      switch (response.action) {
-        case 'approve':
-          result = { action: 'approve', modifiedPlan: response.modifiedPlan as import('@craft-agent/shared/agents').Plan }
-          break
-        case 'refine':
-          result = { action: 'refine', feedback: response.feedback || '' }
-          break
-        case 'saveOnly':
-          result = { action: 'saveOnly', modifiedPlan: response.modifiedPlan as import('@craft-agent/shared/agents').Plan }
-          break
-        case 'cancel':
-        default:
-          result = { action: 'cancel' }
-          break
-      }
-      managed.agent.respondToPlanReview(requestId, result)
-      return true
-    } else {
-      console.warn(`[SessionManager] Cannot respond to plan review - no agent for session ${sessionId}`)
-      return false
-    }
-  }
-
-  /**
    * Respond to a pending ask question request
    * Returns true if the response was delivered, false if agent/session is gone
    */
@@ -1293,7 +1276,7 @@ export class SessionManager {
         this.queueDelta(sessionId, workspaceId, event.text, event.turnId)
         break
 
-      case 'text_complete':
+      case 'text_complete': {
         // Flush any pending deltas before sending complete (ensures renderer has all content)
         this.flushDelta(sessionId, workspaceId)
 
@@ -1301,17 +1284,24 @@ export class SessionManager {
         const existingAssistantCount = managed.messages.filter(m => m.role === 'assistant').length
         const shouldGenerateTitle = existingAssistantCount === 0 && !managed.name
 
+        // For intermediate messages (commentary during tool execution), assign the current parent
+        // This enables proper nesting in the tree view - commentary appears under its parent tool
+        const textParentToolUseId = event.isIntermediate && managed.parentToolStack.length > 0
+          ? managed.parentToolStack[managed.parentToolStack.length - 1]
+          : undefined
+
         const assistantMessage: Message = {
           id: generateMessageId(),
           role: 'assistant',
           content: event.text,
           timestamp: Date.now(),
           isIntermediate: event.isIntermediate,
-          turnId: event.turnId
+          turnId: event.turnId,
+          parentToolUseId: textParentToolUseId,
         }
         managed.messages.push(assistantMessage)
         managed.streamingText = ''
-        this.sendEvent({ type: 'text_complete', sessionId, text: event.text, isIntermediate: event.isIntermediate, turnId: event.turnId }, workspaceId)
+        this.sendEvent({ type: 'text_complete', sessionId, text: event.text, isIntermediate: event.isIntermediate, turnId: event.turnId, parentToolUseId: textParentToolUseId }, workspaceId)
 
         // Generate title asynchronously after first assistant response
         if (shouldGenerateTitle) {
@@ -1321,6 +1311,7 @@ export class SessionManager {
           }
         }
         break
+      }
 
       case 'tool_start': {
         // Track tool_use_id -> toolName mapping for later use in tool_result
@@ -1351,6 +1342,7 @@ export class SessionManager {
         // IMPORTANT: Only push on first event, not duplicate events (SDK sends two tool_start per tool)
         if (isParentTool && !isDuplicateEvent) {
           managed.parentToolStack.push(event.toolUseId)
+          console.log(`[SessionManager] PARENT STACK PUSH: ${event.toolName} (${event.toolUseId}), stack=${JSON.stringify(managed.parentToolStack)}`)
         }
 
         // Store the parent assignment for this tool (only on first event)
@@ -1359,10 +1351,19 @@ export class SessionManager {
           managed.toolToParentMap.set(event.toolUseId, parentToolUseId)
         }
 
+        // Track if we need to send an event to the renderer
+        // Send on: first occurrence OR when we have new input data to update
+        let shouldSendEvent = !isDuplicateEvent
+
         if (existingStartMsg) {
           // Update existing message with complete input (second event has full input)
-          if (formattedToolInput) {
+          if (formattedToolInput && Object.keys(formattedToolInput).length > 0) {
+            const hadInputBefore = existingStartMsg.toolInput && Object.keys(existingStartMsg.toolInput).length > 0
             existingStartMsg.toolInput = formattedToolInput
+            // Send update event if we're adding input that wasn't there before
+            if (!hadInputBefore) {
+              shouldSendEvent = true
+            }
           }
           // Also set parent if not already set
           if (parentToolUseId && !existingStartMsg.parentToolUseId) {
@@ -1386,15 +1387,18 @@ export class SessionManager {
           managed.messages.push(toolStartMessage)
         }
 
-        this.sendEvent({
-          type: 'tool_start',
-          sessionId,
-          toolName: event.toolName,
-          toolUseId: event.toolUseId,
-          toolInput: formattedToolInput,
-          turnId: event.turnId,
-          parentToolUseId,
-        }, workspaceId)
+        // Send event to renderer on first occurrence OR when input data is updated
+        if (shouldSendEvent) {
+          this.sendEvent({
+            type: 'tool_start',
+            sessionId,
+            toolName: event.toolName,
+            toolUseId: event.toolUseId,
+            toolInput: formattedToolInput,
+            turnId: event.turnId,
+            parentToolUseId,
+          }, workspaceId)
+        }
         break
       }
 
@@ -1403,10 +1407,28 @@ export class SessionManager {
         const toolName = managed.pendingTools.get(event.toolUseId) || 'unknown'
         managed.pendingTools.delete(event.toolUseId)
 
+        // Parent tool names for defensive cleanup
+        const PARENT_TOOLS = ['Task', 'AgentOutputTool']
+
         // Remove this tool from parent stack if it's there (parent tool completing)
         const stackIndex = managed.parentToolStack.indexOf(event.toolUseId)
         if (stackIndex !== -1) {
           managed.parentToolStack.splice(stackIndex, 1)
+          console.log(`[SessionManager] PARENT STACK POP: ${event.toolUseId}, stack=${JSON.stringify(managed.parentToolStack)}`)
+        } else {
+          console.log(`[SessionManager] PARENT STACK NOT FOUND: ${event.toolUseId}, stack=${JSON.stringify(managed.parentToolStack)}`)
+          // Defensive cleanup: if this is a parent tool type but ID wasn't found,
+          // try to find and remove by matching tool name in messages
+          if (PARENT_TOOLS.includes(toolName)) {
+            const fallbackIdx = managed.parentToolStack.findIndex(id => {
+              const msg = managed.messages.find(m => m.toolUseId === id)
+              return msg?.toolName === toolName
+            })
+            if (fallbackIdx !== -1) {
+              const removedId = managed.parentToolStack.splice(fallbackIdx, 1)[0]
+              console.log(`[SessionManager] PARENT STACK FALLBACK POP: ${removedId} (matched by toolName=${toolName}), stack=${JSON.stringify(managed.parentToolStack)}`)
+            }
+          }
         }
 
         // Get the stored parent mapping before cleaning up (for fallback)
@@ -1420,6 +1442,11 @@ export class SessionManager {
 
         // Update existing tool message (created on tool_start) instead of creating new one
         const existingToolMsg = managed.messages.find(m => m.toolUseId === event.toolUseId)
+        // Track if already completed to avoid sending duplicate events
+        const wasAlreadyComplete = existingToolMsg?.toolStatus === 'completed'
+
+        console.log(`[SessionManager] RESULT MATCH: toolUseId=${event.toolUseId}, found=${!!existingToolMsg}, toolName=${existingToolMsg?.toolName || toolName}, wasComplete=${wasAlreadyComplete}`)
+
         if (existingToolMsg) {
           existingToolMsg.content = formattedResult
           existingToolMsg.toolResult = formattedResult
@@ -1448,15 +1475,18 @@ export class SessionManager {
         // Use stored parent mapping or existing message's parent
         const finalParentToolUseId = existingToolMsg?.parentToolUseId || storedParentId
 
-        this.sendEvent({
-          type: 'tool_result',
-          sessionId,
-          toolUseId: event.toolUseId,
-          toolName: toolName,
-          result: formattedResult,
-          turnId: event.turnId,
-          parentToolUseId: finalParentToolUseId,
-        }, workspaceId)
+        // Only send event to renderer if not already marked complete
+        if (!wasAlreadyComplete) {
+          this.sendEvent({
+            type: 'tool_result',
+            sessionId,
+            toolUseId: event.toolUseId,
+            toolName: toolName,
+            result: formattedResult,
+            turnId: event.turnId,
+            parentToolUseId: finalParentToolUseId,
+          }, workspaceId)
+        }
         break
       }
 

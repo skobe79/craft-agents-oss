@@ -12,7 +12,6 @@ import { WorkspaceRename } from './WorkspaceRename.tsx';
 import { ApiKeyChange } from './ApiKeyChange.tsx';
 import { ClaudeMaxAuth } from './ClaudeMaxAuth.tsx';
 import { AskUserQuestion } from './AskUserQuestion.tsx';
-import { PlanReview } from './PlanReview.tsx';
 import { TodoList } from './TodoList.tsx';
 import { McpAuth } from './McpAuth.tsx';
 import { ApiAuth } from './ApiAuth.tsx';
@@ -42,7 +41,7 @@ import {
   PLAN_MODE_ENTER_PROMPT,
   PLAN_MODE_EXIT_PROMPT,
 } from '@craft-agent/shared/agents';
-import { getPlanModeState } from '@craft-agent/shared/agent';
+import { getPlanModeStateForSession } from '@craft-agent/shared/agent';
 import { useGlobalContext } from '../context/GlobalContext.tsx';
 import {
   getWorkspaces,
@@ -169,11 +168,6 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
     planMode,
     cancelPlan,
     approvePlan,
-    // Craft Agents plan mode UI interactions
-    pendingPlanReview,
-    respondToPlanReview,
-    pendingCraftQuestion,
-    respondToCraftQuestion,
     // Craft Agents plan mode toggle (for SHIFT+TAB)
     startCraftPlanning,
     cancelCraftPlanning,
@@ -693,10 +687,10 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
     }
 
     // SHIFT+TAB: Toggle Craft Agents plan mode
-    // Use synchronous internal state (getPlanModeState) instead of async React state (planMode)
+    // Use synchronous internal state (getPlanModeStateForSession) instead of async React state (planMode)
     // to avoid race conditions when toggling quickly
     if (isShiftTab(input, key)) {
-      const internalPlanMode = getPlanModeState().isActive;
+      const internalPlanMode = getPlanModeStateForSession(session.id).isActive;
       if (internalPlanMode) {
         // Exit Craft Agents plan mode (cancel without calling ExitCraftAgentsPlanMode)
         cancelCraftPlanning();
@@ -751,8 +745,8 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
         setStaticResetKey(k => k + 1);
       } else if (pendingPermission) {
         respondToPermission(false, false);
-      } else if (pendingPlanReview || pendingQuestion || pendingCraftQuestion) {
-        // These components handle Escape themselves - don't also interrupt
+      } else if (pendingQuestion) {
+        // AskUserQuestion handles Escape itself - don't also interrupt
         return;
       } else if (isProcessing) {
         interrupt();
@@ -1002,32 +996,7 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
           </Box>
         )}
 
-        {/* CraftAgentsPlanModeAskQuestion prompt (Craft Agents plan mode) */}
-        {pendingCraftQuestion && (
-          <Box marginBottom={1}>
-            <AskUserQuestion
-              questions={pendingCraftQuestion.questions}
-              onSubmit={respondToCraftQuestion}
-            />
-          </Box>
-        )}
-
-        {/* PlanReview prompt (Craft Agents plan mode) */}
-        {pendingPlanReview && (
-          <Box marginBottom={1}>
-            <PlanReview
-              plan={pendingPlanReview.plan}
-              sessionId={session.id}
-              questions={pendingPlanReview.questions}
-              onApprove={(modifiedPlan, savedPath) => respondToPlanReview({ action: 'approve', modifiedPlan, savedPath })}
-              onRefine={(feedback) => respondToPlanReview({ action: 'refine', feedback })}
-              onSaveOnly={(modifiedPlan, savedPath) => respondToPlanReview({ action: 'saveOnly', modifiedPlan, savedPath })}
-              onCancel={() => respondToPlanReview({ action: 'cancel' })}
-            />
-          </Box>
-        )}
-
-        {!hasOpenModal && !pendingPermission && !pendingQuestion && !pendingCraftQuestion && !pendingPlanReview && !pendingMcpAuth && !pendingApiAuth && (
+        {!hasOpenModal && !pendingPermission && !pendingQuestion && !pendingMcpAuth && !pendingApiAuth && (
           <Input
             onSubmit={handleSubmit}
             onPaste={handlePaste}

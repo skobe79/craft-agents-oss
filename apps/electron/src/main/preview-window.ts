@@ -1,53 +1,72 @@
 import { BrowserWindow, shell, nativeTheme } from 'electron'
-import { join } from 'path'
-import { IPC_CHANNELS } from '../shared/types'
+import { join, basename } from 'path'
+import { readFile, writeFile } from 'fs/promises'
+import { IPC_CHANNELS, type MarkdownPreviewData } from '../shared/types'
 
 // Vite dev server URL for hot reload
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
-interface PreviewWindowData {
+interface MarkdownPreviewWindowData {
   window: BrowserWindow
-  sessionId: string
-  messageId: string
+  previewId: string
+  data: MarkdownPreviewData
+  /** Resolved content (either from memory or file) */
+  content: string
+  /** Original content for change detection */
   originalContent: string
 }
 
 /**
- * PreviewWindowManager - Manages pop-out preview windows for markdown messages
+ * MarkdownPreviewWindowManager - Manages pop-out preview windows for markdown content
  *
- * Each preview is keyed by sessionId:messageId to support multiple previews.
- * Windows are independent of workspace windows.
+ * Supports two modes:
+ * - readOnly: View markdown content without save functionality
+ *   - Can pass content directly (from memory)
+ *   - Can pass filePath to read from
+ * - readWrite: Edit and save markdown to a file
+ *   - Must provide filePath
  */
 export class PreviewWindowManager {
-  private windows: Map<string, PreviewWindowData> = new Map()
-
-  /**
-   * Generate key for a preview window
-   */
-  private getKey(sessionId: string, messageId: string): string {
-    return `${sessionId}:${messageId}`
-  }
+  private windows: Map<string, MarkdownPreviewWindowData> = new Map()
 
   /**
    * Open or focus an existing preview window
    */
-  openPreview(sessionId: string, messageId: string, content: string): BrowserWindow {
-    const key = this.getKey(sessionId, messageId)
-
+  async openPreview(previewId: string, data: MarkdownPreviewData): Promise<BrowserWindow> {
     // If window exists and is not destroyed, focus it
-    const existing = this.windows.get(key)
+    const existing = this.windows.get(previewId)
     if (existing && !existing.window.isDestroyed()) {
       if (existing.window.isMinimized()) {
         existing.window.restore()
       }
       existing.window.focus()
-      // Update content if changed
-      existing.originalContent = content
       return existing.window
     }
 
+    // Resolve content based on data type
+    let content: string
+    if ('content' in data) {
+      // Content provided directly
+      content = data.content
+    } else {
+      // Read from file
+      try {
+        content = await readFile(data.filePath, 'utf-8')
+      } catch (err) {
+        console.error(`[PreviewWindowManager] Failed to read file: ${data.filePath}`, err)
+        content = `Error reading file: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+
+    // Generate window title
+    let title = 'Markdown Preview'
+    if (data.title) {
+      title = data.title
+    } else if ('filePath' in data) {
+      title = basename(data.filePath)
+    }
+
     // Create new preview window (solid background, no vibrancy)
-    // Match Monaco theme backgrounds: vs=#ffffff, vs-dark=#1e1e1e
     const backgroundColor = nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#ffffff'
 
     const window = new BrowserWindow({
@@ -55,7 +74,7 @@ export class PreviewWindowManager {
       height: 700,
       minWidth: 600,
       minHeight: 400,
-      title: 'Preview',
+      title,
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 18, y: 18 },
       backgroundColor,
@@ -73,38 +92,28 @@ export class PreviewWindowManager {
     })
 
     // Store window data BEFORE loading URL to avoid race condition
-    // (renderer may call getPreviewContent before URL finishes loading)
-    this.windows.set(key, {
+    this.windows.set(previewId, {
       window,
-      sessionId,
-      messageId,
+      previewId,
+      data,
+      content,
       originalContent: content,
     })
 
-    // Load the preview renderer with session/message IDs
-    const query = { sessionId, messageId }
+    // Load the preview renderer with previewId
+    const query = { previewId }
 
     if (VITE_DEV_SERVER_URL) {
       const params = new URLSearchParams(query).toString()
-      // Use preview.html instead of index.html
       window.loadURL(`${VITE_DEV_SERVER_URL}/preview.html?${params}`)
     } else {
       window.loadFile(join(__dirname, 'renderer/preview.html'), { query })
     }
 
-    // Handle window close with unsaved changes warning
-    window.on('close', (event) => {
-      const data = this.windows.get(key)
-      if (data) {
-        // Note: hasUnsavedChanges tracking would need to be communicated from renderer
-        // For now, we just close without warning - the renderer handles the confirm dialog
-      }
-    })
-
     // Clean up when window is closed
     window.on('closed', () => {
-      this.windows.delete(key)
-      console.log(`[PreviewWindowManager] Preview window closed for ${key}`)
+      this.windows.delete(previewId)
+      console.log(`[PreviewWindowManager] Preview window closed for ${previewId}`)
     })
 
     // Listen for system theme changes
@@ -115,75 +124,55 @@ export class PreviewWindowManager {
     }
     nativeTheme.on('updated', themeHandler)
 
-    // Clean up theme listener when window is destroyed
     window.on('closed', () => {
       nativeTheme.removeListener('updated', themeHandler)
     })
 
-    console.log(`[PreviewWindowManager] Created preview window for ${key}`)
+    console.log(`[PreviewWindowManager] Created preview window for ${previewId}`)
     return window
   }
 
   /**
-   * Get content for a preview (called from renderer on mount)
+   * Get data and content for a preview (called from renderer on mount)
    */
-  getContent(sessionId: string, messageId: string): string {
-    const key = this.getKey(sessionId, messageId)
-    const data = this.windows.get(key)
-    console.log(`[PreviewWindowManager] getContent for ${key}:`, {
-      found: !!data,
-      contentLength: data?.originalContent?.length ?? 0,
-      windowsCount: this.windows.size,
-    })
-    return data?.originalContent ?? ''
-  }
-
-  /**
-   * Update original content (when save is successful)
-   */
-  updateOriginalContent(sessionId: string, messageId: string, content: string): void {
-    const key = this.getKey(sessionId, messageId)
-    const data = this.windows.get(key)
-    if (data) {
-      data.originalContent = content
+  getData(previewId: string): { data: MarkdownPreviewData; content: string } | null {
+    const windowData = this.windows.get(previewId)
+    if (!windowData) return null
+    return {
+      data: windowData.data,
+      content: windowData.content,
     }
   }
 
   /**
-   * Broadcast content update to preview windows (when original message changes)
+   * Save content to file (only works for readWrite mode)
    */
-  broadcastContentUpdate(sessionId: string, messageId: string, content: string): void {
-    const key = this.getKey(sessionId, messageId)
-    const data = this.windows.get(key)
-    if (data && !data.window.isDestroyed()) {
-      data.window.webContents.send(
-        IPC_CHANNELS.PREVIEW_MESSAGE_UPDATED,
-        sessionId,
-        messageId,
-        content
-      )
+  async save(previewId: string, content: string): Promise<void> {
+    const windowData = this.windows.get(previewId)
+    if (!windowData) {
+      throw new Error('Preview window not found')
     }
+
+    if (windowData.data.mode !== 'readWrite') {
+      throw new Error('Cannot save in read-only mode')
+    }
+
+    const filePath = windowData.data.filePath
+    await writeFile(filePath, content, 'utf-8')
+
+    // Update stored content
+    windowData.content = content
+    windowData.originalContent = content
+
+    console.log(`[PreviewWindowManager] Saved content to ${filePath}`)
   }
 
   /**
-   * Get all preview windows for a session (for cleanup when session is deleted)
+   * Close all preview windows
    */
-  getWindowsForSession(sessionId: string): PreviewWindowData[] {
-    const result: PreviewWindowData[] = []
-    for (const [key, data] of this.windows) {
-      if (data.sessionId === sessionId && !data.window.isDestroyed()) {
-        result.push(data)
-      }
-    }
-    return result
-  }
-
-  /**
-   * Close all preview windows for a session
-   */
-  closeWindowsForSession(sessionId: string): void {
-    for (const [key, data] of this.windows) {
-      if (data.sessionId === sessionId && !data.window.isDestroyed()) {
+  closeAll(): void {
+    for (const [, data] of this.windows) {
+      if (!data.window.isDestroyed()) {
         data.window.close()
       }
     }
@@ -192,7 +181,7 @@ export class PreviewWindowManager {
   /**
    * Get all preview windows
    */
-  getAllWindows(): PreviewWindowData[] {
+  getAllWindows(): MarkdownPreviewWindowData[] {
     return Array.from(this.windows.values()).filter((d) => !d.window.isDestroyed())
   }
 }

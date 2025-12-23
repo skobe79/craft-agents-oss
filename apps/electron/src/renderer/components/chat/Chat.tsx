@@ -15,8 +15,18 @@ import {
   PowerOff,
   Globe,
   Flag,
+  ListFilter,
+  Check,
+  Search,
 } from "lucide-react"
 import { McpIcon } from "../icons/McpIcon"
+import {
+  CircleDashed,
+  CircleProgress,
+  CircleEye,
+  CircleCheckFilled,
+  CircleXFilled,
+} from "../icons/TodoStateIcons"
 import { Spinner } from "@/components/ui/loading-indicator"
 import { AvatarGroup } from "@/components/ui/avatar-group"
 import { ServiceLogo } from "@/components/ui/service-logo"
@@ -32,6 +42,7 @@ import {
   DropdownMenuTrigger,
   StyledDropdownMenuContent,
   StyledDropdownMenuItem,
+  StyledDropdownMenuSeparator,
 } from "@/components/ui/styled-dropdown"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FadingText } from "@/components/ui/fading-text"
@@ -55,9 +66,10 @@ import { useFocusZone, useGlobalShortcuts } from "@/hooks/keyboard"
 import { useFocusContext } from "@/context/FocusContext"
 import { getSessionTitle } from "@/utils/session"
 import { closeTabWithCleanup } from "@/utils/closeTabWithCleanup"
-import type { Session, Workspace, SubAgentMetadata, FileAttachment, PermissionRequest, TodoState, PlanReviewRequest, PlanReviewResponse, AskQuestionRequest, AskQuestionResponse } from "../../../shared/types"
+import type { Session, Workspace, SubAgentMetadata, FileAttachment, PermissionRequest, TodoState } from "../../../shared/types"
+import { type TodoStateId, DEFAULT_TODO_STATES, getStateColor } from "@/components/ui/todo-filter-menu"
 
-type ViewMode = 'inbox' | 'archive' | 'flagged' | 'agent'
+type ViewMode = 'inbox' | 'archive' | 'flagged' | 'agent' | `state:${TodoStateId}`
 
 interface ChatProps {
   workspaces: Workspace[]
@@ -94,11 +106,6 @@ interface ChatProps {
   // Permission handling (queue to support multiple concurrent requests)
   pendingPermissions?: Map<string, PermissionRequest[]>
   onRespondToPermission?: (sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) => void
-  // Plan mode handling
-  pendingPlanReviews?: Map<string, PlanReviewRequest>
-  onRespondToPlanReview?: (sessionId: string, requestId: string, response: PlanReviewResponse) => void
-  pendingAskQuestions?: Map<string, AskQuestionRequest>
-  onRespondToAskQuestion?: (sessionId: string, requestId: string, answers: AskQuestionResponse) => void
   // Advanced options (all session-scoped)
   ultrathinkSessions?: Set<string>
   onUltrathinkChange?: (sessionId: string, enabled: boolean) => void
@@ -473,11 +480,6 @@ export function Chat({
   onAddWorkspace,
   pendingPermissions,
   onRespondToPermission,
-  // Plan mode
-  pendingPlanReviews,
-  onRespondToPlanReview,
-  pendingAskQuestions,
-  onRespondToAskQuestion,
   // Advanced options (all session-scoped)
   ultrathinkSessions,
   onUltrathinkChange,
@@ -510,6 +512,39 @@ export function Chat({
   const [session, setSession] = useSession()
   const [viewMode, setViewMode] = React.useState<ViewMode>('inbox')
   const [selectedAgentId, setSelectedAgentId] = React.useState<string | null>(null)
+  // Session list filter: empty set shows all, otherwise shows only sessions with selected states
+  const [listFilter, setListFilter] = React.useState<Set<TodoStateId>>(() => {
+    const saved = localStorage.getItem('chat-list-filter')
+    if (saved) {
+      try {
+        return new Set(JSON.parse(saved) as TodoStateId[])
+      } catch {
+        return new Set()
+      }
+    }
+    return new Set()
+  })
+  // Search state for session list
+  const [searchActive, setSearchActive] = React.useState(false)
+  const [searchQuery, setSearchQuery] = React.useState('')
+
+  // Reset search when view mode changes
+  React.useEffect(() => {
+    setSearchActive(false)
+    setSearchQuery('')
+  }, [viewMode, selectedAgentId])
+
+  // Cmd+F to activate search
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        setSearchActive(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   // Agent status indicators - tracks setup/auth status for sidebar icons
   const [agentStatus, setAgentStatus] = React.useState<Map<string, SidebarAgentStatus>>(new Map())
@@ -676,6 +711,22 @@ export function Chat({
   // Flagged can be both done and not done
   const flaggedCount = workspaceSessions.filter(s => s.isFlagged).length
 
+  // Count sessions by individual todo state
+  const todoStateCounts = React.useMemo(() => {
+    const counts: Record<TodoStateId, number> = {
+      'todo': 0,
+      'in-progress': 0,
+      'needs-review': 0,
+      'done': 0,
+      'cancelled': 0,
+    }
+    for (const s of workspaceSessions) {
+      const state = (s.todoState || 'todo') as TodoStateId
+      counts[state]++
+    }
+    return counts
+  }, [workspaceSessions])
+
   // Get conversation count per agent (scoped to workspace)
   const getConversationCount = React.useCallback((agentId: string) => {
     return workspaceSessions.filter(s => s.agentId === agentId && !isDone(s)).length
@@ -683,18 +734,33 @@ export function Chat({
 
   // Filter sessions based on view mode and agent selection
   const filteredSessions = React.useMemo(() => {
+    let result: Session[]
+
     if (viewMode === 'inbox') {
-      return workspaceSessions.filter(s => !isDone(s))
+      // "All Chats" - shows all sessions (no filtering by done status)
+      result = workspaceSessions
     } else if (viewMode === 'archive') {
-      return workspaceSessions.filter(s => isDone(s))
+      result = workspaceSessions.filter(s => isDone(s))
     } else if (viewMode === 'flagged') {
       // Flagged view shows both done and not done flagged items
-      return workspaceSessions.filter(s => s.isFlagged)
+      result = workspaceSessions.filter(s => s.isFlagged)
     } else if (viewMode === 'agent' && selectedAgentId) {
-      return workspaceSessions.filter(s => s.agentId === selectedAgentId && !isDone(s))
+      result = workspaceSessions.filter(s => s.agentId === selectedAgentId && !isDone(s))
+    } else if (viewMode.startsWith('state:')) {
+      // Filter by specific todo state
+      const stateId = viewMode.replace('state:', '') as TodoStateId
+      result = workspaceSessions.filter(s => (s.todoState || 'todo') === stateId)
+    } else {
+      result = workspaceSessions
     }
-    return workspaceSessions
-  }, [workspaceSessions, viewMode, selectedAgentId])
+
+    // Apply secondary filter by todo states if any are selected (only in inbox view)
+    if (viewMode === 'inbox' && listFilter.size > 0) {
+      result = result.filter(s => listFilter.has((s.todoState || 'todo') as TodoStateId))
+    }
+
+    return result
+  }, [workspaceSessions, viewMode, selectedAgentId, listFilter])
 
   const selectedSession = sessions.find(s => s.id === session.selected) || null
 
@@ -815,8 +881,6 @@ export function Chat({
     activeWorkspaceId,
     currentModel,
     pendingPermissions: pendingPermissions || new Map(),
-    pendingPlanReviews: pendingPlanReviews || new Map(),
-    pendingAskQuestions: pendingAskQuestions || new Map(),
     sessionDrafts: sessionDrafts || new Map(),
     // Advanced options (all session-scoped)
     ultrathinkSessions: ultrathinkSessions || new Set(),
@@ -830,8 +894,6 @@ export function Chat({
     onMarkSessionRead,
     onDeleteSession: handleDeleteSession,
     onRespondToPermission,
-    onRespondToPlanReview,
-    onRespondToAskQuestion,
     onOpenFile,
     onOpenUrl,
     onModelChange,
@@ -848,8 +910,6 @@ export function Chat({
     activeWorkspaceId,
     currentModel,
     pendingPermissions,
-    pendingPlanReviews,
-    pendingAskQuestions,
     ultrathinkSessions,
     skipPermissionsSessions,
     planModeSessions,
@@ -861,8 +921,6 @@ export function Chat({
     onMarkSessionRead,
     handleDeleteSession,
     onRespondToPermission,
-    onRespondToPlanReview,
-    onRespondToAskQuestion,
     onOpenFile,
     onOpenUrl,
     onModelChange,
@@ -885,6 +943,11 @@ export function Chat({
   React.useEffect(() => {
     localStorage.setItem('chat-sidebar-visible', String(isSidebarVisible))
   }, [isSidebarVisible])
+
+  // Persist list filter to localStorage
+  React.useEffect(() => {
+    localStorage.setItem('chat-list-filter', JSON.stringify([...listFilter]))
+  }, [listFilter])
 
   // Helper to map AgentStatus to SidebarAgentStatus (centralized logic)
   const mapAgentStatusToSidebar = React.useCallback((status: import('../../../shared/types').AgentStatus): SidebarAgentStatus => {
@@ -1037,6 +1100,13 @@ export function Chat({
     setSession({ selected: null })
   }, [setSession])
 
+  // Handler for individual todo state views
+  const handleTodoStateClick = useCallback((stateId: TodoStateId) => {
+    setViewMode(`state:${stateId}`)
+    setSelectedAgentId(null)
+    setSession({ selected: null })
+  }, [setSession])
+
   // Create a new chat and select it
   // Uses selectedAgentId when in agent view, otherwise creates a session without agent
   const handleNewChat = useCallback(async (useCurrentAgent: boolean = true) => {
@@ -1103,11 +1173,18 @@ export function Chat({
   const unifiedSidebarItems = React.useMemo((): SidebarItem[] => {
     const result: SidebarItem[] = []
 
-    // 1. Nav items (Inbox, Archive)
+    // 1. Nav items (Inbox, Flagged)
     result.push({ id: 'nav:inbox', type: 'nav', action: handleInboxClick })
-    result.push({ id: 'nav:archive', type: 'nav', action: handleArchiveClick })
+    result.push({ id: 'nav:flagged', type: 'nav', action: handleFlaggedClick })
 
-    // 2. Tree items (agents and folders)
+    // 2. Status nav items (todo states)
+    result.push({ id: 'nav:state:todo', type: 'nav', action: () => handleTodoStateClick('todo') })
+    result.push({ id: 'nav:state:in-progress', type: 'nav', action: () => handleTodoStateClick('in-progress') })
+    result.push({ id: 'nav:state:needs-review', type: 'nav', action: () => handleTodoStateClick('needs-review') })
+    result.push({ id: 'nav:state:done', type: 'nav', action: () => handleTodoStateClick('done') })
+    result.push({ id: 'nav:state:cancelled', type: 'nav', action: () => handleTodoStateClick('cancelled') })
+
+    // 3. Tree items (agents and folders)
     const flattenTree = (folder: AgentFolder) => {
       // Sort items: agents first (alphabetically), then folders (alphabetically)
       const agentItems = folder.agents
@@ -1149,7 +1226,7 @@ export function Chat({
     flattenTree(agentTree)
 
     return result
-  }, [agentTree, expandedFolders, handleInboxClick, handleArchiveClick])
+  }, [agentTree, expandedFolders, handleInboxClick, handleFlaggedClick, handleTodoStateClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -1281,11 +1358,21 @@ export function Chat({
   }, [sidebarFocused, focusedSidebarItemId, unifiedSidebarItems])
 
   // Get title based on view mode
-  const listTitle = viewMode === 'archive' ? 'Done' :
-                    viewMode === 'flagged' ? 'Flagged' :
-                    viewMode === 'agent' && selectedAgentId ?
-                      (agents.find(a => a.id === selectedAgentId)?.displayName || agents.find(a => a.id === selectedAgentId)?.name || 'Inbox') :
-                      'Inbox'
+  const listTitle = React.useMemo(() => {
+    if (viewMode === 'archive') return 'Archive'
+    if (viewMode === 'flagged') return 'Flagged'
+    if (viewMode === 'agent' && selectedAgentId) {
+      return agents.find(a => a.id === selectedAgentId)?.displayName ||
+             agents.find(a => a.id === selectedAgentId)?.name ||
+             'All Chats'
+    }
+    if (viewMode.startsWith('state:')) {
+      const stateId = viewMode.replace('state:', '') as TodoStateId
+      const state = DEFAULT_TODO_STATES.find(s => s.id === stateId)
+      return state?.label || 'All Chats'
+    }
+    return 'All Chats'
+  }, [viewMode, selectedAgentId, agents])
 
   return (
     <ChatProvider value={chatContextValue}>
@@ -1366,7 +1453,19 @@ export function Chat({
             <div className="flex h-full flex-col pt-[50px]">
               {/* Sidebar Top Section */}
               <div className="flex-1 flex flex-col min-h-0">
-                {/* Primary Nav: Inbox, Archive */}
+                {/* New Chat Button - Gmail-style */}
+                <div className="px-2 pt-2 pb-1">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleNewChat(true)}
+                    disabled={viewMode === 'agent' && bannerState.state !== 'hidden'}
+                    className="w-full justify-start gap-2 py-[7px] px-2 text-[13px] font-normal rounded-[6px] shadow-minimal bg-background"
+                  >
+                    <SquarePenRounded className="h-3.5 w-3.5 shrink-0" />
+                    New Chat
+                  </Button>
+                </div>
+                {/* Primary Nav: All Chats, Flagged */}
                 <LeftSidebar
                   isCollapsed={false}
                   getItemProps={getSidebarItemProps}
@@ -1374,8 +1473,8 @@ export function Chat({
                   links={[
                     {
                       id: "nav:inbox",
-                      title: "Inbox",
-                      label: String(inboxCount),
+                      title: "All Chats",
+                      label: String(workspaceSessions.length),
                       icon: Inbox,
                       variant: viewMode === 'inbox' ? "default" : "ghost",
                       onClick: handleInboxClick,
@@ -1388,13 +1487,62 @@ export function Chat({
                       variant: viewMode === 'flagged' ? "default" : "ghost",
                       onClick: handleFlaggedClick,
                     },
+                  ]}
+                />
+                {/* Status Section Header */}
+                <div className="flex items-center pl-4 pr-2 pt-2 pb-1">
+                  <span className="text-xs font-medium text-muted-foreground select-none">Status</span>
+                </div>
+                {/* Status Nav: Todo states */}
+                <LeftSidebar
+                  isCollapsed={false}
+                  getItemProps={getSidebarItemProps}
+                  focusedItemId={focusedSidebarItemId}
+                  links={[
                     {
-                      id: "nav:archive",
+                      id: "nav:state:todo",
+                      title: "Todo",
+                      label: String(todoStateCounts['todo']),
+                      icon: <CircleDashed className="h-3.5 w-3.5" />,
+                      iconColor: "text-muted-foreground",
+                      variant: viewMode === 'state:todo' ? "default" : "ghost",
+                      onClick: () => handleTodoStateClick('todo'),
+                    },
+                    {
+                      id: "nav:state:in-progress",
+                      title: "In Progress",
+                      label: String(todoStateCounts['in-progress']),
+                      icon: <CircleProgress className="h-3.5 w-3.5" />,
+                      iconColor: getStateColor('in-progress'),
+                      variant: viewMode === 'state:in-progress' ? "default" : "ghost",
+                      onClick: () => handleTodoStateClick('in-progress'),
+                    },
+                    {
+                      id: "nav:state:needs-review",
+                      title: "Needs Review",
+                      label: String(todoStateCounts['needs-review']),
+                      icon: <CircleEye className="h-3.5 w-3.5" />,
+                      iconColor: getStateColor('needs-review'),
+                      variant: viewMode === 'state:needs-review' ? "default" : "ghost",
+                      onClick: () => handleTodoStateClick('needs-review'),
+                    },
+                    {
+                      id: "nav:state:done",
                       title: "Done",
-                      label: String(archiveCount),
-                      icon: CheckCircle2,
-                      variant: viewMode === 'archive' ? "default" : "ghost",
-                      onClick: handleArchiveClick,
+                      label: String(todoStateCounts['done']),
+                      icon: <CircleCheckFilled className="h-3.5 w-3.5" />,
+                      iconColor: "text-[#9570BE]",
+                      variant: viewMode === 'state:done' ? "default" : "ghost",
+                      onClick: () => handleTodoStateClick('done'),
+                    },
+                    {
+                      id: "nav:state:cancelled",
+                      title: "Cancelled",
+                      label: String(todoStateCounts['cancelled']),
+                      icon: <CircleXFilled className="h-3.5 w-3.5" />,
+                      iconColor: "text-muted-foreground/60",
+                      variant: viewMode === 'state:cancelled' ? "default" : "ghost",
+                      onClick: () => handleTodoStateClick('cancelled'),
                     },
                   ]}
                 />
@@ -1532,7 +1680,7 @@ export function Chat({
             className="h-full flex flex-col min-w-0 bg-background shrink-0"
             style={{ width: sessionListWidth }}
           >
-            {/* Header: Dynamic title (Conversations/Archive/Agent name) + New Chat button
+            {/* Header: Dynamic title (Conversations/Archive/Agent name)
                 Animated margin when sidebar toggles - uses same spring curve */}
             <motion.div
               initial={false}
@@ -1544,19 +1692,148 @@ export function Chat({
                 <h1 className="text-sm font-semibold truncate font-sans leading-tight">{listTitle}</h1>
                 <p className="text-[11px] opacity-50 font-sans leading-tight">{filteredSessions.length} conversations</p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handleNewChat(true)}
-                disabled={viewMode === 'agent' && bannerState.state !== 'hidden'}
-                className={cn(
-                  "h-7 w-7 shrink-0 rounded-[4px] hover:bg-foreground/5 titlebar-no-drag",
-                  viewMode === 'agent' && bannerState.state !== 'hidden' && "opacity-50 cursor-not-allowed"
-                )}
-                title="New Chat"
-              >
-                <SquarePenRounded className="!h-5 !w-5" />
-              </Button>
+              {/* Filter dropdown - allows filtering by todo states (only in All Chats view) */}
+              {viewMode === 'inbox' && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-7 w-7 shrink-0 rounded-[4px] titlebar-no-drag",
+                        listFilter.size > 0 ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <ListFilter className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <StyledDropdownMenuContent align="end" light minWidth="min-w-[200px]">
+                    {/* Header with title and clear button */}
+                    <div className="flex items-center justify-between px-2 py-1.5 border-b border-foreground/5">
+                      <span className="text-xs font-medium text-muted-foreground">Filter Chats</span>
+                      {listFilter.size > 0 && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            setListFilter(new Set())
+                          }}
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <StyledDropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setListFilter(prev => {
+                          const next = new Set(prev)
+                          if (next.has('todo')) next.delete('todo')
+                          else next.add('todo')
+                          return next
+                        })
+                      }}
+                    >
+                      <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="flex-1">Todo</span>
+                      <span className="w-3.5 ml-4">{listFilter.has('todo') && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                    </StyledDropdownMenuItem>
+                    <StyledDropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setListFilter(prev => {
+                          const next = new Set(prev)
+                          if (next.has('in-progress')) next.delete('in-progress')
+                          else next.add('in-progress')
+                          return next
+                        })
+                      }}
+                    >
+                      <CircleProgress className={cn("h-3.5 w-3.5", getStateColor('in-progress'))} />
+                      <span className="flex-1">In Progress</span>
+                      <span className="w-3.5 ml-4">{listFilter.has('in-progress') && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                    </StyledDropdownMenuItem>
+                    <StyledDropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setListFilter(prev => {
+                          const next = new Set(prev)
+                          if (next.has('needs-review')) next.delete('needs-review')
+                          else next.add('needs-review')
+                          return next
+                        })
+                      }}
+                    >
+                      <CircleEye className={cn("h-3.5 w-3.5", getStateColor('needs-review'))} />
+                      <span className="flex-1">Needs Review</span>
+                      <span className="w-3.5 ml-4">{listFilter.has('needs-review') && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                    </StyledDropdownMenuItem>
+                    <StyledDropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setListFilter(prev => {
+                          const next = new Set(prev)
+                          if (next.has('done')) next.delete('done')
+                          else next.add('done')
+                          return next
+                        })
+                      }}
+                    >
+                      <CircleCheckFilled className="h-3.5 w-3.5 text-[#9570BE]" />
+                      <span className="flex-1">Done</span>
+                      <span className="w-3.5 ml-4">{listFilter.has('done') && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                    </StyledDropdownMenuItem>
+                    <StyledDropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setListFilter(prev => {
+                          const next = new Set(prev)
+                          if (next.has('cancelled')) next.delete('cancelled')
+                          else next.add('cancelled')
+                          return next
+                        })
+                      }}
+                    >
+                      <CircleXFilled className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="flex-1">Cancelled</span>
+                      <span className="w-3.5 ml-4">{listFilter.has('cancelled') && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                    </StyledDropdownMenuItem>
+                    <StyledDropdownMenuSeparator />
+                    <StyledDropdownMenuItem
+                      onClick={() => {
+                        setSearchActive(true)
+                      }}
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                      <span className="flex-1">Search</span>
+                    </StyledDropdownMenuItem>
+                  </StyledDropdownMenuContent>
+                </DropdownMenu>
+              )}
+              {/* More menu with Search for non-inbox views */}
+              {viewMode !== 'inbox' && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 rounded-[4px] titlebar-no-drag text-muted-foreground hover:text-foreground"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <StyledDropdownMenuContent align="end" light>
+                    <StyledDropdownMenuItem
+                      onClick={() => {
+                        setSearchActive(true)
+                      }}
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                      <span className="flex-1">Search</span>
+                    </StyledDropdownMenuItem>
+                  </StyledDropdownMenuContent>
+                </DropdownMenu>
+              )}
             </motion.div>
             <Separator />
             {/* Activation/Auth Banner - shows when agent needs activation or authentication */}
@@ -1599,6 +1876,13 @@ export function Chat({
                 }
               }}
               planModeSessions={planModeSessions}
+              searchActive={searchActive}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onSearchClose={() => {
+                setSearchActive(false)
+                setSearchQuery('')
+              }}
             />
           </div>
 

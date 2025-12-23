@@ -563,13 +563,13 @@ export function useCommands(props: UseCommandsProps) {
           if (!planMode) {
             return {
               handled: true,
-              message: { content: 'No active plan mode. Plan approval happens via the PlanReview UI after calling ExitCraftAgentsPlanMode.', type: 'system' },
+              message: { content: 'No active plan mode. Plan approval happens after SubmitPlan is called.', type: 'system' },
             };
           }
           approvePlan();
           return {
             handled: true,
-            message: { content: 'Plan mode exited. You can now proceed.', type: 'system' },
+            message: { content: 'Plan approved. Execution starting...', type: 'system' },
           };
         }
 

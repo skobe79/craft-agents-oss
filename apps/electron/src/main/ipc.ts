@@ -230,12 +230,6 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     return sessionManager.respondToPermission(sessionId, requestId, allowed, alwaysAllow)
   })
 
-  // Respond to a plan review request
-  // Returns true if the response was delivered, false if agent/session is gone
-  ipcMain.handle(IPC_CHANNELS.RESPOND_TO_PLAN_REVIEW, async (_event, sessionId: string, requestId: string, response: { action: string; feedback?: string; modifiedPlan?: unknown }) => {
-    return sessionManager.respondToPlanReview(sessionId, requestId, response)
-  })
-
   // Respond to an ask question request (CraftAgentsPlanModeAskQuestion tool)
   // Returns true if the response was delivered, false if agent/session is gone
   ipcMain.handle(IPC_CHANNELS.RESPOND_TO_ASK_QUESTION, async (_event, sessionId: string, requestId: string, answers: Record<string, string>) => {
@@ -841,27 +835,22 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   })
 
   // ============================================================
-  // Preview Window
+  // Markdown Preview Window
   // ============================================================
 
-  // Open preview window for a message
-  ipcMain.handle(IPC_CHANNELS.PREVIEW_OPEN, async (_event, sessionId: string, messageId: string, content: string) => {
-    previewWindowManager.openPreview(sessionId, messageId, content)
+  // Open markdown preview window
+  ipcMain.handle(IPC_CHANNELS.MARKDOWN_PREVIEW_OPEN, async (_event, previewId: string, data: import('../shared/types').MarkdownPreviewData) => {
+    await previewWindowManager.openPreview(previewId, data)
   })
 
-  // Get content for a preview (called from preview window on mount)
-  ipcMain.handle(IPC_CHANNELS.PREVIEW_GET_CONTENT, async (_event, sessionId: string, messageId: string) => {
-    return previewWindowManager.getContent(sessionId, messageId)
+  // Get data for a markdown preview (called from preview window on mount)
+  ipcMain.handle(IPC_CHANNELS.MARKDOWN_PREVIEW_GET_DATA, async (_event, previewId: string) => {
+    return previewWindowManager.getData(previewId)
   })
 
-  // Save edited content back to session
-  ipcMain.handle(IPC_CHANNELS.PREVIEW_SAVE, async (_event, sessionId: string, messageId: string, content: string) => {
-    // Update message in session storage
-    sessionManager.updateMessageContent(sessionId, messageId, content)
-    // Update preview window's original content
-    previewWindowManager.updateOriginalContent(sessionId, messageId, content)
-    // Broadcast to main window so it can update its UI
-    windowManager.broadcastToAll(IPC_CHANNELS.PREVIEW_MESSAGE_UPDATED, sessionId, messageId, content)
+  // Save edited content to file (only for readWrite mode)
+  ipcMain.handle(IPC_CHANNELS.MARKDOWN_PREVIEW_SAVE, async (_event, previewId: string, content: string) => {
+    await previewWindowManager.save(previewId, content)
   })
 
   // ============================================================
