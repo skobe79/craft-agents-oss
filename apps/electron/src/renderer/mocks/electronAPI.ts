@@ -573,6 +573,11 @@ console.log(example);
     return () => {}
   },
 
+  onMenuNewChatTab(callback: () => void): () => void {
+    console.log('[Mock] onMenuNewChatTab registered')
+    return () => {}
+  },
+
   onMenuOpenSettings(callback: () => void): () => void {
     console.log('[Mock] onMenuOpenSettings registered')
     return () => {}

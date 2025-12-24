@@ -76,6 +76,16 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
     onInputChange(chatTab.sessionId, value)
   }, [chatTab.sessionId, onInputChange])
 
+  // Working directory for this session
+  const workingDirectory = session?.workingDirectory
+  const handleWorkingDirectoryChange = React.useCallback(async (path: string) => {
+    if (!session) return
+    // Update session's working directory
+    await window.electronAPI.updateSessionWorkingDirectory(session.id, path)
+    // Also update global default for future sessions
+    await window.electronAPI.setDefaultWorkingDirectory(path)
+  }, [session])
+
   // Handle file opens - optionally open in tab instead of external app
   const handleOpenFile = React.useCallback(
     (path: string) => {
@@ -193,6 +203,9 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
       // Input draft preservation
       inputValue={inputValue}
       onInputChange={handleInputChange}
+      // Working directory (per session)
+      workingDirectory={workingDirectory}
+      onWorkingDirectoryChange={handleWorkingDirectoryChange}
     />
   )
 }

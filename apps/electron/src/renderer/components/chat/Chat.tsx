@@ -89,6 +89,7 @@ interface ChatProps {
   defaultLayout?: number[]
   defaultCollapsed?: boolean
   menuNewChatTrigger?: number
+  menuNewChatTabTrigger?: number
 }
 
 /**
@@ -427,6 +428,7 @@ export function Chat({
   defaultLayout = [20, 32, 48],
   defaultCollapsed = false,
   menuNewChatTrigger,
+  menuNewChatTabTrigger,
 }: ChatProps) {
   // Destructure commonly used values from context
   const {
@@ -604,6 +606,8 @@ export function Chat({
       { key: 'b', cmd: true, action: () => setIsSidebarVisible(v => !v) },
       // New chat (context-aware: uses selected agent if in agent view)
       { key: 'n', cmd: true, action: () => handleNewChat(true) },
+      // New chat in new tab
+      { key: 't', cmd: true, action: () => handleNewChatInNewTab() },
       // Settings
       { key: ',', cmd: true, action: onOpenSettings },
     ],
@@ -1028,6 +1032,15 @@ export function Chat({
     setSession({ selected: newSession.id })
   }, [activeWorkspace, viewMode, selectedAgentId, onCreateSession, setSession])
 
+  // Create a new chat in a new tab (CMD+T)
+  const handleNewChatInNewTab = useCallback(async () => {
+    if (!activeWorkspace) return
+
+    const agentId = viewMode === 'agent' ? selectedAgentId || undefined : undefined
+    const newSession = await onCreateSession(activeWorkspace.id, agentId)
+    openChatTab(newSession.id, activeWorkspace.id, 'New Chat', agentId, { forceNew: true })
+  }, [activeWorkspace, viewMode, selectedAgentId, onCreateSession, openChatTab])
+
   // Respond to menu bar "New Chat" trigger
   const menuTriggerRef = useRef(menuNewChatTrigger)
   useEffect(() => {
@@ -1036,6 +1049,15 @@ export function Chat({
     menuTriggerRef.current = menuNewChatTrigger
     handleNewChat(true)
   }, [menuNewChatTrigger, handleNewChat])
+
+  // Respond to menu bar "New Chat in New Tab" trigger
+  const menuTabTriggerRef = useRef(menuNewChatTabTrigger)
+  useEffect(() => {
+    // Skip initial render
+    if (menuTabTriggerRef.current === menuNewChatTabTrigger) return
+    menuTabTriggerRef.current = menuNewChatTabTrigger
+    handleNewChatInNewTab()
+  }, [menuNewChatTabTrigger, handleNewChatInNewTab])
 
   // Handle agent context menu actions
   const handleAgentAction = useCallback(async (action: AgentAction) => {

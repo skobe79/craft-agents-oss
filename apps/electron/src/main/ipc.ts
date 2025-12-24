@@ -15,7 +15,7 @@ import { registerOnboardingHandlers } from './onboarding'
 import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions, type DiffPreviewData, type CodePreviewData, type TerminalPreviewData } from '../shared/types'
 import { readFileAttachment } from '@craft-agent/shared/utils'
 import { getAiCreditTopUpUrl } from '@craft-agent/shared/auth'
-import { getSessionAttachmentsPath, getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultModes, setDefaultModes, getDefaultSkipPermissions, setDefaultSkipPermissions } from '@craft-agent/shared/config'
+import { getSessionAttachmentsPath, getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultModes, setDefaultModes, getDefaultSkipPermissions, setDefaultSkipPermissions, getDefaultWorkingDirectory, setDefaultWorkingDirectory } from '@craft-agent/shared/config'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { MarkItDown } from 'markitdown-js'
 
@@ -233,6 +233,11 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Set a mode for a session (generic for any mode type)
   ipcMain.handle(IPC_CHANNELS.SET_MODE, async (_event, sessionId: string, mode: import('../shared/types').Mode, enabled: boolean) => {
     return sessionManager.setMode(sessionId, mode, enabled)
+  })
+
+  // Update working directory for a session
+  ipcMain.handle(IPC_CHANNELS.UPDATE_WORKING_DIRECTORY, async (_event, sessionId: string, path: string) => {
+    return sessionManager.updateWorkingDirectory(sessionId, path)
   })
 
   // Read a file (with path validation to prevent traversal attacks)
@@ -776,6 +781,26 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SET_DEFAULT_SKIP_PERMISSIONS, async (_event, enabled: boolean) => {
     setDefaultSkipPermissions(enabled)
     console.log(`[IPC] Default skip permissions updated to: ${enabled}`)
+  })
+
+  // Get default working directory for new sessions
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_DEFAULT_WORKING_DIR, async (): Promise<string> => {
+    return getDefaultWorkingDirectory()
+  })
+
+  // Set default working directory for new sessions
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_SET_DEFAULT_WORKING_DIR, async (_event, path: string) => {
+    setDefaultWorkingDirectory(path)
+    console.log(`[IPC] Default working directory updated to: ${path}`)
+  })
+
+  // Open native folder dialog for selecting working directory
+  ipcMain.handle(IPC_CHANNELS.OPEN_FOLDER_DIALOG, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: 'Select Working Directory',
+    })
+    return result.canceled ? null : result.filePaths[0]
   })
 
   // ============================================================

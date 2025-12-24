@@ -257,6 +257,8 @@ export interface Session {
   todoState?: TodoState
   // Read/unread tracking - ID of last message user has read
   lastReadMessageId?: string
+  // Working directory for this session (used by agent for bash commands)
+  workingDirectory?: string
 }
 
 // Events sent from main to renderer
@@ -264,7 +266,7 @@ export interface Session {
 export type SessionEvent =
   | { type: 'text_delta'; sessionId: string; delta: string; turnId?: string }
   | { type: 'text_complete'; sessionId: string; text: string; isIntermediate?: boolean; turnId?: string; parentToolUseId?: string }
-  | { type: 'tool_start'; sessionId: string; toolName: string; toolUseId: string; toolInput: Record<string, unknown>; turnId?: string; parentToolUseId?: string }
+  | { type: 'tool_start'; sessionId: string; toolName: string; toolUseId: string; toolInput: Record<string, unknown>; toolIntent?: string; toolDisplayName?: string; turnId?: string; parentToolUseId?: string }
   | { type: 'tool_result'; sessionId: string; toolUseId: string; toolName: string; result: string; turnId?: string; parentToolUseId?: string }
   | { type: 'error'; sessionId: string; error: string }
   | { type: 'typed_error'; sessionId: string; error: TypedError }
@@ -273,6 +275,7 @@ export type SessionEvent =
   | { type: 'status'; sessionId: string; message: string; statusType?: 'compacting' }
   | { type: 'info'; sessionId: string; message: string; statusType?: 'compaction_complete'; level?: 'info' | 'warning' | 'error' | 'success' }
   | { type: 'title_generated'; sessionId: string; title: string }
+  | { type: 'working_directory_changed'; sessionId: string; workingDirectory: string }
   | { type: 'agent_status'; sessionId: string; status: AgentStatus }
   | { type: 'permission_request'; sessionId: string; request: PermissionRequest }
   // Mode events (generic for any mode type)
@@ -301,6 +304,7 @@ export const IPC_CHANNELS = {
   MARK_SESSION_READ: 'sessions:markRead',
   MARK_SESSION_UNREAD: 'sessions:markUnread',
   RESPOND_TO_PERMISSION: 'sessions:respondToPermission',
+  UPDATE_WORKING_DIRECTORY: 'sessions:updateWorkingDirectory',
 
   // Mode management (generic for any mode type)
   SET_MODE: 'sessions:setMode',
@@ -368,6 +372,7 @@ export const IPC_CHANNELS = {
 
   // Menu actions (main → renderer)
   MENU_NEW_CHAT: 'menu:newChat',
+  MENU_NEW_CHAT_TAB: 'menu:newChatTab',
   MENU_OPEN_SETTINGS: 'menu:openSettings',
   MENU_KEYBOARD_SHORTCUTS: 'menu:keyboardShortcuts',
   MENU_OPEN_HELP: 'menu:openHelp',
@@ -408,6 +413,11 @@ export const IPC_CHANNELS = {
   SETTINGS_SET_DEFAULT_MODES: 'settings:setDefaultModes',
   SETTINGS_GET_DEFAULT_SKIP_PERMISSIONS: 'settings:getDefaultSkipPermissions',
   SETTINGS_SET_DEFAULT_SKIP_PERMISSIONS: 'settings:setDefaultSkipPermissions',
+  SETTINGS_GET_DEFAULT_WORKING_DIR: 'settings:getDefaultWorkingDir',
+  SETTINGS_SET_DEFAULT_WORKING_DIR: 'settings:setDefaultWorkingDir',
+
+  // Folder dialog (for selecting working directory)
+  OPEN_FOLDER_DIALOG: 'dialog:openFolder',
 
   // User Preferences
   PREFERENCES_READ: 'preferences:read',
@@ -527,6 +537,7 @@ export interface ElectronAPI {
   markSessionUnread(sessionId: string): Promise<void>
   respondToPermission(sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean): Promise<boolean>
   setSkipPermissions(sessionId: string, enabled: boolean): Promise<void>
+  updateSessionWorkingDirectory(sessionId: string, path: string): Promise<void>
 
   // Mode management (generic for any mode type)
   setMode(sessionId: string, mode: Mode, enabled: boolean): Promise<void>
@@ -594,6 +605,7 @@ export interface ElectronAPI {
 
   // Menu event listeners
   onMenuNewChat(callback: () => void): () => void
+  onMenuNewChatTab(callback: () => void): () => void
   onMenuOpenSettings(callback: () => void): () => void
   onMenuKeyboardShortcuts(callback: () => void): () => void
   onMenuOpenHelp(callback: () => void): () => void
@@ -639,6 +651,11 @@ export interface ElectronAPI {
   setDefaultModes(modes: Mode[]): Promise<void>
   getDefaultSkipPermissions(): Promise<boolean>
   setDefaultSkipPermissions(enabled: boolean): Promise<void>
+  getDefaultWorkingDirectory(): Promise<string>
+  setDefaultWorkingDirectory(path: string): Promise<void>
+
+  // Folder dialog
+  openFolderDialog(): Promise<string | null>
 
   // User Preferences
   readPreferences(): Promise<{ content: string; exists: boolean }>

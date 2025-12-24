@@ -5,6 +5,7 @@ import {
   Square,
   ChevronDown,
   SquareSlash,
+  Terminal,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -62,6 +63,10 @@ export interface FreeFormInputProps {
   onHeightChange?: (height: number) => void
   /** Callback when focus state changes */
   onFocusChange?: (focused: boolean) => void
+  /** Current working directory path */
+  workingDirectory?: string
+  /** Callback when working directory changes */
+  onWorkingDirectoryChange?: (path: string) => void
 }
 
 /**
@@ -94,6 +99,8 @@ export function FreeFormInput({
   unstyled = false,
   onHeightChange,
   onFocusChange,
+  workingDirectory,
+  onWorkingDirectoryChange,
 }: FreeFormInputProps) {
   // Performance optimization: Always use internal state for typing to avoid parent re-renders
   // Sync FROM parent on mount/change (for restoring drafts)
@@ -551,6 +558,28 @@ export function FreeFormInput({
               ))}
             </StyledDropdownMenuContent>
           </DropdownMenu>
+
+          {/* Working Directory Selector */}
+          {workingDirectory && onWorkingDirectoryChange && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-1.5 gap-0.5 text-[13px] shrink-0 rounded-[6px] hover:bg-foreground/5 max-w-[160px]"
+              onClick={async () => {
+                if (!window.electronAPI) return
+                const selectedPath = await window.electronAPI.openFolderDialog()
+                if (selectedPath) {
+                  onWorkingDirectoryChange(selectedPath)
+                }
+              }}
+              title={workingDirectory}
+            >
+              <Terminal className="opacity-50 shrink-0" style={{ width: 12, height: 12 }} />
+              <span className="truncate">{workingDirectory.split('/').pop() || 'Home'}</span>
+              <ChevronDown className="opacity-50 shrink-0" style={{ width: 12, height: 12 }} />
+            </Button>
+          )}
 
           {/* Spacer */}
           <div className="flex-1" />

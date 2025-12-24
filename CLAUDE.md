@@ -452,34 +452,37 @@ Tool responses can be huge (e.g., full web page content, large Craft documents).
 6. Summaries output max 4096 tokens (~60%+ reduction for large responses)
 7. Summary header tells model it can re-call with more specific parameters if needed
 
-**Intent via `_intent` Field (Schema-Enforced):**
-The `_intent` field is enforced via schema modification. The fetch interceptor (`packages/shared/src/cache-ttl-interceptor.ts`) intercepts Anthropic API requests and injects `_intent` into every MCP tool's schema before sending to Claude.
+**MCP Tool Metadata Fields (Schema-Enforced):**
+The fetch interceptor (`packages/shared/src/cache-ttl-interceptor.ts`) intercepts Anthropic API requests and injects two metadata fields into every MCP tool's schema:
+
+- **`_displayName`**: Human-friendly action name (2-4 words, e.g., "List Folders", "Search Documents")
+- **`_intent`**: Description of what the tool call accomplishes (1-2 sentences)
 
 ```
 SDK subprocess → fetches tools from MCP → Anthropic API request
                                                 ↓
-                                    Fetch Interceptor: inject _intent into mcp__ tools
+                                    Fetch Interceptor: inject _intent + _displayName into mcp__ tools
                                                 ↓
                                           Claude sees modified schemas
                                                 ↓
-                                          Model MUST include _intent
+                                          Model MUST include both fields
                                                 ↓
-                                          PreToolUse strips _intent
+                                          PreToolUse strips metadata fields
                                                 ↓
                                           Forward clean input to MCP
 ```
 
 This provides:
-- **Enforced** intent per tool call (schema validation ensures model includes it)
-- **UI display** of what the model is doing (shown in ToolCall component)
-- **Better summarization** context for large results
+- **Enforced** metadata per tool call (schema validation ensures model includes them)
+- **UI display** - `_displayName` shown as tool name, `_intent` shown as activity description
+- **Better summarization** context for large results (uses `_intent`)
 - **Clean conversation** - no visible markers in assistant text
 
-**Intent flow:**
-1. Fetch interceptor adds `_intent` to MCP tool schemas in Anthropic API requests
-2. Model must include `_intent` (it's in the schema)
-3. `PreToolUse` hook extracts `_intent`, stores in `toolIntents` map, strips before forwarding to MCP
-4. Intent is emitted with `tool_start` event for UI display
+**Metadata flow:**
+1. Fetch interceptor adds `_intent` and `_displayName` to MCP tool schemas
+2. Model must include both fields (they're required in schema)
+3. `PreToolUse` hook extracts both, stores in maps, strips before forwarding to MCP
+4. Both are emitted with `tool_start` event for UI display
 5. `PostToolUse` hook retrieves intent for summarization context
 
 **What gets summarized:**

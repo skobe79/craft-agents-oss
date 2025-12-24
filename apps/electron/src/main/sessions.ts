@@ -12,6 +12,7 @@ import {
   getSessionAttachmentsPath,
   getDefaultModes,
   getDefaultSkipPermissions,
+  getDefaultWorkingDirectory,
   type Workspace,
   // Session persistence functions
   listSessions as listStoredSessions,
@@ -96,6 +97,8 @@ interface ManagedSession {
   todoState?: 'todo' | 'in-progress' | 'needs-review' | 'done' | 'cancelled'
   // Read/unread tracking - ID of last message user has read
   lastReadMessageId?: string
+  // Working directory for this session (used by agent for bash commands)
+  workingDirectory?: string
 }
 
 // Convert runtime Message to StoredMessage for persistence
@@ -592,6 +595,7 @@ export class SessionManager {
           tokenUsage: storedSession.tokenUsage,
           todoState: storedSession.todoState,
           lastReadMessageId: storedSession.lastReadMessageId,
+          workingDirectory: storedSession.workingDirectory ?? getDefaultWorkingDirectory(),
         }
 
         this.sessions.set(storedSession.id, managed)
@@ -623,6 +627,7 @@ export class SessionManager {
         skipPermissions: managed.skipPermissions,
         activeModes: managed.activeModes,
         todoState: managed.todoState,
+        workingDirectory: managed.workingDirectory,
         messages: persistableMessages.map(messageToStored),
         tokenUsage: managed.tokenUsage ?? {
           inputTokens: 0,
@@ -661,6 +666,7 @@ export class SessionManager {
         activeModes: m.activeModes,
         todoState: m.todoState,
         lastReadMessageId: m.lastReadMessageId,
+        workingDirectory: m.workingDirectory,
       }))
       .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
   }
@@ -674,6 +680,7 @@ export class SessionManager {
     // Get new session defaults from settings
     const defaultSkipPerms = getDefaultSkipPermissions()
     const defaultModes = getDefaultModes()
+    const defaultWorkingDir = getDefaultWorkingDirectory()
 
     // Use storage layer to create and persist the session
     const storedSession = createStoredSession(workspaceId)
@@ -695,6 +702,7 @@ export class SessionManager {
       isFlagged: false,
       skipPermissions: defaultSkipPerms,
       activeModes: defaultModes,
+      workingDirectory: defaultWorkingDir,
     }
 
     this.sessions.set(storedSession.id, managed)
@@ -717,6 +725,7 @@ export class SessionManager {
       skipPermissions: defaultSkipPerms,
       activeModes: defaultModes,
       todoState: undefined,  // User-controlled, defaults to undefined (treated as 'todo')
+      workingDirectory: defaultWorkingDir,
     }
   }
 
@@ -739,6 +748,7 @@ export class SessionManager {
           sdkSessionId: managed.sdkSessionId,
           createdAt: managed.lastMessageAt,
           lastUsedAt: managed.lastMessageAt,
+          workingDirectory: managed.workingDirectory,
         },
       })
       console.log(`[SessionManager] Created agent for session ${managed.id}${managed.sdkSessionId ? ' (resuming)' : ''}`)
@@ -803,6 +813,18 @@ export class SessionManager {
         } catch (error) {
           console.error(`[SessionManager] Failed to read plan file:`, error)
         }
+      }
+
+      // Wire up onWorkingDirectoryChange to sync cwd changes (e.g., from Bash cd)
+      managed.agent.onWorkingDirectoryChange = (path) => {
+        console.log(`[SessionManager] Working directory changed for session ${managed.id}:`, path)
+        managed.workingDirectory = path
+        this.persistSession(managed)
+        this.sendEvent({
+          type: 'working_directory_changed',
+          sessionId: managed.id,
+          workingDirectory: path
+        }, managed.workspace.id)
       }
 
       // NOTE: Agent definition is now applied in sendMessage() via AgentStateManager.activate()
@@ -907,6 +929,23 @@ export class SessionManager {
       this.persistSession(managed)
       // Notify renderer of the name change
       this.sendEvent({ type: 'title_generated', sessionId, title: name }, managed.workspace.id)
+    }
+  }
+
+  /**
+   * Update the working directory for a session
+   */
+  updateWorkingDirectory(sessionId: string, path: string): void {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      managed.workingDirectory = path
+      // Also update the agent's session config if agent exists
+      if (managed.agent) {
+        managed.agent.updateWorkingDirectory(path)
+      }
+      this.persistSession(managed)
+      // Notify renderer of the working directory change
+      this.sendEvent({ type: 'working_directory_changed', sessionId, workingDirectory: path }, managed.workspace.id)
     }
   }
 
@@ -1375,6 +1414,8 @@ export class SessionManager {
             toolUseId: event.toolUseId,
             toolInput: formattedToolInput,
             toolStatus: 'pending',
+            toolIntent: event.intent,
+            toolDisplayName: event.displayName,
             turnId: event.turnId,
             parentToolUseId,
           }
@@ -1389,6 +1430,8 @@ export class SessionManager {
             toolName: event.toolName,
             toolUseId: event.toolUseId,
             toolInput: formattedToolInput ?? {},
+            toolIntent: event.intent,
+            toolDisplayName: event.displayName,
             turnId: event.turnId,
             parentToolUseId,
           }, workspaceId)
@@ -1544,6 +1587,9 @@ export class SessionManager {
         // Complete event from CraftAgent - actual 'complete' sent to renderer
         // comes from the finally block in sendMessage, not here
         break
+
+      // Note: working_directory_changed is handled via onWorkingDirectoryChange callback,
+      // not through processEvent, so no case needed here
     }
   }
 

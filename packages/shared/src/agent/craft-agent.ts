@@ -31,11 +31,10 @@ import {
   toggleMode,
   initializeModeState,
   cleanupModeState,
-  getModeContext,
-  isToolBlockedInMode,
-  isReadOnlyMcpToolForMode,
-  isReadOnlyApiMethodForMode,
-  getBlockReason,
+  formatSessionState,
+  shouldAllowToolInMode,
+  blockWithReason,
+  getActiveModes,
 } from './mode-manager.ts';
 import { getPlansDir } from '../config/storage.ts';
 
@@ -503,6 +502,8 @@ export class CraftAgent {
   private temporaryClarifications: string | null = null;
   // Map tool_use_id → explicit intent from _intent field (for summarization and UI display)
   private toolIntents: Map<string, string> = new Map();
+  // Map tool_use_id → display name from _displayName field (for UI tool name display)
+  private toolDisplayNames: Map<string, string> = new Map();
   // Safe mode state - user-controlled read-only exploration mode
   private safeMode: boolean = false;
   // SDK tools list (captured from init message)
@@ -532,6 +533,9 @@ export class CraftAgent {
 
   // Callback when a plan is submitted - set by TUI to display plan message
   public onPlanSubmitted: ((planPath: string) => void) | null = null;
+
+  // Callback when working directory changes (e.g., Bash cd command)
+  public onWorkingDirectoryChange: ((path: string) => void) | null = null;
 
   constructor(config: CraftAgentConfig) {
     this.config = config;
@@ -657,9 +661,10 @@ export class CraftAgent {
 
   /**
    * Check if currently in safe mode (read-only exploration)
+   * Uses modeManager as single source of truth.
    */
   isInSafeMode(): boolean {
-    return this.safeMode;
+    return isModeActive(this.modeSessionId, 'safe');
   }
 
   /**
@@ -800,8 +805,9 @@ export class CraftAgent {
     try {
       const sessionId = this.config.session?.id || `temp-${Date.now()}`;
 
-      // Clear intent map for new turn
+      // Clear intent and display name maps for new turn
       this.toolIntents.clear();
+      this.toolDisplayNames.clear();
 
       // Check if we have binary attachments that need the AsyncIterable interface
       const hasBinaryAttachments = attachments?.some(a => a.type === 'image' || a.type === 'pdf');
@@ -894,7 +900,7 @@ export class CraftAgent {
         },
         // Option B: Custom system prompt (uncomment to use instead)
         // systemPrompt: getSystemPrompt(this.activeAgentDefinition ?? undefined),
-        cwd: process.cwd(),
+        cwd: this.config.session?.workingDirectory ?? process.cwd(),
         includePartialMessages: true,
         // Enable the full Claude Code toolset (includes AskUserQuestion)
         tools: { type: 'preset', preset: 'claude_code' },
@@ -910,131 +916,30 @@ export class CraftAgent {
                 return { continue: true };
               }
 
-              this.onDebug?.(`PreToolUse hook: ${input.tool_name} (safeMode=${this.safeMode})`);
+              // Check safe mode directly from modeManager (single source of truth)
+              // This ensures tool blocking and LLM context are always in sync
+              const isSafeMode = isModeActive(sessionId, 'safe');
+              this.onDebug?.(`PreToolUse hook: ${input.tool_name} (safeMode=${isSafeMode})`);
 
               // ============================================================
               // SAFE MODE: Block write operations when in read-only mode
+              // All logic is centralized in mode-manager.ts
               // ============================================================
-              if (this.safeMode) {
-                this.onDebug?.(`Safe mode active, checking tool: ${input.tool_name}`);
+              if (isSafeMode) {
+                const plansFolderPath = sessionId ? getPlansDir(sessionId) : undefined;
+                const result = shouldAllowToolInMode(
+                  input.tool_name,
+                  input.tool_input,
+                  'safe',
+                  { plansFolderPath }
+                );
 
-                // Allow read-only file tools
-                const readOnlyFileTools = ['Read', 'Glob', 'Grep'];
-                if (readOnlyFileTools.includes(input.tool_name)) {
-                  return { continue: true };
-                }
-
-                // Allow Task tool for research/exploration
-                if (input.tool_name === 'Task') {
-                  this.onDebug?.(`Allowing Task tool in safe mode`);
-                  return { continue: true };
-                }
-
-                // Allow web research tools
-                if (input.tool_name === 'WebFetch' || input.tool_name === 'WebSearch') {
-                  return { continue: true };
-                }
-
-                // Allow TodoWrite for tracking discoveries
-                if (input.tool_name === 'TodoWrite') {
-                  return { continue: true };
-                }
-
-                // Allow AskUserQuestion
-                if (input.tool_name === 'AskUserQuestion') {
-                  return { continue: true };
-                }
-
-                // Allow SubmitPlan (can submit plans in any mode)
-                if (input.tool_name === 'SubmitPlan' || input.tool_name.endsWith('__SubmitPlan')) {
-                  return { continue: true };
-                }
-
-                // Block destructive tools (Write, Edit, Bash, etc.)
-                // Exception: Allow Write/Edit to the plans folder for SubmitPlan to work
-                if (isToolBlockedInMode(input.tool_name, 'safe')) {
-                  // Check if this is Write/Edit targeting the plans folder
-                  // Uses closure sessionId (stable) instead of this.sessionId (SDK session ID, can change)
-                  const isPlansFolderWrite = (input.tool_name === 'Write' || input.tool_name === 'Edit' || input.tool_name === 'MultiEdit')
-                    && sessionId
-                    && (() => {
-                      const toolInput = input.tool_input as Record<string, unknown>;
-                      const filePath = toolInput.file_path as string | undefined;
-                      if (!filePath) return false;
-                      const plansDir = getPlansDir(sessionId);
-                      // Normalize paths and check if file is within plans directory
-                      const normalizedPath = filePath.replace(/\\/g, '/');
-                      const normalizedPlansDir = plansDir.replace(/\\/g, '/');
-                      return normalizedPath.startsWith(normalizedPlansDir);
-                    })();
-
-                  if (isPlansFolderWrite) {
-                    this.onDebug?.(`Allowing ${input.tool_name} to plans folder in safe mode`);
-                    return { continue: true };
-                  }
-
+                if (!result.allowed) {
                   this.onDebug?.(`BLOCKED in safe mode: ${input.tool_name}`);
-                  return {
-                    continue: false,
-                    hookSpecificOutput: {
-                      hookEventName: 'PreToolUse' as const,
-                      decision: 'block',
-                      reason: getBlockReason(input.tool_name, 'safe'),
-                    },
-                  };
+                  return blockWithReason(result.reason);
                 }
 
-                // Handle MCP tools - allow read-only, block write operations
-                if (input.tool_name.startsWith('mcp__')) {
-                  // Allow preferences read tools
-                  if (input.tool_name.startsWith('mcp__preferences__')) {
-                    if (input.tool_name.endsWith('__update_user_preferences')) {
-                      return { continue: true };
-                    }
-                  }
-
-                  // Allow read-only MCP tools
-                  if (isReadOnlyMcpToolForMode(input.tool_name, 'safe')) {
-                    this.onDebug?.(`Allowing read-only MCP tool in safe mode: ${input.tool_name}`);
-                    return { continue: true };
-                  }
-
-                  // Block write MCP operations
-                  this.onDebug?.(`BLOCKED MCP write in safe mode: ${input.tool_name}`);
-                  return {
-                    continue: false,
-                    hookSpecificOutput: {
-                      hookEventName: 'PreToolUse' as const,
-                      decision: 'block',
-                      reason: getBlockReason(input.tool_name, 'safe'),
-                    },
-                  };
-                }
-
-                // Handle API tools - allow GET, block mutations
-                if (input.tool_name.startsWith('api_')) {
-                  const toolInput = input.tool_input as Record<string, unknown>;
-                  const method = (toolInput.method as string) || 'GET';
-
-                  if (isReadOnlyApiMethodForMode(method, 'safe')) {
-                    this.onDebug?.(`Allowing API GET in safe mode: ${input.tool_name}`);
-                    return { continue: true };
-                  }
-
-                  this.onDebug?.(`BLOCKED API mutation in safe mode: ${input.tool_name} ${method}`);
-                  return {
-                    continue: false,
-                    hookSpecificOutput: {
-                      hookEventName: 'PreToolUse' as const,
-                      decision: 'block',
-                      reason: getBlockReason(input.tool_name, 'safe'),
-                    },
-                  };
-                }
-
-                // Default: allow other tools not explicitly handled above
-                // This includes tools like SubmitPlan, LSP, etc. that don't need blocking
-                this.onDebug?.(`Allowing tool in safe mode: ${input.tool_name}`);
+                this.onDebug?.(`Allowed in safe mode: ${input.tool_name}`);
                 return { continue: true };
               }
 
@@ -1046,18 +951,25 @@ export class CraftAgent {
                 'SubmitPlan', 'Skill', 'SlashCommand',
               ]);
 
-              // Extract _intent from MCP tool inputs (not built-in SDK tools)
+              // Extract _intent and _displayName from MCP tool inputs (not built-in SDK tools)
               if (!builtInTools.has(input.tool_name)) {
                 const toolInput = input.tool_input as Record<string, unknown>;
                 const intent = toolInput._intent as string | undefined;
+                const displayName = toolInput._displayName as string | undefined;
 
+                // Store metadata if present
                 if (intent) {
-                  // Store intent for UI display and summarization
                   this.toolIntents.set(input.tool_use_id, intent);
                   this.onDebug?.(`Extracted intent for ${input.tool_use_id}: ${intent}`);
+                }
+                if (displayName) {
+                  this.toolDisplayNames.set(input.tool_use_id, displayName);
+                  this.onDebug?.(`Extracted displayName for ${input.tool_use_id}: ${displayName}`);
+                }
 
-                  // Strip _intent before forwarding to MCP server
-                  const { _intent, ...cleanInput } = toolInput;
+                // Strip metadata fields before forwarding to MCP server
+                if (intent || displayName) {
+                  const { _intent, _displayName, ...cleanInput } = toolInput;
 
                   // Return with updatedInput - SDK will use this instead of original
                   return {
@@ -1147,6 +1059,23 @@ export class CraftAgent {
               // Note: EnterPlanMode/ExitPlanMode are disallowed (line ~811) since Safe Mode is user-controlled.
               // The agent uses SubmitPlan (universal) to submit plans at any time.
 
+              // ─────────────────────────────────────────────────────────────────────
+              // WORKING DIRECTORY SYNC: Detect when Bash cd changes the cwd
+              // The SDK tracks cwd internally and passes it to hooks. When it changes,
+              // we update our session config and notify the callback so the UI stays in sync.
+              // ─────────────────────────────────────────────────────────────────────
+              if (input.cwd && this.config.session?.workingDirectory !== input.cwd) {
+                this.onDebug?.(`PostToolUse: cwd changed to ${input.cwd}`);
+
+                // Update internal state
+                if (this.config.session) {
+                  this.config.session.workingDirectory = input.cwd;
+                }
+
+                // Notify callback so UI can update the folder selector
+                this.onWorkingDirectoryChange?.(input.cwd);
+              }
+
               // Skip built-in SDK tools (they have their own context management)
               const builtInTools = new Set([
                 'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
@@ -1223,8 +1152,9 @@ export class CraftAgent {
                   };
                 }
               } finally {
-                // Always clean up stored intent for MCP tools to prevent memory leak
+                // Always clean up stored metadata for MCP tools to prevent memory leak
                 this.toolIntents.delete(input.tool_use_id);
+                this.toolDisplayNames.delete(input.tool_use_id);
               }
             }],
           }],
@@ -1580,7 +1510,7 @@ export class CraftAgent {
   /**
    * Build a simple text prompt with embedded text file contents (for text-only messages)
    * Prepends date/time context for prompt caching optimization (keeps system prompt static)
-   * Injects safe mode context when safe mode is active
+   * Injects session state (including mode state) for every message
    */
   private buildTextPrompt(text: string, attachments?: FileAttachment[]): string {
     const parts: string[] = [];
@@ -1588,11 +1518,9 @@ export class CraftAgent {
     // Add date/time context first (moved from system prompt to enable caching)
     parts.push(getDateTimeContext());
 
-    // Add mode context if any modes are active (injected into user message to preserve caching)
-    const modeContext = getModeContext(this.modeSessionId);
-    if (modeContext) {
-      parts.push(modeContext);
-    }
+    // Add session state (always includes all modes with true/false state)
+    // This lightweight format replaces the verbose mode context
+    parts.push(formatSessionState(this.modeSessionId));
 
     // Add file attachments
     if (attachments) {
@@ -1614,7 +1542,7 @@ export class CraftAgent {
   /**
    * Build an SDK user message with proper content blocks for binary attachments
    * Prepends date/time context for prompt caching optimization (keeps system prompt static)
-   * Injects safe mode context when safe mode is active
+   * Injects session state (including mode state) for every message
    */
   private buildSDKUserMessage(text: string, attachments?: FileAttachment[]): SDKUserMessage {
     const contentBlocks: ContentBlockParam[] = [];
@@ -1622,11 +1550,9 @@ export class CraftAgent {
     // Add date/time context first (moved from system prompt to enable caching)
     contentBlocks.push({ type: 'text', text: getDateTimeContext() });
 
-    // Add mode context if any modes are active (injected into user message to preserve caching)
-    const modeContext = getModeContext(this.modeSessionId);
-    if (modeContext) {
-      contentBlocks.push({ type: 'text', text: modeContext });
-    }
+    // Add session state (always includes all modes with true/false state)
+    // This lightweight format replaces the verbose mode context
+    contentBlocks.push({ type: 'text', text: formatSessionState(this.modeSessionId) });
 
     // Add attachments
     if (attachments) {
@@ -1741,16 +1667,17 @@ export class CraftAgent {
           if (block.type === 'text') {
             textContent += block.text;
           } else if (block.type === 'tool_use') {
-            // Extract intent from the tool_use input (_intent field) for UI display
-            // Note: PreToolUse hook also extracts and stores intent for summarization
+            // Extract intent and displayName from the tool_use input for UI display
+            // Note: PreToolUse hook also extracts and stores these for summarization
             // We only extract here for emitting in tool_start events (UI display)
             const toolInput = block.input as Record<string, unknown>;
             let intent: string | undefined = toolInput._intent as string | undefined;
+            const displayName: string | undefined = toolInput._displayName as string | undefined;
 
-            // Debug: log tool input to see if _intent is present
-            debug(`[convertSDKMessage] tool_use ${block.name}: _intent=${intent}, input keys=${Object.keys(toolInput).join(', ')}`);
+            // Debug: log tool input to see if metadata is present
+            debug(`[convertSDKMessage] tool_use ${block.name}: _intent=${intent}, _displayName=${displayName}, input keys=${Object.keys(toolInput).join(', ')}`);
 
-            // For Bash, use its description field instead
+            // For Bash, use its description field instead of intent
             if (!intent && block.name === 'Bash') {
               const bashInput = block.input as { description?: string };
               intent = bashInput.description;
@@ -1795,6 +1722,7 @@ export class CraftAgent {
                 toolUseId: block.id,
                 input: block.input as Record<string, unknown>,
                 intent,
+                displayName,
                 turnId: turnId || undefined,
                 parentToolUseId, // Include parent for hierarchy tracking
               });
@@ -1810,13 +1738,14 @@ export class CraftAgent {
                   name: block.name,
                   input: newInput,
                 });
-                // Emit another tool_start with the full input and intent
+                // Emit another tool_start with the full input, intent, and displayName
                 events.push({
                   type: 'tool_start',
                   toolName: block.name,
                   toolUseId: block.id,
                   input: newInput,
                   intent,
+                  displayName,
                   turnId: turnId || undefined,
                 });
               }
@@ -2173,6 +2102,16 @@ export class CraftAgent {
 
   setSessionId(sessionId: string | null): void {
     this.sessionId = sessionId;
+  }
+
+  /**
+   * Update the working directory for this agent's session.
+   * Called when user changes the working directory in the UI.
+   */
+  updateWorkingDirectory(path: string): void {
+    if (this.config.session) {
+      this.config.session.workingDirectory = path;
+    }
   }
 
   getActiveAgentDefinition(): SubAgentDefinition | null {

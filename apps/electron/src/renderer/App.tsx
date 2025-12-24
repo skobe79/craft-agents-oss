@@ -34,6 +34,7 @@ export default function App() {
   const [windowMode, setWindowMode] = useState<string | null>(null)
   const [currentModel, setCurrentModel] = useState(DEFAULT_MODEL)
   const [menuNewChatTrigger, setMenuNewChatTrigger] = useState(0)
+  const [menuNewChatTabTrigger, setMenuNewChatTabTrigger] = useState(0)
   // Permission requests per session (queue to handle multiple concurrent requests)
   const [pendingPermissions, setPendingPermissions] = useState<Map<string, PermissionRequest[]>>(new Map())
   // Draft input text per session (preserved across mode switches and conversation changes)
@@ -520,7 +521,13 @@ export default function App() {
                   // isProcessing already true from user message send, stays true until 'complete'
                   messages: session.messages.map((m, i) =>
                     i === existingIndex
-                      ? { ...m, toolInput: event.toolInput, parentToolUseId: event.parentToolUseId || m.parentToolUseId }
+                      ? {
+                          ...m,
+                          toolInput: event.toolInput,
+                          toolIntent: event.toolIntent || m.toolIntent,
+                          toolDisplayName: event.toolDisplayName || m.toolDisplayName,
+                          parentToolUseId: event.parentToolUseId || m.parentToolUseId,
+                        }
                       : m
                   )
                 }
@@ -548,6 +555,8 @@ export default function App() {
                       toolInput: event.toolInput,
                       toolResult: queuedResult.result,
                       toolStatus: 'completed',  // Already complete!
+                      toolIntent: event.toolIntent,
+                      toolDisplayName: event.toolDisplayName,
                       turnId: event.turnId,
                       parentToolUseId: event.parentToolUseId || queuedResult.parentToolUseId,  // Preserve hierarchy from either source
                     }
@@ -569,6 +578,8 @@ export default function App() {
                     toolName: event.toolName,
                     toolUseId: event.toolUseId,
                     toolInput: event.toolInput,
+                    toolIntent: event.toolIntent,
+                    toolDisplayName: event.toolDisplayName,
                     turnId: event.turnId,
                     parentToolUseId: event.parentToolUseId,  // Preserve hierarchy
                   }
@@ -778,6 +789,9 @@ export default function App() {
             case 'title_generated':
               return { ...session, name: event.title }
 
+            case 'working_directory_changed':
+              return { ...session, workingDirectory: event.workingDirectory }
+
             default:
               return session
           }
@@ -811,6 +825,9 @@ export default function App() {
     const unsubNewChat = window.electronAPI.onMenuNewChat(() => {
       setMenuNewChatTrigger(n => n + 1)
     })
+    const unsubNewChatTab = window.electronAPI.onMenuNewChatTab(() => {
+      setMenuNewChatTabTrigger(n => n + 1)
+    })
     const unsubSettings = window.electronAPI.onMenuOpenSettings(() => {
       handleOpenSettings()
     })
@@ -824,6 +841,7 @@ export default function App() {
 
     return () => {
       unsubNewChat()
+      unsubNewChatTab()
       unsubSettings()
       unsubShortcuts()
       unsubHelp()
@@ -1401,6 +1419,7 @@ export default function App() {
             contextValue={chatContextValue}
             defaultLayout={[20, 32, 48]}
             menuNewChatTrigger={menuNewChatTrigger}
+            menuNewChatTabTrigger={menuNewChatTabTrigger}
           />
         </div>
       </TooltipProvider>

@@ -72,6 +72,7 @@ export interface StoredConfig {
   // New session defaults
   defaultModes?: Mode[];  // Modes enabled by default for new sessions (e.g., ['safe'])
   defaultSkipPermissions?: boolean;  // Whether new sessions auto-approve permissions (default: false)
+  defaultWorkingDirectory?: string;  // Default working directory for new sessions
 }
 
 const CONFIG_DIR = join(homedir(), '.craft-agent');
@@ -398,6 +399,18 @@ export function setDefaultSkipPermissions(enabled: boolean): void {
   const config = loadStoredConfig();
   if (!config) return;
   config.defaultSkipPermissions = enabled;
+  saveConfig(config);
+}
+
+export function getDefaultWorkingDirectory(): string {
+  const config = loadStoredConfig();
+  return config?.defaultWorkingDirectory ?? homedir();
+}
+
+export function setDefaultWorkingDirectory(path: string): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  config.defaultWorkingDirectory = path;
   saveConfig(config);
 }
 
@@ -1207,6 +1220,8 @@ export interface Session {
   todoState?: TodoState;
   // Read/unread tracking - ID of last message user has read
   lastReadMessageId?: string;
+  // Working directory for this session (used by agent for bash commands)
+  workingDirectory?: string;
 }
 
 // Stored session with conversation data

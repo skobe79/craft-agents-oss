@@ -73,6 +73,7 @@ export interface ActivityItem {
   toolInput?: Record<string, unknown>
   content?: string
   intent?: string
+  displayName?: string  // LLM-generated human-friendly tool name (for MCP tools)
   timestamp: number
   error?: string
   // Parent-child nesting for Task subagents
@@ -472,15 +473,16 @@ function ActivityRow({ activity, onOpenDetails, isLastChild }: ActivityRowProps)
   }
 
   // Tool activities - show with status icon
-  // Format: "Description · ToolName [lighter details]"
-  const toolName = activity.toolName
-    ? getToolDisplayName(activity.toolName)
-    : activity.type === 'thinking'
-    ? 'Thinking'
-    : 'Processing'
+  // Format: "[DisplayName] · [Intent/Description] [Params]"
+  // - DisplayName: LLM-generated (activity.displayName) or fallback to formatted toolName
+  // - Intent: For MCP tools (activity.intent), for Bash (toolInput.description)
+  // - Params: Remaining tool input summary
+  const toolName = activity.displayName
+    || (activity.toolName ? getToolDisplayName(activity.toolName) : null)
+    || (activity.type === 'thinking' ? 'Thinking' : 'Processing')
 
-  // Extract description from toolInput if available (e.g., Bash commands have a description field)
-  const description = activity.toolInput?.description as string | undefined
+  // Intent for MCP tools, description for Bash commands
+  const intentOrDescription = activity.intent || (activity.toolInput?.description as string | undefined)
   const inputSummary = formatToolInput(activity.toolInput)
   const isComplete = activity.status === 'completed' || activity.status === 'error'
 
@@ -497,11 +499,11 @@ function ActivityRow({ activity, onOpenDetails, isLastChild }: ActivityRowProps)
         <ActivityStatusIcon status={activity.status} />
         {/* Tool name (always shown, darker) - underlined when clickable */}
         <span className={cn("font-medium shrink-0", onOpenDetails && isComplete && "group-hover/row:underline")}>{toolName}</span>
-        {/* Description if available (darker, after interpunct) - truncates to leave room for details button */}
-        {description && (
+        {/* Intent/description if available (darker, after interpunct) */}
+        {intentOrDescription && (
           <>
             <span className="opacity-60 shrink-0">·</span>
-            <span className="font-medium truncate min-w-0 max-w-[200px]">{description}</span>
+            <span className="font-medium truncate min-w-0 max-w-[300px]">{intentOrDescription}</span>
           </>
         )}
         {/* Additional params (lighter) */}

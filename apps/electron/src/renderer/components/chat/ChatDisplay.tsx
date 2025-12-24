@@ -72,6 +72,11 @@ interface ChatDisplayProps {
   inputValue?: string
   /** Callback when input value changes */
   onInputChange?: (value: string) => void
+  // Working directory (per session)
+  /** Current working directory for this session */
+  workingDirectory?: string
+  /** Callback when working directory changes */
+  onWorkingDirectoryChange?: (path: string) => void
 }
 
 /**
@@ -246,6 +251,9 @@ export function ChatDisplay({
   // Input value preservation
   inputValue,
   onInputChange,
+  // Working directory
+  workingDirectory,
+  onWorkingDirectoryChange,
 }: ChatDisplayProps) {
   // Input is only disabled when explicitly disabled (e.g., agent needs activation)
   // User can type during streaming - submitting will stop the stream and send
@@ -406,9 +414,10 @@ export function ChatDisplay({
       {session ? (
         <div className="flex flex-1 flex-col min-h-0 min-w-0">
           {/* === MESSAGES AREA: Scrollable list of message bubbles === */}
-          {/* Top fade gradient - overlays top of scroll area (pr-2 avoids scrollbar) */}
-          <div className="h-8 mb-[-2rem] relative z-10 bg-gradient-to-b from-background to-transparent pointer-events-none pr-2" />
-          <ScrollArea className="flex-1 min-w-0" viewportRef={scrollViewportRef}>
+          <div className="relative flex-1 min-h-0">
+            {/* Top fade gradient - absolutely positioned overlay */}
+            <div className="absolute top-0 left-0 right-2 h-8 z-10 bg-gradient-to-b from-background to-transparent pointer-events-none" />
+            <ScrollArea className="h-full min-w-0" viewportRef={scrollViewportRef}>
             <div className="max-w-[960px] mx-auto px-5 py-8 space-y-2.5 min-w-0">
               {session.messages.length === 0 ? (
                 /* Empty State: Welcome message for new sessions */
@@ -684,9 +693,9 @@ export function ChatDisplay({
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
-
-          {/* Bottom fade gradient - overlays bottom of scroll area (pr-2 avoids scrollbar) */}
-          <div className="h-8 -mt-8 relative z-10 bg-gradient-to-t from-background to-transparent pointer-events-none pr-2" />
+            {/* Bottom fade gradient - absolutely positioned overlay */}
+            <div className="absolute bottom-0 left-0 right-2 h-8 z-10 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+          </div>
 
           {/* === INPUT CONTAINER: FreeForm or Structured Input === */}
           <div className="max-w-[960px] mx-auto w-full px-4 pb-4 mt-1">
@@ -760,6 +769,8 @@ export function ChatDisplay({
                 onStructuredResponse={handleStructuredResponse}
                 inputValue={inputValue}
                 onInputChange={onInputChange}
+                workingDirectory={workingDirectory}
+                onWorkingDirectoryChange={onWorkingDirectoryChange}
               />
               </>
             )}

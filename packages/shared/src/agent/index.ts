@@ -30,13 +30,14 @@ export {
   getModeState,
   initializeModeState,
   cleanupModeState,
-  // Tool blocking (generic)
-  isToolBlockedInMode,
-  isReadOnlyMcpToolForMode,
-  isReadOnlyApiMethodForMode,
-  isToolBlockedInAnyMode,
+  // Tool blocking (centralized)
+  shouldAllowToolInMode,
+  blockWithReason,
   getBlockReason,
-  // Mode context for user messages
+  // Session state (lightweight per-message injection)
+  getSessionState,
+  formatSessionState,
+  // Mode context for user messages (deprecated - use formatSessionState)
   getModeContext,
   // Mode configurations
   MODE_CONFIGS,

@@ -17,6 +17,8 @@ const api: ElectronAPI = {
   setSkipPermissions: (sessionId: string, enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.SET_SKIP_PERMISSIONS, sessionId, enabled),
   respondToPermission: (sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean) =>
     ipcRenderer.invoke(IPC_CHANNELS.RESPOND_TO_PERMISSION, sessionId, requestId, allowed, alwaysAllow),
+  updateSessionWorkingDirectory: (sessionId: string, path: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_WORKING_DIRECTORY, sessionId, path),
 
   // Mode management (generic for any mode type)
   setMode: (sessionId: string, mode: import('../shared/types').Mode, enabled: boolean) =>
@@ -118,6 +120,11 @@ const api: ElectronAPI = {
     ipcRenderer.on(IPC_CHANNELS.MENU_NEW_CHAT, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_NEW_CHAT, handler)
   },
+  onMenuNewChatTab: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.MENU_NEW_CHAT_TAB, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_NEW_CHAT_TAB, handler)
+  },
   onMenuOpenSettings: (callback: () => void) => {
     const handler = () => callback()
     ipcRenderer.on(IPC_CHANNELS.MENU_OPEN_SETTINGS, handler)
@@ -182,6 +189,11 @@ const api: ElectronAPI = {
   setDefaultModes: (modes: import('../shared/types').Mode[]) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_DEFAULT_MODES, modes),
   getDefaultSkipPermissions: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_DEFAULT_SKIP_PERMISSIONS),
   setDefaultSkipPermissions: (enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_DEFAULT_SKIP_PERMISSIONS, enabled),
+  getDefaultWorkingDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_DEFAULT_WORKING_DIR),
+  setDefaultWorkingDirectory: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET_DEFAULT_WORKING_DIR, path),
+
+  // Folder dialog
+  openFolderDialog: () => ipcRenderer.invoke(IPC_CHANNELS.OPEN_FOLDER_DIALOG),
 
   // User Preferences
   readPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_READ),
