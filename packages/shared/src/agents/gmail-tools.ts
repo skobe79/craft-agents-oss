@@ -15,6 +15,12 @@ import { estimateTokens, summarizeLargeResult, TOKEN_LIMIT } from '../utils/summ
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1';
 
 /**
+ * Token getter function - called before each request to get a fresh token
+ * This allows token refresh during long-running sessions
+ */
+export type GmailTokenGetter = () => Promise<string>;
+
+/**
  * Gmail message header
  */
 interface GmailHeader {
@@ -154,7 +160,7 @@ function formatMessageListItem(message: GmailMessage): string {
 /**
  * Create Gmail list messages tool
  */
-function createListMessagesTool(accessToken: string) {
+function createListMessagesTool(getToken: GmailTokenGetter) {
   return tool(
     'gmail_list_messages',
     `List emails from Gmail inbox.
@@ -178,6 +184,9 @@ Common queries:
       const { query, maxResults = 10, _intent } = args;
 
       try {
+        // Get fresh token for this request
+        const accessToken = await getToken();
+
         // First, get message IDs
         const listUrl = new URL(`${GMAIL_API_BASE}/users/me/messages`);
         listUrl.searchParams.set('maxResults', String(maxResults));
@@ -256,7 +265,7 @@ Common queries:
 /**
  * Create Gmail get message tool
  */
-function createGetMessageTool(accessToken: string) {
+function createGetMessageTool(getToken: GmailTokenGetter) {
   return tool(
     'gmail_get_message',
     `Get full email content by message ID.
@@ -271,6 +280,9 @@ Returns the full email including headers, body, and metadata.`,
       const { messageId, _intent } = args;
 
       try {
+        // Get fresh token for this request
+        const accessToken = await getToken();
+
         debug(`[gmail-tools] Getting message: ${messageId}`);
 
         const response = await fetch(
@@ -321,7 +333,7 @@ Returns the full email including headers, body, and metadata.`,
 /**
  * Create Gmail search tool
  */
-function createSearchTool(accessToken: string) {
+function createSearchTool(getToken: GmailTokenGetter) {
   return tool(
     'gmail_search',
     `Search emails using Gmail's powerful search syntax.
@@ -352,6 +364,9 @@ Combine operators: from:boss@company.com after:2024/01/01 has:attachment`,
       const { query, maxResults = 20, _intent } = args;
 
       try {
+        // Get fresh token for this request
+        const accessToken = await getToken();
+
         const listUrl = new URL(`${GMAIL_API_BASE}/users/me/messages`);
         listUrl.searchParams.set('maxResults', String(maxResults));
         listUrl.searchParams.set('q', query);
@@ -427,19 +442,20 @@ Combine operators: from:boss@company.com after:2024/01/01 has:attachment`,
 /**
  * Create an in-process MCP server with Gmail tools.
  *
- * @param accessToken - Gmail OAuth access token
+ * @param getToken - Function that returns a fresh Gmail OAuth access token
+ *                   Called before each request to support token refresh during long sessions
  * @returns SDK MCP server that can be passed to query()
  */
-export function createGmailServer(accessToken: string): ReturnType<typeof createSdkMcpServer> {
+export function createGmailServer(getToken: GmailTokenGetter): ReturnType<typeof createSdkMcpServer> {
   debug('[gmail-tools] Creating Gmail MCP server');
 
   return createSdkMcpServer({
     name: 'gmail',
     version: '1.0.0',
     tools: [
-      createListMessagesTool(accessToken),
-      createGetMessageTool(accessToken),
-      createSearchTool(accessToken),
+      createListMessagesTool(getToken),
+      createGetMessageTool(getToken),
+      createSearchTool(getToken),
     ],
   });
 }

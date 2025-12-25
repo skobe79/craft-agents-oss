@@ -147,25 +147,31 @@ export class ConnectionService {
 
   /**
    * Build Gmail server from connection
-   * Automatically refreshes expired tokens using the stored refresh token
+   * Returns a server with a token getter that refreshes expired tokens per-request
    */
   async buildGmailServer(connection: ConnectionConfig): Promise<GmailServer | null> {
     if (connection.type !== 'gmail') {
       throw new Error(`Not a Gmail connection: ${connection.name}`)
     }
 
-    // Retrieve OAuth token from CredentialManager
-    try {
-      const manager = getCredentialManager()
-      const credentialId = { type: 'gmail_oauth' as const, connectionId: connection.id }
+    // Verify we have credentials before creating the server
+    const manager = getCredentialManager()
+    const credentialId = { type: 'gmail_oauth' as const, connectionId: connection.id }
+    const initialCreds = await manager.get(credentialId)
+
+    if (!initialCreds?.value) {
+      console.warn(`[ConnectionService] No stored token for Gmail connection: ${connection.name}`)
+      return null
+    }
+
+    // Create a token getter that refreshes on each request if needed
+    const getToken = async (): Promise<string> => {
       const creds = await manager.get(credentialId)
 
       if (!creds?.value) {
-        console.warn(`[ConnectionService] No stored token for Gmail connection: ${connection.name}`)
-        return null
+        throw new Error(`No stored token for Gmail connection: ${connection.name}`)
       }
 
-      let accessToken = creds.value
       const now = Date.now()
 
       // Determine token state
@@ -178,7 +184,6 @@ export class ConnectionService {
         console.log(`[ConnectionService] Refreshing Gmail token for: ${connection.name}`)
         try {
           const refreshResult = await refreshGmailToken(creds.refreshToken!)
-          accessToken = refreshResult.accessToken
           console.log(`[ConnectionService] Gmail token refreshed successfully for: ${connection.name}`)
 
           // Try to persist the new token, but don't fail if storage fails
@@ -192,28 +197,28 @@ export class ConnectionService {
             // Log but continue - we still have a valid refreshed token in memory
             console.warn(`[ConnectionService] Failed to persist refreshed token for ${connection.name}:`, storageError)
           }
+
+          return refreshResult.accessToken
         } catch (refreshError) {
           console.error(`[ConnectionService] Failed to refresh Gmail token for ${connection.name}:`, refreshError)
           // Only fail if token is actually expired (not just within buffer)
           if (isActuallyExpired) {
-            console.warn(`[ConnectionService] Cannot use expired Gmail token, refresh failed: ${connection.name}`)
-            return null
+            throw new Error(`Gmail token expired and refresh failed: ${connection.name}`)
           }
           // Token still valid (just within buffer), continue with existing token
           console.log(`[ConnectionService] Using existing token (still valid) for: ${connection.name}`)
+          return creds.value
         }
       } else if (isActuallyExpired && !creds.refreshToken) {
         // Token is actually expired and we have no way to refresh
-        console.warn(`[ConnectionService] Gmail token expired and no refresh token available: ${connection.name}`)
-        return null
+        throw new Error(`Gmail token expired and no refresh token available: ${connection.name}`)
       }
 
-      console.log(`[ConnectionService] Creating Gmail server for connection: ${connection.name}`)
-      return createGmailServer(accessToken)
-    } catch (error) {
-      console.error(`[ConnectionService] Failed to get Gmail credentials for ${connection.name}:`, error)
-      return null
+      return creds.value
     }
+
+    console.log(`[ConnectionService] Creating Gmail server for connection: ${connection.name}`)
+    return createGmailServer(getToken)
   }
 
   /**
