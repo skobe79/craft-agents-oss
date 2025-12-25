@@ -685,6 +685,7 @@ export function Chat({
         gmailEmail: result.email,
         gmailAccessToken: result.accessToken,
         gmailRefreshToken: result.refreshToken,
+        gmailExpiresAt: result.expiresAt,
         isAuthenticated: true,
       }
 

@@ -8,8 +8,12 @@
 import { createApiServer } from '@craft-agent/shared/agents/api-tools'
 import { createGmailServer } from '@craft-agent/shared/agents/gmail-tools'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
+import { refreshGmailToken } from '@craft-agent/shared/auth'
 import type { ApiConfig } from '@craft-agent/shared/agents/types'
 import type { ConnectionConfig } from '../shared/types'
+
+// Buffer time before expiration to refresh (5 minutes)
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000
 
 // Type for MCP server config (matches SDK expectations)
 export type McpServerConfig = {
@@ -90,6 +94,7 @@ export class ConnectionService {
 
   /**
    * Build Gmail server from connection
+   * Automatically refreshes expired tokens using the stored refresh token
    */
   async buildGmailServer(connection: ConnectionConfig): Promise<GmailServer | null> {
     if (connection.type !== 'gmail') {
@@ -99,14 +104,46 @@ export class ConnectionService {
     // Retrieve OAuth token from CredentialManager
     try {
       const manager = getCredentialManager()
-      const creds = await manager.get({ type: 'gmail_oauth', connectionId: connection.id })
-      if (creds?.value) {
-        console.log(`[ConnectionService] Creating Gmail server for connection: ${connection.name}`)
-        return createGmailServer(creds.value)
-      } else {
+      const credentialId = { type: 'gmail_oauth' as const, connectionId: connection.id }
+      const creds = await manager.get(credentialId)
+
+      if (!creds?.value) {
         console.warn(`[ConnectionService] No stored token for Gmail connection: ${connection.name}`)
         return null
       }
+
+      let accessToken = creds.value
+
+      // Check if token is expired or about to expire
+      const now = Date.now()
+      const isExpired = creds.expiresAt && creds.expiresAt < now + TOKEN_REFRESH_BUFFER_MS
+
+      if (isExpired) {
+        if (!creds.refreshToken) {
+          console.warn(`[ConnectionService] Gmail token expired and no refresh token available: ${connection.name}`)
+          return null
+        }
+
+        console.log(`[ConnectionService] Refreshing expired Gmail token for: ${connection.name}`)
+        try {
+          const refreshResult = await refreshGmailToken(creds.refreshToken)
+          accessToken = refreshResult.accessToken
+
+          // Update stored credentials with new access token
+          await manager.set(credentialId, {
+            value: refreshResult.accessToken,
+            refreshToken: creds.refreshToken, // Keep existing refresh token
+            expiresAt: refreshResult.expiresAt,
+          })
+          console.log(`[ConnectionService] Gmail token refreshed successfully for: ${connection.name}`)
+        } catch (refreshError) {
+          console.error(`[ConnectionService] Failed to refresh Gmail token for ${connection.name}:`, refreshError)
+          // Try with existing token anyway - it might still work briefly
+        }
+      }
+
+      console.log(`[ConnectionService] Creating Gmail server for connection: ${connection.name}`)
+      return createGmailServer(accessToken)
     } catch (error) {
       console.error(`[ConnectionService] Failed to get Gmail credentials for ${connection.name}:`, error)
       return null

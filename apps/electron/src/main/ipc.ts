@@ -1001,6 +1001,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
         {
           value: connection.gmailAccessToken,
           refreshToken: connection.gmailRefreshToken,
+          expiresAt: connection.gmailExpiresAt,
         }
       )
       console.log(`[IPC] Stored Gmail OAuth tokens for connection: ${connection.id}`)
@@ -1008,7 +1009,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
     // Strip tokens before persisting to disk (they're now in CredentialManager)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { mcpAccessToken, gmailAccessToken, gmailRefreshToken, ...connectionToSave } = connection
+    const { mcpAccessToken, gmailAccessToken, gmailRefreshToken, gmailExpiresAt, ...connectionToSave } = connection
     saveConnection(connectionToSave as ConnectionConfig)
   })
 

@@ -773,6 +773,7 @@ export interface ConnectionConfig {
   gmailEmail?: string       // User's email address
   gmailAccessToken?: string  // OAuth access token (transient - stored in CredentialManager on save)
   gmailRefreshToken?: string // OAuth refresh token (transient - stored in CredentialManager on save)
+  gmailExpiresAt?: number   // Token expiration timestamp (transient - stored in CredentialManager on save)
   // Auth state
   isAuthenticated?: boolean
 }
