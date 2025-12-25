@@ -42,7 +42,7 @@ interface LeftSidebarProps {
  */
 export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId }: LeftSidebarProps) {
   return (
-    <div className="flex flex-col py-2 select-none">
+    <div className="flex flex-col py-1 select-none">
       <nav className="grid gap-0.5 px-2" role="navigation" aria-label="Main navigation">
         {links.map((link) => {
           const itemProps = getItemProps?.(link.id)
@@ -53,7 +53,7 @@ export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId }:
               {...itemProps}
               onClick={link.onClick}
               className={cn(
-                "flex w-full items-center gap-2 rounded-[6px] py-[7px] px-2 text-[13px] select-none outline-none",
+                "flex w-full items-center gap-2 rounded-[6px] py-[5px] px-2 text-[13px] select-none outline-none",
                 "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
                 link.variant === "default"
                   ? "bg-foreground/[0.07]"

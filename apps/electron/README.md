@@ -139,30 +139,38 @@ This means:
 
 ## Environment Variables
 
-### Gmail OAuth (Optional)
+### Gmail OAuth (via 1Password CLI)
 
-To enable the "Add Gmail" connection feature, set these environment variables before building:
+Gmail OAuth credentials are synced from 1Password to a local `.env` file.
 
+**One-time setup:**
 ```bash
-export GMAIL_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
-export GMAIL_OAUTH_CLIENT_SECRET=your-client-secret
+# 1. Install 1Password CLI
+brew install 1password-cli
+
+# 2. Enable CLI integration: 1Password app → Settings → Developer → CLI Integration
+
+# 3. Sync secrets (requires Touch ID once)
+bun run sync-secrets
 ```
 
-Get these from [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → Create OAuth Client ID (Desktop app).
+**That's it!** Now `bun run electron:dev` and `bun run electron:start` work without prompts.
 
-**Required OAuth consent screen scopes:**
-- `https://www.googleapis.com/auth/gmail.readonly`
-- `https://www.googleapis.com/auth/userinfo.email`
+**How it works:**
+- `.env.1password` contains `op://` references to the `Dev_Craft_Agents` vault
+- `bun run sync-secrets` resolves references → writes `.env` (gitignored)
+- Secrets are baked into the build at compile time via esbuild `--define` flags
 
-These values are baked into the build at compile time via esbuild `--define` flags.
+**Creating your own OAuth credentials:**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Create OAuth Client ID (Desktop app type)
+3. Enable required scopes in OAuth consent screen:
+   - `https://www.googleapis.com/auth/gmail.readonly`
+   - `https://www.googleapis.com/auth/userinfo.email`
 
 ## Build Process
 
 ```bash
-# Build with Gmail OAuth support
-GMAIL_OAUTH_CLIENT_ID=... GMAIL_OAUTH_CLIENT_SECRET=... bun run electron:build
-
-# Or set in shell profile and just run:
 bun run electron:build:main      # Bundle main process (esbuild)
 bun run electron:build:preload   # Bundle preload script (esbuild)
 bun run electron:build:renderer  # Bundle React app (Vite)

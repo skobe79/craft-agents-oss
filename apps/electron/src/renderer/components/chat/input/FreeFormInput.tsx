@@ -7,7 +7,7 @@ import {
   ChevronDown,
   SquareSlash,
   Check,
-  Plus,
+  CloudCog,
 } from 'lucide-react'
 
 import * as storage from '@/lib/local-storage'
@@ -203,6 +203,43 @@ export function FreeFormInput({
     return () => window.removeEventListener('craft:insert-text', handleInsertText as EventListener)
   }, [syncToParent, textareaRef])
 
+  // Listen for craft:paste-files events (for global paste when input not focused)
+  React.useEffect(() => {
+    const handlePasteFiles = async (e: CustomEvent<{ files: File[] }>) => {
+      if (disabled) return
+
+      const { files } = e.detail
+      if (!files || files.length === 0) return
+
+      setLoadingCount(prev => prev + files.length)
+
+      for (const file of files) {
+        try {
+          // Generate a name for clipboard images
+          let fileName = file.name
+          if (!fileName || fileName === 'image.png' || fileName === 'image.jpg' || fileName === 'blob') {
+            const ext = file.type.split('/')[1] || 'png'
+            fileName = `pasted-image-${Date.now()}.${ext}`
+          }
+
+          const attachment = await readFileAsAttachment(file, fileName)
+          if (attachment) {
+            setAttachments(prev => [...prev, attachment])
+          }
+        } catch (error) {
+          console.error('[FreeFormInput] Failed to process pasted file:', error)
+        }
+        setLoadingCount(prev => prev - 1)
+      }
+
+      // Focus the textarea after adding attachments
+      textareaRef.current?.focus()
+    }
+
+    window.addEventListener('craft:paste-files', handlePasteFiles as unknown as EventListener)
+    return () => window.removeEventListener('craft:paste-files', handlePasteFiles as unknown as EventListener)
+  }, [disabled, textareaRef])
+
   // Build active commands list for slash command menu
   const activeCommands = React.useMemo(() => {
     const active: SlashCommandId[] = []
@@ -288,7 +325,7 @@ export function FreeFormInput({
   }
 
   // Helper to read a File using FileReader API
-  const readFileAsAttachment = async (file: File): Promise<FileAttachment | null> => {
+  const readFileAsAttachment = async (file: File, overrideName?: string): Promise<FileAttachment | null> => {
     return new Promise((resolve) => {
       const reader = new FileReader()
       reader.onload = async () => {
@@ -298,10 +335,11 @@ export function FreeFormInput({
         )
 
         let type: FileAttachment['type'] = 'unknown'
+        const fileName = overrideName || file.name
         if (file.type.startsWith('image/')) type = 'image'
         else if (file.type === 'application/pdf') type = 'pdf'
-        else if (file.type.includes('text') || file.name.match(/\.(txt|md|json|js|ts|tsx|py|css|html)$/i)) type = 'text'
-        else if (file.type.includes('officedocument') || file.name.match(/\.(docx?|xlsx?|pptx?)$/i)) type = 'office'
+        else if (file.type.includes('text') || fileName.match(/\.(txt|md|json|js|ts|tsx|py|css|html)$/i)) type = 'text'
+        else if (file.type.includes('officedocument') || fileName.match(/\.(docx?|xlsx?|pptx?)$/i)) type = 'office'
 
         const mimeType = file.type || 'application/octet-stream'
 
@@ -317,8 +355,8 @@ export function FreeFormInput({
 
         resolve({
           type,
-          path: file.name,
-          name: file.name,
+          path: fileName,
+          name: fileName,
           mimeType,
           base64,
           size: file.size,
@@ -328,6 +366,39 @@ export function FreeFormInput({
       reader.onerror = () => resolve(null)
       reader.readAsArrayBuffer(file)
     })
+  }
+
+  // Clipboard paste handler for files/images
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    if (disabled) return
+
+    const clipboardItems = e.clipboardData?.files
+    if (!clipboardItems || clipboardItems.length === 0) return
+
+    // We have files to process - prevent default text paste behavior
+    e.preventDefault()
+
+    const files = Array.from(clipboardItems)
+    setLoadingCount(prev => prev + files.length)
+
+    for (const file of files) {
+      try {
+        // Generate a name for clipboard images (they often have no meaningful name)
+        let fileName = file.name
+        if (!fileName || fileName === 'image.png' || fileName === 'image.jpg' || fileName === 'blob') {
+          const ext = file.type.split('/')[1] || 'png'
+          fileName = `pasted-image-${Date.now()}.${ext}`
+        }
+
+        const attachment = await readFileAsAttachment(file, fileName)
+        if (attachment) {
+          setAttachments(prev => [...prev, attachment])
+        }
+      } catch (error) {
+        console.error('[FreeFormInput] Failed to read pasted file:', error)
+      }
+      setLoadingCount(prev => prev - 1)
+    }
   }
 
   const handleDrop = async (e: React.DragEvent) => {
@@ -509,6 +580,7 @@ export function FreeFormInput({
             value={input}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onFocus={() => { setIsFocused(true); onFocusChange?.(true) }}
             onBlur={() => { setIsFocused(false); onFocusChange?.(false) }}
             onDragOver={handleDragOver}
@@ -520,26 +592,48 @@ export function FreeFormInput({
 
         {/* Bottom Row: Controls */}
         <div className="flex items-center gap-1 px-2 py-2 border-t border-border/50">
-          {/* Slash Command Button */}
+          {/* 1. Attach File Button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 rounded-[4px]"
+                onClick={handleAttachClick}
+                disabled={disabled}
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Attach files</TooltipContent>
+          </Tooltip>
+
+          {/* 2. Slash Command Button */}
           <div className="relative">
-            <button
-              ref={slashButtonRef}
-              type="button"
-              className="inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-[4px] hover:bg-foreground/5 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-              disabled={disabled}
-              onClick={() => {
-                if (!slashDropdownOpen && slashButtonRef.current) {
-                  const rect = slashButtonRef.current.getBoundingClientRect()
-                  setSlashDropdownPosition({
-                    top: rect.top,
-                    left: rect.left,
-                  })
-                }
-                setSlashDropdownOpen(!slashDropdownOpen)
-              }}
-            >
-              <SquareSlash className="h-4 w-4" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  ref={slashButtonRef}
+                  type="button"
+                  className="inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-[4px] hover:bg-foreground/5 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                  disabled={disabled}
+                  onClick={() => {
+                    if (!slashDropdownOpen && slashButtonRef.current) {
+                      const rect = slashButtonRef.current.getBoundingClientRect()
+                      setSlashDropdownPosition({
+                        top: rect.top,
+                        left: rect.left,
+                      })
+                    }
+                    setSlashDropdownOpen(!slashDropdownOpen)
+                  }}
+                >
+                  <SquareSlash className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Slash commands</TooltipContent>
+            </Tooltip>
             {slashDropdownOpen && slashDropdownPosition && ReactDOM.createPortal(
               <>
                 <div
@@ -547,7 +641,7 @@ export function FreeFormInput({
                   onClick={() => setSlashDropdownOpen(false)}
                 />
                 <div
-                  className="fixed rounded-2xl border bg-popover shadow-lg z-[9999] overflow-hidden"
+                  className="fixed popover-styled z-[9999] overflow-hidden"
                   style={{
                     top: slashDropdownPosition.top - 8,
                     left: slashDropdownPosition.left,
@@ -569,35 +663,40 @@ export function FreeFormInput({
             )}
           </div>
 
-          {/* Connection Selector Button - only show if onConnectionsChange is provided */}
+          {/* 3. Connection Selector Button - only show if onConnectionsChange is provided */}
           {onConnectionsChange && (
             <div className="relative">
-              <button
-                ref={connectionButtonRef}
-                type="button"
-                className={cn(
-                  "inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-[4px] hover:bg-foreground/5 transition-colors disabled:opacity-50 disabled:pointer-events-none",
-                  selectedConnectionIds.length > 0 && "text-primary"
-                )}
-                disabled={disabled}
-                onClick={() => {
-                  if (!connectionDropdownOpen && connectionButtonRef.current) {
-                    const rect = connectionButtonRef.current.getBoundingClientRect()
-                    setConnectionDropdownPosition({
-                      top: rect.top,
-                      left: rect.left,
-                    })
-                  }
-                  setConnectionDropdownOpen(!connectionDropdownOpen)
-                }}
-              >
-                <Plus className="h-4 w-4" />
-                {selectedConnectionIds.length > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 text-[10px] font-medium bg-primary text-primary-foreground rounded-full flex items-center justify-center">
-                    {selectedConnectionIds.length}
-                  </span>
-                )}
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    ref={connectionButtonRef}
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-[4px] hover:bg-foreground/5 transition-colors disabled:opacity-50 disabled:pointer-events-none",
+                      selectedConnectionIds.length > 0 && "text-primary"
+                    )}
+                    disabled={disabled}
+                    onClick={() => {
+                      if (!connectionDropdownOpen && connectionButtonRef.current) {
+                        const rect = connectionButtonRef.current.getBoundingClientRect()
+                        setConnectionDropdownPosition({
+                          top: rect.top,
+                          left: rect.left,
+                        })
+                      }
+                      setConnectionDropdownOpen(!connectionDropdownOpen)
+                    }}
+                  >
+                    <CloudCog className="h-4 w-4" />
+                    {selectedConnectionIds.length > 0 && (
+                      <span className="absolute -top-1 -right-1 h-4 w-4 text-[10px] font-medium bg-primary text-primary-foreground rounded-full flex items-center justify-center">
+                        {selectedConnectionIds.length}
+                      </span>
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Connections</TooltipContent>
+              </Tooltip>
               {connectionDropdownOpen && connectionDropdownPosition && ReactDOM.createPortal(
                 <>
                   <div
@@ -605,7 +704,7 @@ export function FreeFormInput({
                     onClick={() => setConnectionDropdownOpen(false)}
                   />
                   <div
-                    className="fixed rounded-2xl border bg-popover shadow-lg z-[9999] p-3 min-w-[240px]"
+                    className="fixed popover-styled z-[9999] p-3 min-w-[240px]"
                     style={{
                       top: connectionDropdownPosition.top - 8,
                       left: connectionDropdownPosition.left,
@@ -665,50 +764,32 @@ export function FreeFormInput({
             </div>
           )}
 
-          {/* Attach File Button */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0 rounded-[4px]"
-            onClick={handleAttachClick}
-            disabled={disabled}
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
-
-          {/* Working Directory Selector */}
-          {workingDirectory && onWorkingDirectoryChange && (
-            <WorkingDirectorySelector
-              workingDirectory={workingDirectory}
-              onWorkingDirectoryChange={onWorkingDirectoryChange}
-            />
-          )}
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Model Selector */}
+          {/* 4. Model Selector */}
           <div className="relative">
-            <button
-              ref={modelButtonRef}
-              type="button"
-              className="inline-flex items-center h-7 px-1.5 gap-0.5 text-[13px] shrink-0 rounded-[6px] hover:bg-foreground/5 transition-colors"
-              onClick={() => {
-                if (!modelDropdownOpen && modelButtonRef.current) {
-                  // Calculate position when opening
-                  const rect = modelButtonRef.current.getBoundingClientRect()
-                  setModelDropdownPosition({
-                    top: rect.top,
-                    left: rect.right - 280, // Align right edge of dropdown with right edge of button
-                  })
-                }
-                setModelDropdownOpen(!modelDropdownOpen)
-              }}
-            >
-              {getModelDisplayName(currentModel)}
-              <ChevronDown className="opacity-50" style={{ width: 12, height: 12 }} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  ref={modelButtonRef}
+                  type="button"
+                  className="inline-flex items-center h-7 px-1.5 gap-0.5 text-[13px] shrink-0 rounded-[6px] hover:bg-foreground/5 transition-colors"
+                  onClick={() => {
+                    if (!modelDropdownOpen && modelButtonRef.current) {
+                      // Calculate position when opening
+                      const rect = modelButtonRef.current.getBoundingClientRect()
+                      setModelDropdownPosition({
+                        top: rect.top,
+                        left: rect.left, // Align left edge of dropdown with left edge of button
+                      })
+                    }
+                    setModelDropdownOpen(!modelDropdownOpen)
+                  }}
+                >
+                  {getModelDisplayName(currentModel)}
+                  <ChevronDown className="opacity-50" style={{ width: 12, height: 12 }} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Model</TooltipContent>
+            </Tooltip>
             {modelDropdownOpen && modelDropdownPosition && ReactDOM.createPortal(
               <>
                 {/* Backdrop to close on click outside */}
@@ -717,7 +798,7 @@ export function FreeFormInput({
                   onClick={() => setModelDropdownOpen(false)}
                 />
                 <div
-                  className="fixed p-2 min-w-[280px] rounded-2xl border bg-popover shadow-lg z-[9999]"
+                  className="fixed popover-styled p-2 min-w-[280px] z-[9999]"
                   style={{
                     top: modelDropdownPosition.top - 8, // 8px gap above button
                     left: modelDropdownPosition.left,
@@ -746,10 +827,8 @@ export function FreeFormInput({
                             <div className="font-medium text-sm">{model.name}</div>
                             <div className="text-xs text-muted-foreground">{descriptions[model.id] || model.description}</div>
                           </div>
-                          {isSelected ? (
+                          {isSelected && (
                             <Check className="h-4 w-4 text-primary shrink-0 ml-3" />
-                          ) : (
-                            <span className="text-xs text-muted-foreground border rounded-full px-2 py-0.5 shrink-0 ml-3">New chat</span>
                           )}
                         </button>
                       )
@@ -760,6 +839,17 @@ export function FreeFormInput({
               document.body
             )}
           </div>
+
+          {/* 5. Working Directory Selector */}
+          {workingDirectory && onWorkingDirectoryChange && (
+            <WorkingDirectorySelector
+              workingDirectory={workingDirectory}
+              onWorkingDirectoryChange={onWorkingDirectoryChange}
+            />
+          )}
+
+          {/* Spacer */}
+          <div className="flex-1" />
 
           {/* Send/Stop Button - Always show stop when processing */}
           {isProcessing ? (
@@ -842,19 +932,17 @@ function WorkingDirectorySelector({
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-1.5 gap-0.5 text-[13px] shrink-0 rounded-[6px] hover:bg-foreground/5 data-[state=open]:bg-foreground/5 max-w-[160px]"
+              className="inline-flex items-center h-7 px-1.5 gap-0.5 text-[13px] shrink-0 rounded-[6px] hover:bg-foreground/5 data-[state=open]:bg-foreground/5 transition-colors max-w-[160px]"
             >
               <span className="truncate">{workingDirectory.split('/').pop() || 'Home'}</span>
               <ChevronDown className="opacity-50 shrink-0" style={{ width: 12, height: 12 }} />
-            </Button>
+            </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent side="top" className="flex flex-col gap-0.5">
-          <span className="font-medium">Local working directory</span>
+          <span className="font-medium">Working directory</span>
           <span className="text-xs opacity-70 font-mono">{workingDirectory}</span>
         </TooltipContent>
       </Tooltip>

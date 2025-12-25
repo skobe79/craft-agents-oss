@@ -396,7 +396,9 @@ function SessionItem({
               <StyledDropdownMenuSeparator />
               <DropdownMenuSub>
                 <StyledDropdownMenuSubTrigger>
-                  {getTodoStateIcon(currentTodoState, "h-3.5 w-3.5")}
+                  <span className={getTodoStateColor(currentTodoState)}>
+                    {getTodoStateIcon(currentTodoState, "h-3.5 w-3.5")}
+                  </span>
                   Status
                 </StyledDropdownMenuSubTrigger>
                 <StyledDropdownMenuSubContent>

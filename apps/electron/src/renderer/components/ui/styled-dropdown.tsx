@@ -43,12 +43,10 @@ export const StyledDropdownMenuContent = React.forwardRef<
   <DropdownMenuContent
     ref={ref}
     className={cn(
-      "w-fit font-sans whitespace-nowrap text-xs bg-background/80 backdrop-blur-xl backdrop-saturate-150 flex flex-col gap-0.5 border-0 shadow-modal-small p-1",
-      light ? "light" : "dark",
+      "w-fit font-sans whitespace-nowrap text-xs flex flex-col gap-0.5",
       minWidth,
       className
     )}
-    style={{ borderRadius: '8px' }}
     {...props}
   />
 ))
@@ -70,7 +68,7 @@ export const StyledDropdownMenuItem = React.forwardRef<
     className={cn(
       "gap-3 pr-4 rounded-[4px] hover:bg-foreground/[0.03] focus:bg-foreground/[0.03]",
       "[&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:shrink-0",
-      variant === "destructive" && "text-destructive focus:text-destructive hover:text-destructive [&>svg]:text-destructive",
+      variant === "destructive" && "text-destructive focus:text-destructive hover:text-destructive [&_svg]:!text-destructive",
       className
     )}
     {...props}
@@ -100,7 +98,7 @@ export const StyledDropdownMenuSubTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       "gap-3 pr-4 rounded-[4px] hover:bg-foreground/10 focus:bg-foreground/10 data-[state=open]:bg-foreground/10",
-      "[&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:shrink-0 [&>svg]:text-foreground/60",
+      "[&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:shrink-0",
       className
     )}
     {...props}
@@ -124,12 +122,11 @@ export const StyledDropdownMenuSubContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "w-fit font-sans whitespace-nowrap text-xs dark text-popover-foreground bg-background/80 backdrop-blur-xl backdrop-saturate-150 border-border/50 flex flex-col gap-0.5 z-50 overflow-hidden rounded-md border p-1",
+        "popover-styled w-fit font-sans whitespace-nowrap text-xs flex flex-col gap-0.5 z-50 overflow-hidden p-1",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         minWidth,
         className
       )}
-      style={{ borderRadius: '8px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)' }}
       {...props}
     />
   </DropdownMenuPortal>

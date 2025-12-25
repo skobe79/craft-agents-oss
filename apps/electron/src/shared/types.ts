@@ -303,7 +303,7 @@ export type SessionEvent =
   | { type: 'plan_submitted'; sessionId: string; message: CoreMessage }
   | { type: 'ask_question_request'; sessionId: string; request: AskQuestionRequest }
   // Connection events
-  | { type: 'session_restarted'; sessionId: string; selectedConnectionIds: string[] }
+  | { type: 'connections_changed'; sessionId: string; selectedConnectionIds: string[] }
 
 // Options for sendMessage
 export interface SendMessageOptions {

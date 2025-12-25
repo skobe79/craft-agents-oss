@@ -357,17 +357,17 @@ function getPreviewText(
 function ActivityStatusIcon({ status }: { status: ActivityStatus }) {
   switch (status) {
     case 'pending':
-      return <Circle className={cn(SIZE_CONFIG.iconSize, "text-muted-foreground/50")} />
+      return <Circle className={cn(SIZE_CONFIG.iconSize, "shrink-0 text-muted-foreground/50")} />
     case 'running':
       return (
-        <div className={cn(SIZE_CONFIG.iconSize, "flex items-center justify-center")}>
+        <div className={cn(SIZE_CONFIG.iconSize, "flex items-center justify-center shrink-0")}>
           <Spinner className={SIZE_CONFIG.spinnerSize} />
         </div>
       )
     case 'completed':
-      return <CheckCircle2 className={cn(SIZE_CONFIG.iconSize, "text-green-500")} />
+      return <CheckCircle2 className={cn(SIZE_CONFIG.iconSize, "shrink-0 text-green-500")} />
     case 'error':
-      return <XCircle className={cn(SIZE_CONFIG.iconSize, "text-destructive")} />
+      return <XCircle className={cn(SIZE_CONFIG.iconSize, "shrink-0 text-destructive")} />
   }
 }
 
@@ -508,15 +508,16 @@ function ActivityRow({ activity, onOpenDetails, isLastChild }: ActivityRowProps)
         )}
         {/* Additional params (lighter) */}
         {inputSummary && (
-          <span className="opacity-50 truncate flex-1 min-w-0">{inputSummary}</span>
+          <span className="opacity-50 truncate min-w-0">{inputSummary}</span>
         )}
         {activity.status === 'error' && activity.error && (
-          <span className="text-destructive truncate max-w-[150px]">
-            — {activity.error}
-          </span>
+          <>
+            <span className="text-destructive/60 shrink-0">·</span>
+            <span className="text-destructive truncate max-w-[200px]">{activity.error}</span>
+          </>
         )}
-        {/* Spacer when no inputSummary */}
-        {!inputSummary && <span className="flex-1" />}
+        {/* Spacer to push details button to right */}
+        <span className="flex-1" />
         {/* Open details button */}
         {onOpenDetails && isComplete && (
           <div
@@ -709,15 +710,15 @@ function StreamingResponsePreview({
 function TodoStatusIcon({ status }: { status: TodoStatus }) {
   switch (status) {
     case 'pending':
-      return <Circle className={cn(SIZE_CONFIG.iconSize, "text-muted-foreground/50")} />
+      return <Circle className={cn(SIZE_CONFIG.iconSize, "shrink-0 text-muted-foreground/50")} />
     case 'in_progress':
       return (
-        <div className={cn(SIZE_CONFIG.iconSize, "flex items-center justify-center")}>
+        <div className={cn(SIZE_CONFIG.iconSize, "flex items-center justify-center shrink-0")}>
           <Spinner className={SIZE_CONFIG.spinnerSize} />
         </div>
       )
     case 'completed':
-      return <CircleCheckFilled className={cn(SIZE_CONFIG.iconSize, "text-[#9570BE]")} />
+      return <CircleCheckFilled className={cn(SIZE_CONFIG.iconSize, "shrink-0 text-[#9570BE]")} />
   }
 }
 

@@ -125,7 +125,24 @@ className="hover:bg-gray-100"          // Doesn't adapt to dark mode
 **Common alpha values:**
 - `/5` (5%) - Subtle hover for buttons, icon buttons, triggers
 - `/10` (10%) - Standard hover for menu items, list items
+- `/30` (30%) - Placeholder text, disabled elements
 - `/50` (50%) - Borders, separators, muted elements
+- `/60` (60%) - Placeholder text hover state
+
+### Text Colors with Alpha
+
+**Always use `foreground/x` for text colors** instead of `text-muted-foreground`. This ensures consistent opacity-based styling.
+
+```tsx
+// Good - foreground with alpha
+className="text-foreground/30"          // Placeholder, disabled
+className="text-foreground/50"          // Muted, secondary
+className="text-foreground/60"          // Hover state for /30
+
+// Bad - semantic color classes
+className="text-muted-foreground"       // Avoid - use foreground/50 instead
+className="text-muted-foreground/50"    // Don't combine muted with alpha
+```
 
 ### Dropdown/Popover Styling
 

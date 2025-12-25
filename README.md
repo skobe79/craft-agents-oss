@@ -396,6 +396,34 @@ bun dev
 craft --debug
 ```
 
+### Development Secrets (1Password)
+
+Development secrets (Gmail OAuth, etc.) are synced from 1Password to a local `.env` file. This keeps secrets out of the repo while making setup easy.
+
+**One-time setup:**
+
+```bash
+# 1. Install 1Password CLI
+brew install 1password-cli
+
+# 2. Enable CLI integration: 1Password app → Settings → Developer → CLI Integration
+
+# 3. Sync secrets to .env (requires Touch ID / 1Password unlock once)
+bun run sync-secrets
+```
+
+**That's it!** Now `bun run electron:dev` and `bun run electron:start` work without prompts.
+
+**When to re-sync:**
+- After cloning the repo
+- When secrets are rotated in 1Password
+- When new secrets are added to `.env.1password`
+
+**How it works:**
+- `.env.1password` contains `op://` references (safe to commit)
+- `bun run sync-secrets` resolves references → writes `.env` (gitignored)
+- Build scripts source `.env` automatically
+
 ### Debugging
 
 Debug logging is disabled by default. Enable it with the `--debug` flag:

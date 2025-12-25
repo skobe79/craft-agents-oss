@@ -79,6 +79,7 @@ import type { Session, Workspace, SubAgentMetadata, FileAttachment, PermissionRe
 import { AddConnectionDialog } from "../connections/AddConnectionDialog"
 import { type TodoStateId, DEFAULT_TODO_STATES, getStateColor } from "@/config/todo-states"
 import * as storage from "@/lib/local-storage"
+import { toast } from "sonner"
 
 type ViewMode = 'inbox' | 'archive' | 'flagged' | 'agent' | `state:${TodoStateId}`
 
@@ -657,6 +658,9 @@ export function Chat({
       const result = await window.electronAPI.startGmailOAuth()
       if (!result.success) {
         console.error('[Chat] Gmail OAuth failed:', result.error)
+        toast.error('Gmail connection failed', {
+          description: result.error || 'Could not connect to Gmail'
+        })
         return
       }
 
@@ -676,7 +680,7 @@ export function Chat({
         }
         setConnections(prev => prev.map(c => c.id === existingGmail.id ? updatedConfig : c))
         await window.electronAPI.saveConnection(updatedConfig)
-        console.log('[Chat] Gmail connection re-authenticated:', result.email)
+        toast.success(`Reconnected to ${result.email}`)
         return
       }
 
@@ -696,9 +700,12 @@ export function Chat({
       // Save connection (tokens stored in CredentialManager)
       setConnections(prev => [...prev, config])
       await window.electronAPI.saveConnection(config)
-      console.log('[Chat] Gmail connection added:', config.name)
+      toast.success(`Connected to ${result.email}`)
     } catch (error) {
       console.error('[Chat] Failed to add Gmail connection:', error)
+      toast.error('Gmail connection failed', {
+        description: error instanceof Error ? error.message : 'Unknown error occurred'
+      })
     }
   }, [connections])
 
@@ -765,6 +772,39 @@ export function Chat({
       { key: ',', cmd: true, action: onOpenSettings },
     ],
   })
+
+  // Global paste listener for file attachments
+  // Fires when Cmd+V is pressed anywhere in the app (not just textarea)
+  React.useEffect(() => {
+    const handleGlobalPaste = (e: ClipboardEvent) => {
+      // Skip if a dialog or menu is open
+      if (document.querySelector('[role="dialog"], [role="menu"]')) {
+        return
+      }
+
+      // Skip if there are no files in the clipboard
+      const files = e.clipboardData?.files
+      if (!files || files.length === 0) return
+
+      // Skip if the active element is an input/textarea (let it handle paste directly)
+      const activeElement = document.activeElement
+      if (activeElement?.tagName === 'TEXTAREA' || activeElement?.tagName === 'INPUT') {
+        return
+      }
+
+      // Prevent default paste behavior
+      e.preventDefault()
+
+      // Dispatch custom event for FreeFormInput to handle
+      const filesArray = Array.from(files)
+      window.dispatchEvent(new CustomEvent('craft:paste-files', {
+        detail: { files: filesArray }
+      }))
+    }
+
+    document.addEventListener('paste', handleGlobalPaste)
+    return () => document.removeEventListener('paste', handleGlobalPaste)
+  }, [])
 
   // Resize effect for both sidebar and session list
   React.useEffect(() => {
@@ -1593,7 +1633,7 @@ export function Chat({
                   ]}
                 />
                 {/* Status Section - Collapsible */}
-                <Collapsible open={!statusCollapsed} onOpenChange={(open) => setStatusCollapsed(!open)} className={statusCollapsed ? "mb-2" : ""}>
+                <Collapsible open={!statusCollapsed} onOpenChange={(open) => setStatusCollapsed(!open)} className="mb-1">
                   <CollapsibleTrigger asChild>
                     <button className="group flex items-center justify-between w-full pl-4 pr-3.5 pt-2 pb-1">
                       <span className="text-xs font-medium text-muted-foreground select-none">Status</span>
@@ -1660,121 +1700,133 @@ export function Chat({
                   </AnimatedCollapsibleContent>
                 </Collapsible>
                 {/* Connections Section */}
-                <div className="pt-0.5">
-                  <Collapsible open={!isConnectionsCollapsed} onOpenChange={() => setIsConnectionsCollapsed(v => !v)}>
-                    {/* Header with three-dot menu */}
-                    <div className="flex items-center justify-between pl-4 pr-2 py-2 shrink-0">
-                      <CollapsibleTrigger className="flex items-center gap-2 group">
-                        <motion.div
-                          animate={{ rotate: isConnectionsCollapsed ? -90 : 0 }}
-                          transition={collapsibleSpring}
+                <Collapsible open={!isConnectionsCollapsed} onOpenChange={() => setIsConnectionsCollapsed(v => !v)} className="mb-1">
+                  <CollapsibleTrigger asChild>
+                    <button className="group flex items-center justify-between w-full pl-4 pr-3.5 pt-2 pb-1">
+                      <span className="text-xs font-medium text-muted-foreground select-none">Connections</span>
+                      <span className="flex items-center gap-1">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <span
+                              className="p-0.5 rounded hover:bg-foreground/5 data-[state=open]:bg-foreground/5 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity cursor-pointer"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="h-3 w-3" />
+                            </span>
+                          </DropdownMenuTrigger>
+                          <StyledDropdownMenuContent align="end" minWidth="min-w-0">
+                            <StyledDropdownMenuItem onSelect={handleAddGmail}>
+                              {(() => {
+                                const GmailIcon = getConnectionFallbackIcon('gmail')
+                                return (
+                                  <ServiceLogo
+                                    logo={getLogoUrl(getConnectionLogoUrl({ type: 'gmail' } as ConnectionConfig))}
+                                    name="Gmail"
+                                    fallbackIcon={<GmailIcon className="h-3.5 w-3.5" />}
+                                    className="h-3.5 w-3.5"
+                                  />
+                                )
+                              })()}
+                              Add Gmail
+                            </StyledDropdownMenuItem>
+                            <StyledDropdownMenuSeparator />
+                            <StyledDropdownMenuItem onClick={() => setIsAddConnectionOpen(true)}>
+                              <Plus />
+                              Add connection
+                            </StyledDropdownMenuItem>
+                          </StyledDropdownMenuContent>
+                        </DropdownMenu>
+                        <ChevronDown className={cn(
+                          "h-3.5 w-3.5 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all duration-200",
+                          isConnectionsCollapsed && "-rotate-90"
+                        )} />
+                      </span>
+                    </button>
+                  </CollapsibleTrigger>
+                  {/* Connection List */}
+                  <AnimatedCollapsibleContent isOpen={!isConnectionsCollapsed}>
+                    <nav className="grid gap-0.5 px-2 py-1">
+                      {connections.length === 0 ? (
+                        <button
+                          onClick={() => setIsAddConnectionOpen(true)}
+                          className="flex w-full items-center gap-2 rounded-[6px] py-[7px] px-2 text-[13px] text-foreground/30 hover:text-foreground/60 hover:bg-foreground/5 transition-colors"
                         >
-                          <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                        </motion.div>
-                        <span className="text-xs font-medium text-muted-foreground select-none">Connections</span>
-                      </CollapsibleTrigger>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button className="p-1 rounded hover:bg-foreground/5 data-[state=open]:bg-foreground/5 text-muted-foreground hover:text-foreground">
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <StyledDropdownMenuContent align="end" minWidth="min-w-0">
-                          <StyledDropdownMenuItem onClick={handleAddGmail}>
-                            {(() => {
-                              const GmailIcon = getConnectionFallbackIcon('gmail')
-                              return (
-                                <ServiceLogo
-                                  logo={getLogoUrl(getConnectionLogoUrl({ type: 'gmail' } as ConnectionConfig))}
-                                  name="Gmail"
-                                  fallbackIcon={<GmailIcon className="h-3.5 w-3.5" />}
-                                  className="h-3.5 w-3.5"
-                                />
-                              )
-                            })()}
-                            Add Gmail
-                          </StyledDropdownMenuItem>
-                          <StyledDropdownMenuSeparator />
-                          <StyledDropdownMenuItem onClick={() => setIsAddConnectionOpen(true)}>
-                            <Plus />
-                            Add connection
-                          </StyledDropdownMenuItem>
-                        </StyledDropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    {/* Connection List */}
-                    <AnimatedCollapsibleContent isOpen={!isConnectionsCollapsed}>
-                      <nav className="grid gap-0.5 px-2 pb-1">
-                        {connections.map(conn => {
-                          const FallbackIcon = getConnectionFallbackIcon(conn.type)
-                          return (
-                          <div key={conn.id} className="flex items-center justify-between py-[7px] px-2 rounded-md hover:bg-foreground/5 group/conn">
-                            <div className="flex items-center gap-2">
-                              <ServiceLogo
-                                logo={getLogoUrl(getConnectionLogoUrl(conn))}
-                                name={conn.name}
-                                fallbackIcon={<FallbackIcon className="h-3.5 w-3.5" />}
-                                className="h-3.5 w-3.5"
-                              />
-                              <span className="text-[13px]">{conn.name}</span>
-                              <button
-                                onClick={() => handleOpenEditConnection(conn)}
-                                className="p-0.5 rounded opacity-0 group-hover/conn:opacity-100 hover:bg-foreground/10 text-muted-foreground hover:text-foreground transition-opacity"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteConnection(conn.id)}
-                                className="p-0.5 rounded opacity-0 group-hover/conn:opacity-100 hover:bg-foreground/10 text-muted-foreground hover:text-destructive transition-opacity"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                            <Switch
-                              checked={conn.enabled}
-                              onCheckedChange={(checked) => handleToggleConnection(conn.id, checked)}
-                              className="scale-75"
+                          <Plus className="h-3.5 w-3.5" />
+                          Add your first connection
+                        </button>
+                      ) : connections.map(conn => {
+                        const FallbackIcon = getConnectionFallbackIcon(conn.type)
+                        return (
+                        <div key={conn.id} className="flex items-center justify-between py-[7px] px-2 rounded-md hover:bg-foreground/5 group/conn">
+                          <div className="flex items-center gap-2">
+                            <ServiceLogo
+                              logo={getLogoUrl(getConnectionLogoUrl(conn))}
+                              name={conn.name}
+                              fallbackIcon={<FallbackIcon className="h-3.5 w-3.5" />}
+                              className="h-3.5 w-3.5"
                             />
+                            <span className="text-[13px]">{conn.name}</span>
+                            <button
+                              onClick={() => handleOpenEditConnection(conn)}
+                              className="p-0.5 rounded opacity-0 group-hover/conn:opacity-100 hover:bg-foreground/10 text-muted-foreground hover:text-foreground transition-opacity"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteConnection(conn.id)}
+                              className="p-0.5 rounded opacity-0 group-hover/conn:opacity-100 hover:bg-foreground/10 text-muted-foreground hover:text-destructive transition-opacity"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
                           </div>
-                        )})}
-                      </nav>
-                    </AnimatedCollapsibleContent>
-                  </Collapsible>
-                </div>
+                          <Switch
+                            checked={conn.enabled}
+                            onCheckedChange={(checked) => handleToggleConnection(conn.id, checked)}
+                            className="scale-75"
+                          />
+                        </div>
+                      )})}
+                    </nav>
+                  </AnimatedCollapsibleContent>
+                </Collapsible>
                 {/* Agent Tree: Hierarchical list of agents - Collapsible */}
                 <Collapsible
                   open={!agentsCollapsed}
                   onOpenChange={(open) => setAgentsCollapsed(!open)}
-                  className={cn("group/agents flex-1 min-h-0 flex flex-col overflow-hidden pt-0.5", agentsCollapsed && "mb-2")}
+                  className="flex-1 min-h-0 flex flex-col overflow-hidden mb-1"
                 >
-                  {/* Agents Section Header with menu */}
-                  <div className="flex items-center justify-between pl-4 pr-2 py-2 shrink-0">
-                    <CollapsibleTrigger className="flex items-center gap-2 group">
-                      <ChevronDown className={cn(
-                        "h-3 w-3 text-muted-foreground transition-transform",
-                        agentsCollapsed && "-rotate-90"
-                      )} />
-                      <span className="text-xs font-medium text-muted-foreground select-none">Agents</span>
-                      {isLoadingAgents && agents.length > 0 && (
-                        <Spinner className="text-xs text-muted-foreground" />
-                      )}
-                    </CollapsibleTrigger>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          className="p-1 rounded hover:bg-foreground/5 data-[state=open]:bg-foreground/5 text-muted-foreground hover:text-foreground"
-                        >
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <StyledDropdownMenuContent align="end" minWidth="min-w-0">
-                        <StyledDropdownMenuItem onClick={onRefreshAgents}>
-                          <RotateCw />
-                          Refresh
-                        </StyledDropdownMenuItem>
-                      </StyledDropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+                  <CollapsibleTrigger asChild>
+                    <button className="group flex items-center justify-between w-full pl-4 pr-3.5 pt-2 pb-1 shrink-0">
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-muted-foreground select-none">Agents</span>
+                        {isLoadingAgents && agents.length > 0 && (
+                          <Spinner className="text-xs text-muted-foreground" />
+                        )}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <span
+                              className="p-0.5 rounded hover:bg-foreground/5 data-[state=open]:bg-foreground/5 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity cursor-pointer"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="h-3 w-3" />
+                            </span>
+                          </DropdownMenuTrigger>
+                          <StyledDropdownMenuContent align="end" minWidth="min-w-0">
+                            <StyledDropdownMenuItem onClick={onRefreshAgents}>
+                              <RotateCw />
+                              Refresh
+                            </StyledDropdownMenuItem>
+                          </StyledDropdownMenuContent>
+                        </DropdownMenu>
+                        <ChevronDown className={cn(
+                          "h-3.5 w-3.5 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all duration-200",
+                          agentsCollapsed && "-rotate-90"
+                        )} />
+                      </span>
+                    </button>
+                  </CollapsibleTrigger>
                   {/* Scrollable Agent Tree */}
                   <AnimatedCollapsibleContent isOpen={!agentsCollapsed} className="flex-1 min-h-0">
                     <ScrollArea className="h-full">
@@ -1785,7 +1837,7 @@ export function Chat({
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
                           transition={{ duration: 0.15 }}
-                          className="px-2 pb-2"
+                          className="px-2 py-1"
                         >
                           {agents.length === 0 ? (
                             isLoadingAgents ? (

@@ -377,16 +377,14 @@ export default function App() {
         })
       }
 
-      // Handle session_restarted event - update session's selectedConnectionIds and clear messages
-      if (event.type === 'session_restarted') {
-        console.log('[App] session_restarted:', event.sessionId, event.selectedConnectionIds)
+      // Handle connections_changed event - update session's selectedConnectionIds (preserves messages)
+      if (event.type === 'connections_changed') {
+        console.log('[App] connections_changed:', event.sessionId, event.selectedConnectionIds)
         setSessions(prev => prev.map(session => {
           if (session.id !== event.sessionId) return session
           return {
             ...session,
-            messages: [],
             selectedConnectionIds: event.selectedConnectionIds,
-            isProcessing: false,
           }
         }))
         return

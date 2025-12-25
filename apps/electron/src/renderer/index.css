@@ -378,6 +378,31 @@ html[data-font="system"] {
   .shadow-modal-small {
     box-shadow:rgba(0, 0, 0,0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.06) 0px 0px 0px 1px, rgba(0, 0, 0, 0.04) 0px 1px 1px -0.5px, rgba(0, 0, 0, 0.04) 0px 3px 3px 0px, rgba(0, 0, 0, 0.02) 0px 6px 6px 0px, rgba(0, 0, 0, 0.02) 0px 12px 12px 0px, rgba(0, 0, 0, 0.02) 0px 24px 24px 0px;
   }
+
+  /* =============================================================================
+     UNIFIED POPOVER STYLING
+
+     Use this class for all dropdowns, popovers, dialogs, and floating menus
+     to ensure consistent appearance across the app. Matches the vibrancy style:
+     - Semi-transparent dark background with blur
+     - 8px corner radius
+     - Layered shadow (shadow-modal-small)
+     - No visible border
+  ============================================================================= */
+  .popover-styled {
+    background: var(--popover);
+    color: var(--popover-foreground);
+    border-radius: 8px;
+    border: none;
+    box-shadow: rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+                rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+                rgba(0, 0, 0, 0.06) 0px 0px 0px 1px,
+                rgba(0, 0, 0, 0.04) 0px 1px 1px -0.5px,
+                rgba(0, 0, 0, 0.04) 0px 3px 3px 0px,
+                rgba(0, 0, 0, 0.02) 0px 6px 6px 0px,
+                rgba(0, 0, 0, 0.02) 0px 12px 12px 0px,
+                rgba(0, 0, 0, 0.02) 0px 24px 24px 0px;
+  }
 }
 
 /* Draggable title bar region for transparent window */

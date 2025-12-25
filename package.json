@@ -25,6 +25,7 @@
     "electron:build": "bun run electron:build:main && bun run electron:build:preload && bun run electron:build:renderer && bun run electron:build:resources",
     "electron:start": "bun run electron:build && electron apps/electron",
     "electron:dev": "bun run electron:build:resources && concurrently -k \"bun run electron:dev:vite\" \"bun run electron:dev:main\" \"bun run electron:dev:preload\" \"bun run electron:dev:electron\"",
+    "sync-secrets": "bash scripts/sync-secrets.sh",
     "electron:dev:vite": "vite dev --config apps/electron/vite.config.ts",
     "electron:dev:main": "source .env 2>/dev/null || true; esbuild apps/electron/src/main/index.ts --bundle --platform=node --format=cjs --outfile=apps/electron/dist/main.cjs --external:electron --define:process.env.GMAIL_OAUTH_CLIENT_ID=\\\"${GMAIL_OAUTH_CLIENT_ID:-}\\\" --define:process.env.GMAIL_OAUTH_CLIENT_SECRET=\\\"${GMAIL_OAUTH_CLIENT_SECRET:-}\\\" --watch",
     "electron:dev:preload": "esbuild apps/electron/src/preload/index.ts --bundle --platform=node --format=cjs --outfile=apps/electron/dist/preload.cjs --external:electron --watch",

@@ -901,24 +901,18 @@ export class SessionManager {
     managed.connectionMcpServers = mcpServers
     managed.connectionApiServers = apiServers
 
-    // Restart the session - clear agent, messages, SDK session
-    // This ensures the new connections are applied when the agent is recreated
-    managed.agent = null
-    managed.messages = []
-    managed.sdkSessionId = undefined
-    managed.streamingText = ''
-
     // Persist the session with updated connections
     this.persistSession(managed)
 
-    // Notify renderer that session was restarted
+    // Notify renderer of the connection change (no session restart needed)
+    // The new connections will be applied on the next message via setConnectionServers()
     this.sendEvent({
-      type: 'session_restarted',
+      type: 'connections_changed',
       sessionId,
       selectedConnectionIds: connectionIds,
     }, managed.workspace.id)
 
-    console.log(`[SessionManager] Session ${sessionId} restarted with ${connectionIds.length} connections`)
+    console.log(`[SessionManager] Session ${sessionId} connections updated: ${connectionIds.length} connections`)
   }
 
   /**

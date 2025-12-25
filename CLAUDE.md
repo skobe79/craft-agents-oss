@@ -774,6 +774,36 @@ Shared text input used by all input dialogs (API keys, bearer tokens, workspace 
 
 **Cancel handling:** `onCancel` prop handles both Escape and Ctrl+C. Use it for simple cancel scenarios. For complex logic (clearing attachments, canceling OAuth), use parent `useInput` but skip steps that use TextInput to avoid double-execution.
 
+## Development Secrets (1Password CLI)
+
+Development secrets (Gmail OAuth, API keys) are synced from 1Password to a local `.env` file once, then used by all builds.
+
+**Setup (one-time):**
+```bash
+# 1. Install 1Password CLI
+brew install 1password-cli
+
+# 2. Enable CLI integration in 1Password desktop app:
+#    Settings → Developer → Command-Line Interface → "Integrate with 1Password CLI"
+
+# 3. Sync secrets to .env (requires Touch ID once)
+bun run sync-secrets
+```
+
+**How it works:**
+- `.env.1password` contains `op://` references (committed - just pointers)
+- `bun run sync-secrets` resolves references → writes `.env` (gitignored)
+- Build scripts source `.env` automatically
+- Developers need access to the `Dev_Craft_Agents` 1Password vault
+
+**When to re-sync:** After cloning, when secrets rotate, or when new secrets are added.
+
+**Adding new secrets:**
+1. Add to 1Password vault `Dev_Craft_Agents`
+2. Add `op://` reference to `.env.1password`
+3. Run `bun run sync-secrets`
+4. Reference in code via `process.env.SECRET_NAME`
+
 ## Debugging
 
 Debug logging is disabled by default. Enable it with the `--debug` flag to write logs to `/tmp/craft-debug.log`.
