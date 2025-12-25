@@ -1488,6 +1488,7 @@ export class SessionManager {
           existingToolMsg.content = formattedResult
           existingToolMsg.toolResult = formattedResult
           existingToolMsg.toolStatus = 'completed'
+          existingToolMsg.isError = event.isError
           // If message doesn't have parent set, use stored mapping as fallback
           // Note: SDK's event.parentToolUseId is for result matching, NOT hierarchy
           if (!existingToolMsg.parentToolUseId && storedParentId) {
@@ -1505,6 +1506,7 @@ export class SessionManager {
             toolResult: formattedResult,
             toolStatus: 'completed',
             parentToolUseId: storedParentId,
+            isError: event.isError,
           }
           managed.messages.push(toolMessage)
         }
@@ -1522,6 +1524,7 @@ export class SessionManager {
             result: formattedResult,
             turnId: event.turnId,
             parentToolUseId: finalParentToolUseId,
+            isError: event.isError,
           }, workspaceId)
         }
         break

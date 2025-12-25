@@ -5,13 +5,14 @@
  * Tab state survives app restarts.
  *
  * Storage is workspace-scoped: each window stores its tabs under
- * 'craft-tabs-{workspaceId}' to prevent cross-workspace tab leakage
+ * 'craft-tabs:{workspaceId}' to prevent cross-workspace tab leakage
  * in multi-window architecture.
  */
 
 import { atom } from 'jotai'
 import { atomWithStorage } from 'jotai/utils'
 import type { Tab, TabState, ChatTab } from './types'
+import { getKeyString, KEYS } from '@/lib/local-storage'
 
 /**
  * Get workspace ID from URL query params (set by WindowManager)
@@ -23,7 +24,7 @@ function getWindowWorkspaceId(): string {
 }
 
 const WORKSPACE_ID = getWindowWorkspaceId()
-const STORAGE_KEY = `craft-tabs-${WORKSPACE_ID}`
+const STORAGE_KEY = getKeyString(KEYS.tabs, WORKSPACE_ID)
 
 /**
  * Default empty tab state

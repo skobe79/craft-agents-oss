@@ -639,7 +639,7 @@ export function formatSessionState(sessionId: string): string {
   const lines = Object.entries(state)
     .map(([mode, active]) => `${mode}: ${active}`)
     .join('\n');
-  return `<session_state>\n${lines}\n</session_state>`;
+  return `<session_state>\nsessionId: ${sessionId}\n${lines}\n</session_state>`;
 }
 
 /**

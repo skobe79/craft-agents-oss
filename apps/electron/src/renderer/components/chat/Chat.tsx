@@ -6,6 +6,7 @@ import {
   Inbox,
   Settings,
   ChevronRight,
+  ChevronDown,
   FolderOpen,
   MoreHorizontal,
   RotateCw,
@@ -68,6 +69,7 @@ import { getSessionTitle } from "@/utils/session"
 import { closeTabWithCleanup } from "@/utils/closeTabWithCleanup"
 import type { Session, Workspace, SubAgentMetadata, FileAttachment, PermissionRequest, TodoState } from "../../../shared/types"
 import { type TodoStateId, DEFAULT_TODO_STATES, getStateColor } from "@/config/todo-states"
+import * as storage from "@/lib/local-storage"
 
 type ViewMode = 'inbox' | 'archive' | 'flagged' | 'agent' | `state:${TodoStateId}`
 
@@ -456,17 +458,14 @@ export function Chat({
     onLogout,
   } = contextValue
   const [isSidebarVisible, setIsSidebarVisible] = React.useState(() => {
-    const saved = localStorage.getItem('chat-sidebar-visible')
-    return saved !== null ? saved === 'true' : !defaultCollapsed
+    return storage.get(storage.KEYS.sidebarVisible, !defaultCollapsed)
   })
   const [sidebarWidth, setSidebarWidth] = React.useState(() => {
-    const saved = localStorage.getItem('chat-sidebar-width')
-    return saved ? Number(saved) : 260
+    return storage.get(storage.KEYS.sidebarWidth, 260)
   })
   // Session list width in pixels (min 280, max 500)
   const [sessionListWidth, setSessionListWidth] = React.useState(() => {
-    const saved = localStorage.getItem('chat-session-list-width')
-    return saved ? Number(saved) : 340
+    return storage.get(storage.KEYS.sessionListWidth, 340)
   })
   const [isResizing, setIsResizing] = React.useState<'sidebar' | 'session-list' | null>(null)
   const [sidebarHandleY, setSidebarHandleY] = React.useState<number | null>(null)
@@ -478,15 +477,8 @@ export function Chat({
   const [selectedAgentId, setSelectedAgentId] = React.useState<string | null>(null)
   // Session list filter: empty set shows all, otherwise shows only sessions with selected states
   const [listFilter, setListFilter] = React.useState<Set<TodoStateId>>(() => {
-    const saved = localStorage.getItem('chat-list-filter')
-    if (saved) {
-      try {
-        return new Set(JSON.parse(saved) as TodoStateId[])
-      } catch {
-        return new Set()
-      }
-    }
-    return new Set()
+    const saved = storage.get<TodoStateId[]>(storage.KEYS.listFilter, [])
+    return new Set(saved)
   })
   // Search state for session list
   const [searchActive, setSearchActive] = React.useState(false)
@@ -536,18 +528,18 @@ export function Chat({
   // Unified sidebar keyboard navigation state
   // Load expanded folders from localStorage (default: all collapsed)
   const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(() => {
-    const saved = localStorage.getItem('sidebar-expanded-folders')
-    if (saved) {
-      try {
-        return new Set(JSON.parse(saved))
-      } catch {
-        return new Set()
-      }
-    }
-    return new Set()
+    const saved = storage.get<string[]>(storage.KEYS.expandedFolders, [])
+    return new Set(saved)
   })
   const [focusedSidebarItemId, setFocusedSidebarItemId] = React.useState<string | null>(null)
   const sidebarItemRefs = React.useRef<Map<string, HTMLElement>>(new Map())
+  // Collapsible section states for sidebar
+  const [statusCollapsed, setStatusCollapsed] = React.useState(() => {
+    return storage.get(storage.KEYS.statusCollapsed, false)
+  })
+  const [agentsCollapsed, setAgentsCollapsed] = React.useState(() => {
+    return storage.get(storage.KEYS.agentsCollapsed, false)
+  })
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
 
@@ -638,10 +630,10 @@ export function Chat({
 
     const handleMouseUp = () => {
       if (isResizing === 'sidebar') {
-        localStorage.setItem('chat-sidebar-width', String(sidebarWidth))
+        storage.set(storage.KEYS.sidebarWidth, sidebarWidth)
         setSidebarHandleY(null)
       } else if (isResizing === 'session-list') {
-        localStorage.setItem('chat-session-list-width', String(sessionListWidth))
+        storage.set(storage.KEYS.sessionListWidth, sessionListWidth)
         setSessionListHandleY(null)
       }
       setIsResizing(null)
@@ -851,18 +843,27 @@ export function Chat({
 
   // Persist expanded folders to localStorage
   React.useEffect(() => {
-    localStorage.setItem('sidebar-expanded-folders', JSON.stringify([...expandedFolders]))
+    storage.set(storage.KEYS.expandedFolders, [...expandedFolders])
   }, [expandedFolders])
 
   // Persist sidebar visibility to localStorage
   React.useEffect(() => {
-    localStorage.setItem('chat-sidebar-visible', String(isSidebarVisible))
+    storage.set(storage.KEYS.sidebarVisible, isSidebarVisible)
   }, [isSidebarVisible])
 
   // Persist list filter to localStorage
   React.useEffect(() => {
-    localStorage.setItem('chat-list-filter', JSON.stringify([...listFilter]))
+    storage.set(storage.KEYS.listFilter, [...listFilter])
   }, [listFilter])
+
+  // Persist sidebar section collapsed states
+  React.useEffect(() => {
+    storage.set(storage.KEYS.statusCollapsed, statusCollapsed)
+  }, [statusCollapsed])
+
+  React.useEffect(() => {
+    storage.set(storage.KEYS.agentsCollapsed, agentsCollapsed)
+  }, [agentsCollapsed])
 
   // Helper to map AgentStatus to SidebarAgentStatus (centralized logic)
   const mapAgentStatusToSidebar = React.useCallback((status: import('../../../shared/types').AgentStatus): SidebarAgentStatus => {
@@ -1422,134 +1423,141 @@ export function Chat({
                     },
                   ]}
                 />
-                {/* Status Section Header */}
-                <div className="flex items-center pl-4 pr-2 pt-2 pb-1">
-                  <span className="text-xs font-medium text-muted-foreground select-none">Status</span>
-                </div>
-                {/* Status Nav: Todo states */}
-                <LeftSidebar
-                  isCollapsed={false}
-                  getItemProps={getSidebarItemProps}
-                  focusedItemId={focusedSidebarItemId}
-                  links={[
-                    {
-                      id: "nav:state:todo",
-                      title: "Todo",
-                      label: String(todoStateCounts['todo']),
-                      icon: <CircleDashed className="h-3.5 w-3.5" />,
-                      iconColor: "text-muted-foreground",
-                      variant: viewMode === 'state:todo' ? "default" : "ghost",
-                      onClick: () => handleTodoStateClick('todo'),
-                    },
-                    {
-                      id: "nav:state:in-progress",
-                      title: "In Progress",
-                      label: String(todoStateCounts['in-progress']),
-                      icon: <CircleProgress className="h-3.5 w-3.5" />,
-                      iconColor: getStateColor('in-progress'),
-                      variant: viewMode === 'state:in-progress' ? "default" : "ghost",
-                      onClick: () => handleTodoStateClick('in-progress'),
-                    },
-                    {
-                      id: "nav:state:needs-review",
-                      title: "Needs Review",
-                      label: String(todoStateCounts['needs-review']),
-                      icon: <CircleEye className="h-3.5 w-3.5" />,
-                      iconColor: getStateColor('needs-review'),
-                      variant: viewMode === 'state:needs-review' ? "default" : "ghost",
-                      onClick: () => handleTodoStateClick('needs-review'),
-                    },
-                    {
-                      id: "nav:state:done",
-                      title: "Done",
-                      label: String(todoStateCounts['done']),
-                      icon: <CircleCheckFilled className="h-3.5 w-3.5" />,
-                      iconColor: "text-[#9570BE]",
-                      variant: viewMode === 'state:done' ? "default" : "ghost",
-                      onClick: () => handleTodoStateClick('done'),
-                    },
-                    {
-                      id: "nav:state:cancelled",
-                      title: "Cancelled",
-                      label: String(todoStateCounts['cancelled']),
-                      icon: <CircleXFilled className="h-3.5 w-3.5" />,
-                      iconColor: "text-muted-foreground/60",
-                      variant: viewMode === 'state:cancelled' ? "default" : "ghost",
-                      onClick: () => handleTodoStateClick('cancelled'),
-                    },
-                  ]}
-                />
-                {/* Agent Tree: Hierarchical list of agents */}
-                <div className="group/agents flex-1 min-h-0 flex flex-col overflow-hidden pt-0.5">
-                  {/* Agents Section Header with menu */}
-                  <div className="flex items-center justify-between pl-4 pr-2 py-2 shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-muted-foreground select-none">Agents</span>
-                      {isLoadingAgents && agents.length > 0 && (
-                        <Spinner className="text-xs text-muted-foreground" />
-                      )}
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          className="p-1 rounded hover:bg-foreground/5 data-[state=open]:bg-foreground/5 text-muted-foreground hover:text-foreground"
-                        >
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <StyledDropdownMenuContent align="end" minWidth="min-w-0">
-                        <StyledDropdownMenuItem onClick={onRefreshAgents}>
-                          <RotateCw />
-                          Refresh
-                        </StyledDropdownMenuItem>
-                      </StyledDropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {/* Scrollable Agent Tree */}
-                  <ScrollArea className="flex-1 min-h-0">
-                    <AnimatePresence mode="wait">
-                      <motion.div
-                        key={activeWorkspaceId ?? 'none'}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="px-2 pb-2"
-                      >
-                        {agents.length === 0 ? (
-                          isLoadingAgents ? (
-                            <div className="flex items-center gap-2 px-2 py-4">
-                              <Spinner className="text-sm text-muted-foreground" />
-                              <span className="text-xs text-muted-foreground">Loading agents...</span>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-muted-foreground px-2 py-4">
-                              No agents found. Create an "Agents" folder in your Craft space.
-                            </p>
-                          )
-                        ) : (
-                          <AgentTree
-                            folder={agentTree}
-                            level={0}
-                            isCollapsed={false}
-                            selectedAgentId={selectedAgentId}
-                            onSelectAgent={handleSelectAgent}
-                            getConversationCount={getConversationCount}
-                            onAgentAction={handleAgentAction}
-                            isFocused={sidebarFocused}
-                            expandedFolders={expandedFolders}
-                            onToggleFolder={handleToggleFolder}
-                            focusedItemId={focusedSidebarItemId}
-                            onFocusItem={setFocusedSidebarItemId}
-                            getItemProps={getSidebarItemProps}
-                            agentStatus={agentStatus}
-                            agentLogos={agentLogos}
-                          />
+                {/* Status Section - Collapsible */}
+                <Collapsible open={!statusCollapsed} onOpenChange={(open) => setStatusCollapsed(!open)} className={statusCollapsed ? "mb-2" : ""}>
+                  <CollapsibleTrigger asChild>
+                    <button className="group flex items-center justify-between w-full pl-4 pr-3.5 pt-2 pb-1">
+                      <span className="text-xs font-medium text-muted-foreground select-none">Status</span>
+                      <ChevronDown className={cn(
+                        "h-3.5 w-3.5 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all duration-200",
+                        statusCollapsed && "-rotate-90"
+                      )} />
+                    </button>
+                  </CollapsibleTrigger>
+                  <AnimatedCollapsibleContent isOpen={!statusCollapsed}>
+                    {/* Status Nav: Todo states */}
+                    <LeftSidebar
+                      isCollapsed={false}
+                      getItemProps={getSidebarItemProps}
+                      focusedItemId={focusedSidebarItemId}
+                      links={[
+                        {
+                          id: "nav:state:todo",
+                          title: "Todo",
+                          label: String(todoStateCounts['todo']),
+                          icon: <CircleDashed className="h-3.5 w-3.5" />,
+                          iconColor: "text-muted-foreground",
+                          variant: viewMode === 'state:todo' ? "default" : "ghost",
+                          onClick: () => handleTodoStateClick('todo'),
+                        },
+                        {
+                          id: "nav:state:in-progress",
+                          title: "In Progress",
+                          label: String(todoStateCounts['in-progress']),
+                          icon: <CircleProgress className="h-3.5 w-3.5" />,
+                          iconColor: getStateColor('in-progress'),
+                          variant: viewMode === 'state:in-progress' ? "default" : "ghost",
+                          onClick: () => handleTodoStateClick('in-progress'),
+                        },
+                        {
+                          id: "nav:state:needs-review",
+                          title: "Needs Review",
+                          label: String(todoStateCounts['needs-review']),
+                          icon: <CircleEye className="h-3.5 w-3.5" />,
+                          iconColor: getStateColor('needs-review'),
+                          variant: viewMode === 'state:needs-review' ? "default" : "ghost",
+                          onClick: () => handleTodoStateClick('needs-review'),
+                        },
+                        {
+                          id: "nav:state:done",
+                          title: "Done",
+                          label: String(todoStateCounts['done']),
+                          icon: <CircleCheckFilled className="h-3.5 w-3.5" />,
+                          iconColor: "text-[#9570BE]",
+                          variant: viewMode === 'state:done' ? "default" : "ghost",
+                          onClick: () => handleTodoStateClick('done'),
+                        },
+                        {
+                          id: "nav:state:cancelled",
+                          title: "Cancelled",
+                          label: String(todoStateCounts['cancelled']),
+                          icon: <CircleXFilled className="h-3.5 w-3.5" />,
+                          iconColor: "text-muted-foreground/60",
+                          variant: viewMode === 'state:cancelled' ? "default" : "ghost",
+                          onClick: () => handleTodoStateClick('cancelled'),
+                        },
+                      ]}
+                    />
+                  </AnimatedCollapsibleContent>
+                </Collapsible>
+                {/* Agent Tree: Hierarchical list of agents - Collapsible */}
+                <Collapsible
+                  open={!agentsCollapsed}
+                  onOpenChange={(open) => setAgentsCollapsed(!open)}
+                  className={cn("group/agents flex-1 min-h-0 flex flex-col overflow-hidden pt-0.5", agentsCollapsed && "mb-2")}
+                >
+                  {/* Agents Section Header */}
+                  <CollapsibleTrigger asChild>
+                    <button className="group flex items-center justify-between w-full pl-4 pr-3.5 py-2 shrink-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-muted-foreground select-none">Agents</span>
+                        {isLoadingAgents && agents.length > 0 && (
+                          <Spinner className="text-xs text-muted-foreground" />
                         )}
-                      </motion.div>
-                    </AnimatePresence>
-                  </ScrollArea>
-                </div>
+                      </div>
+                      <ChevronDown className={cn(
+                        "h-3.5 w-3.5 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all duration-200",
+                        agentsCollapsed && "-rotate-90"
+                      )} />
+                    </button>
+                  </CollapsibleTrigger>
+                  {/* Scrollable Agent Tree */}
+                  <AnimatedCollapsibleContent isOpen={!agentsCollapsed} className="flex-1 min-h-0">
+                    <ScrollArea className="h-full">
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={activeWorkspaceId ?? 'none'}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.15 }}
+                          className="px-2 pb-2"
+                        >
+                          {agents.length === 0 ? (
+                            isLoadingAgents ? (
+                              <div className="flex items-center gap-2 px-2 py-4">
+                                <Spinner className="text-sm text-muted-foreground" />
+                                <span className="text-xs text-muted-foreground">Loading agents...</span>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground px-2 py-4">
+                                No agents found. Create an "Agents" folder in your Craft space.
+                              </p>
+                            )
+                          ) : (
+                            <AgentTree
+                              folder={agentTree}
+                              level={0}
+                              isCollapsed={false}
+                              selectedAgentId={selectedAgentId}
+                              onSelectAgent={handleSelectAgent}
+                              getConversationCount={getConversationCount}
+                              onAgentAction={handleAgentAction}
+                              isFocused={sidebarFocused}
+                              expandedFolders={expandedFolders}
+                              onToggleFolder={handleToggleFolder}
+                              focusedItemId={focusedSidebarItemId}
+                              onFocusItem={setFocusedSidebarItemId}
+                              getItemProps={getSidebarItemProps}
+                              agentStatus={agentStatus}
+                              agentLogos={agentLogos}
+                            />
+                          )}
+                        </motion.div>
+                      </AnimatePresence>
+                    </ScrollArea>
+                  </AnimatedCollapsibleContent>
+                </Collapsible>
               </div>
 
               {/* Sidebar Bottom Section: WorkspaceSwitcher + Settings */}

@@ -2,6 +2,66 @@ import { formatPreferencesForPrompt } from '../config/preferences.ts';
 import type { SubAgentDefinition } from '../agents/types.ts';
 import { debug } from '../utils/debug.ts';
 import { getSafeModeDocumentation } from '../agent/mode-manager.ts';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+
+/** Maximum size of CLAUDE.md/agents.md file to include (10KB) */
+const MAX_CONTEXT_FILE_SIZE = 10 * 1024;
+
+/** Files to look for in working directory (in priority order) */
+const CONTEXT_FILES = ['CLAUDE.md', 'agents.md'];
+
+/**
+ * Read the project context file (CLAUDE.md or agents.md) from a directory.
+ * Returns the content if found, null otherwise.
+ * CLAUDE.md takes precedence over agents.md.
+ */
+export function readProjectContextFile(directory: string): { filename: string; content: string } | null {
+  for (const filename of CONTEXT_FILES) {
+    const filePath = join(directory, filename);
+    if (existsSync(filePath)) {
+      try {
+        const content = readFileSync(filePath, 'utf-8');
+        // Cap at max size to avoid huge prompts
+        if (content.length > MAX_CONTEXT_FILE_SIZE) {
+          debug(`[readProjectContextFile] ${filename} exceeds max size, truncating`);
+          return {
+            filename,
+            content: content.slice(0, MAX_CONTEXT_FILE_SIZE) + '\n\n... (truncated)',
+          };
+        }
+        debug(`[readProjectContextFile] Found ${filename} (${content.length} chars)`);
+        return { filename, content };
+      } catch (error) {
+        debug(`[readProjectContextFile] Error reading ${filename}:`, error);
+        // Continue to next file
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Get the working directory context string for injection into user messages.
+ * Includes the working directory path and any CLAUDE.md/agents.md content.
+ * Returns empty string if no working directory is set.
+ */
+export function getWorkingDirectoryContext(workingDirectory?: string): string {
+  if (!workingDirectory) {
+    return '';
+  }
+
+  const parts: string[] = [];
+  parts.push(`<working_directory>${workingDirectory}</working_directory>`);
+
+  // Try to read project context file
+  const contextFile = readProjectContextFile(workingDirectory);
+  if (contextFile) {
+    parts.push(`<project_context file="${contextFile.filename}">\n${contextFile.content}\n</project_context>`);
+  }
+
+  return parts.join('\n\n');
+}
 
 /**
  * Get the current date/time context string
@@ -322,6 +382,15 @@ This helps with:
 - **Result summarization** - Focuses on relevant information for large results
 
 Remember: You're working through a terminal interface. Keep responses scannable and actionable.
+
+## Session Attachments
+
+When users attach files (PDFs, images, documents) to messages, they are stored in the session folder:
+- **Location**: \`~/.craft-agent/sessions/{sessionId}/attachments/\`
+- Files are copied with a unique ID prefix: \`{uuid}_{original_filename}\`
+- You can use the Read tool to access these files by their full path
+- When an attachment is included in a message, you'll see its stored path in the message context
+- To find previously attached files, look in the session's attachments folder
 
 ## Headless Mode
 

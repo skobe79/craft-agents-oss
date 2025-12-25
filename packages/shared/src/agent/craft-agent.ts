@@ -2,7 +2,7 @@ import { query, createSdkMcpServer, tool, AbortError, type Query, type SDKMessag
 import { getDefaultOptions } from './options.ts';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 import { z } from 'zod';
-import { getSystemPrompt, getDateTimeContext } from '../prompts/system.ts';
+import { getSystemPrompt, getDateTimeContext, getWorkingDirectoryContext } from '../prompts/system.ts';
 import type { SubAgentDefinition } from '../agents/types.ts';
 // Plan types are used by UI components; not needed in craft-agent.ts since Safe Mode is user-controlled
 import { parseError, type AgentError } from './errors.ts';
@@ -17,13 +17,14 @@ import type { FileAttachment } from '../utils/files.ts';
 import { debug } from '../utils/debug.ts';
 import { estimateTokens, summarizeLargeResult, TOKEN_LIMIT } from '../utils/summarize.ts';
 import {
-  createSubmitPlanTool,
   getSessionPlansDir,
-  registerPlanCallbacks,
-  unregisterPlanCallbacks,
   getLastPlanFilePath,
   clearPlanFileState,
-} from './plan-tools.ts';
+  registerSessionScopedToolCallbacks,
+  unregisterSessionScopedToolCallbacks,
+  getSessionScopedTools,
+  cleanupSessionScopedTools,
+} from './session-scoped-tools.ts';
 import {
   isModeActive,
   enterMode,
@@ -433,32 +434,6 @@ Example bad content:
 let cachedPrefToolsServerForBase: ReturnType<typeof createSdkMcpServer> | null = null;
 let cachedPrefToolsServerForAgent: ReturnType<typeof createSdkMcpServer> | null = null;
 
-// Per-session plan server cache - keyed by sessionId to prevent cross-session contamination
-const planServerCache = new Map<string, ReturnType<typeof createSdkMcpServer>>();
-
-// Plan tools in their own MCP server (universal - works in any mode)
-// Each session gets its own server with session-scoped tools
-function getPlanServer(sessionId: string): ReturnType<typeof createSdkMcpServer> {
-  let cached = planServerCache.get(sessionId);
-  if (!cached) {
-    // Create session-scoped tools that capture the sessionId in their closures
-    cached = createSdkMcpServer({
-      name: 'plan',
-      version: '1.0.0',
-      tools: [
-        createSubmitPlanTool(sessionId),
-      ],
-    });
-    planServerCache.set(sessionId, cached);
-  }
-  return cached;
-}
-
-// Clean up plan server when session is disposed
-function cleanupPlanServer(sessionId: string): void {
-  planServerCache.delete(sessionId);
-}
-
 // Preferences MCP server - user preferences and agent instruction tools
 function getPreferencesServer(hasActiveAgent: boolean): ReturnType<typeof createSdkMcpServer> {
   if (hasActiveAgent) {
@@ -560,11 +535,18 @@ export class CraftAgent {
       },
     });
 
-    // Register plan callbacks for SubmitPlan tool
-    registerPlanCallbacks(sessionId, {
+    // Register session-scoped tool callbacks
+    registerSessionScopedToolCallbacks(sessionId, {
       onPlanSubmitted: (planPath) => {
         this.onDebug?.(`[CraftAgent] onPlanSubmitted received: ${planPath}`);
         this.onPlanSubmitted?.(planPath);
+      },
+      onWorkingDirectoryChange: (path) => {
+        this.onDebug?.(`[CraftAgent] onWorkingDirectoryChange received: ${path}`);
+        if (this.config.session) {
+          this.config.session.workingDirectory = path;
+        }
+        this.onWorkingDirectoryChange?.(path);
       },
     });
   }
@@ -847,9 +829,8 @@ export class CraftAgent {
           ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
         },
         preferences: getPreferencesServer(hasActiveAgent),
-        // Plan mode tools in their own server for cleaner tool names
-        // Session-scoped to prevent cross-session contamination
-        plan: getPlanServer(sessionId),
+        // Session-scoped tools (SubmitPlan, change_working_directory, etc.)
+        session: getSessionScopedTools(sessionId),
         // External docs MCP server (public, no auth required)
         // Provides Craft Agent documentation for agents, MCP servers, APIs, and setup
         docs: {
@@ -1522,11 +1503,18 @@ export class CraftAgent {
     // This lightweight format replaces the verbose mode context
     parts.push(formatSessionState(this.modeSessionId));
 
-    // Add file attachments
+    // Add working directory context if set
+    const workingDirContext = getWorkingDirectoryContext(this.config.session?.workingDirectory);
+    if (workingDirContext) {
+      parts.push(workingDirContext);
+    }
+
+    // Add file attachments with stored path info
     if (attachments) {
       for (const attachment of attachments) {
         if (attachment.type === 'text' && attachment.text) {
-          parts.push(`[File: ${attachment.name}]\n\`\`\`\n${attachment.text}\n\`\`\``);
+          const pathInfo = attachment.storedPath ? `\n[Stored at: ${attachment.storedPath}]` : '';
+          parts.push(`[File: ${attachment.name}]${pathInfo}\n\`\`\`\n${attachment.text}\n\`\`\``);
         }
       }
     }
@@ -1554,9 +1542,23 @@ export class CraftAgent {
     // This lightweight format replaces the verbose mode context
     contentBlocks.push({ type: 'text', text: formatSessionState(this.modeSessionId) });
 
-    // Add attachments
+    // Add working directory context if set
+    const workingDirContext = getWorkingDirectoryContext(this.config.session?.workingDirectory);
+    if (workingDirContext) {
+      contentBlocks.push({ type: 'text', text: workingDirContext });
+    }
+
+    // Add attachments with stored path info
     if (attachments) {
       for (const attachment of attachments) {
+        // Add path info text block before binary attachments so the agent knows where the file is stored
+        if (attachment.storedPath && (attachment.type === 'image' || attachment.type === 'pdf')) {
+          contentBlocks.push({
+            type: 'text',
+            text: `[Attached file: ${attachment.name}]\n[Stored at: ${attachment.storedPath}]`,
+          });
+        }
+
         if (attachment.type === 'image' && attachment.base64) {
           const mediaType = this.mapImageMediaType(attachment.mimeType);
           if (mediaType) {
@@ -1583,6 +1585,10 @@ export class CraftAgent {
           // - Avoid context overflow for large files
           // - Enable citation support (char_location)
           // - Consistent handling with PDFs
+          // Include stored path in title for reference
+          const titleWithPath = attachment.storedPath
+            ? `${attachment.name} (stored at: ${attachment.storedPath})`
+            : attachment.name;
           contentBlocks.push({
             type: 'document',
             source: {
@@ -1590,7 +1596,7 @@ export class CraftAgent {
               media_type: 'text/plain',
               data: attachment.text,
             },
-            title: attachment.name,
+            title: titleWithPath,
           });
         }
       }
@@ -2193,13 +2199,11 @@ export class CraftAgent {
     this.onSafeModeChange = null;
     this.onPlanSubmitted = null;
 
-    // Clean up session-specific mode state and plan server cache
+    // Clean up session-specific state
     const configSessionId = this.config.session?.id;
     if (configSessionId) {
       cleanupModeState(configSessionId);
-      unregisterPlanCallbacks(configSessionId);
-      cleanupPlanServer(configSessionId);
-      clearPlanFileState(configSessionId);
+      cleanupSessionScopedTools(configSessionId);
     }
 
     // Clear session

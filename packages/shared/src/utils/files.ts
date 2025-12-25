@@ -11,6 +11,8 @@ export interface FileAttachment {
   base64?: string;
   text?: string;
   size: number;
+  /** Path where file is stored in session attachments folder (set by Electron app) */
+  storedPath?: string;
 }
 
 // Supported image types for Claude API

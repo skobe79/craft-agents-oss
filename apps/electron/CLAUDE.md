@@ -286,7 +286,6 @@ apps/electron/
 │   │   ├── hooks/
 │   │   │   ├── useAgentState.ts  # Agent activation state machine (IPC-based)
 │   │   │   └── useDeepLinkNavigation.ts  # Deep link tab navigation
-│   │   ├── mocks/         # Browser dev mode mock APIs
 │   │   └── playground/    # Component development playground
 │   │       ├── PlaygroundApp.tsx     # Main playground component
 │   │       ├── ComponentPreview.tsx  # Component preview display

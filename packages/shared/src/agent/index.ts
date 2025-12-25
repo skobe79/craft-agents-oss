@@ -2,22 +2,25 @@ export * from './craft-agent.ts';
 export * from './errors.ts';
 export * from './options.ts';
 
-// Export plan-tools - SubmitPlan is universal (agent can use anytime)
+// Export session-scoped-tools - tools scoped to a specific session
 export {
-  // Tool factory (creates session-scoped SubmitPlan tool)
+  // Tool factories (creates session-scoped tools)
   createSubmitPlanTool,
+  createChangeWorkingDirectoryTool,
+  // Session-scoped tools provider
+  getSessionScopedTools,
+  cleanupSessionScopedTools,
   // Plan file management
   getSessionPlansDir,
   getLastPlanFilePath,
-  setLastPlanFilePath,
   clearPlanFileState,
   isPathInPlansDir,
-  // Callback registry for plan submission notifications
-  registerPlanCallbacks,
-  unregisterPlanCallbacks,
+  // Callback registry for session-scoped tool notifications
+  registerSessionScopedToolCallbacks,
+  unregisterSessionScopedToolCallbacks,
   // Types
-  type PlanCallbacks,
-} from './plan-tools.ts';
+  type SessionScopedToolCallbacks,
+} from './session-scoped-tools.ts';
 
 // Export mode-manager - Centralized mode management
 export {

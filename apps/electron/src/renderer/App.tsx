@@ -45,7 +45,7 @@ export default function App() {
 
   // Queue for tool_result events that arrive before their tool_start (out-of-order handling)
   // Using ref to avoid stale closure issues in the useEffect event handler
-  const orphanedToolResultsRef = useRef<Map<string, { result: string; toolName: string; turnId?: string; parentToolUseId?: string }>>(new Map())
+  const orphanedToolResultsRef = useRef<Map<string, { result: string; toolName: string; turnId?: string; parentToolUseId?: string; isError?: boolean }>>(new Map())
   // Ref for sessionOptions to access current value in event handlers without re-registering
   const sessionOptionsRef = useRef(sessionOptions)
   // Keep ref in sync with state
@@ -559,6 +559,7 @@ export default function App() {
                       toolDisplayName: event.toolDisplayName,
                       turnId: event.turnId,
                       parentToolUseId: event.parentToolUseId || queuedResult.parentToolUseId,  // Preserve hierarchy from either source
+                      isError: queuedResult.isError,
                     }
                   ]
                 }
@@ -611,14 +612,14 @@ export default function App() {
               })
 
               if (matchingTool) {
-                console.log('[App] tool_result: marking tool as completed:', event.toolUseId)
+                console.log('[App] tool_result: marking tool as completed:', event.toolUseId, 'isError:', event.isError)
                 // Normal case - message exists, update it
                 // Preserve parentToolUseId (from tool_start) or use event's if available
                 return {
                   ...session,
                   messages: toolMsgs.map(m =>
                     m.toolUseId === event.toolUseId
-                      ? { ...m, content: event.result, toolResult: event.result, toolStatus: 'completed', parentToolUseId: event.parentToolUseId || m.parentToolUseId }
+                      ? { ...m, content: event.result, toolResult: event.result, toolStatus: 'completed', parentToolUseId: event.parentToolUseId || m.parentToolUseId, isError: event.isError }
                       : m
                   )
                 }
@@ -631,6 +632,7 @@ export default function App() {
                 toolName: event.toolName,
                 turnId: event.turnId,
                 parentToolUseId: event.parentToolUseId,  // Preserve hierarchy for out-of-order case
+                isError: event.isError,
               })
               console.warn(`[App] tool_result arrived before tool_start for ${event.toolUseId} (${event.toolName}) - queued`)
 
@@ -1002,6 +1004,7 @@ export default function App() {
         // Step 2: Create processed attachments for Claude
         // - Office files: Convert to text with markdown content
         // - Others: Use original FileAttachment
+        // - All: Include storedPath so agent knows where files are stored
         processedAttachments = await Promise.all(
           successfulAttachments.map(async (att, i) => {
             const stored = storedAttachments?.[i]
@@ -1017,9 +1020,14 @@ export default function App() {
                 type: 'text' as const,
                 text: markdown,
                 base64: undefined, // Don't send binary
+                storedPath: stored.storedPath, // Include storage path for agent reference
               }
             }
-            return att
+            // Include storedPath for all attachment types
+            return {
+              ...att,
+              storedPath: stored.storedPath,
+            }
           })
         )
       }

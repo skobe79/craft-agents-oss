@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import * as storage from '@/lib/local-storage'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type FontFamily = 'inter' | 'system'
@@ -12,8 +13,6 @@ interface ThemeContextType {
   setColorTheme: (theme: string) => void
   setFont: (font: FontFamily) => void
 }
-
-const STORAGE_KEY = 'craft-agent-theme'
 
 interface StoredTheme {
   mode: ThemeMode
@@ -43,24 +42,11 @@ function getSystemPreference(): 'light' | 'dark' {
 
 function loadStoredTheme(): StoredTheme | null {
   if (typeof window === 'undefined') return null
-
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) {
-      return JSON.parse(stored) as StoredTheme
-    }
-  } catch (e) {
-    console.warn('[ThemeContext] Failed to load stored theme:', e)
-  }
-  return null
+  return storage.get<StoredTheme | null>(storage.KEYS.theme, null)
 }
 
 function saveTheme(theme: StoredTheme): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(theme))
-  } catch (e) {
-    console.warn('[ThemeContext] Failed to save theme:', e)
-  }
+  storage.set(storage.KEYS.theme, theme)
 }
 
 function applyThemeToDOM(resolvedMode: 'light' | 'dark', colorTheme: string, mode: ThemeMode, font: FontFamily): void {

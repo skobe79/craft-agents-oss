@@ -5,8 +5,9 @@ import {
   Square,
   ChevronDown,
   SquareSlash,
-  Terminal,
 } from 'lucide-react'
+
+import * as storage from '@/lib/local-storage'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -23,6 +24,7 @@ import {
   type SlashCommandId,
 } from '@/components/ui/slash-command-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AttachmentPreview } from '../AttachmentPreview'
 import { MODELS, getModelDisplayName } from '@config/models'
@@ -561,24 +563,10 @@ export function FreeFormInput({
 
           {/* Working Directory Selector */}
           {workingDirectory && onWorkingDirectoryChange && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-1.5 gap-0.5 text-[13px] shrink-0 rounded-[6px] hover:bg-foreground/5 max-w-[160px]"
-              onClick={async () => {
-                if (!window.electronAPI) return
-                const selectedPath = await window.electronAPI.openFolderDialog()
-                if (selectedPath) {
-                  onWorkingDirectoryChange(selectedPath)
-                }
-              }}
-              title={workingDirectory}
-            >
-              <Terminal className="opacity-50 shrink-0" style={{ width: 12, height: 12 }} />
-              <span className="truncate">{workingDirectory.split('/').pop() || 'Home'}</span>
-              <ChevronDown className="opacity-50 shrink-0" style={{ width: 12, height: 12 }} />
-            </Button>
+            <WorkingDirectorySelector
+              workingDirectory={workingDirectory}
+              onWorkingDirectoryChange={onWorkingDirectoryChange}
+            />
           )}
 
           {/* Spacer */}
@@ -608,5 +596,100 @@ export function FreeFormInput({
         </div>
       </div>
     </form>
+  )
+}
+
+/**
+ * Helper functions for recent directories storage
+ */
+function getRecentDirs(): string[] {
+  return storage.get<string[]>(storage.KEYS.recentWorkingDirs, [])
+}
+
+function addRecentDir(path: string): void {
+  const recent = getRecentDirs().filter(p => p !== path)
+  const updated = [path, ...recent].slice(0, 5)
+  storage.set(storage.KEYS.recentWorkingDirs, updated)
+}
+
+/**
+ * WorkingDirectorySelector - Dropdown for selecting working directory
+ */
+function WorkingDirectorySelector({
+  workingDirectory,
+  onWorkingDirectoryChange,
+}: {
+  workingDirectory: string
+  onWorkingDirectoryChange: (path: string) => void
+}) {
+  const [recentDirs, setRecentDirs] = React.useState<string[]>([])
+
+  // Load recent directories on mount
+  React.useEffect(() => {
+    setRecentDirs(getRecentDirs())
+  }, [])
+
+  const handleChooseFolder = async () => {
+    if (!window.electronAPI) return
+    const selectedPath = await window.electronAPI.openFolderDialog()
+    if (selectedPath) {
+      addRecentDir(selectedPath)
+      setRecentDirs(getRecentDirs())
+      onWorkingDirectoryChange(selectedPath)
+    }
+  }
+
+  const handleSelectRecent = (path: string) => {
+    addRecentDir(path) // Move to top of recent list
+    setRecentDirs(getRecentDirs())
+    onWorkingDirectoryChange(path)
+  }
+
+  // Filter out current directory from recent list
+  const filteredRecent = recentDirs.filter(p => p !== workingDirectory)
+
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-1.5 gap-0.5 text-[13px] shrink-0 rounded-[6px] hover:bg-foreground/5 data-[state=open]:bg-foreground/5 max-w-[160px]"
+            >
+              <span className="truncate">{workingDirectory.split('/').pop() || 'Home'}</span>
+              <ChevronDown className="opacity-50 shrink-0" style={{ width: 12, height: 12 }} />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="flex flex-col gap-0.5">
+          <span className="font-medium">Local working directory</span>
+          <span className="text-xs opacity-70 font-mono">{workingDirectory}</span>
+        </TooltipContent>
+      </Tooltip>
+      <StyledDropdownMenuContent side="top" align="start" sideOffset={8}>
+        {/* Recent Directories */}
+        {filteredRecent.length > 0 && (
+          <>
+            {filteredRecent.map((path) => (
+              <StyledDropdownMenuItem
+                key={path}
+                onClick={() => handleSelectRecent(path)}
+                className="font-mono text-xs"
+              >
+                <span className="truncate max-w-[200px]">{path}</span>
+              </StyledDropdownMenuItem>
+            ))}
+            <div className="h-px bg-border my-1" />
+          </>
+        )}
+        {/* Choose Folder option */}
+        <StyledDropdownMenuItem onClick={handleChooseFolder}>
+          Choose Folder...
+        </StyledDropdownMenuItem>
+      </StyledDropdownMenuContent>
+    </DropdownMenu>
   )
 }
