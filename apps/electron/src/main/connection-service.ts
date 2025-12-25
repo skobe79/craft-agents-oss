@@ -164,15 +164,23 @@ export class ConnectionService {
       return null
     }
 
+    // In-memory cache for refreshed tokens (prevents repeated refresh if persistence fails)
+    let cachedToken: { accessToken: string; expiresAt: number } | null = null
+
     // Create a token getter that refreshes on each request if needed
     const getToken = async (): Promise<string> => {
+      const now = Date.now()
+
+      // Check in-memory cache first (handles case where persistence failed)
+      if (cachedToken && cachedToken.expiresAt > now + TOKEN_REFRESH_BUFFER_MS) {
+        return cachedToken.accessToken
+      }
+
       const creds = await manager.get(credentialId)
 
       if (!creds?.value) {
         throw new Error(`No stored token for Gmail connection: ${connection.name}`)
       }
-
-      const now = Date.now()
 
       // Determine token state
       const isActuallyExpired = creds.expiresAt && creds.expiresAt < now
@@ -186,6 +194,12 @@ export class ConnectionService {
           const refreshResult = await refreshGmailToken(creds.refreshToken!)
           console.log(`[ConnectionService] Gmail token refreshed successfully for: ${connection.name}`)
 
+          // Cache in memory to prevent repeated refresh calls
+          cachedToken = {
+            accessToken: refreshResult.accessToken,
+            expiresAt: refreshResult.expiresAt,
+          }
+
           // Try to persist the new token, but don't fail if storage fails
           try {
             await manager.set(credentialId, {
@@ -194,7 +208,7 @@ export class ConnectionService {
               expiresAt: refreshResult.expiresAt,
             })
           } catch (storageError) {
-            // Log but continue - we still have a valid refreshed token in memory
+            // Log but continue - we have the token cached in memory
             console.warn(`[ConnectionService] Failed to persist refreshed token for ${connection.name}:`, storageError)
           }
 
