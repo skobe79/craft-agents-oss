@@ -15,7 +15,7 @@ import { registerOnboardingHandlers } from './onboarding'
 import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions, type DiffPreviewData, type CodePreviewData, type TerminalPreviewData } from '../shared/types'
 import { readFileAttachment } from '@craft-agent/shared/utils'
 import { getAiCreditTopUpUrl } from '@craft-agent/shared/auth'
-import { getSessionAttachmentsPath, getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultPlanMode, setDefaultPlanMode, getDefaultSkipPermissions, setDefaultSkipPermissions } from '@craft-agent/shared/config'
+import { getSessionAttachmentsPath, getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultPlanMode, setDefaultPlanMode, getDefaultSkipPermissions, setDefaultSkipPermissions, getConnections, saveConnection, deleteConnection, getConnectionsByIds, type ConnectionConfig } from '@craft-agent/shared/config'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { MarkItDown } from 'markitdown-js'
 
@@ -932,6 +932,59 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
         error: error instanceof Error ? error.message : 'OAuth authentication failed',
       }
     }
+  })
+
+  // Get all connections
+  ipcMain.handle(IPC_CHANNELS.CONNECTIONS_GET, async () => {
+    return getConnections()
+  })
+
+  // Save a connection (create or update)
+  ipcMain.handle(IPC_CHANNELS.CONNECTIONS_SAVE, async (_event, connection: ConnectionConfig) => {
+    // Store OAuth access token in CredentialManager if present
+    if (connection.mcpAccessToken) {
+      const { getCredentialManager } = await import('@craft-agent/shared/credentials')
+      const manager = getCredentialManager()
+      await manager.set(
+        { type: 'connection_oauth', connectionId: connection.id },
+        { value: connection.mcpAccessToken }
+      )
+      console.log(`[IPC] Stored OAuth token for connection: ${connection.id}`)
+    }
+    // Strip the access token before persisting to disk (it's now in CredentialManager)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { mcpAccessToken, ...connectionToSave } = connection
+    saveConnection(connectionToSave as ConnectionConfig)
+  })
+
+  // Delete a connection
+  ipcMain.handle(IPC_CHANNELS.CONNECTIONS_DELETE, async (_event, connectionId: string) => {
+    // Delete the stored OAuth token from CredentialManager
+    try {
+      const { getCredentialManager } = await import('@craft-agent/shared/credentials')
+      const manager = getCredentialManager()
+      await manager.delete({ type: 'connection_oauth', connectionId })
+      console.log(`[IPC] Deleted OAuth token for connection: ${connectionId}`)
+    } catch (error) {
+      // Ignore errors - token may not exist
+      console.log(`[IPC] No OAuth token to delete for connection: ${connectionId}`)
+    }
+    // Delete the connection config
+    deleteConnection(connectionId)
+  })
+
+  // ============================================================
+  // Session Connections
+  // ============================================================
+
+  // Set connections for a session (triggers session restart)
+  ipcMain.handle(IPC_CHANNELS.SESSION_SET_CONNECTIONS, async (_event, sessionId: string, connectionIds: string[]) => {
+    await sessionManager.setSessionConnections(sessionId, connectionIds)
+  })
+
+  // Get connections for a session
+  ipcMain.handle(IPC_CHANNELS.SESSION_GET_CONNECTIONS, async (_event, sessionId: string) => {
+    return sessionManager.getSessionConnections(sessionId)
   })
 
   // Register onboarding handlers

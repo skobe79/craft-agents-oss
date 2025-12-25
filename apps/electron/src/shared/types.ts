@@ -284,6 +284,8 @@ export interface Session {
   todoState?: TodoState
   // Read/unread tracking - ID of last message user has read
   lastReadMessageId?: string
+  // Per-session connection selection
+  selectedConnectionIds?: string[]
 }
 
 // Events sent from main to renderer
@@ -306,6 +308,8 @@ export type SessionEvent =
   | { type: 'plan_mode_changed'; sessionId: string; enabled: boolean }
   | { type: 'plan_submitted'; sessionId: string; message: CoreMessage }
   | { type: 'ask_question_request'; sessionId: string; request: AskQuestionRequest }
+  // Connection events
+  | { type: 'session_restarted'; sessionId: string; selectedConnectionIds: string[] }
 
 // Options for sendMessage
 export interface SendMessageOptions {
@@ -452,6 +456,13 @@ export const IPC_CHANNELS = {
 
   // Connections
   CONNECTIONS_START_MCP_OAUTH: 'connections:startMcpOAuth',
+  CONNECTIONS_GET: 'connections:get',
+  CONNECTIONS_SAVE: 'connections:save',
+  CONNECTIONS_DELETE: 'connections:delete',
+
+  // Session connections
+  SESSION_SET_CONNECTIONS: 'sessions:setConnections',
+  SESSION_GET_CONNECTIONS: 'sessions:getConnections',
 
   // Markdown preview window
   MARKDOWN_PREVIEW_OPEN: 'markdownPreview:open',
@@ -710,6 +721,13 @@ export interface ElectronAPI {
     clientId?: string
     clientSecret?: string
   }): Promise<{ success: boolean; error?: string; accessToken?: string; clientId?: string }>
+  getConnections(): Promise<ConnectionConfig[]>
+  saveConnection(connection: ConnectionConfig): Promise<void>
+  deleteConnection(connectionId: string): Promise<void>
+
+  // Session connections
+  setSessionConnections(sessionId: string, connectionIds: string[]): Promise<void>
+  getSessionConnections(sessionId: string): Promise<string[]>
 }
 
 /**
@@ -760,6 +778,7 @@ export interface ConnectionConfig {
   mcpUrl?: string
   mcpClientId?: string      // Optional static OAuth config
   mcpClientSecret?: string  // Optional static OAuth config
+  mcpAccessToken?: string   // OAuth access token (transient - stored in CredentialManager on save)
   // API-specific
   apiUrl?: string
   apiBearerToken?: string

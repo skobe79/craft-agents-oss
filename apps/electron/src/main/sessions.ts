@@ -12,6 +12,7 @@ import {
   getSessionAttachmentsPath,
   getDefaultPlanMode,
   getDefaultSkipPermissions,
+  getConnectionsByIds,
   type Workspace,
   // Session persistence functions
   listSessions as listStoredSessions,
@@ -27,6 +28,7 @@ import {
   type SessionMetadata,
   type TodoState,
 } from '@craft-agent/shared/config'
+import { getConnectionService } from './connection-service'
 import { getAuthState } from '@craft-agent/shared/auth'
 import { setAnthropicOptionsEnv, setPathToClaudeCodeExecutable, setInterceptorPath } from '@craft-agent/shared/agent'
 import { getCraftToken } from '@craft-agent/shared/auth'
@@ -91,6 +93,11 @@ interface ManagedSession {
   todoState?: 'todo' | 'in-progress' | 'needs-review' | 'done' | 'cancelled'
   // Read/unread tracking - ID of last message user has read
   lastReadMessageId?: string
+  // Per-session connection selection
+  selectedConnectionIds?: string[]
+  // Built connection server configs (applied to CraftAgent)
+  connectionMcpServers?: Record<string, { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }>
+  connectionApiServers?: Record<string, ReturnType<typeof import('@craft-agent/shared/agents/api-tools').createApiServer>>
 }
 
 // Convert runtime Message to StoredMessage for persistence
@@ -586,6 +593,7 @@ export class SessionManager {
           tokenUsage: storedSession.tokenUsage,
           todoState: storedSession.todoState,
           lastReadMessageId: storedSession.lastReadMessageId,
+          selectedConnectionIds: storedSession.selectedConnectionIds,
         }
 
         this.sessions.set(storedSession.id, managed)
@@ -617,6 +625,7 @@ export class SessionManager {
         skipPermissions: managed.skipPermissions,
         planModeEnabled: managed.planModeEnabled,
         todoState: managed.todoState,
+        selectedConnectionIds: managed.selectedConnectionIds,
         messages: persistableMessages.map(messageToStored),
         tokenUsage: managed.tokenUsage ?? {
           inputTokens: 0,
@@ -837,6 +846,62 @@ export class SessionManager {
       managed.todoState = todoState
       setStoredSessionTodoState(sessionId, todoState)
     }
+  }
+
+  // ============================================
+  // Session Connections
+  // ============================================
+
+  /**
+   * Update session's selected connections
+   * Triggers session restart to apply new tool set
+   */
+  async setSessionConnections(sessionId: string, connectionIds: string[]): Promise<void> {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+
+    console.log(`[SessionManager] Setting connections for session ${sessionId}:`, connectionIds)
+
+    // Store the selection
+    managed.selectedConnectionIds = connectionIds
+
+    // Build server configs from selected connections
+    const connections = getConnectionsByIds(connectionIds)
+    const connectionService = getConnectionService()
+    const { mcpServers, apiServers } = await connectionService.buildServerConfigs(connections)
+
+    // Store the built configs
+    managed.connectionMcpServers = mcpServers
+    managed.connectionApiServers = apiServers
+
+    // Restart the session - clear agent, messages, SDK session
+    // This ensures the new connections are applied when the agent is recreated
+    managed.agent = null
+    managed.messages = []
+    managed.sdkSessionId = undefined
+    managed.streamingText = ''
+
+    // Persist the session with updated connections
+    this.persistSession(managed)
+
+    // Notify renderer that session was restarted
+    this.sendEvent({
+      type: 'session_restarted',
+      sessionId,
+      selectedConnectionIds: connectionIds,
+    }, managed.workspace.id)
+
+    console.log(`[SessionManager] Session ${sessionId} restarted with ${connectionIds.length} connections`)
+  }
+
+  /**
+   * Get the selected connection IDs for a session
+   */
+  getSessionConnections(sessionId: string): string[] {
+    const managed = this.sessions.get(sessionId)
+    return managed?.selectedConnectionIds ?? []
   }
 
   /**
@@ -1060,6 +1125,27 @@ export class SessionManager {
         }
       } else {
         console.warn(`[SessionManager] Could not create AgentStateManager for session ${sessionId}`)
+      }
+    }
+
+    // Apply connection servers if any are selected
+    if (managed.selectedConnectionIds?.length) {
+      // Build server configs if not already built
+      if (!managed.connectionMcpServers && !managed.connectionApiServers) {
+        const connections = getConnectionsByIds(managed.selectedConnectionIds)
+        const connectionService = getConnectionService()
+        const { mcpServers, apiServers } = await connectionService.buildServerConfigs(connections)
+        managed.connectionMcpServers = mcpServers
+        managed.connectionApiServers = apiServers
+      }
+
+      // Apply connection servers to the agent
+      if (managed.connectionMcpServers || managed.connectionApiServers) {
+        agent.setConnectionServers(
+          managed.connectionMcpServers ?? {},
+          managed.connectionApiServers ?? {}
+        )
+        console.log(`[SessionManager] Applied ${Object.keys(managed.connectionMcpServers ?? {}).length} MCP connections and ${Object.keys(managed.connectionApiServers ?? {}).length} API connections to session ${sessionId}`)
       }
     }
 

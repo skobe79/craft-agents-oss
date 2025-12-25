@@ -1200,6 +1200,8 @@ export interface Session {
   todoState?: TodoState;
   // Read/unread tracking - ID of last message user has read
   lastReadMessageId?: string;
+  // Per-session connection selection (connection IDs)
+  selectedConnectionIds?: string[];
 }
 
 // Stored session with conversation data
@@ -1624,6 +1626,130 @@ export function cleanupOrphanedDrafts(): void {
 
   if (changed) {
     saveDraftsData(data);
+  }
+}
+
+// ============================================
+// Connection Storage
+// ============================================
+
+const CONNECTIONS_FILE = join(CONFIG_DIR, 'connections.json');
+
+/**
+ * Connection configuration type
+ */
+export interface ConnectionConfig {
+  id: string;
+  name: string;
+  type: 'mcp' | 'api';
+  enabled: boolean;
+  // MCP-specific
+  mcpUrl?: string;
+  mcpClientId?: string;
+  mcpClientSecret?: string;
+  mcpAccessToken?: string; // OAuth access token (transient - stored in CredentialManager on save)
+  // API-specific
+  apiUrl?: string;
+  apiBearerToken?: string;
+  // Auth state
+  isAuthenticated?: boolean;
+}
+
+interface ConnectionsData {
+  connections: ConnectionConfig[];
+  updatedAt: number;
+}
+
+/**
+ * Load all connections from disk
+ */
+function loadConnectionsData(): ConnectionsData {
+  try {
+    if (!existsSync(CONNECTIONS_FILE)) {
+      return { connections: [], updatedAt: 0 };
+    }
+    const content = readFileSync(CONNECTIONS_FILE, 'utf-8');
+    return JSON.parse(content) as ConnectionsData;
+  } catch {
+    return { connections: [], updatedAt: 0 };
+  }
+}
+
+/**
+ * Save connections to disk
+ */
+function saveConnectionsData(data: ConnectionsData): void {
+  ensureConfigDir();
+  data.updatedAt = Date.now();
+  writeFileSync(CONNECTIONS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+/**
+ * Get all connections
+ */
+export function getConnections(): ConnectionConfig[] {
+  const data = loadConnectionsData();
+  return data.connections;
+}
+
+/**
+ * Get a connection by ID
+ */
+export function getConnectionById(id: string): ConnectionConfig | null {
+  const data = loadConnectionsData();
+  return data.connections.find(c => c.id === id) ?? null;
+}
+
+/**
+ * Get connections by IDs
+ */
+export function getConnectionsByIds(ids: string[]): ConnectionConfig[] {
+  const data = loadConnectionsData();
+  return data.connections.filter(c => ids.includes(c.id));
+}
+
+/**
+ * Get enabled connections only
+ */
+export function getEnabledConnections(): ConnectionConfig[] {
+  const data = loadConnectionsData();
+  return data.connections.filter(c => c.enabled);
+}
+
+/**
+ * Save a connection (create or update)
+ */
+export function saveConnection(connection: ConnectionConfig): void {
+  const data = loadConnectionsData();
+  const existingIndex = data.connections.findIndex(c => c.id === connection.id);
+
+  if (existingIndex >= 0) {
+    data.connections[existingIndex] = connection;
+  } else {
+    data.connections.push(connection);
+  }
+
+  saveConnectionsData(data);
+}
+
+/**
+ * Delete a connection by ID
+ */
+export function deleteConnection(id: string): void {
+  const data = loadConnectionsData();
+  data.connections = data.connections.filter(c => c.id !== id);
+  saveConnectionsData(data);
+}
+
+/**
+ * Update connection enabled state
+ */
+export function setConnectionEnabled(id: string, enabled: boolean): void {
+  const data = loadConnectionsData();
+  const connection = data.connections.find(c => c.id === id);
+  if (connection) {
+    connection.enabled = enabled;
+    saveConnectionsData(data);
   }
 }
 

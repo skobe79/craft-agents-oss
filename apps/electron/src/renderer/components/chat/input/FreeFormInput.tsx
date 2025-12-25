@@ -7,6 +7,7 @@ import {
   ChevronDown,
   SquareSlash,
   Check,
+  Plus,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -20,7 +21,7 @@ import {
 import { cn } from '@/lib/utils'
 import { AttachmentPreview } from '../AttachmentPreview'
 import { MODELS, getModelDisplayName } from '@config/models'
-import type { FileAttachment } from '../../../../shared/types'
+import type { FileAttachment, ConnectionConfig } from '../../../../shared/types'
 
 export interface FreeFormInputProps {
   /** Placeholder text for the textarea */
@@ -57,6 +58,13 @@ export interface FreeFormInputProps {
   onHeightChange?: (height: number) => void
   /** Callback when focus state changes */
   onFocusChange?: (focused: boolean) => void
+  // Connection selection
+  /** Available connections (enabled only) */
+  connections?: ConnectionConfig[]
+  /** Currently selected connection IDs for this session */
+  selectedConnectionIds?: string[]
+  /** Callback when connection selection changes */
+  onConnectionsChange?: (ids: string[]) => void
 }
 
 /**
@@ -89,6 +97,9 @@ export function FreeFormInput({
   unstyled = false,
   onHeightChange,
   onFocusChange,
+  connections = [],
+  selectedConnectionIds = [],
+  onConnectionsChange,
 }: FreeFormInputProps) {
   // Performance optimization: Always use internal state for typing to avoid parent re-renders
   // Sync FROM parent on mount/change (for restoring drafts)
@@ -137,6 +148,7 @@ export function FreeFormInput({
   const [loadingCount, setLoadingCount] = React.useState(0)
   const [slashDropdownOpen, setSlashDropdownOpen] = React.useState(false)
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false)
+  const [connectionDropdownOpen, setConnectionDropdownOpen] = React.useState(false)
   const [isFocused, setIsFocused] = React.useState(false)
 
   const dragCounterRef = React.useRef(0)
@@ -145,6 +157,8 @@ export function FreeFormInput({
   const [modelDropdownPosition, setModelDropdownPosition] = React.useState<{ top: number; left: number } | null>(null)
   const slashButtonRef = React.useRef<HTMLButtonElement>(null)
   const [slashDropdownPosition, setSlashDropdownPosition] = React.useState<{ top: number; left: number } | null>(null)
+  const connectionButtonRef = React.useRef<HTMLButtonElement>(null)
+  const [connectionDropdownPosition, setConnectionDropdownPosition] = React.useState<{ top: number; left: number } | null>(null)
 
   // Merge refs
   const internalRef = React.useRef<HTMLTextAreaElement>(null)
@@ -537,6 +551,94 @@ export function FreeFormInput({
               document.body
             )}
           </div>
+
+          {/* Connection Selector Button - only show if onConnectionsChange is provided */}
+          {onConnectionsChange && (
+            <div className="relative">
+              <button
+                ref={connectionButtonRef}
+                type="button"
+                className={cn(
+                  "inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-[4px] hover:bg-foreground/5 transition-colors disabled:opacity-50 disabled:pointer-events-none",
+                  selectedConnectionIds.length > 0 && "text-primary"
+                )}
+                disabled={disabled}
+                onClick={() => {
+                  if (!connectionDropdownOpen && connectionButtonRef.current) {
+                    const rect = connectionButtonRef.current.getBoundingClientRect()
+                    setConnectionDropdownPosition({
+                      top: rect.top,
+                      left: rect.left,
+                    })
+                  }
+                  setConnectionDropdownOpen(!connectionDropdownOpen)
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                {selectedConnectionIds.length > 0 && (
+                  <span className="absolute -top-1 -right-1 h-4 w-4 text-[10px] font-medium bg-primary text-primary-foreground rounded-full flex items-center justify-center">
+                    {selectedConnectionIds.length}
+                  </span>
+                )}
+              </button>
+              {connectionDropdownOpen && connectionDropdownPosition && ReactDOM.createPortal(
+                <>
+                  <div
+                    className="fixed inset-0 z-[9998]"
+                    onClick={() => setConnectionDropdownOpen(false)}
+                  />
+                  <div
+                    className="fixed rounded-2xl border bg-popover shadow-lg z-[9999] p-3 min-w-[240px]"
+                    style={{
+                      top: connectionDropdownPosition.top - 8,
+                      left: connectionDropdownPosition.left,
+                      transform: 'translateY(-100%)',
+                    }}
+                  >
+                    <div className="text-sm font-medium mb-2">Connections</div>
+                    {connections.length === 0 ? (
+                      <div className="text-xs text-muted-foreground py-2">
+                        No connections configured.
+                        <br />
+                        Add connections in Settings.
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {connections.map(conn => (
+                          <label
+                            key={conn.id}
+                            className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-accent/50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedConnectionIds.includes(conn.id)}
+                              onChange={(e) => {
+                                const newIds = e.target.checked
+                                  ? [...selectedConnectionIds, conn.id]
+                                  : selectedConnectionIds.filter(id => id !== conn.id)
+                                onConnectionsChange(newIds)
+                              }}
+                              className="rounded"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm">{conn.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {conn.type === 'mcp' ? 'MCP Server' : 'API'}
+                              </div>
+                            </div>
+                            {selectedConnectionIds.includes(conn.id) && (
+                              <Check className="h-4 w-4 text-primary shrink-0" />
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>,
+                document.body
+              )}
+            </div>
+          )}
 
           {/* Attach File Button */}
           <Button

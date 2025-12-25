@@ -131,8 +131,9 @@ export function AddConnectionDialog({
           type: 'mcp' as const,
           name: mcpName,
           mcpUrl,
-          mcpClientId: mcpClientId || undefined,
+          mcpClientId: result.clientId || mcpClientId || undefined,
           mcpClientSecret: mcpClientSecret || undefined,
+          mcpAccessToken: result.accessToken, // Will be stored in CredentialManager on save
           isAuthenticated: true,
         }
 

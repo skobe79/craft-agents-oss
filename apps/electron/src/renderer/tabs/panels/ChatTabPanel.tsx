@@ -41,6 +41,9 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
     // Input drafts
     sessionDrafts,
     onInputChange,
+    // Connections
+    enabledConnections,
+    onSessionConnectionsChange,
   } = useChatContext()
 
   const { closeTab, openAgentSetupTab } = useTabs()
@@ -193,6 +196,9 @@ export default function ChatTabPanel({ tab }: ChatTabPanelProps) {
       // Input draft preservation
       inputValue={inputValue}
       onInputChange={handleInputChange}
+      // Connections
+      connections={enabledConnections}
+      onConnectionsChange={(ids) => onSessionConnectionsChange(chatTab.sessionId, ids)}
     />
   )
 }

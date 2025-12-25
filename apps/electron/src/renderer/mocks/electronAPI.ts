@@ -1019,4 +1019,51 @@ console.log(example);
     }
     return drafts
   },
+
+  // ===== Connections =====
+
+  async startConnectionMcpOAuth(_config: { name: string; url: string; clientId?: string; clientSecret?: string }): Promise<{ success: boolean; error?: string; accessToken?: string; clientId?: string }> {
+    await sleep(500)
+    // Mock: return fake OAuth tokens
+    return {
+      success: true,
+      accessToken: 'mock-access-token',
+      clientId: 'mock-client-id',
+    }
+  },
+
+  async getConnections(): Promise<import('../../shared/types').ConnectionConfig[]> {
+    // Mock: get from localStorage
+    const stored = localStorage.getItem('connections')
+    return stored ? JSON.parse(stored) : []
+  },
+
+  async saveConnection(connection: import('../../shared/types').ConnectionConfig): Promise<void> {
+    // Mock: save to localStorage
+    const connections = await this.getConnections()
+    const index = connections.findIndex(c => c.id === connection.id)
+    if (index >= 0) {
+      connections[index] = connection
+    } else {
+      connections.push(connection)
+    }
+    localStorage.setItem('connections', JSON.stringify(connections))
+  },
+
+  async deleteConnection(connectionId: string): Promise<void> {
+    // Mock: delete from localStorage
+    const connections = await this.getConnections()
+    const filtered = connections.filter(c => c.id !== connectionId)
+    localStorage.setItem('connections', JSON.stringify(filtered))
+  },
+
+  async setSessionConnections(_sessionId: string, _connectionIds: string[]): Promise<void> {
+    // Mock: no-op for browser mode
+    console.log('[Mock] setSessionConnections called - no-op in browser mode')
+  },
+
+  async getSessionConnections(_sessionId: string): Promise<string[]> {
+    // Mock: return empty array
+    return []
+  },
 }

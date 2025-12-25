@@ -22,6 +22,7 @@ import {
   Plus,
   Plug,
   Pencil,
+  Trash2,
 } from "lucide-react"
 import { McpIcon } from "../icons/McpIcon"
 import {
@@ -597,21 +598,62 @@ export function Chat({
   const [isAddConnectionOpen, setIsAddConnectionOpen] = React.useState(false)
   const [editingConnection, setEditingConnection] = React.useState<ConnectionConfig | null>(null)
 
-  const handleToggleConnection = React.useCallback((id: string, enabled: boolean) => {
-    setConnections(prev => prev.map(c => c.id === id ? { ...c, enabled } : c))
+  // Load connections from backend on mount
+  React.useEffect(() => {
+    window.electronAPI.getConnections().then((loaded) => {
+      setConnections(loaded || [])
+    }).catch(err => {
+      console.error('[Chat] Failed to load connections:', err)
+    })
   }, [])
 
-  const handleAddConnection = React.useCallback((config: Omit<ConnectionConfig, 'id' | 'enabled'>) => {
+  const handleToggleConnection = React.useCallback(async (id: string, enabled: boolean) => {
+    // Optimistic update
+    setConnections(prev => prev.map(c => c.id === id ? { ...c, enabled } : c))
+    // Persist to backend
+    const conn = connections.find(c => c.id === id)
+    if (conn) {
+      await window.electronAPI.saveConnection({ ...conn, enabled })
+    }
+  }, [connections])
+
+  const handleAddConnection = React.useCallback(async (config: Omit<ConnectionConfig, 'id' | 'enabled'>) => {
     const newConnection: ConnectionConfig = {
       ...config,
       id: crypto.randomUUID(),
       enabled: true,
     }
+    // Optimistic update
     setConnections(prev => [...prev, newConnection])
+    // Persist to backend
+    await window.electronAPI.saveConnection(newConnection)
   }, [])
 
-  const handleEditConnection = React.useCallback((id: string, config: Omit<ConnectionConfig, 'id' | 'enabled'>) => {
-    setConnections(prev => prev.map(c => c.id === id ? { ...c, ...config } : c))
+  const handleEditConnection = React.useCallback(async (id: string, config: Omit<ConnectionConfig, 'id' | 'enabled'>) => {
+    const existing = connections.find(c => c.id === id)
+    if (!existing) return
+    const updated = { ...existing, ...config }
+    // Optimistic update
+    setConnections(prev => prev.map(c => c.id === id ? updated : c))
+    // Persist to backend
+    await window.electronAPI.saveConnection(updated)
+  }, [connections])
+
+  const handleDeleteConnection = React.useCallback(async (id: string) => {
+    // Optimistic update
+    setConnections(prev => prev.filter(c => c.id !== id))
+    // Persist to backend
+    await window.electronAPI.deleteConnection(id)
+  }, [])
+
+  // Handle session connection selection changes (triggers session restart)
+  const handleSessionConnectionsChange = React.useCallback(async (sessionId: string, connectionIds: string[]) => {
+    try {
+      await window.electronAPI.setSessionConnections(sessionId, connectionIds)
+      // Session will emit a 'session_restarted' event that updates the session state
+    } catch (err) {
+      console.error('[Chat] Failed to set session connections:', err)
+    }
   }, [])
 
   const handleOpenEditConnection = React.useCallback((conn: ConnectionConfig) => {
@@ -907,6 +949,11 @@ export function Chat({
     return onDeleteSession(sessionId, skipConfirmation)
   }, [session.selected, setSession, onDeleteSession])
 
+  // Filter to enabled connections only
+  const enabledConnections = React.useMemo(() =>
+    connections.filter(c => c.enabled),
+  [connections])
+
   // Create ChatContext value for tab panels
   const chatContextValue = React.useMemo<ChatContextType>(() => ({
     sessions,
@@ -916,6 +963,7 @@ export function Chat({
     currentModel,
     pendingPermissions: pendingPermissions || new Map(),
     sessionDrafts: sessionDrafts || new Map(),
+    enabledConnections,
     // Advanced options (all session-scoped)
     ultrathinkSessions: ultrathinkSessions || new Set(),
     skipPermissionsSessions: skipPermissionsSessions || new Set(),
@@ -936,6 +984,7 @@ export function Chat({
     onSkipPermissionsChange: onSkipPermissionsChange || (() => {}),
     onPlanModeChange: onPlanModeChange || (() => {}),
     onInputChange: onInputChange || (() => {}),
+    onSessionConnectionsChange: handleSessionConnectionsChange,
     textareaRef: chatInputRef,
   }), [
     sessions,
@@ -963,6 +1012,8 @@ export function Chat({
     onPlanModeChange,
     sessionDrafts,
     onInputChange,
+    enabledConnections,
+    handleSessionConnectionsChange,
   ])
 
   // Group agents for tree view
@@ -1621,6 +1672,12 @@ export function Chat({
                                 className="p-0.5 rounded opacity-0 group-hover/conn:opacity-100 hover:bg-foreground/10 text-muted-foreground hover:text-foreground transition-opacity"
                               >
                                 <Pencil className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteConnection(conn.id)}
+                                className="p-0.5 rounded opacity-0 group-hover/conn:opacity-100 hover:bg-foreground/10 text-muted-foreground hover:text-destructive transition-opacity"
+                              >
+                                <Trash2 className="h-3 w-3" />
                               </button>
                             </div>
                             <Switch
