@@ -211,18 +211,37 @@ export class CraftAgentDiscovery {
     try {
       console.log('[CraftAgentDiscovery] Listing documents in folder:', folderId);
 
-      // Use documents_list with folderId parameter
+      // Use documents_list with folder parameter to filter by folder
       const result = await this.client.callTool('documents_list', {
-        folderId,
+        folder: folderId,
       });
 
       const content = this.extractToolContent(result);
       console.log('[CraftAgentDiscovery] Documents list response:', content?.substring(0, 2000));
       if (!content) return [];
 
-      // Parse the folder content to extract document IDs and titles
-      // Format: typically markdown list with document links
       const documents: Array<{ id: string; title: string }> = [];
+
+      // Try parsing as JSON first (the actual format returned by Craft MCP)
+      try {
+        const parsed = JSON.parse(content);
+        if (parsed.documents && Array.isArray(parsed.documents)) {
+          for (const doc of parsed.documents) {
+            if (doc.id && doc.title) {
+              documents.push({
+                id: String(doc.id),
+                title: String(doc.title),
+              });
+            }
+          }
+          console.log('[CraftAgentDiscovery] Parsed', documents.length, 'documents from JSON');
+          return documents;
+        }
+      } catch {
+        // Not JSON, try markdown patterns
+      }
+
+      // Fallback: Parse markdown format - [Title](craft://document/ID)
       const docPattern = /\[([^\]]+)\]\(craft:\/\/document\/([a-zA-Z0-9-]+)\)/g;
       let match;
       while ((match = docPattern.exec(content)) !== null) {
@@ -230,19 +249,6 @@ export class CraftAgentDiscovery {
           title: match[1] || 'Untitled',
           id: match[2] || '',
         });
-      }
-
-      // Alternative pattern: plain list with IDs
-      if (documents.length === 0) {
-        const altPattern = /([a-zA-Z0-9-]+)\s*[-:]\s*(.+)/g;
-        while ((match = altPattern.exec(content)) !== null) {
-          // Skip folder entries
-          if (match[0]?.toLowerCase().includes('folder')) continue;
-          documents.push({
-            id: match[1] || '',
-            title: match[2]?.trim() || 'Untitled',
-          });
-        }
       }
 
       console.log('[CraftAgentDiscovery] Found', documents.length, 'documents');
@@ -265,19 +271,25 @@ export class CraftAgentDiscovery {
     try {
       console.log('[CraftAgentDiscovery] Fetching document content:', documentId);
 
-      // Use blocks_get with documentId to fetch the document content
+      // Use blocks_get with id parameter to fetch the document content
       const result = await this.client.callTool('blocks_get', {
-        blockId: documentId,
+        id: documentId,
       });
 
       const content = this.extractToolContent(result);
       console.log('[CraftAgentDiscovery] Document content (first 500 chars):', content?.substring(0, 500));
       if (!content) return null;
 
+      // Check for error response
+      if (content.startsWith('error(')) {
+        console.error('[CraftAgentDiscovery] blocks_get returned error:', content);
+        return null;
+      }
+
       // Extract the document body as instructions
       // Remove the title if it's at the beginning
       let instructions = content;
-      const titlePattern = new RegExp(`^#\\s*${title}\\s*\\n`, 'i');
+      const titlePattern = new RegExp(`^#\\s*${this.escapeRegex(title)}\\s*\\n`, 'i');
       instructions = instructions.replace(titlePattern, '').trim();
 
       return {
@@ -291,6 +303,13 @@ export class CraftAgentDiscovery {
       debug('[CraftAgentDiscovery] Error fetching document:', documentId, error);
       return null;
     }
+  }
+
+  /**
+   * Escape special regex characters in a string
+   */
+  private escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   /**
