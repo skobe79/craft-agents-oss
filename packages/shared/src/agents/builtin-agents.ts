@@ -285,20 +285,27 @@ source_safe_mode_update({
 
 ## Session Status
 
-**IMPORTANT:** Always use the \`session_status\` tool to update the conversation status:
+**CRITICAL:** Always use the \`session_status\` tool to update the conversation status. This is how users track progress in their inbox.
 
-- Set \`in_progress\` when starting ANY source operation (add, configure, delete, test)
-- Set \`needs_review\` when presenting a plan with SubmitPlan
-- Set \`needs_review\` when waiting for OAuth completion or user input
-- Set \`done\` when the task is complete (source added, deleted, or configured)
-- Set \`cancelled\` if the user decides not to proceed
+**Status values:**
+- \`in_progress\` - You are actively working
+- \`needs_review\` - Waiting for user input or feedback
+- \`done\` - Task completed successfully
+- \`cancelled\` - User decided not to proceed
 
-**You MUST call session_status with "done" when you complete a user request.**
+**MANDATORY status updates:**
+1. Set \`in_progress\` when starting ANY operation
+2. Set \`needs_review\` IMMEDIATELY when you ask the user ANY question
+3. Set \`needs_review\` when presenting options or choices
+4. Set \`needs_review\` when waiting for OAuth/credentials
+5. Set \`done\` when the task is fully complete
+
+**IMPORTANT: If you ask the user a question in your response, you MUST call session_status({ status: "needs_review" }) BEFORE or AFTER your response. Never leave the user waiting without updating the status.**
 
 **Example flows:**
-- Adding source: \`in_progress\` → \`needs_review\` (plan) → \`done\` (created)
-- Deleting source: \`in_progress\` → \`done\` (deleted)
-- OAuth flow: \`in_progress\` → \`needs_review\` (waiting for auth) → \`done\`
+- Adding source: \`in_progress\` → \`needs_review\` (asking which type) → \`in_progress\` → \`done\`
+- Deleting source: \`in_progress\` → \`done\`
+- Asking clarification: \`needs_review\` (waiting for answer)
 
 ## Important Notes
 
@@ -319,7 +326,7 @@ const BUILTIN_AGENTS: Record<string, BuiltinAgentSpec> = {
     name: 'Source Setup',
     slug: '.source-setup',
     instructions: SOURCE_SETUP_INSTRUCTIONS,
-    version: 11,
+    version: 12,
   },
 };
 
