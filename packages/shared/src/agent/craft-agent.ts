@@ -8,7 +8,7 @@ import type { SubAgentDefinition } from '../agents/types.ts';
 import { parseError, type AgentError } from './errors.ts';
 import { runErrorDiagnostics } from './diagnostics.ts';
 import { updateAgentInstructions as agenticUpdateInstructions, type UpdateInstructionsContext, type UpdateInstructionsResult, type UpdateInstructionsProgressEvent } from '../agents/instruction-updater.ts';
-import { shouldUseExtendedCacheTtl, loadStoredConfig, getWorkspaceSlug, type Workspace } from '../config/storage.ts';
+import { shouldUseExtendedCacheTtl, loadStoredConfig, getWorkspaceSlug, getSafeModeBehavior, type Workspace } from '../config/storage.ts';
 import { loadPlanFromPath, type SessionConfig as Session } from '../sessions/storage.ts';
 import { DEFAULT_MODEL } from '../config/models.ts';
 import { getCredentialManager } from '../credentials/index.ts';
@@ -1096,9 +1096,17 @@ export class CraftAgent {
                 );
 
                 if (!result.allowed) {
+                  const safeModeBehavior = getSafeModeBehavior();
+
+                  // If behavior is 'block', silently block without asking
+                  if (safeModeBehavior === 'block') {
+                    this.onDebug?.(`Safe mode: blocking ${input.tool_name} (behavior=block)`);
+                    return blockWithReason(result.reason);
+                  }
+
+                  // behavior is 'ask_permission' - ask user for permission
                   this.onDebug?.(`Safe mode: asking permission for ${input.tool_name}`);
 
-                  // Ask for permission instead of blocking outright
                   const requestId = `safe-${input.tool_use_id}`;
 
                   // Build description based on tool type

@@ -15,7 +15,7 @@ import { registerOnboardingHandlers } from './onboarding'
 import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions, type DiffPreviewData, type CodePreviewData, type TerminalPreviewData } from '../shared/types'
 import { readFileAttachment } from '@craft-agent/shared/utils'
 import { getAiCreditTopUpUrl } from '@craft-agent/shared/auth'
-import { getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultModes, setDefaultModes, getDefaultSkipPermissions, setDefaultSkipPermissions, getDefaultWorkingDirectory, setDefaultWorkingDirectory, getWorkspaceSlug, getWorkspaceByNameOrId, type Workspace } from '@craft-agent/shared/config'
+import { getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultModes, setDefaultModes, getDefaultSkipPermissions, setDefaultSkipPermissions, getDefaultWorkingDirectory, setDefaultWorkingDirectory, getWorkspaceSlug, getWorkspaceByNameOrId, getSafeModeBehavior, setSafeModeBehavior, type Workspace, type SafeModeBehavior } from '@craft-agent/shared/config'
 import { getSessionAttachmentsPath } from '@craft-agent/shared/sessions'
 import { loadWorkspaceSources, getSourcesBySlugs, type LoadedSource } from '@craft-agent/shared/sources'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
@@ -825,6 +825,21 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       title: 'Select Working Directory',
     })
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  // ============================================================
+  // Settings - Safe Mode Behavior
+  // ============================================================
+
+  // Get safe mode behavior setting
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_SAFE_MODE_BEHAVIOR, async (): Promise<SafeModeBehavior> => {
+    return getSafeModeBehavior()
+  })
+
+  // Set safe mode behavior setting
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_SET_SAFE_MODE_BEHAVIOR, async (_event, behavior: SafeModeBehavior) => {
+    setSafeModeBehavior(behavior)
+    console.log(`[IPC] Safe mode behavior updated to: ${behavior}`)
   })
 
   // ============================================================
