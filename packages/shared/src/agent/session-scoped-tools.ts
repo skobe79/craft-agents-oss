@@ -2339,6 +2339,14 @@ credential_prompt({
           );
         }
 
+        // Update source authType to match the credential mode
+        // This ensures getCredentialId() returns the correct credential type later
+        if (source.type === 'mcp' && source.mcp) {
+          source.mcp.authType = args.mode === 'bearer' ? 'bearer' : source.mcp.authType;
+        } else if (source.type === 'api' && source.api) {
+          source.api.authType = args.mode;
+        }
+
         // Mark source as authenticated and connected
         source.isAuthenticated = true;
         source.connectionStatus = 'connected';
