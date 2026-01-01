@@ -5,12 +5,12 @@
  * They replace the old "connections" concept with a more flexible, folder-based architecture.
  *
  * File structure (workspace-scoped):
- * ~/.craft-agent/workspaces/{workspaceSlug}/sources/{sourceSlug}/
+ * ~/.craft-agent/workspaces/{workspaceId}/sources/{sourceSlug}/
  *   ├── config.json   - Source settings
  *   └── guide.md      - Usage guidelines + cached data (in YAML frontmatter)
  *
  * Agent-scoped sources:
- * ~/.craft-agent/workspaces/{workspaceSlug}/agents/{agentSlug}/sources/{sourceSlug}/
+ * ~/.craft-agent/workspaces/{workspaceId}/agents/{agentSlug}/sources/{sourceSlug}/
  */
 
 /**
@@ -140,14 +140,14 @@ export interface LoadedSource {
 
   /**
    * Workspace this source belongs to.
-   * Used for credential lookups: source_oauth::{workspaceSlug}::{sourceSlug}
+   * Used for credential lookups: source_oauth::{workspaceId}::{sourceSlug}
    */
-  workspaceSlug: string;
+  workspaceId: string;
 
   /**
    * If set, this source is agent-scoped.
-   * Path: workspaces/{workspaceSlug}/agents/{agentSlug}/sources/{slug}/
-   * Credentials: agent_source_oauth::{workspaceSlug}::{agentSlug}::{sourceSlug}
+   * Path: workspaces/{workspaceId}/agents/{agentSlug}/sources/{slug}/
+   * Credentials: agent_source_oauth::{workspaceId}::{agentSlug}::{sourceSlug}
    */
   agentSlug?: string;
 }

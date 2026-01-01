@@ -658,7 +658,7 @@ Optionally filter by prefix to find secrets in a specific category.`,
  * Create a session-scoped config_validate tool.
  * Validates configuration files and returns structured error reports.
  */
-export function createConfigValidateTool(sessionId: string, workspaceSlug: string) {
+export function createConfigValidateTool(sessionId: string, workspaceId: string) {
   return tool(
     'config_validate',
     `Validate Craft Agent configuration files.
@@ -699,16 +699,16 @@ Returns structured validation results with errors, warnings, and suggestions.
             break;
           case 'sources':
             if (args.sourceSlug) {
-              result = validateSource(workspaceSlug, args.sourceSlug);
+              result = validateSource(workspaceId, args.sourceSlug);
             } else {
-              result = validateAllSources(workspaceSlug);
+              result = validateAllSources(workspaceId);
             }
             break;
           case 'preferences':
             result = validatePreferences();
             break;
           case 'all':
-            result = validateAll(workspaceSlug);
+            result = validateAll(workspaceId);
             break;
         }
 
@@ -744,7 +744,7 @@ Returns structured validation results with errors, warnings, and suggestions.
  */
 async function testApiSource(
   source: FolderSourceConfig,
-  workspaceSlug: string
+  workspaceId: string
 ): Promise<{ success: boolean; status?: number; error?: string; credentialType?: string }> {
   if (!source.api?.baseUrl) {
     return { success: false, error: 'No API URL configured' };
@@ -761,7 +761,7 @@ async function testApiSource(
     // Get credentials if needed - try multiple credential types
     if (source.api.authType && source.api.authType !== 'none') {
       const credentialManager = getCredentialManager();
-      const baseId = { workspaceId: workspaceSlug, sourceId: source.slug };
+      const baseId = { workspaceId: workspaceId, sourceId: source.slug };
 
       // Try credential types in order of preference
       const credTypesToTry: Array<'source_oauth' | 'source_bearer' | 'source_apikey' | 'source_basic'> = [
@@ -827,7 +827,7 @@ async function testApiSource(
  * Create a session-scoped source_test tool.
  * Tests if an MCP or API source is reachable.
  */
-export function createSourceTestTool(sessionId: string, workspaceSlug: string, activeAgentSlug?: string) {
+export function createSourceTestTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
   return tool(
     'source_test',
     `Test a source to verify it's reachable and working.
@@ -852,12 +852,12 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
 
       try {
         // Load the source config (checks agent folder first if activeAgentSlug set, then workspace)
-        const sourceResult = loadSourceConfigWithFallback(workspaceSlug, args.sourceSlug, activeAgentSlug);
+        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug, activeAgentSlug);
         if (!sourceResult) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceSlug}/sources/`,
+              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceId}/sources/`,
             }],
             isError: true,
           };
@@ -867,7 +867,7 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
 
         // Handle API sources
         if (source.type === 'api') {
-          const result = await testApiSource(source, workspaceSlug);
+          const result = await testApiSource(source, workspaceId);
 
           // Update the source's status and timestamp
           source.lastTestedAt = Date.now();
@@ -878,7 +878,7 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
             source.connectionStatus = 'failed';
             source.connectionError = result.error;
           }
-          saveSourceConfigWithContext(workspaceSlug, source, sourceContext);
+          saveSourceConfigWithContext(workspaceId, source, sourceContext);
 
           if (result.success) {
             const lines: string[] = [
@@ -898,7 +898,7 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
               config: source,
               guide: null,
               folderPath: '', // Not needed for credential lookup
-              workspaceSlug,
+              workspaceId,
               agentSlug: sourceContext.agentSlug,
             };
             const apiServer = await sourceService.buildApiServer(loadedSource);
@@ -939,7 +939,7 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
           source.lastTestedAt = Date.now();
           source.connectionStatus = 'connected';
           source.connectionError = undefined;
-          saveSourceConfigWithContext(workspaceSlug, source, sourceContext);
+          saveSourceConfigWithContext(workspaceId, source, sourceContext);
 
           return {
             content: [{
@@ -978,16 +978,16 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
           // Try OAuth first, then bearer
           const oauthCred = await credentialManager.get({
             type: 'source_oauth',
-            workspaceSlug,
-            sourceSlug: args.sourceSlug,
+            workspaceId,
+            sourceId: args.sourceSlug,
           });
           if (oauthCred?.value) {
             mcpAccessToken = oauthCred.value;
           } else {
             const bearerCred = await credentialManager.get({
               type: 'source_bearer',
-              workspaceSlug,
-              sourceSlug: args.sourceSlug,
+              workspaceId,
+              sourceId: args.sourceSlug,
             });
             if (bearerCred?.value) {
               mcpAccessToken = bearerCred.value;
@@ -1029,7 +1029,7 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
           source.connectionStatus = 'failed';
           source.connectionError = getValidationErrorMessage(result);
         }
-        saveSourceConfigWithContext(workspaceSlug, source, sourceContext);
+        saveSourceConfigWithContext(workspaceId, source, sourceContext);
 
         if (result.success) {
           const lines: string[] = [
@@ -1060,7 +1060,7 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
             config: source,
             guide: null,
             folderPath: '', // Not needed for credential lookup
-            workspaceSlug,
+            workspaceId,
             agentSlug: sourceContext.agentSlug,
           };
           const mcpConfig = await sourceService.buildMcpServerConfig(loadedSource);
@@ -1137,7 +1137,7 @@ export function createSourceTestTool(sessionId: string, workspaceSlug: string, a
  * Create a session-scoped oauth_trigger tool.
  * Initiates OAuth authentication for an MCP source.
  */
-export function createOAuthTriggerTool(sessionId: string, workspaceSlug: string, activeAgentSlug?: string) {
+export function createOAuthTriggerTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
   return tool(
     'oauth_trigger',
     `Start OAuth authentication for an MCP source.
@@ -1168,12 +1168,12 @@ A browser window will open for the user to complete authentication.
 
       try {
         // Load the source config (checks agent folder first if activeAgentSlug set, then workspace)
-        const sourceResult = loadSourceConfigWithFallback(workspaceSlug, args.sourceSlug, activeAgentSlug);
+        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug, activeAgentSlug);
         if (!sourceResult) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceSlug}/sources/`,
+              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceId}/sources/`,
             }],
             isError: true,
           };
@@ -1253,8 +1253,8 @@ A browser window will open for the user to complete authentication.
         await credentialManager.set(
           {
             type: 'source_oauth',
-            workspaceSlug,
-            sourceSlug: args.sourceSlug,
+            workspaceId,
+            sourceId: args.sourceSlug,
           },
           {
             value: result.tokens.accessToken,
@@ -1270,7 +1270,7 @@ A browser window will open for the user to complete authentication.
         source.connectionStatus = 'connected';
         source.connectionError = undefined;
         source.updatedAt = Date.now();
-        saveSourceConfigWithContext(workspaceSlug, source, sourceContext);
+        saveSourceConfigWithContext(workspaceId, source, sourceContext);
 
         // Notify success callback
         callbacks?.onOAuthSuccess?.(args.sourceSlug);
@@ -1320,7 +1320,7 @@ A browser window will open for the user to complete authentication.
  * Create a session-scoped gmail_oauth_trigger tool.
  * Initiates Gmail OAuth authentication for a Gmail source.
  */
-export function createGmailOAuthTriggerTool(sessionId: string, workspaceSlug: string, activeAgentSlug?: string) {
+export function createGmailOAuthTriggerTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
   return tool(
     'gmail_oauth_trigger',
     `Trigger Gmail OAuth authentication flow.
@@ -1343,12 +1343,12 @@ After successful authentication, the tokens are stored and the source is marked 
 
       try {
         // Load the source config (checks agent folder first if activeAgentSlug set, then workspace)
-        const sourceResult = loadSourceConfigWithFallback(workspaceSlug, args.sourceSlug, activeAgentSlug);
+        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug, activeAgentSlug);
         if (!sourceResult) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceSlug}/sources/`,
+              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceId}/sources/`,
             }],
             isError: true,
           };
@@ -1398,8 +1398,8 @@ After successful authentication, the tokens are stored and the source is marked 
         await credentialManager.set(
           {
             type: 'source_oauth',
-            workspaceSlug,
-            sourceSlug: args.sourceSlug,
+            workspaceId,
+            sourceId: args.sourceSlug,
           },
           {
             value: result.accessToken!,
@@ -1413,7 +1413,7 @@ After successful authentication, the tokens are stored and the source is marked 
         source.connectionStatus = 'connected';
         source.connectionError = undefined;
         source.updatedAt = Date.now();
-        saveSourceConfigWithContext(workspaceSlug, source, sourceContext);
+        saveSourceConfigWithContext(workspaceId, source, sourceContext);
 
         // Notify success callback
         const callbacks = getSessionScopedToolCallbacks(sessionId);
@@ -1467,7 +1467,7 @@ After successful authentication, the tokens are stored and the source is marked 
  * Create a session-scoped source_cache_update tool.
  * Updates cached values in a source's guide.md frontmatter.
  */
-export function createSourceCacheUpdateTool(sessionId: string, workspaceSlug: string) {
+export function createSourceCacheUpdateTool(sessionId: string, workspaceId: string) {
   return tool(
     'source_cache_update',
     `Update cached values in a source's guide.md frontmatter.
@@ -1503,11 +1503,11 @@ The cache is persisted between sessions and can be read from the guide.md file.`
 
       try {
         // Check if source exists
-        if (!sourceExists(workspaceSlug, args.sourceSlug)) {
+        if (!sourceExists(workspaceId, args.sourceSlug)) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceSlug}/sources/`,
+              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceId}/sources/`,
             }],
             isError: true,
           };
@@ -1518,7 +1518,7 @@ The cache is persisted between sessions and can be read from the guide.md file.`
         setNestedValue(updates, args.path, args.value);
 
         // Update the cache
-        updateSourceCache(workspaceSlug, args.sourceSlug, updates);
+        updateSourceCache(workspaceId, args.sourceSlug, updates);
 
         return {
           content: [{
@@ -1545,7 +1545,7 @@ The cache is persisted between sessions and can be read from the guide.md file.`
  * Create a session-scoped source_guide_append tool.
  * Appends content to a specific section of a source's guide.md.
  */
-export function createSourceGuideAppendTool(sessionId: string, workspaceSlug: string) {
+export function createSourceGuideAppendTool(sessionId: string, workspaceId: string) {
   return tool(
     'source_guide_append',
     `Append content to a specific section of a source's guide.md file.
@@ -1571,18 +1571,18 @@ If the section doesn't exist, it will be created.`,
 
       try {
         // Check if source exists
-        if (!sourceExists(workspaceSlug, args.sourceSlug)) {
+        if (!sourceExists(workspaceId, args.sourceSlug)) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceSlug}/sources/`,
+              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceId}/sources/`,
             }],
             isError: true,
           };
         }
 
         // Load current guide
-        const guide = loadSourceGuide(workspaceSlug, args.sourceSlug) || { raw: '' };
+        const guide = loadSourceGuide(workspaceId, args.sourceSlug) || { raw: '' };
 
         // Map section name to header
         const sectionHeaders: Record<string, string> = {
@@ -1625,7 +1625,7 @@ If the section doesn't exist, it will be created.`,
         }
 
         // Save the updated guide
-        saveSourceGuide(workspaceSlug, args.sourceSlug, { ...guide, raw: newRaw });
+        saveSourceGuide(workspaceId, args.sourceSlug, { ...guide, raw: newRaw });
 
         return {
           content: [{
@@ -1652,7 +1652,7 @@ If the section doesn't exist, it will be created.`,
  * Create a session-scoped source_cache_read tool.
  * Reads cached values from a source's guide.md frontmatter.
  */
-export function createSourceCacheReadTool(sessionId: string, workspaceSlug: string) {
+export function createSourceCacheReadTool(sessionId: string, workspaceId: string) {
   return tool(
     'source_cache_read',
     `Read cached values from a source's guide.md frontmatter.
@@ -1672,18 +1672,18 @@ user mappings, or other data discovered in previous sessions.
 
       try {
         // Check if source exists
-        if (!sourceExists(workspaceSlug, args.sourceSlug)) {
+        if (!sourceExists(workspaceId, args.sourceSlug)) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceSlug}/sources/`,
+              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceId}/sources/`,
             }],
             isError: true,
           };
         }
 
         // Load guide to get cache
-        const guide = loadSourceGuide(workspaceSlug, args.sourceSlug);
+        const guide = loadSourceGuide(workspaceId, args.sourceSlug);
         if (!guide?.cache) {
           return {
             content: [{
@@ -1741,7 +1741,7 @@ user mappings, or other data discovered in previous sessions.
 /**
  * List all sources in the workspace.
  */
-export function createSourceListTool(sessionId: string, workspaceSlug: string) {
+export function createSourceListTool(sessionId: string, workspaceId: string) {
   return tool(
     'source_list',
     `List all configured sources in the current workspace.
@@ -1750,11 +1750,11 @@ Returns source names, types, providers, and authentication status.
 Use this to see what sources are available before creating or modifying them.`,
     {},
     async () => {
-      debug('[source_list] Listing sources for workspace:', workspaceSlug);
+      debug('[source_list] Listing sources for workspace:', workspaceId);
 
       try {
         const { loadWorkspaceSources } = await import('../sources/storage.ts');
-        const sources = loadWorkspaceSources(workspaceSlug);
+        const sources = loadWorkspaceSources(workspaceId);
 
         if (sources.length === 0) {
           return {
@@ -1803,7 +1803,7 @@ Use this to see what sources are available before creating or modifying them.`,
  * Create a new source in the workspace or scoped to an agent.
  * When called in an agent context (activeAgentSlug is set), sources are agent-scoped by default.
  */
-export function createSourceCreateTool(sessionId: string, workspaceSlug: string, activeAgentSlug?: string) {
+export function createSourceCreateTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
   const scopeDescription = activeAgentSlug
     ? `By default, sources are scoped to the current agent (\`${activeAgentSlug}\`).
 To create a workspace-scoped source instead, explicitly set \`scope: "workspace"\`.`
@@ -1927,9 +1927,9 @@ ${scopeDescription}
         );
 
         // Create source: agent-scoped or workspace-scoped
-        const config = effectiveAgentSlug
-          ? createAgentSource(workspaceSlug, effectiveAgentSlug, input)
-          : createSource(workspaceSlug, input);
+        const config = await (effectiveAgentSlug
+          ? createAgentSource(workspaceId, effectiveAgentSlug, input)
+          : createSource(workspaceId, input));
 
         debug('[source_create] Created source:', args.name, 'effectiveAgentSlug:', effectiveAgentSlug);
 
@@ -1994,7 +1994,7 @@ ${scopeDescription}
 /**
  * Update an existing source in the workspace.
  */
-export function createSourceUpdateTool(sessionId: string, workspaceSlug: string, activeAgentSlug?: string) {
+export function createSourceUpdateTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
   return tool(
     'source_update',
     `Update an existing source's configuration.
@@ -2015,7 +2015,7 @@ Only the provided fields will be updated; others remain unchanged.`,
 
       try {
         // Load source (checks agent folder first if activeAgentSlug set, then workspace)
-        const sourceResult = loadSourceConfigWithFallback(workspaceSlug, args.sourceSlug, activeAgentSlug);
+        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug, activeAgentSlug);
         if (!sourceResult) {
           return {
             content: [{
@@ -2044,7 +2044,7 @@ Only the provided fields will be updated; others remain unchanged.`,
 
         if (args.iconUrl !== undefined) config.iconUrl = args.iconUrl;
 
-        saveSourceConfigWithContext(workspaceSlug, config, sourceContext);
+        saveSourceConfigWithContext(workspaceId, config, sourceContext);
 
         return {
           content: [{
@@ -2070,7 +2070,7 @@ Only the provided fields will be updated; others remain unchanged.`,
 /**
  * Delete a source from the workspace.
  */
-export function createSourceDeleteTool(sessionId: string, workspaceSlug: string) {
+export function createSourceDeleteTool(sessionId: string, workspaceId: string) {
   return tool(
     'source_delete',
     `Delete a source from the workspace.
@@ -2085,7 +2085,7 @@ export function createSourceDeleteTool(sessionId: string, workspaceSlug: string)
       try {
         const { deleteSource, sourceExists } = await import('../sources/storage.ts');
 
-        if (!sourceExists(workspaceSlug, args.sourceSlug)) {
+        if (!sourceExists(workspaceId, args.sourceSlug)) {
           return {
             content: [{
               type: 'text' as const,
@@ -2095,7 +2095,7 @@ export function createSourceDeleteTool(sessionId: string, workspaceSlug: string)
           };
         }
 
-        deleteSource(workspaceSlug, args.sourceSlug);
+        deleteSource(workspaceId, args.sourceSlug);
 
         // Trigger source reload callback (don't let failures affect tool result)
         const callbacks = getSessionScopedToolCallbacks(sessionId);
@@ -2127,17 +2127,17 @@ export function createSourceDeleteTool(sessionId: string, workspaceSlug: string)
 }
 
 // ============================================================
-// Source Safe Mode Tool
+// Source Permissions Tool
 // ============================================================
 
 /**
- * Create or update Safe Mode rules for a source.
- * Creates a safe-mode.json file in the source folder with Zod validation.
+ * Create or update permissions rules for a source.
+ * Creates a permissions.json file in the source folder with Zod validation.
  */
-export function createSourceSafeModeUpdateTool(sessionId: string, workspaceSlug: string, activeAgentSlug?: string) {
+export function createSourcePermissionsUpdateTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
   return tool(
-    'source_safe_mode_update',
-    `Create or update Safe Mode rules for a source.
+    'source_permissions_update',
+    `Create or update permissions rules for a source.
 
 Safe Mode is a read-only exploration mode. Custom rules let you allow specific operations that would otherwise be blocked.
 
@@ -2166,13 +2166,13 @@ Rules are additive - they extend the defaults to make Safe Mode more permissive 
       blockedTools: z.array(z.string()).optional().describe('Additional tools to block'),
     },
     async (args) => {
-      debug('[source_safe_mode_update] Updating safe mode for source:', args.sourceSlug);
+      debug('[source_permissions_update] Updating permissions for source:', args.sourceSlug);
 
       try {
         const { existsSync, writeFileSync, mkdirSync, readFileSync } = await import('fs');
         const { join } = await import('path');
         const { getSourcePath, getAgentSourcePath, sourceExists, agentSourceExists } = await import('../sources/storage.ts');
-        const { validateSafeModeConfig } = await import('./safe-mode-config.ts');
+        const { validatePermissionsConfig } = await import('./permissions-config.ts');
 
         // Check if source exists (agent-scoped first if activeAgentSlug, then workspace)
         // Skip agent scope check for built-in agents (dot-prefixed like .source-setup)
@@ -2180,10 +2180,10 @@ Rules are additive - they extend the defaults to make Safe Mode more permissive 
         let sourceName = args.sourceSlug;
         const isBuiltinAgent = activeAgentSlug?.startsWith('.');
 
-        if (activeAgentSlug && !isBuiltinAgent && agentSourceExists(workspaceSlug, activeAgentSlug, args.sourceSlug)) {
-          sourcePath = getAgentSourcePath(workspaceSlug, activeAgentSlug, args.sourceSlug);
-        } else if (sourceExists(workspaceSlug, args.sourceSlug)) {
-          sourcePath = getSourcePath(workspaceSlug, args.sourceSlug);
+        if (activeAgentSlug && !isBuiltinAgent && agentSourceExists(workspaceId, activeAgentSlug, args.sourceSlug)) {
+          sourcePath = getAgentSourcePath(workspaceId, activeAgentSlug, args.sourceSlug);
+        } else if (sourceExists(workspaceId, args.sourceSlug)) {
+          sourcePath = getSourcePath(workspaceId, args.sourceSlug);
         } else {
           return {
             content: [{
@@ -2225,23 +2225,23 @@ Rules are additive - they extend the defaults to make Safe Mode more permissive 
         }
 
         // Validate the config before writing
-        const errors = validateSafeModeConfig(config);
+        const errors = validatePermissionsConfig(config);
         if (errors.length > 0) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Invalid safe mode configuration:\n${errors.map(e => `- ${e}`).join('\n')}`,
+              text: `Invalid permissions configuration:\n${errors.map(e => `- ${e}`).join('\n')}`,
             }],
             isError: true,
           };
         }
 
         // Write the JSON file
-        const safeModePath = join(sourcePath, 'safe-mode.json');
+        const safeModePath = join(sourcePath, 'permissions.json');
         mkdirSync(sourcePath, { recursive: true });
         writeFileSync(safeModePath, JSON.stringify(config, null, 2), 'utf-8');
 
-        debug('[source_safe_mode_update] Created safe-mode.json at:', safeModePath);
+        debug('[source_permissions_update] Created permissions.json at:', safeModePath);
 
         // Build summary of what was configured
         const summary: string[] = [];
@@ -2261,16 +2261,16 @@ Rules are additive - they extend the defaults to make Safe Mode more permissive 
         return {
           content: [{
             type: 'text' as const,
-            text: `**Safe Mode rules created for '${sourceName}'**\n\nConfigured: ${summary.join(', ') || 'empty config'}\n\nFile: \`${safeModePath}\`\n\nThese rules will be applied when Safe Mode is active.`,
+            text: `**Permissions rules created for '${sourceName}'**\n\nConfigured: ${summary.join(', ') || 'empty config'}\n\nFile: \`${safeModePath}\`\n\nThese rules will be applied when Safe Mode is active.`,
           }],
           isError: false,
         };
       } catch (error) {
-        debug('[source_safe_mode_update] Error:', error);
+        debug('[source_permissions_update] Error:', error);
         return {
           content: [{
             type: 'text' as const,
-            text: `Error creating Safe Mode rules: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            text: `Error creating permissions rules: ${error instanceof Error ? error.message : 'Unknown error'}`,
           }],
           isError: true,
         };
@@ -2287,7 +2287,7 @@ Rules are additive - they extend the defaults to make Safe Mode more permissive 
  * Create a session-scoped credential_prompt tool.
  * Prompts the user to enter credentials for a source via the secure input UI.
  */
-export function createCredentialPromptTool(sessionId: string, workspaceSlug: string, activeAgentSlug?: string) {
+export function createCredentialPromptTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
   return tool(
     'credential_prompt',
     `Prompt the user to enter credentials for a source.
@@ -2332,12 +2332,12 @@ credential_prompt({
 
       try {
         // Load source to get name and validate (checks agent folder first if activeAgentSlug set, then workspace)
-        const sourceResult = loadSourceConfigWithFallback(workspaceSlug, args.sourceSlug, activeAgentSlug);
+        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug, activeAgentSlug);
         if (!sourceResult) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceSlug}/sources/`,
+              text: `Source '${args.sourceSlug}' not found. Check that the folder exists in ~/.craft-agent/workspaces/${workspaceId}/sources/`,
             }],
             isError: true,
           };
@@ -2390,18 +2390,18 @@ credential_prompt({
           // Encode basic auth as base64 (username:password)
           const encoded = Buffer.from(`${response.username}:${response.password}`).toString('base64');
           await credManager.set(
-            { type: 'source_basic', workspaceId: workspaceSlug, sourceId: args.sourceSlug },
+            { type: 'source_basic', workspaceId: workspaceId, sourceId: args.sourceSlug },
             { value: encoded }
           );
         } else if (args.mode === 'bearer') {
           await credManager.set(
-            { type: 'source_bearer', workspaceId: workspaceSlug, sourceId: args.sourceSlug },
+            { type: 'source_bearer', workspaceId: workspaceId, sourceId: args.sourceSlug },
             { value: response.value! }
           );
         } else {
           // header or query - stored as API key
           await credManager.set(
-            { type: 'source_apikey', workspaceId: workspaceSlug, sourceId: args.sourceSlug },
+            { type: 'source_apikey', workspaceId: workspaceId, sourceId: args.sourceSlug },
             { value: response.value! }
           );
         }
@@ -2419,7 +2419,7 @@ credential_prompt({
         source.connectionStatus = 'connected';
         source.connectionError = undefined;
         source.updatedAt = Date.now();
-        saveSourceConfigWithContext(workspaceSlug, source, sourceContext);
+        saveSourceConfigWithContext(workspaceId, source, sourceContext);
 
         // Activate the source for this session
         try {
@@ -2464,7 +2464,7 @@ credential_prompt({
 /**
  * List all agents in the workspace.
  */
-export function createAgentListTool(sessionId: string, workspaceSlug: string) {
+export function createAgentListTool(sessionId: string, workspaceId: string) {
   return tool(
     'agent_list',
     `List all agents in the workspace.
@@ -2473,11 +2473,11 @@ Returns a list of all agents with their name, slug, enabled status, and source i
 Use this to discover what agents are available before creating new ones.`,
     {},
     async () => {
-      debug('[agent_list] Listing agents in workspace:', workspaceSlug);
+      debug('[agent_list] Listing agents in workspace:', workspaceId);
 
       try {
         const { loadWorkspaceAgents } = await import('../agents/folder-storage.ts');
-        const agents = loadWorkspaceAgents(workspaceSlug);
+        const agents = loadWorkspaceAgents(workspaceId);
 
         if (agents.length === 0) {
           return {
@@ -2522,7 +2522,7 @@ Use this to discover what agents are available before creating new ones.`,
 /**
  * Create a new agent in the workspace.
  */
-export function createAgentCreateTool(sessionId: string, workspaceSlug: string) {
+export function createAgentCreateTool(sessionId: string, workspaceId: string) {
   return tool(
     'agent_create',
     `Create a new agent in the workspace.
@@ -2552,7 +2552,7 @@ agent_create({
       try {
         const { createAgent } = await import('../agents/folder-storage.ts');
 
-        const config = createAgent(workspaceSlug, {
+        const config = createAgent(workspaceId, {
           name: args.name,
           instructions: args.instructions,
           useSources: args.useSources,
@@ -2595,7 +2595,7 @@ agent_create({
 /**
  * Delete an agent from the workspace.
  */
-export function createAgentDeleteTool(sessionId: string, workspaceSlug: string) {
+export function createAgentDeleteTool(sessionId: string, workspaceId: string) {
   return tool(
     'agent_delete',
     `Delete an agent from the workspace.
@@ -2610,7 +2610,7 @@ export function createAgentDeleteTool(sessionId: string, workspaceSlug: string) 
       try {
         const { deleteAgent, agentExists } = await import('../agents/folder-storage.ts');
 
-        if (!agentExists(workspaceSlug, args.agentSlug)) {
+        if (!agentExists(workspaceId, args.agentSlug)) {
           return {
             content: [{
               type: 'text' as const,
@@ -2620,7 +2620,7 @@ export function createAgentDeleteTool(sessionId: string, workspaceSlug: string) 
           };
         }
 
-        deleteAgent(workspaceSlug, args.agentSlug);
+        deleteAgent(workspaceId, args.agentSlug);
 
         // Trigger agents reload callback
         const callbacks = getSessionScopedToolCallbacks(sessionId);
@@ -2665,16 +2665,16 @@ const sessionScopedToolsCache = new Map<string, ReturnType<typeof createSdkMcpSe
  * Creates and caches the provider if it doesn't exist.
  *
  * @param sessionId - Unique session identifier
- * @param workspaceSlug - Workspace slug for source-scoped operations
+ * @param workspaceId - Workspace slug for source-scoped operations
  * @param activeAgentSlug - Optional active agent slug (sources default to agent scope when set)
  */
-export function getSessionScopedTools(sessionId: string, workspaceSlug: string, activeAgentSlug?: string): ReturnType<typeof createSdkMcpServer> {
-  // Include workspaceSlug and activeAgentSlug in cache key
+export function getSessionScopedTools(sessionId: string, workspaceId: string, activeAgentSlug?: string): ReturnType<typeof createSdkMcpServer> {
+  // Include workspaceId and activeAgentSlug in cache key
   // When agent changes, we need fresh tools with the new context
-  const cacheKey = `${sessionId}::${workspaceSlug}::${activeAgentSlug ?? ''}`;
+  const cacheKey = `${sessionId}::${workspaceId}::${activeAgentSlug ?? ''}`;
   let cached = sessionScopedToolsCache.get(cacheKey);
   if (!cached) {
-    // Create session-scoped tools that capture the sessionId, workspaceSlug, and activeAgentSlug in their closures
+    // Create session-scoped tools that capture the sessionId, workspaceId, and activeAgentSlug in their closures
     cached = createSdkMcpServer({
       name: 'session',
       version: '1.0.0',
@@ -2687,29 +2687,29 @@ export function getSessionScopedTools(sessionId: string, workspaceSlug: string, 
         createSecretDeleteTool(sessionId),
         createSecretListTool(sessionId),
         // Config validation tool
-        createConfigValidateTool(sessionId, workspaceSlug),
+        createConfigValidateTool(sessionId, workspaceId),
         // Source tools (agent-aware: checks agent folder first, then workspace)
-        createSourceTestTool(sessionId, workspaceSlug, activeAgentSlug),
-        createOAuthTriggerTool(sessionId, workspaceSlug, activeAgentSlug),
-        createGmailOAuthTriggerTool(sessionId, workspaceSlug, activeAgentSlug),
-        createCredentialPromptTool(sessionId, workspaceSlug, activeAgentSlug),
-        createSourceCacheUpdateTool(sessionId, workspaceSlug),
-        createSourceCacheReadTool(sessionId, workspaceSlug),
-        createSourceGuideAppendTool(sessionId, workspaceSlug),
+        createSourceTestTool(sessionId, workspaceId, activeAgentSlug),
+        createOAuthTriggerTool(sessionId, workspaceId, activeAgentSlug),
+        createGmailOAuthTriggerTool(sessionId, workspaceId, activeAgentSlug),
+        createCredentialPromptTool(sessionId, workspaceId, activeAgentSlug),
+        createSourceCacheUpdateTool(sessionId, workspaceId),
+        createSourceCacheReadTool(sessionId, workspaceId),
+        createSourceGuideAppendTool(sessionId, workspaceId),
         // Source CRUD tools
-        createSourceListTool(sessionId, workspaceSlug),
-        createSourceCreateTool(sessionId, workspaceSlug, activeAgentSlug),
-        createSourceUpdateTool(sessionId, workspaceSlug, activeAgentSlug),
-        createSourceDeleteTool(sessionId, workspaceSlug),
-        createSourceSafeModeUpdateTool(sessionId, workspaceSlug, activeAgentSlug),
+        createSourceListTool(sessionId, workspaceId),
+        createSourceCreateTool(sessionId, workspaceId, activeAgentSlug),
+        createSourceUpdateTool(sessionId, workspaceId, activeAgentSlug),
+        createSourceDeleteTool(sessionId, workspaceId),
+        createSourcePermissionsUpdateTool(sessionId, workspaceId, activeAgentSlug),
         // Agent tools
-        createAgentListTool(sessionId, workspaceSlug),
-        createAgentCreateTool(sessionId, workspaceSlug),
-        createAgentDeleteTool(sessionId, workspaceSlug),
+        createAgentListTool(sessionId, workspaceId),
+        createAgentCreateTool(sessionId, workspaceId),
+        createAgentDeleteTool(sessionId, workspaceId),
       ],
     });
     sessionScopedToolsCache.set(cacheKey, cached);
-    debug(`[SessionScopedTools] Created tools provider for session ${sessionId} in workspace ${workspaceSlug}${activeAgentSlug ? ` with agent ${activeAgentSlug}` : ''}`);
+    debug(`[SessionScopedTools] Created tools provider for session ${sessionId} in workspace ${workspaceId}${activeAgentSlug ? ` with agent ${activeAgentSlug}` : ''}`);
   }
   return cached;
 }
@@ -2719,12 +2719,12 @@ export function getSessionScopedTools(sessionId: string, workspaceSlug: string, 
  * Removes the cached provider and clears all session state.
  *
  * @param sessionId - Unique session identifier
- * @param workspaceSlug - Optional workspace slug; if provided, only cleans up that specific workspace's cache
+ * @param workspaceId - Optional workspace slug; if provided, only cleans up that specific workspace's cache
  */
-export function cleanupSessionScopedTools(sessionId: string, workspaceSlug?: string): void {
-  if (workspaceSlug) {
+export function cleanupSessionScopedTools(sessionId: string, workspaceId?: string): void {
+  if (workspaceId) {
     // Clean up specific workspace cache
-    const cacheKey = `${sessionId}::${workspaceSlug}`;
+    const cacheKey = `${sessionId}::${workspaceId}`;
     sessionScopedToolsCache.delete(cacheKey);
   } else {
     // Clean up all workspace caches for this session
@@ -2746,15 +2746,15 @@ export function cleanupSessionScopedTools(sessionId: string, workspaceSlug?: str
 /**
  * Get the plans directory for a session
  */
-export function getSessionPlansDir(workspaceSlug: string, sessionId: string): string {
-  return getSessionPlansPath(workspaceSlug, sessionId);
+export function getSessionPlansDir(workspaceId: string, sessionId: string): string {
+  return getSessionPlansPath(workspaceId, sessionId);
 }
 
 /**
  * Check if a file path is within the plans directory
  */
-export function isPathInPlansDir(filePath: string, workspaceSlug: string, sessionId: string): boolean {
-  const plansDir = getSessionPlansPath(workspaceSlug, sessionId);
+export function isPathInPlansDir(filePath: string, workspaceId: string, sessionId: string): boolean {
+  const plansDir = getSessionPlansPath(workspaceId, sessionId);
   // Normalize paths for comparison
   const normalizedPath = filePath.replace(/\\/g, '/');
   const normalizedPlansDir = plansDir.replace(/\\/g, '/');

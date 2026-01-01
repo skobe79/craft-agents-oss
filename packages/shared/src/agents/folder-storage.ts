@@ -2,7 +2,7 @@
  * Agent Folder Storage
  *
  * CRUD operations for workspace-scoped agent folders.
- * Agents are stored at ~/.craft-agent/workspaces/{workspaceSlug}/agents/{agentSlug}/
+ * Agents are stored at ~/.craft-agent/workspaces/{workspaceId}/agents/{agentSlug}/
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'fs';
@@ -26,15 +26,15 @@ import { debug } from '../utils/debug.ts';
 /**
  * Get path to an agent folder within a workspace
  */
-export function getAgentPath(workspaceSlug: string, agentSlug: string): string {
-  return join(getWorkspaceAgentsPath(workspaceSlug), agentSlug);
+export function getAgentPath(workspaceId: string, agentSlug: string): string {
+  return join(getWorkspaceAgentsPath(workspaceId), agentSlug);
 }
 
 /**
  * Ensure agents directory exists for a workspace
  */
-export function ensureAgentsDir(workspaceSlug: string): void {
-  const dir = getWorkspaceAgentsPath(workspaceSlug);
+export function ensureAgentsDir(workspaceId: string): void {
+  const dir = getWorkspaceAgentsPath(workspaceId);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -48,10 +48,10 @@ export function ensureAgentsDir(workspaceSlug: string): void {
  * Load agent config.json
  */
 export function loadAgentConfig(
-  workspaceSlug: string,
+  workspaceId: string,
   agentSlug: string
 ): FolderAgentConfig | null {
-  const configPath = join(getAgentPath(workspaceSlug, agentSlug), 'config.json');
+  const configPath = join(getAgentPath(workspaceId, agentSlug), 'config.json');
   if (!existsSync(configPath)) return null;
 
   try {
@@ -67,7 +67,7 @@ export function loadAgentConfig(
  * @throws Error if config is invalid
  */
 export function saveAgentConfig(
-  workspaceSlug: string,
+  workspaceId: string,
   config: FolderAgentConfig
 ): void {
   // Validate config before writing
@@ -78,7 +78,7 @@ export function saveAgentConfig(
     throw new Error(`Invalid agent config: ${errorMessages}`);
   }
 
-  const dir = getAgentPath(workspaceSlug, config.slug);
+  const dir = getAgentPath(workspaceId, config.slug);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -94,8 +94,8 @@ export function saveAgentConfig(
 /**
  * Load agent instructions.md
  */
-export function loadAgentInstructions(workspaceSlug: string, agentSlug: string): string | null {
-  const instructionsPath = join(getAgentPath(workspaceSlug, agentSlug), 'instructions.md');
+export function loadAgentInstructions(workspaceId: string, agentSlug: string): string | null {
+  const instructionsPath = join(getAgentPath(workspaceId, agentSlug), 'instructions.md');
   if (!existsSync(instructionsPath)) return null;
 
   try {
@@ -110,11 +110,11 @@ export function loadAgentInstructions(workspaceSlug: string, agentSlug: string):
  * Save agent instructions.md
  */
 export function saveAgentInstructions(
-  workspaceSlug: string,
+  workspaceId: string,
   agentSlug: string,
   instructions: string
 ): void {
-  const dir = getAgentPath(workspaceSlug, agentSlug);
+  const dir = getAgentPath(workspaceId, agentSlug);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -129,8 +129,8 @@ export function saveAgentInstructions(
 /**
  * Find agent icon file
  */
-export function findAgentIcon(workspaceSlug: string, agentSlug: string): string | null {
-  const dir = getAgentPath(workspaceSlug, agentSlug);
+export function findAgentIcon(workspaceId: string, agentSlug: string): string | null {
+  const dir = getAgentPath(workspaceId, agentSlug);
   return findIconInDir(dir);
 }
 
@@ -142,14 +142,14 @@ export function findAgentIcon(workspaceSlug: string, agentSlug: string): string 
  * Resolve all sources for an agent (agent-scoped + referenced workspace sources)
  */
 export function resolveAgentSources(
-  workspaceSlug: string,
+  workspaceId: string,
   config: FolderAgentConfig
 ): LoadedSource[] {
   const sources: LoadedSource[] = [];
   const seenSlugs = new Set<string>();
 
   // 1. Agent-scoped sources (highest priority)
-  const agentSources = loadAgentSourcesFromStorage(workspaceSlug, config.slug);
+  const agentSources = loadAgentSourcesFromStorage(workspaceId, config.slug);
   for (const source of agentSources) {
     sources.push(source);
     seenSlugs.add(source.config.slug);
@@ -159,7 +159,7 @@ export function resolveAgentSources(
   if (config.useSources) {
     for (const slug of config.useSources) {
       if (!seenSlugs.has(slug)) {
-        const workspaceSource = loadSource(workspaceSlug, slug);
+        const workspaceSource = loadSource(workspaceId, slug);
         if (workspaceSource) {
           if (workspaceSource.config.enabled) {
             sources.push(workspaceSource);
@@ -188,27 +188,27 @@ export function resolveAgentSources(
 /**
  * Load complete agent with all files
  */
-export function loadAgent(workspaceSlug: string, agentSlug: string): LoadedAgent | null {
-  const config = loadAgentConfig(workspaceSlug, agentSlug);
+export function loadAgent(workspaceId: string, agentSlug: string): LoadedAgent | null {
+  const config = loadAgentConfig(workspaceId, agentSlug);
   if (!config) return null;
 
   return {
     config,
-    instructions: loadAgentInstructions(workspaceSlug, agentSlug),
-    iconPath: findAgentIcon(workspaceSlug, agentSlug),
-    sources: resolveAgentSources(workspaceSlug, config),
-    workspaceSlug,
+    instructions: loadAgentInstructions(workspaceId, agentSlug),
+    iconPath: findAgentIcon(workspaceId, agentSlug),
+    sources: resolveAgentSources(workspaceId, config),
+    workspaceId,
   };
 }
 
 /**
  * Load all agents for a workspace
  */
-export function loadWorkspaceAgents(workspaceSlug: string): LoadedAgent[] {
-  ensureAgentsDir(workspaceSlug);
+export function loadWorkspaceAgents(workspaceId: string): LoadedAgent[] {
+  ensureAgentsDir(workspaceId);
 
   const agents: LoadedAgent[] = [];
-  const agentsDir = getWorkspaceAgentsPath(workspaceSlug);
+  const agentsDir = getWorkspaceAgentsPath(workspaceId);
 
   if (!existsSync(agentsDir)) return agents;
 
@@ -217,7 +217,7 @@ export function loadWorkspaceAgents(workspaceSlug: string): LoadedAgent[] {
 
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        const agent = loadAgent(workspaceSlug, entry.name);
+        const agent = loadAgent(workspaceId, entry.name);
         if (agent) {
           agents.push(agent);
         }
@@ -233,8 +233,8 @@ export function loadWorkspaceAgents(workspaceSlug: string): LoadedAgent[] {
 /**
  * Get enabled agents for a workspace
  */
-export function getEnabledAgents(workspaceSlug: string): LoadedAgent[] {
-  return loadWorkspaceAgents(workspaceSlug).filter((a) => a.config.enabled);
+export function getEnabledAgents(workspaceId: string): LoadedAgent[] {
+  return loadWorkspaceAgents(workspaceId).filter((a) => a.config.enabled);
 }
 
 // ============================================================
@@ -244,7 +244,7 @@ export function getEnabledAgents(workspaceSlug: string): LoadedAgent[] {
 /**
  * Generate URL-safe slug from name
  */
-export function generateAgentSlug(workspaceSlug: string, name: string): string {
+export function generateAgentSlug(workspaceId: string, name: string): string {
   let slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -257,7 +257,7 @@ export function generateAgentSlug(workspaceSlug: string, name: string): string {
   }
 
   // Check for existing slugs and append number if needed
-  const agentsDir = getWorkspaceAgentsPath(workspaceSlug);
+  const agentsDir = getWorkspaceAgentsPath(workspaceId);
   const existingSlugs = new Set<string>();
   if (existsSync(agentsDir)) {
     try {
@@ -289,8 +289,8 @@ export function generateAgentSlug(workspaceSlug: string, name: string): string {
  * Create a new agent in a workspace
  * Note: slug is the unique identifier (no separate id field)
  */
-export function createAgent(workspaceSlug: string, input: CreateAgentInput): FolderAgentConfig {
-  const slug = generateAgentSlug(workspaceSlug, input.name);
+export function createAgent(workspaceId: string, input: CreateAgentInput): FolderAgentConfig {
+  const slug = generateAgentSlug(workspaceId, input.name);
   const now = Date.now();
 
   const config: FolderAgentConfig = {
@@ -303,8 +303,8 @@ export function createAgent(workspaceSlug: string, input: CreateAgentInput): Fol
     updatedAt: now,
   };
 
-  saveAgentConfig(workspaceSlug, config);
-  saveAgentInstructions(workspaceSlug, slug, input.instructions);
+  saveAgentConfig(workspaceId, config);
+  saveAgentInstructions(workspaceId, slug, input.instructions);
 
   return config;
 }
@@ -312,8 +312,8 @@ export function createAgent(workspaceSlug: string, input: CreateAgentInput): Fol
 /**
  * Delete an agent from a workspace
  */
-export function deleteAgent(workspaceSlug: string, agentSlug: string): void {
-  const dir = getAgentPath(workspaceSlug, agentSlug);
+export function deleteAgent(workspaceId: string, agentSlug: string): void {
+  const dir = getAgentPath(workspaceId, agentSlug);
   if (existsSync(dir)) {
     rmSync(dir, { recursive: true });
   }
@@ -322,6 +322,6 @@ export function deleteAgent(workspaceSlug: string, agentSlug: string): void {
 /**
  * Check if an agent exists in a workspace
  */
-export function agentExists(workspaceSlug: string, agentSlug: string): boolean {
-  return existsSync(join(getAgentPath(workspaceSlug, agentSlug), 'config.json'));
+export function agentExists(workspaceId: string, agentSlug: string): boolean {
+  return existsSync(join(getAgentPath(workspaceId, agentSlug), 'config.json'));
 }

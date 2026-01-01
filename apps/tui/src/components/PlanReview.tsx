@@ -25,7 +25,7 @@ const BOTTOM_ACTIONS: { key: BottomAction; label: string; shortcut: string }[] =
 
 export interface PlanReviewProps {
   plan: Plan;
-  workspaceSlug: string;
+  workspaceId: string;
   sessionId: string;
   questions?: string[];
   /** Accept: Save plan and execute */
@@ -40,7 +40,7 @@ export interface PlanReviewProps {
 
 export const PlanReview: React.FC<PlanReviewProps> = ({
   plan,
-  workspaceSlug,
+  workspaceId,
   sessionId,
   questions = [],
   onApprove,
@@ -248,19 +248,19 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
     } else {
       // No changes - save plan to file and approve
       const modifiedPlan = buildModifiedPlan();
-      const savedPath = savePlanToFile(workspaceSlug, sessionId, modifiedPlan);
+      const savedPath = savePlanToFile(workspaceId, sessionId, modifiedPlan);
       onApprove(modifiedPlan, savedPath);
     }
-  }, [plan, stepActions, stepRefinements, checkMissingRefinements, hasModifications, onApprove, onRefine, buildModifiedPlan, workspaceSlug, sessionId]);
+  }, [plan, stepActions, stepRefinements, checkMissingRefinements, hasModifications, onApprove, onRefine, buildModifiedPlan, workspaceId, sessionId]);
 
   // Handle Save Plan action (save + cancel, don't execute)
   const handleSaveOnly = useCallback(() => {
     if (checkMissingRefinements()) return;
 
     const modifiedPlan = buildModifiedPlan();
-    const savedPath = savePlanToFile(workspaceSlug, sessionId, modifiedPlan);
+    const savedPath = savePlanToFile(workspaceId, sessionId, modifiedPlan);
     onSaveOnly(modifiedPlan, savedPath);
-  }, [checkMissingRefinements, buildModifiedPlan, onSaveOnly, workspaceSlug, sessionId]);
+  }, [checkMissingRefinements, buildModifiedPlan, onSaveOnly, workspaceId, sessionId]);
 
   // Execute the selected bottom action
   const executeBottomAction = useCallback(() => {

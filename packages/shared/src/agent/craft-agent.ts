@@ -39,7 +39,7 @@ import {
   type PermissionMode,
   PERMISSION_MODE_CONFIG,
 } from './mode-manager.ts';
-import type { SafeModeContext } from './safe-mode-config.ts';
+import type { PermissionsContext } from './permissions-config.ts';
 import { getSessionPlansPath } from '../sessions/storage.ts';
 import {
   ConfigWatcher,
@@ -572,7 +572,7 @@ export class CraftAgent {
   }
 
   // Callback for permission requests - set by TUI to receive permission prompts
-  public onPermissionRequest: ((request: { requestId: string; toolName: string; command: string; description: string; type?: 'bash' | 'safe_mode' }) => void) | null = null;
+  public onPermissionRequest: ((request: { requestId: string; toolName: string; command: string; description: string; type?: 'bash' }) => void) | null = null;
 
   // Debug callback for status messages
   public onDebug: ((message: string) => void) | null = null;

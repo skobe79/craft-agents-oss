@@ -55,26 +55,26 @@ export {
 // Export plan review types for electron app (plans can still be submitted via SubmitPlan)
 export type { PlanReviewRequest, PlanReviewResult } from '../agents/plan-types.ts';
 
-// Export safe-mode-config - customizable Safe Mode per workspace/source
+// Export permissions-config - customizable permissions per workspace/source (permissions.json)
 export {
   // Parser and validation
-  parseSafeModeJson,
-  validateSafeModeConfig,
-  SafeModeConfigSchema,
+  parsePermissionsJson,
+  validatePermissionsConfig,
+  PermissionsConfigSchema,
   // API endpoint checking
   isApiEndpointAllowed,
   // Storage functions
-  loadWorkspaceSafeModeConfig,
-  loadSourceSafeModeConfig,
-  getWorkspaceSafeModePath,
-  getSourceSafeModePath,
+  loadWorkspacePermissionsConfig,
+  loadSourcePermissionsConfig,
+  getWorkspacePermissionsPath,
+  getSourcePermissionsPath,
   // Cache singleton
-  safeModeConfigCache,
+  permissionsConfigCache,
   // Types
   type ApiEndpointRule,
   type CompiledApiEndpointRule,
-  type SafeModeCustomConfig,
-  type SafeModeConfigFile,
-  type MergedSafeModeConfig,
-  type SafeModeContext,
-} from './safe-mode-config.ts';
+  type PermissionsCustomConfig,
+  type PermissionsConfigFile,
+  type MergedPermissionsConfig,
+  type PermissionsContext,
+} from './permissions-config.ts';

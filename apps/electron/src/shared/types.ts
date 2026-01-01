@@ -541,8 +541,8 @@ export const IPC_CHANNELS = {
   SESSION_SET_SOURCES: 'sessions:setSources',
   SESSION_GET_SOURCES: 'sessions:getSources',
 
-  // Source safe mode config
-  SOURCES_GET_SAFE_MODE: 'sources:getSafeMode',
+  // Source permissions config
+  SOURCES_GET_PERMISSIONS: 'sources:getPermissions',
   // MCP tools listing
   SOURCES_GET_MCP_TOOLS: 'sources:getMcpTools',
 
@@ -784,6 +784,7 @@ export interface ElectronAPI {
   openMarkdownPreview(previewId: string, data: MarkdownPreviewData): Promise<void>
   getMarkdownPreviewData(previewId: string): Promise<{ data: MarkdownPreviewData; content: string } | null>
   saveMarkdownPreview(previewId: string, content: string): Promise<void>
+  onMarkdownFileSaved(callback: (data: { filePath: string }) => void): () => void
 
   // Diff preview window
   openDiffPreview(sessionId: string, diffId: string, data: DiffPreviewData): Promise<void>
@@ -804,15 +805,15 @@ export interface ElectronAPI {
   getAllDrafts(): Promise<Record<string, string>>
 
   // Sources
-  getSources(workspaceSlug: string): Promise<LoadedSource[]>
-  getAgentSources(workspaceSlug: string, agentSlug: string): Promise<LoadedSource[]>
-  createSource(workspaceSlug: string, config: Partial<FolderSourceConfig>): Promise<FolderSourceConfig>
-  deleteSource(workspaceSlug: string, sourceSlug: string): Promise<void>
-  startSourceOAuth(workspaceSlug: string, sourceSlug: string): Promise<{ success: boolean; error?: string; accessToken?: string }>
-  saveSourceCredentials(workspaceSlug: string, sourceSlug: string, credential: string): Promise<void>
-  promoteSource(workspaceSlug: string, agentSlug: string, sourceSlug: string): Promise<void>
-  getSourceSafeModeConfig(workspaceSlug: string, sourceSlug: string): Promise<import('@craft-agent/shared/agent').SafeModeCustomConfig | null>
-  getMcpTools(workspaceSlug: string, sourceSlug: string): Promise<McpToolsResult>
+  getSources(workspaceId: string): Promise<LoadedSource[]>
+  getAgentSources(workspaceId: string, agentSlug: string): Promise<LoadedSource[]>
+  createSource(workspaceId: string, config: Partial<FolderSourceConfig>): Promise<FolderSourceConfig>
+  deleteSource(workspaceId: string, sourceSlug: string): Promise<void>
+  startSourceOAuth(workspaceId: string, sourceSlug: string): Promise<{ success: boolean; error?: string; accessToken?: string }>
+  saveSourceCredentials(workspaceId: string, sourceSlug: string, credential: string): Promise<void>
+  promoteSource(workspaceId: string, agentSlug: string, sourceSlug: string): Promise<void>
+  getSourcePermissionsConfig(workspaceId: string, sourceSlug: string): Promise<import('@craft-agent/shared/agent').PermissionsConfigFile | null>
+  getMcpTools(workspaceId: string, sourceSlug: string): Promise<McpToolsResult>
 
   // Session sources
   setSessionSources(sessionId: string, sourceSlugs: string[]): Promise<void>

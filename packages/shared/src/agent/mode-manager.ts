@@ -11,7 +11,7 @@
  */
 
 import { debug } from '../utils/debug.ts';
-import type { SafeModeContext, MergedSafeModeConfig } from './safe-mode-config.ts';
+import type { PermissionsContext, MergedPermissionsConfig } from './permissions-config.ts';
 
 // ============================================================
 // Permission Mode Types
@@ -272,7 +272,7 @@ export const SAFE_MODE_CONFIG: ModeConfig = {
     // Docs MCP - all operations are read-only
     /^mcp__docs__/,
   ],
-  allowedApiEndpoints: [], // Use safe-mode.json to add endpoint-specific rules
+  allowedApiEndpoints: [], // Use permissions.json to add endpoint-specific rules
   displayName: 'Safe Mode',
   shortcutHint: 'SHIFT+TAB',
 };
@@ -454,9 +454,9 @@ export function cleanupModeState(sessionId: string): void {
 // ============================================================
 
 /**
- * Config type that works with both ModeConfig and MergedSafeModeConfig
+ * Config type that works with both ModeConfig and MergedPermissionsConfig
  */
-type ToolCheckConfig = ModeConfig | MergedSafeModeConfig;
+type ToolCheckConfig = ModeConfig | MergedPermissionsConfig;
 
 /**
  * Check if a Bash command is read-only using the given config
@@ -531,7 +531,7 @@ export function shouldAllowToolInMode(
   mode: PermissionMode,
   options?: {
     plansFolderPath?: string;
-    safeModeContext?: SafeModeContext;
+    permissionsContext?: PermissionsContext;
   }
 ): ToolCheckResult {
   // In 'allow-all' mode, everything is allowed
@@ -548,10 +548,10 @@ export function shouldAllowToolInMode(
   // Get config: merged custom if context provided, otherwise defaults
   let config: ToolCheckConfig;
 
-  if (options?.safeModeContext) {
+  if (options?.permissionsContext) {
     // Lazy import to avoid circular dependency
-    const { safeModeConfigCache } = require('./safe-mode-config.ts');
-    config = safeModeConfigCache.getMergedConfig(options.safeModeContext);
+    const { permissionsConfigCache } = require('./permissions-config.ts');
+    config = permissionsConfigCache.getMergedConfig(options.permissionsContext);
   } else {
     config = SAFE_MODE_CONFIG;
   }

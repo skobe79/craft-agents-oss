@@ -63,7 +63,7 @@ Help users connect external services to their Craft Agent workspace. Guide them 
 4. **Generate Tagline**: Create a brief description of the source (see Tagline Generation below)
 5. **Safe Mode Rules** (optional): Ask if the user wants custom Safe Mode rules for this source
 6. **Present Plan**: Use SubmitPlan to show the configuration for approval
-7. **Execute**: On approval, use source_create to add the source (and create safe-mode.md if requested)
+7. **Execute**: On approval, use source_create to add the source (and create permissions.json if requested)
 
 ## Deleting Sources
 
@@ -425,7 +425,7 @@ interface BuiltinAgentConfig extends FolderAgentConfig {
 /**
  * Ensure a specific built-in agent exists in the workspace
  */
-export function ensureBuiltinAgent(workspaceSlug: string, slug: string): FolderAgentConfig | null {
+export function ensureBuiltinAgent(workspaceId: string, slug: string): FolderAgentConfig | null {
   const spec = BUILTIN_AGENTS[slug];
   if (!spec) {
     debug(`[ensureBuiltinAgent] Unknown built-in agent: ${slug}`);
@@ -433,19 +433,19 @@ export function ensureBuiltinAgent(workspaceSlug: string, slug: string): FolderA
   }
 
   // Check if agent already exists
-  if (agentExists(workspaceSlug, slug)) {
+  if (agentExists(workspaceId, slug)) {
     // Check if we need to update instructions (version mismatch)
-    const config = loadAgentConfig(workspaceSlug, slug) as BuiltinAgentConfig | null;
+    const config = loadAgentConfig(workspaceId, slug) as BuiltinAgentConfig | null;
     if (config) {
       if (config.builtinVersion !== spec.version) {
         debug(`[ensureBuiltinAgent] Updating ${slug} from v${config.builtinVersion} to v${spec.version}`);
-        saveAgentInstructions(workspaceSlug, slug, spec.instructions);
+        saveAgentInstructions(workspaceId, slug, spec.instructions);
         const updatedConfig: BuiltinAgentConfig = {
           ...config,
           builtinVersion: spec.version,
           updatedAt: Date.now(),
         };
-        saveAgentConfig(workspaceSlug, updatedConfig);
+        saveAgentConfig(workspaceId, updatedConfig);
         return updatedConfig;
       }
       return config;
@@ -468,12 +468,12 @@ export function ensureBuiltinAgent(workspaceSlug: string, slug: string): FolderA
   };
 
   // Create the agent directory with the correct slug (including the dot)
-  const agentDir = getAgentPath(workspaceSlug, spec.slug);
+  const agentDir = getAgentPath(workspaceId, spec.slug);
   mkdirSync(agentDir, { recursive: true });
 
   // Save config and instructions
-  saveAgentConfig(workspaceSlug, builtinConfig);
-  saveAgentInstructions(workspaceSlug, spec.slug, spec.instructions);
+  saveAgentConfig(workspaceId, builtinConfig);
+  saveAgentInstructions(workspaceId, spec.slug, spec.instructions);
 
   return builtinConfig;
 }
@@ -481,9 +481,9 @@ export function ensureBuiltinAgent(workspaceSlug: string, slug: string): FolderA
 /**
  * Ensure all built-in agents exist in a workspace
  */
-export function ensureBuiltinAgents(workspaceSlug: string): void {
+export function ensureBuiltinAgents(workspaceId: string): void {
   for (const slug of Object.keys(BUILTIN_AGENTS)) {
-    ensureBuiltinAgent(workspaceSlug, slug);
+    ensureBuiltinAgent(workspaceId, slug);
   }
 }
 

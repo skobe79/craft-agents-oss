@@ -89,7 +89,7 @@ export interface McpServerConfig {
    * Workspace this source belongs to.
    * Used for credential lookups with workspace scoping.
    */
-  workspaceSlug?: string;
+  workspaceId?: string;
 }
 
 /**
@@ -147,7 +147,7 @@ export interface ApiConfig {
    * Workspace this source belongs to.
    * Used for credential lookups with workspace scoping.
    */
-  workspaceSlug?: string;
+  workspaceId?: string;
 }
 
 /**

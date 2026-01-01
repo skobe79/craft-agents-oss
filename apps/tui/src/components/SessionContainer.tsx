@@ -661,27 +661,16 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
     }
 
     if (pendingPermission) {
-      if (pendingPermission.type === 'safe_mode') {
-        // Safe mode permission: Y/N only (no "Always" option)
-        if (input.toLowerCase() === 'y') {
-          respondToPermission(true, false);
-          return;
-        } else if (input.toLowerCase() === 'n') {
-          respondToPermission(false, false);
-          return;
-        }
-      } else {
-        // Bash permission: Y/N/A
-        if (input.toLowerCase() === 'y') {
-          respondToPermission(true, false);
-          return;
-        } else if (input.toLowerCase() === 'n') {
-          respondToPermission(false, false);
-          return;
-        } else if (input.toLowerCase() === 'a') {
-          respondToPermission(true, true);
-          return;
-        }
+      // Permission request: Y/N/A
+      if (input.toLowerCase() === 'y') {
+        respondToPermission(true, false);
+        return;
+      } else if (input.toLowerCase() === 'n') {
+        respondToPermission(false, false);
+        return;
+      } else if (input.toLowerCase() === 'a') {
+        respondToPermission(true, true);
+        return;
       }
     }
 
@@ -925,32 +914,17 @@ export const SessionContainer: React.FC<SessionContainerProps> = ({
         {pendingPermission && (
           <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} marginBottom={1}>
             <Text color="yellow" bold>⚠ Permission Required</Text>
-            {pendingPermission.type === 'safe_mode' ? (
-              <>
-                <Text>Craft Agents wants to enter <Text color="green" bold>Safe Mode</Text></Text>
-                <Text dimColor>Task: {pendingPermission.command}</Text>
-                <Box marginTop={1}>
-                  <Text>Allow? </Text>
-                  <Text color="green" bold>[Y]es</Text>
-                  <Text> / </Text>
-                  <Text color="red" bold>[N]o</Text>
-                </Box>
-              </>
-            ) : (
-              <>
-                <Text>Tool: <Text color="cyan">{pendingPermission.toolName}</Text></Text>
-                <Text dimColor>Command: <Text>{pendingPermission.command}</Text></Text>
-                <Box marginTop={1}>
-                  <Text>Allow? </Text>
-                  <Text color="green" bold>[Y]es</Text>
-                  <Text> / </Text>
-                  <Text color="red" bold>[N]o</Text>
-                  <Text> / </Text>
-                  <Text color="blue" bold>[A]lways</Text>
-                  <Text dimColor> (for this command)</Text>
-                </Box>
-              </>
-            )}
+            <Text>Tool: <Text color="cyan">{pendingPermission.toolName}</Text></Text>
+            <Text dimColor>Command: <Text>{pendingPermission.command}</Text></Text>
+            <Box marginTop={1}>
+              <Text>Allow? </Text>
+              <Text color="green" bold>[Y]es</Text>
+              <Text> / </Text>
+              <Text color="red" bold>[N]o</Text>
+              <Text> / </Text>
+              <Text color="blue" bold>[A]lways</Text>
+              <Text dimColor> (for this command)</Text>
+            </Box>
           </Box>
         )}
 

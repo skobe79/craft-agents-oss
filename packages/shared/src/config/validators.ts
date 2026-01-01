@@ -278,16 +278,16 @@ export function validatePreferences(): ValidationResult {
 /**
  * Validate all config files
  */
-export function validateAll(workspaceSlug?: string): ValidationResult {
+export function validateAll(workspaceId?: string): ValidationResult {
   const results: ValidationResult[] = [
     validateConfig(),
     validatePreferences(),
   ];
 
-  // Include workspace-scoped validations if workspaceSlug is provided
-  if (workspaceSlug) {
-    results.push(validateAllSources(workspaceSlug));
-    results.push(validateAllAgents(workspaceSlug));
+  // Include workspace-scoped validations if workspaceId is provided
+  if (workspaceId) {
+    results.push(validateAllSources(workspaceId));
+    results.push(validateAllAgents(workspaceId));
   }
 
   const allErrors = results.flatMap(r => r.errors);
@@ -410,8 +410,8 @@ export function validateAgentConfig(config: unknown): ValidationResult {
 /**
  * Validate a source folder (workspace-scoped)
  */
-export function validateSource(workspaceSlug: string, slug: string): ValidationResult {
-  const sourcesDir = getWorkspaceSourcesPath(workspaceSlug);
+export function validateSource(workspaceId: string, slug: string): ValidationResult {
+  const sourcesDir = getWorkspaceSourcesPath(workspaceId);
   const file = `sources/${slug}/config.json`;
   const configPath = join(sourcesDir, slug, 'config.json');
 
@@ -478,8 +478,8 @@ export function validateSource(workspaceSlug: string, slug: string): ValidationR
 /**
  * Validate an agent folder (workspace-scoped)
  */
-export function validateAgent(workspaceSlug: string, slug: string): ValidationResult {
-  const agentsDir = getWorkspaceAgentsPath(workspaceSlug);
+export function validateAgent(workspaceId: string, slug: string): ValidationResult {
+  const agentsDir = getWorkspaceAgentsPath(workspaceId);
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
   const file = `agents/${slug}/config.json`;
@@ -554,8 +554,8 @@ export function validateAgent(workspaceSlug: string, slug: string): ValidationRe
 /**
  * Validate all sources in a workspace
  */
-export function validateAllSources(workspaceSlug: string): ValidationResult {
-  const sourcesDir = getWorkspaceSourcesPath(workspaceSlug);
+export function validateAllSources(workspaceId: string): ValidationResult {
+  const sourcesDir = getWorkspaceSourcesPath(workspaceId);
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
@@ -592,7 +592,7 @@ export function validateAllSources(workspaceSlug: string): ValidationResult {
   }
 
   for (const folder of sourceFolders) {
-    const result = validateSource(workspaceSlug, folder);
+    const result = validateSource(workspaceId, folder);
     errors.push(...result.errors);
     warnings.push(...result.warnings);
   }
@@ -607,8 +607,8 @@ export function validateAllSources(workspaceSlug: string): ValidationResult {
 /**
  * Validate all agents in a workspace
  */
-export function validateAllAgents(workspaceSlug: string): ValidationResult {
-  const agentsDir = getWorkspaceAgentsPath(workspaceSlug);
+export function validateAllAgents(workspaceId: string): ValidationResult {
+  const agentsDir = getWorkspaceAgentsPath(workspaceId);
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
@@ -645,7 +645,7 @@ export function validateAllAgents(workspaceSlug: string): ValidationResult {
   }
 
   for (const folder of agentFolders) {
-    const result = validateAgent(workspaceSlug, folder);
+    const result = validateAgent(workspaceId, folder);
     errors.push(...result.errors);
     warnings.push(...result.warnings);
   }

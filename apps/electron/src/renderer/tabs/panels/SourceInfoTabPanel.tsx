@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils'
 import { CONTENT_MAX_WIDTH_CLASS } from '@/config/layout'
 import type { Tab, SourceInfoTab } from '../types'
 import type { LoadedSource, McpToolWithPermission } from '../../../shared/types'
-import type { SafeModeCustomConfig } from '@craft-agent/shared/agent'
+import type { PermissionsConfigFile } from '@craft-agent/shared/agent'
 
 interface SourceInfoTabPanelProps {
   tab: Tab
@@ -73,7 +73,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
   const [source, setSource] = useState<LoadedSource | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [safeModeConfig, setSafeModeConfig] = useState<SafeModeCustomConfig | null>(null)
+  const [permissionsConfig, setPermissionsConfig] = useState<PermissionsConfigFile | null>(null)
   const [mcpTools, setMcpTools] = useState<McpToolWithPermission[] | null>(null)
   const [mcpToolsLoading, setMcpToolsLoading] = useState(false)
   const [mcpToolsError, setMcpToolsError] = useState<string | null>(null)
@@ -98,10 +98,10 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
         if (found) {
           setSource(found)
 
-          // Load safe mode config via IPC
-          const config = await window.electronAPI.getSourceSafeModeConfig(workspaceId, sourceSlug)
+          // Load permissions config via IPC
+          const config = await window.electronAPI.getSourcePermissionsConfig(workspaceId, sourceSlug)
           if (isMounted) {
-            setSafeModeConfig(config)
+            setPermissionsConfig(config)
           }
         } else {
           setError('Source not found')
@@ -158,7 +158,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
     }
   }, [source, workspaceId, sourceSlug])
 
-  // Listen for source folder changes (config.json, guide.md, safe-mode.json)
+  // Listen for source folder changes (config.json, guide.md, permissions.json)
   useEffect(() => {
     if (!window.electronAPI?.onSourcesChanged) return
 
@@ -170,16 +170,16 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
         console.log('[SourceInfoTabPanel] Source changed, reloading...')
         setSource(updated)
 
-        // Reload safe mode config via IPC
-        const loadSafeModeConfig = async () => {
+        // Reload permissions config via IPC
+        const loadPermissionsConfig = async () => {
           try {
-            const config = await window.electronAPI.getSourceSafeModeConfig(workspaceId, sourceSlug)
-            setSafeModeConfig(config)
+            const config = await window.electronAPI.getSourcePermissionsConfig(workspaceId, sourceSlug)
+            setPermissionsConfig(config)
           } catch (err) {
-            console.error('[SourceInfoTabPanel] Failed to reload safe mode config:', err)
+            console.error('[SourceInfoTabPanel] Failed to reload permissions config:', err)
           }
         }
-        loadSafeModeConfig()
+        loadPermissionsConfig()
       }
     })
 
@@ -330,7 +330,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
           </div>
 
           {/* Permissions - for API and local sources, show safe mode config */}
-          {source.config.type !== 'mcp' && safeModeConfig && (
+          {source.config.type !== 'mcp' && permissionsConfig && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <SectionHeader>Permissions</SectionHeader>
@@ -358,7 +358,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
                   </thead>
                   <tbody>
                     {/* Blocked Tools */}
-                    {safeModeConfig.blockedTools?.map((tool, i) => (
+                    {permissionsConfig.blockedTools?.map((tool, i) => (
                       <tr key={`blocked-${i}`} className="border-b border-border/30 last:border-0">
                         <td className="pl-[22px] pr-4 py-2 align-top">
                           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive">
@@ -374,7 +374,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
                     ))}
 
                     {/* Allowed Bash Patterns */}
-                    {safeModeConfig.allowedBashPatterns?.map((item, i) => {
+                    {permissionsConfig.allowedBashPatterns?.map((item, i) => {
                       const pattern = typeof item === 'string' ? item : item.pattern
                       const comment = typeof item === 'string' ? null : item.comment
                       return (
@@ -394,7 +394,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
                     })}
 
                     {/* Allowed API Endpoints */}
-                    {safeModeConfig.allowedApiEndpoints?.map((item, i) => {
+                    {permissionsConfig.allowedApiEndpoints?.map((item, i) => {
                       const pattern = `${item.method} ${item.path}`
                       const comment = typeof item === 'object' && 'comment' in item ? item.comment : null
                       return (
@@ -413,21 +413,6 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
                       )
                     })}
 
-                    {/* Allowed API Methods */}
-                    {safeModeConfig.allowedApiMethods?.map((method, i) => (
-                      <tr key={`method-${i}`} className="border-b border-border/30 last:border-0">
-                        <td className="pl-[22px] pr-4 py-2 align-top">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600 dark:text-green-400">
-                            Allowed
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-muted-foreground text-xs align-top">API</td>
-                        <td className="px-4 py-2 align-top">
-                          <code className="font-mono text-xs">{method}</code>
-                        </td>
-                        <td className="pr-4 py-2 text-foreground/60 text-xs align-top">—</td>
-                      </tr>
-                    ))}
                   </tbody>
                 </table>
               </div>
@@ -525,7 +510,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
           )}
 
           {/* Permissions - for MCP sources, show safe mode config patterns */}
-          {source.config.type === 'mcp' && safeModeConfig && (
+          {source.config.type === 'mcp' && permissionsConfig && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <SectionHeader>Permissions</SectionHeader>
@@ -552,7 +537,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
                   </thead>
                   <tbody>
                     {/* Blocked Tools */}
-                    {safeModeConfig.blockedTools?.map((tool, i) => (
+                    {permissionsConfig.blockedTools?.map((tool, i) => (
                       <tr key={`blocked-${i}`} className="border-b border-border/30 last:border-0">
                         <td className="pl-[22px] pr-4 py-2 align-top">
                           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive">
@@ -567,7 +552,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
                     ))}
 
                     {/* Allowed MCP Patterns */}
-                    {safeModeConfig.allowedMcpPatterns?.map((item, i) => {
+                    {permissionsConfig.allowedMcpPatterns?.map((item, i) => {
                       const pattern = typeof item === 'string' ? item : item.pattern
                       const comment = typeof item === 'string' ? null : item.comment
                       return (

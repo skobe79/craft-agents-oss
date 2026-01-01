@@ -5,7 +5,7 @@
  * Replaces SubAgentManager for the new folder-based architecture.
  * No Craft document extraction - reads directly from files.
  *
- * Workspace-scoped: All operations require a workspaceSlug.
+ * Workspace-scoped: All operations require a workspaceId.
  */
 
 import type {
@@ -195,7 +195,7 @@ export class FolderAgentManager {
       logo,
       // Pass through for credential lookup
       agentSlug: source.agentSlug,
-      workspaceSlug: source.workspaceSlug,
+      workspaceId: source.workspaceId,
     };
   }
 
@@ -247,7 +247,7 @@ export class FolderAgentManager {
       logo,
       // Pass through for credential lookup
       agentSlug: source.agentSlug,
-      workspaceSlug: source.workspaceSlug,
+      workspaceId: source.workspaceId,
     };
   }
 

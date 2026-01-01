@@ -225,7 +225,7 @@ export interface PermissionRequest {
   toolName: string;
   command: string;
   description: string;
-  type?: 'bash' | 'safe_mode';  // Type of permission request
+  type?: 'bash';  // Type of permission request
 }
 
 /**

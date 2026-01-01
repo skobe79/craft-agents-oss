@@ -1808,21 +1808,13 @@ export function Chat({
                       variant: isSourcesMode(sidebarMode) ? "default" : "ghost",
                       onClick: handleSourcesClick,
                     },
-                    {
-                      id: "nav:flagged",
-                      title: "Flagged",
-                      label: String(flaggedCount),
-                      icon: Flag,
-                      variant: chatFilter?.kind === 'flagged' ? "default" : "ghost",
-                      onClick: handleFlaggedClick,
-                    },
                   ]}
                 />
-                {/* Status Section - Collapsible */}
+                {/* Chats Section - Collapsible */}
                 <Collapsible open={!statusCollapsed} onOpenChange={(open) => setStatusCollapsed(!open)} className="mb-1">
                   <CollapsibleTrigger asChild>
                     <button className="group flex items-center justify-between w-full pl-4 pr-3.5 pt-2 pb-1">
-                      <span className="text-xs font-medium text-muted-foreground select-none">Status</span>
+                      <span className="text-xs font-medium text-muted-foreground select-none">Chats</span>
                       <ChevronDown className={cn(
                         "h-3.5 w-3.5 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all duration-200",
                         statusCollapsed && "-rotate-90"
@@ -1830,12 +1822,21 @@ export function Chat({
                     </button>
                   </CollapsibleTrigger>
                   <AnimatedCollapsibleContent isOpen={!statusCollapsed}>
-                    {/* Status Nav: Todo states */}
+                    {/* Chats Nav: Flagged + Todo states */}
                     <LeftSidebar
                       isCollapsed={false}
                       getItemProps={getSidebarItemProps}
                       focusedItemId={focusedSidebarItemId}
                       links={[
+                        {
+                          id: "nav:flagged",
+                          title: "Flagged",
+                          label: String(flaggedCount),
+                          icon: <Flag className="h-3.5 w-3.5 fill-current" />,
+                          iconColor: "text-orange-500",
+                          variant: chatFilter?.kind === 'flagged' ? "default" : "ghost",
+                          onClick: handleFlaggedClick,
+                        },
                         {
                           id: "nav:state:todo",
                           title: "Todo",

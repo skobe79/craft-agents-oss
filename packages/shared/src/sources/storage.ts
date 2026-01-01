@@ -5,7 +5,7 @@
  * Sources are stored at {workspaceRootPath}/sources/{sourceSlug}/
  *
  * Note: All functions take `workspaceRootPath` (absolute path to workspace folder),
- * NOT a workspace slug. The `LoadedSource.workspaceSlug` is derived via basename().
+ * NOT a workspace slug. The `LoadedSource.workspaceId` is derived via basename().
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'fs';
@@ -389,13 +389,13 @@ export function loadSource(workspaceRootPath: string, sourceSlug: string): Loade
 
   // Extract workspace folder name for credential lookup
   // Credentials are keyed by folder name (e.g., "046a02d0-..."), not full path
-  const workspaceSlug = basename(workspaceRootPath);
+  const workspaceId = basename(workspaceRootPath);
 
   return {
     config,
     guide: loadSourceGuide(workspaceRootPath, sourceSlug),
     folderPath,
-    workspaceSlug,
+    workspaceId,
   };
 }
 
@@ -413,13 +413,13 @@ export function loadAgentSource(
   if (!config) return null;
 
   // Extract workspace folder name for credential lookup
-  const workspaceSlug = basename(workspaceRootPath);
+  const workspaceId = basename(workspaceRootPath);
 
   return {
     config,
     guide: loadAgentSourceGuide(workspaceRootPath, agentSlug, sourceSlug),
     folderPath,
-    workspaceSlug,
+    workspaceId,
     agentSlug,
   };
 }

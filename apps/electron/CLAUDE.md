@@ -380,7 +380,7 @@ apps/electron/
 ```tsx
 // In renderer component
 const { loadSourceSafeModeConfig } = await import('@craft-agent/shared/agent')
-const config = loadSourceSafeModeConfig(workspaceSlug, sourceSlug)
+const config = loadSourceSafeModeConfig(workspaceId, sourceSlug)
 ```
 
 ✅ **Correct** (use IPC to call main process):

@@ -252,8 +252,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.SOURCES_GET_AGENT, workspaceId, agentSlug),
   promoteSource: (workspaceId: string, agentSlug: string, sourceSlug: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SOURCES_PROMOTE, workspaceId, agentSlug, sourceSlug),
-  getSourceSafeModeConfig: (workspaceId: string, sourceSlug: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.SOURCES_GET_SAFE_MODE, workspaceId, sourceSlug),
+  getSourcePermissionsConfig: (workspaceId: string, sourceSlug: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SOURCES_GET_PERMISSIONS, workspaceId, sourceSlug),
   getMcpTools: (workspaceId: string, sourceSlug: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SOURCES_GET_MCP_TOOLS, workspaceId, sourceSlug),
 

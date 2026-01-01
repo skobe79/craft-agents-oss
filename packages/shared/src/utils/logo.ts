@@ -93,7 +93,7 @@ async function parseFaviconsFromHtml(url: string): Promise<Array<{href: string, 
 
     // Extract <head> section (basic regex - good enough for favicon parsing)
     const headMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
-    if (!headMatch) return [];
+    if (!headMatch || !headMatch[1]) return [];
 
     const head = headMatch[1];
 
@@ -104,10 +104,11 @@ async function parseFaviconsFromHtml(url: string): Promise<Array<{href: string, 
     let match;
     while ((match = linkRegex.exec(head)) !== null) {
       const attrs = match[1];
+      if (!attrs) continue;
 
       // Extract href attribute
       const hrefMatch = attrs.match(/href=["']([^"']+)["']/i);
-      if (!hrefMatch) continue;
+      if (!hrefMatch || !hrefMatch[1]) continue;
 
       let href = hrefMatch[1];
 
@@ -124,7 +125,7 @@ async function parseFaviconsFromHtml(url: string): Promise<Array<{href: string, 
 
       // Extract sizes attribute (e.g., "180x180", "512x512")
       const sizesMatch = attrs.match(/sizes=["']([^"']+)["']/i);
-      const sizes = sizesMatch ? sizesMatch[1] : null;
+      const sizes = sizesMatch && sizesMatch[1] ? sizesMatch[1] : null;
 
       favicons.push({ href, sizes });
     }
@@ -150,18 +151,19 @@ function pickBestFavicon(favicons: Array<{href: string, sizes: string | null}>):
   const withSizes = favicons
     .filter(f => f.sizes && f.sizes !== 'any')
     .map(f => {
-      const sizeMatch = f.sizes!.match(/(\d+)x(\d+)/);
-      const size = sizeMatch ? parseInt(sizeMatch[1], 10) : 0;
+      const sizeMatch = f.sizes?.match(/(\d+)x(\d+)/);
+      const size = sizeMatch && sizeMatch[1] ? parseInt(sizeMatch[1], 10) : 0;
       return { ...f, sizeNum: size };
     })
     .sort((a, b) => b.sizeNum - a.sizeNum);
 
-  if (withSizes.length > 0 && withSizes[0].sizeNum >= 128) {
-    return withSizes[0].href;
+  const largestWithSize = withSizes[0];
+  if (largestWithSize && largestWithSize.sizeNum >= 128) {
+    return largestWithSize.href;
   }
 
   // Fall back to first available
-  return favicons[0].href;
+  return favicons[0]?.href ?? null;
 }
 
 /**

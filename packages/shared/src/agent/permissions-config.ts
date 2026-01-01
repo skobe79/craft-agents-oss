@@ -2,11 +2,11 @@
  * Safe Mode Configuration
  *
  * Allows customization of Safe Mode rules per workspace and per source.
- * Users can create safe-mode.json files to extend the default rules.
+ * Users can create permissions.json files to extend the default rules.
  *
  * File locations:
- * - Workspace: ~/.craft-agent/workspaces/{slug}/safe-mode.json
- * - Per-source: ~/.craft-agent/workspaces/{slug}/sources/{sourceSlug}/safe-mode.json
+ * - Workspace: ~/.craft-agent/workspaces/{slug}/permissions.json
+ * - Per-source: ~/.craft-agent/workspaces/{slug}/sources/{sourceSlug}/permissions.json
  *
  * Rules are additive - custom configs extend the defaults (more permissive).
  */
@@ -46,9 +46,9 @@ const PatternSchema = z.union([
 ]);
 
 /**
- * Safe mode JSON configuration schema
+ * Permissions JSON configuration schema
  */
-export const SafeModeConfigSchema = z.object({
+export const PermissionsConfigSchema = z.object({
   /** Additional tools to block */
   blockedTools: z.array(z.string()).optional(),
   /** Bash command patterns to allow (regex strings) */
@@ -59,16 +59,16 @@ export const SafeModeConfigSchema = z.object({
   allowedApiEndpoints: z.array(ApiEndpointRuleSchema).optional(),
 });
 
-export type SafeModeConfigFile = z.infer<typeof SafeModeConfigSchema>;
+export type PermissionsConfigFile = z.infer<typeof PermissionsConfigSchema>;
 
 // ============================================================
 // Types
 // ============================================================
 
 /**
- * Parsed and normalized safe mode configuration
+ * Parsed and normalized permissions configuration
  */
-export interface SafeModeCustomConfig {
+export interface PermissionsCustomConfig {
   /** Additional tools to block */
   blockedTools: string[];
   /** Additional bash patterns to allow (as regex strings) */
@@ -88,9 +88,9 @@ export interface CompiledApiEndpointRule {
 }
 
 /**
- * Merged safe mode config for runtime use
+ * Merged permissions config for runtime use
  */
-export interface MergedSafeModeConfig {
+export interface MergedPermissionsConfig {
   blockedTools: Set<string>;
   readOnlyBashPatterns: RegExp[];
   readOnlyMcpPatterns: RegExp[];
@@ -103,9 +103,9 @@ export interface MergedSafeModeConfig {
 }
 
 /**
- * Context for safe mode checking (includes workspace/source info)
+ * Context for permissions checking (includes workspace/source info)
  */
-export interface SafeModeContext {
+export interface PermissionsContext {
   workspaceSlug: string;
   /** Active source slugs for source-specific rules */
   activeSourceSlugs?: string[];
@@ -116,10 +116,10 @@ export interface SafeModeContext {
 // ============================================================
 
 /**
- * Parse and validate safe-mode.json file
+ * Parse and validate permissions.json file
  */
-export function parseSafeModeJson(content: string): SafeModeCustomConfig {
-  const emptyConfig: SafeModeCustomConfig = {
+export function parsePermissionsJson(content: string): PermissionsCustomConfig {
+  const emptyConfig: PermissionsCustomConfig = {
     blockedTools: [],
     allowedBashPatterns: [],
     allowedMcpPatterns: [],
@@ -128,7 +128,7 @@ export function parseSafeModeJson(content: string): SafeModeCustomConfig {
 
   try {
     const json = JSON.parse(content);
-    const result = SafeModeConfigSchema.safeParse(json);
+    const result = PermissionsConfigSchema.safeParse(json);
 
     if (!result.success) {
       debug('[SafeMode] Validation errors:', result.error.issues);
@@ -171,9 +171,9 @@ function validateRegex(pattern: string): RegExp | null {
 }
 
 /**
- * Validate safe mode config and return errors
+ * Validate permissions config and return errors
  */
-export function validateSafeModeConfig(config: SafeModeConfigFile): string[] {
+export function validatePermissionsConfig(config: PermissionsConfigFile): string[] {
   const errors: string[] = [];
 
   // Validate regex patterns
@@ -210,54 +210,54 @@ export function validateSafeModeConfig(config: SafeModeConfigFile): string[] {
 // ============================================================
 
 /**
- * Get path to workspace safe-mode.json
+ * Get path to workspace permissions.json
  */
-export function getWorkspaceSafeModePath(workspaceSlug: string): string {
-  return join(getWorkspacePath(workspaceSlug), 'safe-mode.json');
+export function getWorkspacePermissionsPath(workspaceSlug: string): string {
+  return join(getWorkspacePath(workspaceSlug), 'permissions.json');
 }
 
 /**
- * Get path to source safe-mode.json
+ * Get path to source permissions.json
  */
-export function getSourceSafeModePath(workspaceSlug: string, sourceSlug: string): string {
-  return join(getSourcePath(workspaceSlug, sourceSlug), 'safe-mode.json');
+export function getSourcePermissionsPath(workspaceSlug: string, sourceSlug: string): string {
+  return join(getSourcePath(workspaceSlug, sourceSlug), 'permissions.json');
 }
 
 /**
- * Load workspace-level safe mode config
+ * Load workspace-level permissions config
  */
-export function loadWorkspaceSafeModeConfig(workspaceSlug: string): SafeModeCustomConfig | null {
-  const path = getWorkspaceSafeModePath(workspaceSlug);
+export function loadWorkspacePermissionsConfig(workspaceSlug: string): PermissionsCustomConfig | null {
+  const path = getWorkspacePermissionsPath(workspaceSlug);
   if (!existsSync(path)) return null;
 
   try {
     const content = readFileSync(path, 'utf-8');
-    const config = parseSafeModeJson(content);
-    debug(`[SafeMode] Loaded workspace config from ${path}:`, config);
+    const config = parsePermissionsJson(content);
+    debug(`[Permissions] Loaded workspace config from ${path}:`, config);
     return config;
   } catch (error) {
-    debug(`[SafeMode] Error loading workspace config:`, error);
+    debug(`[Permissions] Error loading workspace config:`, error);
     return null;
   }
 }
 
 /**
- * Load source-level safe mode config
+ * Load source-level permissions config
  */
-export function loadSourceSafeModeConfig(
+export function loadSourcePermissionsConfig(
   workspaceSlug: string,
   sourceSlug: string
-): SafeModeCustomConfig | null {
-  const path = getSourceSafeModePath(workspaceSlug, sourceSlug);
+): PermissionsCustomConfig | null {
+  const path = getSourcePermissionsPath(workspaceSlug, sourceSlug);
   if (!existsSync(path)) return null;
 
   try {
     const content = readFileSync(path, 'utf-8');
-    const config = parseSafeModeJson(content);
-    debug(`[SafeMode] Loaded source config from ${path}:`, config);
+    const config = parsePermissionsJson(content);
+    debug(`[Permissions] Loaded source config from ${path}:`, config);
     return config;
   } catch (error) {
-    debug(`[SafeMode] Error loading source config:`, error);
+    debug(`[Permissions] Error loading source config:`, error);
     return null;
   }
 }
@@ -272,7 +272,7 @@ export function loadSourceSafeModeConfig(
 export function isApiEndpointAllowed(
   method: string,
   path: string,
-  config: MergedSafeModeConfig
+  config: MergedPermissionsConfig
 ): boolean {
   const upperMethod = method.toUpperCase();
 
@@ -294,20 +294,20 @@ export function isApiEndpointAllowed(
 // ============================================================
 
 /**
- * In-memory cache for parsed safe mode configs
+ * In-memory cache for parsed permissions configs
  * Invalidated on file changes via ConfigWatcher
  */
-class SafeModeConfigCache {
-  private workspaceConfigs: Map<string, SafeModeCustomConfig | null> = new Map();
-  private sourceConfigs: Map<string, SafeModeCustomConfig | null> = new Map();
-  private mergedConfigs: Map<string, MergedSafeModeConfig> = new Map();
+class PermissionsConfigCache {
+  private workspaceConfigs: Map<string, PermissionsCustomConfig | null> = new Map();
+  private sourceConfigs: Map<string, PermissionsCustomConfig | null> = new Map();
+  private mergedConfigs: Map<string, MergedPermissionsConfig> = new Map();
 
   /**
    * Get or load workspace config
    */
-  getWorkspaceConfig(workspaceSlug: string): SafeModeCustomConfig | null {
+  getWorkspaceConfig(workspaceSlug: string): PermissionsCustomConfig | null {
     if (!this.workspaceConfigs.has(workspaceSlug)) {
-      this.workspaceConfigs.set(workspaceSlug, loadWorkspaceSafeModeConfig(workspaceSlug));
+      this.workspaceConfigs.set(workspaceSlug, loadWorkspacePermissionsConfig(workspaceSlug));
     }
     return this.workspaceConfigs.get(workspaceSlug) ?? null;
   }
@@ -315,10 +315,10 @@ class SafeModeConfigCache {
   /**
    * Get or load source config
    */
-  getSourceConfig(workspaceSlug: string, sourceSlug: string): SafeModeCustomConfig | null {
+  getSourceConfig(workspaceSlug: string, sourceSlug: string): PermissionsCustomConfig | null {
     const key = `${workspaceSlug}::${sourceSlug}`;
     if (!this.sourceConfigs.has(key)) {
-      this.sourceConfigs.set(key, loadSourceSafeModeConfig(workspaceSlug, sourceSlug));
+      this.sourceConfigs.set(key, loadSourcePermissionsConfig(workspaceSlug, sourceSlug));
     }
     return this.sourceConfigs.get(key) ?? null;
   }
@@ -327,7 +327,7 @@ class SafeModeConfigCache {
    * Invalidate workspace config (called by ConfigWatcher)
    */
   invalidateWorkspace(workspaceSlug: string): void {
-    debug(`[SafeMode] Invalidating workspace config: ${workspaceSlug}`);
+    debug(`[Permissions] Invalidating workspace config: ${workspaceSlug}`);
     this.workspaceConfigs.delete(workspaceSlug);
     // Clear all merged configs for this workspace
     for (const key of this.mergedConfigs.keys()) {
@@ -341,7 +341,7 @@ class SafeModeConfigCache {
    * Invalidate source config (called by ConfigWatcher)
    */
   invalidateSource(workspaceSlug: string, sourceSlug: string): void {
-    debug(`[SafeMode] Invalidating source config: ${workspaceSlug}/${sourceSlug}`);
+    debug(`[Permissions] Invalidating source config: ${workspaceSlug}/${sourceSlug}`);
     this.sourceConfigs.delete(`${workspaceSlug}::${sourceSlug}`);
     // Clear merged configs that include this source
     for (const key of this.mergedConfigs.keys()) {
@@ -355,7 +355,7 @@ class SafeModeConfigCache {
    * Get merged config for a context (workspace + active sources)
    * Uses additive merging: custom configs extend defaults
    */
-  getMergedConfig(context: SafeModeContext): MergedSafeModeConfig {
+  getMergedConfig(context: PermissionsContext): MergedPermissionsConfig {
     const cacheKey = this.buildCacheKey(context);
 
     if (!this.mergedConfigs.has(cacheKey)) {
@@ -366,11 +366,11 @@ class SafeModeConfigCache {
     return this.mergedConfigs.get(cacheKey)!;
   }
 
-  private buildMergedConfig(context: SafeModeContext): MergedSafeModeConfig {
+  private buildMergedConfig(context: PermissionsContext): MergedPermissionsConfig {
     const defaults = SAFE_MODE_CONFIG;
 
     // Start with defaults
-    const merged: MergedSafeModeConfig = {
+    const merged: MergedPermissionsConfig = {
       blockedTools: new Set(defaults.blockedTools),
       readOnlyBashPatterns: [...defaults.readOnlyBashPatterns],
       readOnlyMcpPatterns: [...defaults.readOnlyMcpPatterns],
@@ -398,7 +398,7 @@ class SafeModeConfigCache {
     return merged;
   }
 
-  private applyCustomConfig(merged: MergedSafeModeConfig, custom: SafeModeCustomConfig): void {
+  private applyCustomConfig(merged: MergedPermissionsConfig, custom: PermissionsCustomConfig): void {
     // Add blocked tools
     for (const tool of custom.blockedTools) {
       merged.blockedTools.add(tool);
@@ -410,7 +410,7 @@ class SafeModeConfigCache {
       if (regex) {
         merged.readOnlyBashPatterns.push(regex);
       } else {
-        debug(`[SafeMode] Invalid bash pattern, skipping: ${pattern}`);
+        debug(`[Permissions] Invalid bash pattern, skipping: ${pattern}`);
       }
     }
 
@@ -420,7 +420,7 @@ class SafeModeConfigCache {
       if (regex) {
         merged.readOnlyMcpPatterns.push(regex);
       } else {
-        debug(`[SafeMode] Invalid MCP pattern, skipping: ${pattern}`);
+        debug(`[Permissions] Invalid MCP pattern, skipping: ${pattern}`);
       }
     }
 
@@ -433,12 +433,12 @@ class SafeModeConfigCache {
           pathPattern: pathRegex,
         });
       } else {
-        debug(`[SafeMode] Invalid API endpoint path pattern, skipping: ${rule.path}`);
+        debug(`[Permissions] Invalid API endpoint path pattern, skipping: ${rule.path}`);
       }
     }
   }
 
-  private buildCacheKey(context: SafeModeContext): string {
+  private buildCacheKey(context: PermissionsContext): string {
     const sources = context.activeSourceSlugs?.sort().join(',') ?? '';
     return `${context.workspaceSlug}::${sources}`;
   }
@@ -454,4 +454,4 @@ class SafeModeConfigCache {
 }
 
 // Singleton instance
-export const safeModeConfigCache = new SafeModeConfigCache();
+export const permissionsConfigCache = new PermissionsConfigCache();

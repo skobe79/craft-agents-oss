@@ -4,7 +4,7 @@
  * Agents stored as folders with editable markdown instructions.
  *
  * File structure (workspace-scoped):
- * ~/.craft-agent/workspaces/{workspaceSlug}/agents/{agentSlug}/
+ * ~/.craft-agent/workspaces/{workspaceId}/agents/{agentSlug}/
  *   ├── config.json       - Agent metadata
  *   ├── instructions.md   - System prompt addition
  *   ├── icon.png          - Optional custom icon
@@ -63,7 +63,7 @@ export interface LoadedAgent {
    * Workspace this agent belongs to.
    * Used for source resolution and credential lookups.
    */
-  workspaceSlug: string;
+  workspaceId: string;
 }
 
 /**

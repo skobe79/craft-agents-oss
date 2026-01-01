@@ -8,9 +8,9 @@
  * - ~/.craft-agent/config.json - Main app configuration
  * - ~/.craft-agent/preferences.json - User preferences
  * - ~/.craft-agent/workspaces/{slug}/ - Workspace directory (recursive)
- *   - sources/{slug}/config.json, guide.md, safe-mode.json
+ *   - sources/{slug}/config.json, guide.md, permissions.json
  *   - agents/{slug}/config.json, instructions.md
- *   - safe-mode.json
+ *   - permissions.json
  */
 
 import { watch, existsSync, readdirSync, statSync, readFileSync, mkdirSync } from 'fs';
@@ -30,7 +30,7 @@ import type { LoadedSource, SourceGuide } from '../sources/types.ts';
 import type { LoadedAgent } from '../agents/folder-types.ts';
 import { loadSource, loadWorkspaceSources, loadSourceGuide } from '../sources/storage.ts';
 import { loadAgent, loadWorkspaceAgents, loadAgentInstructions } from '../agents/folder-storage.ts';
-import { safeModeConfigCache } from '../agent/safe-mode-config.ts';
+import { permissionsConfigCache } from '../agent/permissions-config.ts';
 import { getWorkspacePath, getWorkspaceSourcesPath, getWorkspaceAgentsPath } from '../workspaces/storage.ts';
 
 // ============================================================
@@ -89,11 +89,11 @@ export interface ConfigWatcherCallbacks {
   /** Called when the agents list changes (add/remove folders) */
   onAgentsListChange?: (agents: LoadedAgent[]) => void;
 
-  // Safe Mode callbacks
-  /** Called when workspace safe-mode.json changes */
-  onWorkspaceSafeModeChange?: (workspaceSlug: string) => void;
-  /** Called when a source's safe-mode.json changes */
-  onSourceSafeModeChange?: (sourceSlug: string) => void;
+  // Permissions callbacks
+  /** Called when workspace permissions.json changes */
+  onWorkspacePermissionsChange?: (workspaceId: string) => void;
+  /** Called when a source's permissions.json changes */
+  onSourcePermissionsChange?: (sourceSlug: string) => void;
 
   // Error callbacks
   /** Called when a validation error occurs */
@@ -132,7 +132,7 @@ export function loadPreferences(): UserPreferences | null {
  * Uses recursive directory watching for workspace files.
  */
 export class ConfigWatcher {
-  private workspaceSlug: string;
+  private workspaceId: string;
   private callbacks: ConfigWatcherCallbacks;
   private watchers: FSWatcher[] = [];
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -147,10 +147,10 @@ export class ConfigWatcher {
   private sourcesDir: string;
   private agentsDir: string;
 
-  constructor(workspaceSlug: string, callbacks: ConfigWatcherCallbacks) {
-    this.workspaceSlug = workspaceSlug;
+  constructor(workspaceId: string, callbacks: ConfigWatcherCallbacks) {
+    this.workspaceId = workspaceId;
     this.callbacks = callbacks;
-    this.workspaceDir = getWorkspacePath(workspaceSlug);
+    this.workspaceDir = getWorkspacePath(workspaceId);
     this.sourcesDir = getWorkspaceSourcesPath(this.workspaceDir);
     this.agentsDir = getWorkspaceAgentsPath(this.workspaceDir);
   }
@@ -159,7 +159,7 @@ export class ConfigWatcher {
    * Get the workspace slug this watcher is scoped to
    */
   getWorkspaceSlug(): string {
-    return this.workspaceSlug;
+    return this.workspaceId;
   }
 
   /**
@@ -171,7 +171,7 @@ export class ConfigWatcher {
     }
 
     this.isRunning = true;
-    debug('[ConfigWatcher] Starting for workspace:', this.workspaceSlug);
+    debug('[ConfigWatcher] Starting for workspace:', this.workspaceId);
 
     // Ensure workspace directory exists
     if (!existsSync(this.workspaceDir)) {
@@ -273,9 +273,9 @@ export class ConfigWatcher {
   private handleWorkspaceFileChange(relativePath: string, eventType: string): void {
     const parts = relativePath.split('/');
 
-    // Workspace-level safe-mode.json
-    if (relativePath === 'safe-mode.json') {
-      this.debounce('workspace-safe-mode', () => this.handleWorkspaceSafeModeChange());
+    // Workspace-level permissions.json
+    if (relativePath === 'permissions.json') {
+      this.debounce('workspace-permissions', () => this.handleWorkspacePermissionsChange());
       return;
     }
 
@@ -295,8 +295,8 @@ export class ConfigWatcher {
         this.debounce(`source-config:${slug}`, () => this.handleSourceConfigChange(slug));
       } else if (file === 'guide.md') {
         this.debounce(`source-guide:${slug}`, () => this.handleSourceGuideChange(slug));
-      } else if (file === 'safe-mode.json') {
-        this.debounce(`source-safemode:${slug}`, () => this.handleSourceSafeModeChange(slug));
+      } else if (file === 'permissions.json') {
+        this.debounce(`source-permissions:${slug}`, () => this.handleSourcePermissionsChange(slug));
       }
       return;
     }
@@ -404,7 +404,7 @@ export class ConfigWatcher {
           debug('[ConfigWatcher] New source folder:', folder);
           this.knownSources.add(folder);
 
-          const source = loadSource(this.workspaceSlug, folder);
+          const source = loadSource(this.workspaceId, folder);
           if (source) {
             this.callbacks.onSourceChange?.(folder, source);
           }
@@ -421,7 +421,7 @@ export class ConfigWatcher {
       }
 
       // Notify list change
-      const allSources = loadWorkspaceSources(this.workspaceSlug);
+      const allSources = loadWorkspaceSources(this.workspaceId);
       this.callbacks.onSourcesListChange?.(allSources);
     } catch (error) {
       debug('[ConfigWatcher] Error handling sources dir change:', error);
@@ -435,14 +435,14 @@ export class ConfigWatcher {
   private handleSourceConfigChange(slug: string): void {
     debug('[ConfigWatcher] Source config changed:', slug);
 
-    const validation = validateSource(this.workspaceSlug, slug);
+    const validation = validateSource(this.workspaceId, slug);
     if (!validation.valid) {
       debug('[ConfigWatcher] Source validation failed:', slug, validation.errors);
       this.callbacks.onValidationError?.(`sources/${slug}/config.json`, validation);
       return;
     }
 
-    const source = loadSource(this.workspaceSlug, slug);
+    const source = loadSource(this.workspaceId, slug);
     this.callbacks.onSourceChange?.(slug, source);
   }
 
@@ -452,29 +452,29 @@ export class ConfigWatcher {
   private handleSourceGuideChange(slug: string): void {
     debug('[ConfigWatcher] Source guide changed:', slug);
 
-    const guide = loadSourceGuide(this.workspaceSlug, slug);
+    const guide = loadSourceGuide(this.workspaceId, slug);
     if (guide) {
       this.callbacks.onSourceGuideChange?.(slug, guide);
     }
 
     // Also emit full source change
-    const source = loadSource(this.workspaceSlug, slug);
+    const source = loadSource(this.workspaceId, slug);
     if (source) {
       this.callbacks.onSourceChange?.(slug, source);
     }
   }
 
   /**
-   * Handle source safe-mode.json change
+   * Handle source permissions.json change
    */
-  private handleSourceSafeModeChange(slug: string): void {
-    debug('[ConfigWatcher] Source safe-mode.json changed:', slug);
+  private handleSourcePermissionsChange(slug: string): void {
+    debug('[ConfigWatcher] Source permissions.json changed:', slug);
 
     // Invalidate cache
-    safeModeConfigCache.invalidateSource(this.workspaceSlug, slug);
+    permissionsConfigCache.invalidateSource(this.workspaceId, slug);
 
     // Notify callback
-    this.callbacks.onSourceSafeModeChange?.(slug);
+    this.callbacks.onSourcePermissionsChange?.(slug);
   }
 
   // ============================================================
@@ -542,7 +542,7 @@ export class ConfigWatcher {
           debug('[ConfigWatcher] New agent folder:', folder);
           this.knownAgents.add(folder);
 
-          const agent = loadAgent(this.workspaceSlug, folder);
+          const agent = loadAgent(this.workspaceId, folder);
           if (agent) {
             this.callbacks.onAgentChange?.(folder, agent);
           }
@@ -559,7 +559,7 @@ export class ConfigWatcher {
       }
 
       // Notify list change
-      const allAgents = loadWorkspaceAgents(this.workspaceSlug);
+      const allAgents = loadWorkspaceAgents(this.workspaceId);
       this.callbacks.onAgentsListChange?.(allAgents);
     } catch (error) {
       debug('[ConfigWatcher] Error handling agents dir change:', error);
@@ -573,14 +573,14 @@ export class ConfigWatcher {
   private handleAgentConfigChange(slug: string): void {
     debug('[ConfigWatcher] Agent config changed:', slug);
 
-    const validation = validateAgent(this.workspaceSlug, slug);
+    const validation = validateAgent(this.workspaceId, slug);
     if (!validation.valid) {
       debug('[ConfigWatcher] Agent validation failed:', slug, validation.errors);
       this.callbacks.onValidationError?.(`agents/${slug}/config.json`, validation);
       return;
     }
 
-    const agent = loadAgent(this.workspaceSlug, slug);
+    const agent = loadAgent(this.workspaceId, slug);
     this.callbacks.onAgentChange?.(slug, agent);
   }
 
@@ -590,13 +590,13 @@ export class ConfigWatcher {
   private handleAgentInstructionsChange(slug: string): void {
     debug('[ConfigWatcher] Agent instructions changed:', slug);
 
-    const instructions = loadAgentInstructions(this.workspaceSlug, slug);
+    const instructions = loadAgentInstructions(this.workspaceId, slug);
     if (instructions !== null) {
       this.callbacks.onAgentInstructionsChange?.(slug, instructions);
     }
 
     // Also emit full agent change
-    const agent = loadAgent(this.workspaceSlug, slug);
+    const agent = loadAgent(this.workspaceId, slug);
     if (agent) {
       this.callbacks.onAgentChange?.(slug, agent);
     }
@@ -607,16 +607,16 @@ export class ConfigWatcher {
   // ============================================================
 
   /**
-   * Handle workspace safe-mode.json change
+   * Handle workspace permissions.json change
    */
-  private handleWorkspaceSafeModeChange(): void {
-    debug('[ConfigWatcher] Workspace safe-mode.json changed:', this.workspaceSlug);
+  private handleWorkspacePermissionsChange(): void {
+    debug('[ConfigWatcher] Workspace permissions.json changed:', this.workspaceId);
 
     // Invalidate cache
-    safeModeConfigCache.invalidateWorkspace(this.workspaceSlug);
+    permissionsConfigCache.invalidateWorkspace(this.workspaceId);
 
     // Notify callback
-    this.callbacks.onWorkspaceSafeModeChange?.(this.workspaceSlug);
+    this.callbacks.onWorkspacePermissionsChange?.(this.workspaceId);
   }
 
   /**
@@ -669,10 +669,10 @@ export class ConfigWatcher {
  * Returns the watcher instance for later cleanup.
  */
 export function createConfigWatcher(
-  workspaceSlug: string,
+  workspaceId: string,
   callbacks: ConfigWatcherCallbacks
 ): ConfigWatcher {
-  const watcher = new ConfigWatcher(workspaceSlug, callbacks);
+  const watcher = new ConfigWatcher(workspaceId, callbacks);
   watcher.start();
   return watcher;
 }

@@ -536,8 +536,8 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
     if (agentSlug) {
       const agentCredentialId: CredentialId = {
         type: `agent_source_${credType}` as CredentialType,
-        agentSlug,
-        sourceSlug,
+        agentId: agentSlug,
+        sourceId: sourceSlug,
       };
       try {
         const credential = await credentialManager.get(agentCredentialId);
@@ -552,7 +552,7 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
     // Fall back to global source credential
     const globalCredentialId: CredentialId = {
       type: `source_${credType}` as CredentialType,
-      sourceSlug,
+      sourceId: sourceSlug,
     };
 
     try {
@@ -578,8 +578,8 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
     if (agentSlug) {
       const agentCredentialId: CredentialId = {
         type: `agent_source_${credType}` as CredentialType,
-        agentSlug,
-        sourceSlug,
+        agentId: agentSlug,
+        sourceId: sourceSlug,
       };
       try {
         const credential = await credentialManager.get(agentCredentialId);
@@ -594,7 +594,7 @@ export class AgentStateManager extends TypedEventEmitter<AgentStateEvents> {
     // Fall back to global source credential
     const globalCredentialId: CredentialId = {
       type: `source_${credType}` as CredentialType,
-      sourceSlug,
+      sourceId: sourceSlug,
     };
 
     try {

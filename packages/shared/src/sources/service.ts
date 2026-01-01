@@ -38,7 +38,7 @@ export interface BuiltServers {
 /**
  * SourceService - builds MCP/API servers from workspace sources
  *
- * Note: This class is stateless - all credential lookups use `source.workspaceSlug`
+ * Note: This class is stateless - all credential lookups use `source.workspaceId`
  * from the LoadedSource objects passed to methods, not constructor parameters.
  */
 export class SourceService {
@@ -261,7 +261,7 @@ export class SourceService {
     // This handles cases where authType doesn't match the stored credential type
     if (source.config.type === 'mcp' && source.config.mcp?.authType !== 'none') {
       const baseId = {
-        workspaceId: source.workspaceSlug,
+        workspaceId: source.workspaceId,
         sourceId: source.config.slug,
         ...(source.agentSlug && { agentId: source.agentSlug }),
       };
@@ -351,7 +351,7 @@ export class SourceService {
 
       return {
         type,
-        workspaceId: source.workspaceSlug,
+        workspaceId: source.workspaceId,
         agentId: source.agentSlug,
         sourceId: source.config.slug,
       };
@@ -380,7 +380,7 @@ export class SourceService {
 
     return {
       type,
-      workspaceId: source.workspaceSlug,
+      workspaceId: source.workspaceId,
       sourceId: source.config.slug,
     };
   }

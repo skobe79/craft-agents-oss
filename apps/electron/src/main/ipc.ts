@@ -996,11 +996,11 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
       const { tokens, clientId } = await oauth.authenticate()
 
-      // Store credentials using folder name as workspaceSlug (for credential key consistency)
-      const workspaceSlug = basename(workspace.rootPath)
+      // Store credentials using folder name as credential workspace key
+      const credentialWorkspaceId = basename(workspace.rootPath)
       const manager = getCredentialManager()
       await manager.set(
-        { type: 'source_oauth', workspaceSlug, sourceSlug },
+        { type: 'source_oauth', workspaceId: credentialWorkspaceId, sourceId: sourceSlug },
         {
           value: tokens.accessToken,
           refreshToken: tokens.refreshToken,
@@ -1036,19 +1036,19 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       throw new Error(`Source not found: ${sourceSlug}`)
     }
 
-    // Use folder name as workspaceSlug for credential key consistency
-    const workspaceSlug = basename(workspace.rootPath)
+    // Use folder name as credential workspace key
+    const credentialWorkspaceId = basename(workspace.rootPath)
     const manager = getCredentialManager()
 
     // Determine credential type based on source config
     if (config.type === 'mcp' && config.mcp?.authType === 'bearer') {
       await manager.set(
-        { type: 'source_bearer', workspaceSlug, sourceSlug },
+        { type: 'source_bearer', workspaceId: credentialWorkspaceId, sourceId: sourceSlug },
         { value: credential }
       )
     } else if (config.type === 'api') {
       await manager.set(
-        { type: 'source_apikey', workspaceSlug, sourceSlug },
+        { type: 'source_apikey', workspaceId: credentialWorkspaceId, sourceId: sourceSlug },
         { value: credential }
       )
     }
@@ -1098,12 +1098,25 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     return newConfig
   })
 
-  // Get safe mode config for a source
-  ipcMain.handle(IPC_CHANNELS.SOURCES_GET_SAFE_MODE, async (_event, workspaceId: string, sourceSlug: string) => {
+  // Get permissions config for a source (raw format for UI display)
+  ipcMain.handle(IPC_CHANNELS.SOURCES_GET_PERMISSIONS, async (_event, workspaceId: string, sourceSlug: string) => {
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) return null
-    const { loadSourceSafeModeConfig } = await import('@craft-agent/shared/agent')
-    return loadSourceSafeModeConfig(workspace.rootPath, sourceSlug)
+
+    // Load raw JSON file (not normalized) for UI display
+    const { existsSync, readFileSync } = await import('fs')
+    const { getSourcePermissionsPath } = await import('@craft-agent/shared/agent')
+    const path = getSourcePermissionsPath(workspace.rootPath, sourceSlug)
+
+    if (!existsSync(path)) return null
+
+    try {
+      const content = readFileSync(path, 'utf-8')
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('[IPC] Error reading permissions config:', error)
+      return null
+    }
   })
 
   // Get MCP tools for a source with permission status
@@ -1134,10 +1147,11 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       let accessToken: string | undefined
       if (source.config.mcp.authType === 'oauth' || source.config.mcp.authType === 'bearer') {
         const credentialManager = getCredentialManager()
-        const credentialKey = source.config.mcp.authType === 'oauth'
-          ? `source_oauth::${sourceSlug}`
-          : `source_bearer::${sourceSlug}`
-        accessToken = await credentialManager.get(credentialKey) ?? undefined
+        const credentialId = source.config.mcp.authType === 'oauth'
+          ? { type: 'source_oauth' as const, workspaceId: source.workspaceId, sourceId: sourceSlug }
+          : { type: 'source_bearer' as const, workspaceId: source.workspaceId, sourceId: sourceSlug }
+        const credential = await credentialManager.get(credentialId)
+        accessToken = credential?.value
       }
 
       // Connect to MCP and list tools
@@ -1151,20 +1165,20 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       const tools = await client.listTools()
       await client.close()
 
-      // Load safe mode patterns
-      const { loadSourceSafeModeConfig, safeModeConfigCache } = await import('@craft-agent/shared/agent')
-      const safeModeConfig = loadSourceSafeModeConfig(workspace.rootPath, sourceSlug)
+      // Load permissions patterns
+      const { loadSourcePermissionsConfig, permissionsConfigCache } = await import('@craft-agent/shared/agent')
+      const permissionsConfig = loadSourcePermissionsConfig(workspace.rootPath, sourceSlug)
 
-      // Get merged safe mode config
-      const mergedConfig = safeModeConfigCache.getMergedConfig({
+      // Get merged permissions config
+      const mergedConfig = permissionsConfigCache.getMergedConfig({
         workspaceSlug: workspace.rootPath,
         activeSourceSlugs: [sourceSlug],
       })
 
-      // Check each tool against safe mode patterns
+      // Check each tool against permissions patterns
       const toolsWithPermission = tools.map(tool => {
         // Check if tool matches any allowed pattern
-        const allowed = mergedConfig.readOnlyMcpPatterns.some(pattern => pattern.test(tool.name))
+        const allowed = mergedConfig.readOnlyMcpPatterns.some((pattern: RegExp) => pattern.test(tool.name))
         return {
           name: tool.name,
           description: tool.description,

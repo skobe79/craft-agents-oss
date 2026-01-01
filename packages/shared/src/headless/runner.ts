@@ -481,7 +481,7 @@ ${this.config.prompt}
     const credentialManager = getCredentialManager();
     const credentialId: CredentialId = {
       type: `source_${credType}` as CredentialType,
-      sourceSlug,
+      sourceId: sourceSlug,
     };
 
     try {

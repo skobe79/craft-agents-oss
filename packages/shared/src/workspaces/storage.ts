@@ -49,12 +49,12 @@ export function ensureDefaultWorkspacesDir(): void {
 }
 
 /**
- * Get workspace root path from slug
- * @param workspaceSlug - Workspace slug/ID
+ * Get workspace root path from ID
+ * @param workspaceId - Workspace ID
  * @returns Absolute path to workspace root in default location
  */
-export function getWorkspacePath(workspaceSlug: string): string {
-  return join(DEFAULT_WORKSPACES_DIR, workspaceSlug);
+export function getWorkspacePath(workspaceId: string): string {
+  return join(DEFAULT_WORKSPACES_DIR, workspaceId);
 }
 
 /**
