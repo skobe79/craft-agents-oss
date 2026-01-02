@@ -581,6 +581,11 @@ export const IPC_CHANNELS = {
   TERMINAL_PREVIEW_OPEN: 'terminalPreview:open',
   TERMINAL_PREVIEW_GET_DATA: 'terminalPreview:getData',
 
+  // Session diff window (all edits/writes in a turn)
+  SESSION_DIFF_OPEN: 'sessionDiff:open',
+  SESSION_DIFF_GET_DATA: 'sessionDiff:getData',
+  SESSION_DIFF_READ_FILE: 'sessionDiff:readFile',
+
   // Workspace settings (per-workspace configuration)
   WORKSPACE_SETTINGS_GET: 'workspaceSettings:get',
   WORKSPACE_SETTINGS_UPDATE: 'workspaceSettings:update',
@@ -629,6 +634,36 @@ export interface TerminalPreviewData {
   exitCode?: number
   /** Tool type for badge display */
   toolType?: 'bash' | 'grep' | 'glob'
+}
+
+/**
+ * A single file change (Edit or Write) for the session diff view
+ */
+export interface FileChange {
+  /** Unique ID for this change */
+  id: string
+  /** Absolute file path */
+  filePath: string
+  /** Tool type: Edit or Write */
+  toolType: 'Edit' | 'Write'
+  /** For Edit: the old_string; For Write: empty or previous content if available */
+  original: string
+  /** For Edit: the new_string; For Write: the written content */
+  modified: string
+  /** Error message if the operation failed */
+  error?: string
+}
+
+/**
+ * Data for session diff window - shows all edits/writes in a turn
+ */
+export interface SessionDiffData {
+  /** Session ID for context */
+  sessionId: string
+  /** Turn ID for context */
+  turnId: string
+  /** All file changes in this turn */
+  changes: FileChange[]
 }
 
 /**
@@ -823,6 +858,11 @@ export interface ElectronAPI {
   // Terminal preview window (Bash tools)
   openTerminalPreview(sessionId: string, previewId: string, data: TerminalPreviewData): Promise<void>
   getTerminalPreviewData(sessionId: string, previewId: string): Promise<TerminalPreviewData | null>
+
+  // Session diff window (all edits/writes in a turn)
+  openSessionDiff(sessionId: string, turnId: string, data: SessionDiffData): Promise<void>
+  getSessionDiffData(sessionId: string, turnId: string): Promise<SessionDiffData | null>
+  readFileForDiff(filePath: string): Promise<string | null>
 
   // Session Drafts (persisted input text)
   getDraft(sessionId: string): Promise<string | null>

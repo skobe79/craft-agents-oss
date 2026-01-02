@@ -20,7 +20,7 @@ import { AnimatedCollapsibleContent } from "@/components/ui/collapsible"
 import { FileTypeIcon, getFileTypeLabel } from "./AttachmentPreview"
 import { Spinner } from "@/components/ui/loading-indicator"
 import { useFocusZone } from "@/hooks/keyboard"
-import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, LoadedSource } from "../../../shared/types"
+import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, LoadedSource, FileChange, SessionDiffData } from "../../../shared/types"
 import type { PermissionMode } from "@craft-agent/shared/agent/modes"
 import { SetupAuthBanner, type BannerState } from "./SetupAuthBanner"
 import { TurnCard } from "./TurnCard"
@@ -722,6 +722,49 @@ export function ChatDisplay({
                                 content: markdown,
                                 title: 'Activity Details',
                               })
+                            }
+                          }
+                        }}
+                        hasEditOrWriteActivities={turn.activities.some(a =>
+                          a.toolName === 'Edit' || a.toolName === 'Write'
+                        )}
+                        onOpenSessionDiff={() => {
+                          if (session) {
+                            // Collect all Edit/Write activities from this turn
+                            const changes: FileChange[] = turn.activities
+                              .filter(a => a.toolName === 'Edit' || a.toolName === 'Write')
+                              .map(a => {
+                                const input = a.toolInput as Record<string, unknown> | undefined
+                                if (a.toolName === 'Edit' && input) {
+                                  return {
+                                    id: a.id,
+                                    filePath: (input.file_path as string) || 'unknown',
+                                    toolType: 'Edit' as const,
+                                    original: (input.old_string as string) || '',
+                                    modified: (input.new_string as string) || '',
+                                    error: a.error,
+                                  }
+                                } else if (a.toolName === 'Write' && input) {
+                                  return {
+                                    id: a.id,
+                                    filePath: (input.file_path as string) || 'unknown',
+                                    toolType: 'Write' as const,
+                                    original: '', // Write creates new content
+                                    modified: (input.content as string) || '',
+                                    error: a.error,
+                                  }
+                                }
+                                return null
+                              })
+                              .filter((c): c is FileChange => c !== null)
+
+                            if (changes.length > 0) {
+                              const diffData: SessionDiffData = {
+                                sessionId: session.id,
+                                turnId: turn.turnId,
+                                changes,
+                              }
+                              window.electronAPI.openSessionDiff(session.id, turn.turnId, diffData)
                             }
                           }
                         }}
