@@ -967,7 +967,7 @@ A browser window will open for the user to complete authentication.
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Use source_list to see available sources.`,
+              text: `Source '${args.sourceSlug}' not found. Check ~/.craft-agent/workspaces/{workspace}/sources/ for available sources.`,
             }],
             isError: true,
           };
@@ -1144,7 +1144,7 @@ After successful authentication, the tokens are stored and the source is marked 
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Use source_list to see available sources.`,
+              text: `Source '${args.sourceSlug}' not found. Check ~/.craft-agent/workspaces/{workspace}/sources/ for available sources.`,
             }],
             isError: true,
           };
@@ -1868,7 +1868,7 @@ source_credential_prompt({
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found. Use source_list to see available sources.`,
+              text: `Source '${args.sourceSlug}' not found. Check ~/.craft-agent/workspaces/{workspace}/sources/ for available sources.`,
             }],
             isError: true,
           };
