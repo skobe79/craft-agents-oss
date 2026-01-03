@@ -13,6 +13,7 @@ import {
   Ban,
   Copy,
   Check,
+  FileDiff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Markdown } from '@/components/markdown'
@@ -126,6 +127,10 @@ export interface TurnCardProps {
   onOpenDetails?: () => void
   /** Callback to open individual activity details in Monaco */
   onOpenActivityDetails?: (activity: ActivityItem) => void
+  /** Callback to open all edits/writes in session diff view */
+  onOpenSessionDiff?: () => void
+  /** Whether this turn has any Edit or Write activities */
+  hasEditOrWriteActivities?: boolean
   /** TodoWrite tool state - shown at bottom of turn */
   todos?: TodoItem[]
 }
@@ -1062,6 +1067,8 @@ export function TurnCard({
   onPopOut,
   onOpenDetails,
   onOpenActivityDetails,
+  onOpenSessionDiff,
+  hasEditOrWriteActivities,
   todos,
 }: TurnCardProps) {
   const hasRunning = activities.some(a => a.status === 'running')
@@ -1180,6 +1187,31 @@ export function TurnCard({
                 </motion.span>
               </AnimatePresence>
             </span>
+
+            {/* Session diff button - shows all edits/writes in this turn */}
+            {onOpenSessionDiff && hasEditOrWriteActivities && (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenSessionDiff()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation()
+                    onOpenSessionDiff()
+                  }
+                }}
+                className={cn(
+                  "p-1 -m-1 rounded-[4px] opacity-0 group-hover:opacity-100 transition-opacity",
+                  "hover:bg-muted/80 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                )}
+                title="View all file changes"
+              >
+                <FileDiff className={SIZE_CONFIG.iconSize} />
+              </div>
+            )}
 
             {/* Open details button - always visible to show raw data */}
             {onOpenDetails && (

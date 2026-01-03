@@ -15,6 +15,7 @@ import {
   Pencil,
   Archive,
   Trash2,
+  FileDiff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -42,6 +43,7 @@ import { TabBar } from './TabBar'
 import { TabContent } from './TabContent'
 import { useTabs } from './useTabs'
 import type { Tab, FileTab, BrowserTab, ChatTab } from './types'
+import type { FileChange, SessionDiffData } from '../../shared/types'
 
 interface TabContainerProps {
   className?: string
@@ -224,6 +226,53 @@ function TabHeaderActions({ tab, onOpenRename }: TabHeaderActionsProps) {
     }
   }, [session, onDeleteSession, rawCloseTab, tab.id])
 
+  // Collect all Edit/Write activities from the session and open session diff view
+  const handleViewAllChanges = React.useCallback(() => {
+    if (!session) return
+
+    // Collect all Edit/Write tool messages from session
+    const changes: FileChange[] = session.messages
+      .filter(m => m.role === 'tool' && (m.toolName === 'Edit' || m.toolName === 'Write'))
+      .map(m => {
+        const input = m.toolInput as Record<string, unknown> | undefined
+        if (m.toolName === 'Edit' && input) {
+          return {
+            id: m.id,
+            filePath: (input.file_path as string) || 'unknown',
+            toolType: 'Edit' as const,
+            original: (input.old_string as string) || '',
+            modified: (input.new_string as string) || '',
+            error: m.isError ? m.content : undefined,
+          }
+        } else if (m.toolName === 'Write' && input) {
+          return {
+            id: m.id,
+            filePath: (input.file_path as string) || 'unknown',
+            toolType: 'Write' as const,
+            original: '',
+            modified: (input.content as string) || '',
+            error: m.isError ? m.content : undefined,
+          }
+        }
+        return null
+      })
+      .filter((c): c is FileChange => c !== null)
+
+    if (changes.length > 0) {
+      const diffData: SessionDiffData = {
+        sessionId: session.id,
+        turnId: 'session', // Use 'session' as a special turnId for session-level view
+        changes,
+      }
+      window.electronAPI.openSessionDiff(session.id, 'session', diffData)
+    }
+  }, [session])
+
+  // Check if session has any Edit/Write activities
+  const hasChanges = session?.messages.some(
+    m => m.role === 'tool' && (m.toolName === 'Edit' || m.toolName === 'Write')
+  ) ?? false
+
   const handleClose = React.useCallback(() => {
     closeTab(tab.id)
   }, [closeTab, tab.id])
@@ -255,6 +304,12 @@ function TabHeaderActions({ tab, onOpenRename }: TabHeaderActionsProps) {
               <Pencil />
               Rename
             </StyledDropdownMenuItem>
+            {hasChanges && (
+              <StyledDropdownMenuItem onClick={handleViewAllChanges}>
+                <FileDiff />
+                View All Changes
+              </StyledDropdownMenuItem>
+            )}
             <StyledDropdownMenuSeparator />
             {session.todoState !== 'done' && session.todoState !== 'cancelled' && (
               <StyledDropdownMenuItem onClick={handleComplete}>

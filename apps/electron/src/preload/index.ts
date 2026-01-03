@@ -244,6 +244,14 @@ const api: ElectronAPI = {
   getTerminalPreviewData: (sessionId: string, previewId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_PREVIEW_GET_DATA, sessionId, previewId),
 
+  // Session diff window (all edits/writes in a turn)
+  openSessionDiff: (sessionId: string, turnId: string, data: import('../shared/types').SessionDiffData) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_DIFF_OPEN, sessionId, turnId, data),
+  getSessionDiffData: (sessionId: string, turnId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_DIFF_GET_DATA, sessionId, turnId),
+  readFileForDiff: (filePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_DIFF_READ_FILE, filePath),
+
   // Session Drafts (persisted input text)
   getDraft: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_GET, sessionId),
   setDraft: (sessionId: string, text: string) => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_SET, sessionId, text),

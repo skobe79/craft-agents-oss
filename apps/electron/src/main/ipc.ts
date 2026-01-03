@@ -10,9 +10,10 @@ import { PreviewWindowManager } from './preview-window'
 import { DiffPreviewWindowManager } from './diff-preview-window'
 import { CodePreviewWindowManager } from './code-preview-window'
 import { TerminalPreviewWindowManager } from './terminal-preview-window'
+import { SessionDiffWindowManager } from './session-diff-window'
 import { agentService } from './agent-service'
 import { registerOnboardingHandlers } from './onboarding'
-import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions, type DiffPreviewData, type CodePreviewData, type TerminalPreviewData } from '../shared/types'
+import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions, type DiffPreviewData, type CodePreviewData, type TerminalPreviewData, type SessionDiffData } from '../shared/types'
 import { readFileAttachment } from '@craft-agent/shared/utils'
 import { getAiCreditTopUpUrl } from '@craft-agent/shared/auth'
 import { getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultPermissionMode, setDefaultPermissionMode, getDefaultWorkingDirectory, setDefaultWorkingDirectory, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, type Workspace } from '@craft-agent/shared/config'
@@ -104,7 +105,7 @@ async function validateFilePath(filePath: string): Promise<string> {
   return realPath
 }
 
-export function registerIpcHandlers(sessionManager: SessionManager, windowManager: WindowManager, previewWindowManager: PreviewWindowManager, diffPreviewWindowManager: DiffPreviewWindowManager, codePreviewWindowManager: CodePreviewWindowManager, terminalPreviewWindowManager: TerminalPreviewWindowManager): void {
+export function registerIpcHandlers(sessionManager: SessionManager, windowManager: WindowManager, previewWindowManager: PreviewWindowManager, diffPreviewWindowManager: DiffPreviewWindowManager, codePreviewWindowManager: CodePreviewWindowManager, terminalPreviewWindowManager: TerminalPreviewWindowManager, sessionDiffWindowManager: SessionDiffWindowManager): void {
   // Get all sessions
   ipcMain.handle(IPC_CHANNELS.GET_SESSIONS, async () => {
     return sessionManager.getSessions()
@@ -1057,6 +1058,32 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Get data for a terminal preview (called from terminal preview window on mount)
   ipcMain.handle(IPC_CHANNELS.TERMINAL_PREVIEW_GET_DATA, async (_event, sessionId: string, previewId: string) => {
     return terminalPreviewWindowManager.getData(sessionId, previewId)
+  })
+
+  // ============================================================
+  // Session Diff Window (all edits/writes in a turn)
+  // ============================================================
+
+  // Open session diff window
+  ipcMain.handle(IPC_CHANNELS.SESSION_DIFF_OPEN, async (_event, sessionId: string, turnId: string, data: SessionDiffData) => {
+    sessionDiffWindowManager.openSessionDiff(sessionId, turnId, data)
+  })
+
+  // Get data for a session diff window (called from session diff window on mount)
+  ipcMain.handle(IPC_CHANNELS.SESSION_DIFF_GET_DATA, async (_event, sessionId: string, turnId: string) => {
+    return sessionDiffWindowManager.getData(sessionId, turnId)
+  })
+
+  // Read a file for full-context diff view
+  ipcMain.handle(IPC_CHANNELS.SESSION_DIFF_READ_FILE, async (_event, filePath: string) => {
+    try {
+      const validPath = await validateFilePath(filePath)
+      const content = await readFile(validPath, 'utf-8')
+      return content
+    } catch (err) {
+      console.error('[IPC] Error reading file for diff:', err)
+      return null
+    }
   })
 
   // ============================================================
