@@ -996,17 +996,29 @@ export class CraftAgent {
       const disallowedTools: string[] = ['EnterPlanMode', 'ExitPlanMode'];
 
       // Build MCP servers config - always use HTTP (SDK handles sources efficiently)
-      const agentMcpServers = this.getAgentMcpServers();
+      // Filter out stdio servers if local MCP is disabled, and track skipped servers
+      const agentMcpResult = this.getAgentMcpServersFiltered();
+      const sourceMcpResult = this.getSourceMcpServersFiltered();
       const agentApiServers = this.getAgentApiServers();
-      debug('[chat] agentMcpServers:', agentMcpServers);
+
+      debug('[chat] agentMcpServers:', agentMcpResult.servers);
       debug('[chat] agentApiServers:', agentApiServers);
-      debug('[chat] sourceMcpServers:', this.sourceMcpServers);
+      debug('[chat] sourceMcpServers:', sourceMcpResult.servers);
       debug('[chat] sourceApiServers:', this.sourceApiServers);
+
+      // Notify user if any MCP servers were skipped due to local MCP being disabled
+      const allSkipped = [...agentMcpResult.skipped, ...sourceMcpResult.skipped];
+      if (allSkipped.length > 0) {
+        const serverList = allSkipped.join(', ');
+        yield {
+          type: 'status',
+          message: `Local MCP servers disabled: ${serverList} (enable in Settings → Advanced)`,
+        };
+        debug(`[chat] Skipped ${allSkipped.length} stdio MCP servers: ${serverList}`);
+      }
 
       const hasActiveAgent = this.activeAgentDefinition !== null;
       const activeAgentSlug = this.activeAgentDefinition?.slug;
-      // Get filtered source servers (respects local MCP setting)
-      const sourceMcpServers = this.getSourceMcpServers();
       const mcpServers: Options['mcpServers'] = {
         preferences: getPreferencesServer(hasActiveAgent),
         // Session-scoped tools (SubmitPlan, source_test, agent_create, etc.)
@@ -1018,12 +1030,12 @@ export class CraftAgent {
           url: 'https://agents.craft.do/docs/mcp',
         },
         // Add agent-specific MCP servers if an agent is active (filtered by local MCP setting)
-        ...agentMcpServers,
+        ...agentMcpResult.servers,
         // Add in-process API servers (REST APIs converted to MCP tools)
         ...agentApiServers,
         // Add user-defined source servers (MCP and API, filtered by local MCP setting)
         // Note: Craft MCP server is now added via sources system
-        ...sourceMcpServers,
+        ...sourceMcpResult.servers,
         ...this.sourceApiServers,
       };
 
@@ -3150,42 +3162,48 @@ When you see <setup_required> in a message, help the user authenticate those sou
    * The config is built by SubAgentManager.buildMcpServerConfig() which handles auth
    *
    * Filters out stdio servers if local MCP is disabled for the workspace.
+   * @returns Object with filtered servers and names of any skipped stdio servers
    */
-  private getAgentMcpServers(): Record<string, SdkMcpServerConfig> {
+  private getAgentMcpServersFiltered(): { servers: Record<string, SdkMcpServerConfig>; skipped: string[] } {
     return this.filterMcpServersByLocalEnabled(this.agentMcpServers);
   }
 
   /**
    * Get filtered source MCP servers based on local MCP setting
+   * @returns Object with filtered servers and names of any skipped stdio servers
    */
-  private getSourceMcpServers(): Record<string, SdkMcpServerConfig> {
+  private getSourceMcpServersFiltered(): { servers: Record<string, SdkMcpServerConfig>; skipped: string[] } {
     return this.filterMcpServersByLocalEnabled(this.sourceMcpServers);
   }
 
   /**
    * Filter MCP servers based on whether local (stdio) MCP is enabled for this workspace.
    * When local MCP is disabled, stdio servers are filtered out.
+   *
+   * @returns Object with filtered servers and names of any skipped stdio servers
    */
   private filterMcpServersByLocalEnabled(
     servers: Record<string, SdkMcpServerConfig>
-  ): Record<string, SdkMcpServerConfig> {
+  ): { servers: Record<string, SdkMcpServerConfig>; skipped: string[] } {
     const localEnabled = isLocalMcpEnabled(this.workspaceRootPath);
 
     if (localEnabled) {
       // Local MCP is enabled, return all servers
-      return servers;
+      return { servers, skipped: [] };
     }
 
     // Local MCP is disabled, filter out stdio servers
     const filtered: Record<string, SdkMcpServerConfig> = {};
+    const skipped: string[] = [];
     for (const [name, config] of Object.entries(servers)) {
       if (config.type !== 'stdio') {
         filtered[name] = config;
       } else {
         debug(`[filterMcpServers] Filtering out stdio server "${name}" (local MCP disabled)`);
+        skipped.push(name);
       }
     }
-    return filtered;
+    return { servers: filtered, skipped };
   }
 
   /**
