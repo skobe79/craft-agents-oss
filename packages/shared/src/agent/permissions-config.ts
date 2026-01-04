@@ -454,12 +454,13 @@ class PermissionsConfigCache {
       this.applyCustomConfig(merged, wsConfig);
     }
 
-    // Add source-level customizations (additive)
+    // Add source-level customizations (additive, with auto-scoped MCP patterns)
     if (context.activeSourceSlugs) {
       for (const sourceSlug of context.activeSourceSlugs) {
         const srcConfig = this.getSourceConfig(context.workspaceRootPath, sourceSlug);
         if (srcConfig) {
-          this.applyCustomConfig(merged, srcConfig);
+          // Use applySourceConfig which auto-scopes MCP patterns to this source
+          this.applySourceConfig(merged, srcConfig, sourceSlug);
         }
       }
     }
@@ -518,6 +519,65 @@ class PermissionsConfigCache {
     // Add allowed write paths (glob patterns, stored as strings)
     for (const pattern of custom.allowedWritePaths) {
       merged.allowedWritePaths.push(pattern);
+    }
+  }
+
+  /**
+   * Apply source-specific config with auto-scoped MCP patterns.
+   * MCP patterns in a source's permissions.json are automatically prefixed with
+   * mcp__<sourceSlug>__ so they only apply to that source's tools.
+   * This prevents cross-source leakage when using simple patterns like "list".
+   */
+  private applySourceConfig(
+    merged: MergedPermissionsConfig,
+    custom: PermissionsCustomConfig,
+    sourceSlug: string
+  ): void {
+    // Blocked tools and write paths - apply normally (global effect)
+    for (const tool of custom.blockedTools) {
+      merged.blockedTools.add(tool);
+      merged.customBlockedTools.add(tool);
+    }
+
+    for (const pattern of custom.allowedWritePaths) {
+      merged.allowedWritePaths.push(pattern);
+    }
+
+    // MCP patterns - AUTO-SCOPE to this source
+    // User writes: "list" → becomes: "mcp__<sourceSlug>__.*list"
+    // This ensures patterns only match tools from THIS source
+    for (const pattern of custom.allowedMcpPatterns) {
+      const scopedPattern = `mcp__${sourceSlug}__.*${pattern}`;
+      const regex = validateRegex(scopedPattern);
+      if (regex) {
+        merged.readOnlyMcpPatterns.push(regex);
+        debug(`[Permissions] Scoped MCP pattern for ${sourceSlug}: ${pattern} → ${scopedPattern}`);
+      } else {
+        debug(`[Permissions] Invalid MCP pattern after scoping, skipping: ${scopedPattern}`);
+      }
+    }
+
+    // Bash patterns - apply normally (not source-specific)
+    for (const pattern of custom.allowedBashPatterns) {
+      const regex = validateRegex(pattern);
+      if (regex) {
+        merged.readOnlyBashPatterns.push(regex);
+      } else {
+        debug(`[Permissions] Invalid bash pattern, skipping: ${pattern}`);
+      }
+    }
+
+    // API endpoints - apply normally (API tools are already source-scoped as api_<slug>)
+    for (const rule of custom.allowedApiEndpoints) {
+      const pathRegex = validateRegex(rule.path);
+      if (pathRegex) {
+        merged.allowedApiEndpoints.push({
+          method: rule.method,
+          pathPattern: pathRegex,
+        });
+      } else {
+        debug(`[Permissions] Invalid API endpoint path pattern, skipping: ${rule.path}`);
+      }
     }
   }
 

@@ -462,7 +462,7 @@ export class ConfigWatcher {
           debug('[ConfigWatcher] New source folder:', folder);
           this.knownSources.add(folder);
 
-          const source = loadSource(this.workspaceId, folder);
+          const source = loadSource(this.workspaceDir, folder);
           if (source) {
             this.callbacks.onSourceChange?.(folder, source);
           }
@@ -479,7 +479,7 @@ export class ConfigWatcher {
       }
 
       // Notify list change
-      const allSources = loadWorkspaceSources(this.workspaceId);
+      const allSources = loadWorkspaceSources(this.workspaceDir);
       this.callbacks.onSourcesListChange?.(allSources);
     } catch (error) {
       debug('[ConfigWatcher] Error handling sources dir change:', error);
@@ -500,7 +500,7 @@ export class ConfigWatcher {
       return;
     }
 
-    const source = loadSource(this.workspaceId, slug);
+    const source = loadSource(this.workspaceDir, slug);
     this.callbacks.onSourceChange?.(slug, source);
   }
 
@@ -510,13 +510,13 @@ export class ConfigWatcher {
   private handleSourceGuideChange(slug: string): void {
     debug('[ConfigWatcher] Source guide changed:', slug);
 
-    const guide = loadSourceGuide(this.workspaceId, slug);
+    const guide = loadSourceGuide(this.workspaceDir, slug);
     if (guide) {
       this.callbacks.onSourceGuideChange?.(slug, guide);
     }
 
     // Also emit full source change
-    const source = loadSource(this.workspaceId, slug);
+    const source = loadSource(this.workspaceDir, slug);
     if (source) {
       this.callbacks.onSourceChange?.(slug, source);
     }
@@ -600,7 +600,7 @@ export class ConfigWatcher {
           debug('[ConfigWatcher] New agent folder:', folder);
           this.knownAgents.add(folder);
 
-          const agent = loadAgent(this.workspaceId, folder);
+          const agent = loadAgent(this.workspaceDir, folder);
           if (agent) {
             this.callbacks.onAgentChange?.(folder, agent);
           }
@@ -617,7 +617,7 @@ export class ConfigWatcher {
       }
 
       // Notify list change
-      const allAgents = loadWorkspaceAgents(this.workspaceId);
+      const allAgents = loadWorkspaceAgents(this.workspaceDir);
       this.callbacks.onAgentsListChange?.(allAgents);
     } catch (error) {
       debug('[ConfigWatcher] Error handling agents dir change:', error);
@@ -638,7 +638,7 @@ export class ConfigWatcher {
       return;
     }
 
-    const agent = loadAgent(this.workspaceId, slug);
+    const agent = loadAgent(this.workspaceDir, slug);
     this.callbacks.onAgentChange?.(slug, agent);
   }
 
@@ -648,13 +648,13 @@ export class ConfigWatcher {
   private handleAgentInstructionsChange(slug: string): void {
     debug('[ConfigWatcher] Agent instructions changed:', slug);
 
-    const instructions = loadAgentInstructions(this.workspaceId, slug);
+    const instructions = loadAgentInstructions(this.workspaceDir, slug);
     if (instructions !== null) {
       this.callbacks.onAgentInstructionsChange?.(slug, instructions);
     }
 
     // Also emit full agent change
-    const agent = loadAgent(this.workspaceId, slug);
+    const agent = loadAgent(this.workspaceDir, slug);
     if (agent) {
       this.callbacks.onAgentChange?.(slug, agent);
     }

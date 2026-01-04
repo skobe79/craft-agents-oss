@@ -52,16 +52,17 @@ You configure Craft Agent - sources, agents, preferences, themes, and settings.
 
 ## Available Tools
 
-Use these for CRUD operations:
-- \`source_list\`, \`source_create\`, \`source_configuration_update\`, \`source_delete\`
-- \`source_test\`, \`source_oauth_trigger\`, \`source_gmail_oauth_trigger\`, \`source_credential_prompt\`
-- \`source_permissions_update\`
+- \`source_test\` - Validate and test source connections
+- \`source_oauth_trigger\` - Start OAuth flow for MCP sources
+- \`source_gmail_oauth_trigger\` - Start Gmail OAuth flow
+- \`source_credential_prompt\` - Prompt user for API credentials
 - \`agent_list\`, \`agent_create\`, \`agent_delete\`
 - \`config_validate\`
 
-## Direct File Access
+## File-Based Configuration
 
-You can Read/Write/Edit files in \`~/.craft-agent/\` directly.
+Source and agent configuration is done via Read/Write/Edit tools on files in \`~/.craft-agent/\`.
+See \`~/.craft-agent/docs/\` for schema documentation.
 
 ### Global Config (\`~/.craft-agent/config.json\`)
 \`\`\`json
@@ -130,7 +131,7 @@ Markdown documentation:
 ### Permissions (\`permissions.json\` at source or agent level)
 \`\`\`json
 {
-  "allowedMcpPatterns": [{ "pattern": "^list_", "comment": "Allow list operations" }],
+  "allowedMcpPatterns": [{ "pattern": "list", "comment": "Allow list operations (auto-scoped to source)" }],
   "allowedApiEndpoints": [{ "method": "POST", "path": "^/search" }],
   "allowedBashPatterns": [],
   "allowedWritePaths": [{ "pattern": "~/some/path/**", "comment": "Allow writes here" }],
@@ -182,7 +183,7 @@ Markdown system prompt:
 - Stored at \`sources/{slug}/icon.{png,svg,jpg,webp,ico,gif}\`
 - Referenced via \`iconUrl: "./icon.png"\` (relative path)
 - \`iconSourceUrl\` stores original URL for re-fetching
-- \`source_create\` accepts \`iconUrl\`: domain for favicon, direct URL, or relative path
+- \`source_test\` auto-downloads icons from iconUrl or service domains
 
 ### Agent Icons
 - Stored at \`agents/{slug}/icon.{png,svg,jpg,webp,ico,gif}\`
@@ -213,14 +214,11 @@ Markdown system prompt:
 
 ### Add a Source
 1. Determine type: MCP server, REST API, or local path
-2. Use \`source_create\` with name, type, URL, auth type, and icon
-3. Trigger auth if needed (\`source_oauth_trigger\`, \`source_gmail_oauth_trigger\`, or \`source_credential_prompt\`)
-4. Test with \`source_test\`
+2. Create \`sources/{slug}/config.json\` with appropriate settings (see schema above)
+3. Run \`source_test\` to validate config, download icon, and test connection
+4. Trigger auth if needed (\`source_oauth_trigger\`, \`source_gmail_oauth_trigger\`, or \`source_credential_prompt\`)
 5. Create guide.md with usage documentation
 6. Optionally add permissions.json for ${exploreName} mode rules
-
-**IMPORTANT: Always Use Workspace Scope**
-When creating sources, **always include \`scope: "workspace"\`** to make sources available to all agents.
 
 ### Create an Agent
 1. Use \`agent_create\` with name and instructions
@@ -242,29 +240,28 @@ When creating sources, **always include \`scope: "workspace"\`** to make sources
 
 ## ${exploreName} Mode Configuration
 
-${exploreName} mode is a read-only exploration mode that blocks write operations. You can create custom ${exploreName} mode rules via \`source_permissions_update\` to allow specific operations.
+${exploreName} mode is a read-only exploration mode that blocks write operations. Create \`sources/{slug}/permissions.json\` to allow specific operations.
 
-### Common Patterns
+### permissions.json Examples
 
 **REST APIs with POST search** (LinkedIn, Elasticsearch, etc.):
-\`\`\`
-source_permissions_update({
-  sourceSlug: "linkedin-rapidapi",
-  allowedApiEndpoints: [
-    { method: "POST", path: "^/search", comment: "Search endpoint uses POST" }
+\`\`\`json
+{
+  "allowedApiEndpoints": [
+    { "method": "POST", "path": "^/search", "comment": "Search endpoint uses POST" }
   ]
-})
+}
 \`\`\`
 
-**MCP servers with read operations**:
-\`\`\`
-source_permissions_update({
-  sourceSlug: "linear",
-  allowedMcpPatterns: [
-    { pattern: "^mcp__linear__list", comment: "List operations" },
-    { pattern: "^mcp__linear__get", comment: "Get/read operations" }
+**MCP servers with read operations** (patterns are auto-scoped to the source):
+\`\`\`json
+{
+  "allowedMcpPatterns": [
+    { "pattern": "list", "comment": "All list operations" },
+    { "pattern": "get", "comment": "All get/read operations" },
+    { "pattern": "search", "comment": "All search operations" }
   ]
-})
+}
 \`\`\`
 
 ## Source Icon Discovery
@@ -296,17 +293,21 @@ When adding a local source, **actively discover** what it is and set the appropr
 
 Gmail is a special API source that uses Google OAuth:
 
-1. Create the source:
-   \`\`\`
-   source_create({
-     name: "Gmail",
-     provider: "gmail",
-     type: "api",
-     scope: "workspace",
-     apiBaseUrl: "https://gmail.googleapis.com",
-     apiAuthType: "oauth",
-     iconUrl: "https://mail.google.com"
-   })
+1. Create the source config at \`sources/gmail/config.json\`:
+   \`\`\`json
+   {
+     "id": "src_gmail",
+     "name": "Gmail",
+     "slug": "gmail",
+     "enabled": true,
+     "provider": "gmail",
+     "type": "api",
+     "api": {
+       "baseUrl": "https://gmail.googleapis.com",
+       "authType": "oauth"
+     },
+     "iconUrl": "https://mail.google.com"
+   }
    \`\`\`
 
 2. Trigger Gmail OAuth (uses dedicated tool, NOT source_oauth_trigger):

@@ -531,29 +531,23 @@ export function useAgent(config: CraftAgentConfig): UseAgentResult {
           },
         ]);
       };
-      // Set up sources changed callback - reloads sources when created/authenticated/deleted
-      agentRef.current.onSourcesChanged = async () => {
+      // Set up source change callback - rebuilds servers when sources change on disk
+      // This is triggered by CraftAgent's internal ConfigWatcher
+      agentRef.current.onSourceChange = async (slug: string, source: import('@craft-agent/shared/sources').LoadedSource | null) => {
         if (!config.workspace) return;
-        const rootPath = config.workspace.rootPath;
-        debug('[useAgent] onSourcesChanged - reloading sources for workspace:', rootPath);
+        debug('[useAgent] onSourceChange:', slug, source ? 'updated' : 'deleted');
 
-        // Reload all sources from disk
-        const allSources = loadWorkspaceSources(rootPath);
+        // Reload all sources and rebuild servers
+        const allSources = loadWorkspaceSources(config.workspace.rootPath);
         agentRef.current?.setAllSources(allSources);
 
-        // Rebuild MCP and API servers for enabled+authenticated sources
         const enabledSources = allSources.filter(s => s.config.enabled && s.config.isAuthenticated);
         const { mcpServers, apiServers } = await buildServersFromSources(enabledSources);
         agentRef.current?.setSourceServers(mcpServers, apiServers);
 
-        debug('[useAgent] Sources reloaded:', Object.keys(mcpServers).length, 'MCP servers,', Object.keys(apiServers).length, 'API servers');
+        debug('[useAgent] Sources reloaded:', Object.keys(mcpServers).length, 'MCP,', Object.keys(apiServers).length, 'API');
       };
-      // Set up source activated callback - triggers reload when a source is activated
-      agentRef.current.onSourceActivated = async (sourceSlug: string) => {
-        debug('[useAgent] onSourceActivated:', sourceSlug);
-        // TUI uses all authenticated sources, so just trigger a reload
-        await agentRef.current?.onSourcesChanged?.();
-      };
+
       // Sync current model to the newly created agent
       agentRef.current.setModel(config.model || DEFAULT_MODEL);
       // Restore SDK session ID from session if available (for conversation continuity)

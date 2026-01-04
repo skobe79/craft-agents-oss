@@ -226,7 +226,7 @@ Cascading theme configuration: app → workspace → agent (last wins).
 
 Tools available within agent sessions with per-session callbacks:
 
-**Source management:** `source_create`, `source_list`, `source_configuration_update`, `source_delete`, `source_test`, `source_oauth_trigger`, `source_gmail_oauth_trigger`, `source_permissions_update`, `source_credential_prompt`
+**Source management:** `source_test`, `source_oauth_trigger`, `source_gmail_oauth_trigger`, `source_credential_prompt`
 
 **Agent management:** `agent_list`, `agent_create`, `agent_delete`
 

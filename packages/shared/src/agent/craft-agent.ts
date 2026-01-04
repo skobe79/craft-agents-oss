@@ -618,14 +618,6 @@ export class CraftAgent {
   // Callback when config file validation fails
   public onConfigValidationError: ((file: string, errors: ValidationIssue[]) => void) | null = null;
 
-  // Callback when sources are created/authenticated/deleted via session tools - triggers reload
-  public onSourcesChanged: (() => Promise<void>) | null = null;
-
-  // Callback when a source is activated for the current session (added to enabled sources)
-  public onSourceActivated: ((sourceSlug: string) => Promise<void>) | null = null;
-
-  // Callback when agents are created/synced/deleted via session tools - triggers reload
-  public onAgentsChanged: (() => Promise<void>) | null = null;
 
   constructor(config: CraftAgentConfig) {
     this.config = config;
@@ -670,24 +662,6 @@ export class CraftAgent {
         }
         // No handler registered - return cancelled
         return { type: 'credential', cancelled: true };
-      },
-      onSourcesChanged: async () => {
-        this.onDebug?.('[CraftAgent] onSourcesChanged received - reloading sources');
-        if (this.onSourcesChanged) {
-          await this.onSourcesChanged();
-        }
-      },
-      onSourceActivated: async (sourceSlug: string) => {
-        this.onDebug?.(`[CraftAgent] onSourceActivated received: ${sourceSlug}`);
-        if (this.onSourceActivated) {
-          await this.onSourceActivated(sourceSlug);
-        }
-      },
-      onAgentsChanged: async () => {
-        this.onDebug?.('[CraftAgent] onAgentsChanged received - notifying listener');
-        if (this.onAgentsChanged) {
-          await this.onAgentsChanged();
-        }
       },
     });
 
@@ -1022,8 +996,7 @@ export class CraftAgent {
       const activeAgentSlug = this.activeAgentDefinition?.slug;
       const mcpServers: Options['mcpServers'] = {
         preferences: getPreferencesServer(hasActiveAgent),
-        // Session-scoped tools (SubmitPlan, change_working_directory, etc.)
-        // Pass activeAgentSlug so source_create defaults to agent-scoped when in agent context
+        // Session-scoped tools (SubmitPlan, source_test, agent_create, etc.)
         session: getSessionScopedTools(sessionId, this.workspaceRootPath, activeAgentSlug),
         // External docs MCP server (public, no auth required)
         // Provides Craft Agent documentation for agents, MCP servers, APIs, and setup
@@ -2171,7 +2144,24 @@ export class CraftAgent {
       }
     }
 
-    return `<sources>\n${parts.join('\n')}\n</sources>`;
+    let output = `<sources>\n${parts.join('\n')}\n</sources>`;
+
+    // Inject service knowledge for active sources (from bundled guides)
+    // Only inject for sources not yet seen this session to avoid repetition
+    if (unseenSources.length > 0) {
+      const { getSourceKnowledge } = require('../docs/source-guides.ts');
+      for (const s of unseenSources) {
+        // Only inject for active sources
+        if (this.intendedActiveSlugs.has(s.config.slug)) {
+          const knowledge = getSourceKnowledge(s.config);
+          if (knowledge) {
+            output += `\n\n<source_context source="${s.config.slug}">\n${knowledge}\n</source_context>`;
+          }
+        }
+      }
+    }
+
+    return output;
   }
 
   /**

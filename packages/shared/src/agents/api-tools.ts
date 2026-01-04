@@ -33,11 +33,17 @@ function isBasicAuthCredential(cred: ApiCredential): cred is BasicAuthCredential
 
 
 /**
- * Build headers for an API request, injecting authentication
+ * Build headers for an API request, injecting authentication and default headers
  */
-function buildHeaders(auth: ApiConfig['auth'], credential: ApiCredential): Record<string, string> {
+function buildHeaders(
+  auth: ApiConfig['auth'],
+  credential: ApiCredential,
+  defaultHeaders?: Record<string, string>
+): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    // Merge default headers (e.g., beta feature flags)
+    ...defaultHeaders,
   };
 
   // No auth needed for type='none' or missing auth
@@ -171,7 +177,7 @@ export function createApiTool(
 
       try {
         const url = buildUrl(config.baseUrl, path, method, params, config.auth, credential);
-        const headers = buildHeaders(config.auth, credential);
+        const headers = buildHeaders(config.auth, credential, config.defaultHeaders);
 
         debug(`[api-tools] ${config.name}: ${method} ${url}`);
 

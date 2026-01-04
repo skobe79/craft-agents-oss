@@ -700,7 +700,6 @@ export function shouldAllowToolInMode(
         'mcp__session__SubmitPlan',
         'mcp__session__change_working_directory',
         'mcp__session__config_validate',
-        'mcp__session__source_list',
         'mcp__session__source_test',
         'mcp__session__agent_list',
       ];
@@ -712,6 +711,21 @@ export function shouldAllowToolInMode(
       return {
         allowed: false,
         reason: `Session configuration changes are blocked in ${config.displayName}. Switch to Ask or Allow All mode (${config.shortcutHint}) to create, update, or delete sources and agents.`
+      };
+    }
+
+    // Handle API tools exposed via MCP (mcp__<source>__api_<name>)
+    // These need endpoint-level permission checks, not just MCP read-only patterns
+    if (toolName.includes('__api_')) {
+      const input = toolInput as Record<string, unknown> | null;
+      const method = (input?.method as string) || 'GET';
+      const path = input?.path as string | undefined;
+      if (isApiCallAllowedWithConfig(method, path, config)) {
+        return { allowed: true };
+      }
+      return {
+        allowed: false,
+        reason: `API ${method} ${path ?? ''} is blocked in ${config.displayName}. Switch to Ask or Allow All mode (${config.shortcutHint}) to make changes.`
       };
     }
 

@@ -56,6 +56,7 @@ export interface ApiTestEndpoint {
   method: 'GET' | 'POST';
   path: string;
   body?: Record<string, unknown>; // For POST requests
+  headers?: Record<string, string>; // Custom headers for the test request
 }
 
 /**
@@ -67,6 +68,7 @@ export interface ApiSourceConfig {
   headerName?: string; // For 'header' auth (e.g., "X-API-Key")
   queryParam?: string; // For 'query' auth (e.g., "api_key")
   authScheme?: string; // For 'bearer' auth (default: "Bearer", could be "Token")
+  defaultHeaders?: Record<string, string>; // Headers to include with every request
   testEndpoint?: ApiTestEndpoint; // Endpoint to use for connection testing
 }
 

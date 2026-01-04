@@ -256,21 +256,43 @@ export class SessionManager {
     console.log(`[SessionManager] Setting up ConfigWatcher for workspace: ${workspaceRootPath}`)
 
     const callbacks: ConfigWatcherCallbacks = {
-      onSourcesListChange: (sources: LoadedSource[]) => {
-        console.log(`[SessionManager] Sources changed in ${workspaceRootPath}, broadcasting update (${sources.length} sources)`)
+      onSourcesListChange: async (sources: LoadedSource[]) => {
+        console.log(`[SessionManager] Sources list changed in ${workspaceRootPath} (${sources.length} sources)`)
+        // Broadcast to UI
         this.broadcastSourcesChanged(sources)
+        // Reload sources for all sessions in this workspace
+        for (const [_, managed] of this.sessions) {
+          if (managed.workspace.rootPath === workspaceRootPath) {
+            await this.reloadSessionSources(managed)
+          }
+        }
       },
-      onSourceChange: (slug: string, source: LoadedSource | null) => {
-        console.log(`[SessionManager] Source updated: ${slug}`, source ? source.config.name : '(deleted)')
-        // Broadcast updated list when individual source changes
+      onSourceChange: async (slug: string, source: LoadedSource | null) => {
+        console.log(`[SessionManager] Source '${slug}' changed:`, source ? 'updated' : 'deleted')
+        // Broadcast updated list to UI
         const sources = loadWorkspaceSources(workspaceRootPath)
         this.broadcastSourcesChanged(sources)
+        // Reload sources for all sessions in this workspace
+        for (const [_, managed] of this.sessions) {
+          if (managed.workspace.rootPath === workspaceRootPath) {
+            await this.reloadSessionSources(managed)
+          }
+        }
       },
       onSourceGuideChange: (sourceSlug: string) => {
         console.log(`[SessionManager] Source guide changed: ${sourceSlug}`)
         // Broadcast the updated sources list so sidebar picks up guide changes
+        // Note: Guide changes don't require session source reload (no server changes)
         const sources = loadWorkspaceSources(workspaceRootPath)
         this.broadcastSourcesChanged(sources)
+      },
+      onAgentsListChange: () => {
+        console.log(`[SessionManager] Agents list changed in ${workspaceRootPath}`)
+        this.broadcastAgentsChanged()
+      },
+      onAgentChange: () => {
+        console.log(`[SessionManager] Agent changed in ${workspaceRootPath}`)
+        this.broadcastAgentsChanged()
       },
       onStatusConfigChange: (workspaceId: string) => {
         console.log(`[SessionManager] Status config changed in ${workspaceId}`)
@@ -351,6 +373,35 @@ export class SessionManager {
     if (!this.windowManager) return
     console.log(`[SessionManager] Broadcasting agent theme changed for ${agentSlug}`)
     this.windowManager.broadcastToAll(IPC_CHANNELS.THEME_AGENT_CHANGED, agentSlug, theme)
+  }
+
+  /**
+   * Reload sources for a specific session.
+   * Called by ConfigWatcher when source files change on disk.
+   */
+  private async reloadSessionSources(managed: ManagedSession): Promise<void> {
+    if (!managed.agent) return
+
+    const workspaceRootPath = managed.workspace.rootPath
+    console.log(`[SessionManager] Reloading sources for session ${managed.id}`)
+
+    // Reload all sources from disk
+    const allSources = loadWorkspaceSources(workspaceRootPath)
+    managed.agent.setAllSources(allSources)
+
+    // Rebuild MCP and API servers for session's enabled sources
+    const enabledSlugs = managed.enabledSourceSlugs || []
+    const enabledSources = allSources.filter(s =>
+      enabledSlugs.includes(s.config.slug) && s.config.enabled && s.config.isAuthenticated
+    )
+    const { mcpServers, apiServers } = await buildServersFromSources(enabledSources)
+    managed.sourceMcpServers = mcpServers
+    managed.sourceApiServers = apiServers
+    // Pass intended slugs so agent shows sources as active even if build failed
+    const intendedSlugs = enabledSources.map(s => s.config.slug)
+    managed.agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
+
+    console.log(`[SessionManager] Sources reloaded for session ${managed.id}: ${Object.keys(mcpServers).length} MCP, ${Object.keys(apiServers).length} API`)
   }
 
   /**
@@ -1000,72 +1051,9 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
         }, managed.workspace.id)
       }
 
-      // Wire up onSourcesChanged to reload sources when created/authenticated/deleted
-      managed.agent.onSourcesChanged = async () => {
-        console.log(`[SessionManager] Sources changed for session ${managed.id} - reloading`)
-        const workspaceRootPath = managed.workspace.rootPath
-
-        // Reload all sources from disk
-        const allSources = loadWorkspaceSources(workspaceRootPath)
-        managed.agent?.setAllSources(allSources)
-
-        // Rebuild MCP and API servers for session's enabled sources
-        const enabledSlugs = managed.enabledSourceSlugs || []
-        const enabledSources = allSources.filter(s =>
-          enabledSlugs.includes(s.config.slug) && s.config.enabled && s.config.isAuthenticated
-        )
-        const { mcpServers, apiServers } = await buildServersFromSources(enabledSources)
-        managed.sourceMcpServers = mcpServers
-        managed.sourceApiServers = apiServers
-        // Pass intended slugs so agent shows sources as active even if build failed
-        const intendedSlugs = enabledSources.map(s => s.config.slug)
-        managed.agent?.setSourceServers(mcpServers, apiServers, intendedSlugs)
-
-        console.log(`[SessionManager] Sources reloaded: ${Object.keys(mcpServers).length} MCP servers, ${Object.keys(apiServers).length} API servers`)
-
-        // Broadcast to renderer so UI updates immediately
-        this.broadcastSourcesChanged(allSources)
-      }
-
-      // Wire up onSourceActivated to enable a source for this session
-      managed.agent.onSourceActivated = async (sourceSlug: string) => {
-        console.log(`[SessionManager] Activating source '${sourceSlug}' for session ${managed.id}`)
-        const workspaceRootPath = managed.workspace.rootPath
-
-        // Add to enabled sources if not already there
-        if (!managed.enabledSourceSlugs) {
-          managed.enabledSourceSlugs = []
-        }
-        if (!managed.enabledSourceSlugs.includes(sourceSlug)) {
-          managed.enabledSourceSlugs.push(sourceSlug)
-        }
-
-        // Rebuild servers with the newly enabled source
-        const allSources = loadWorkspaceSources(workspaceRootPath)
-        managed.agent?.setAllSources(allSources)
-
-        const enabledSources = allSources.filter(s =>
-          managed.enabledSourceSlugs!.includes(s.config.slug) && s.config.enabled && s.config.isAuthenticated
-        )
-        const { mcpServers, apiServers } = await buildServersFromSources(enabledSources)
-        managed.sourceMcpServers = mcpServers
-        managed.sourceApiServers = apiServers
-        // Pass intended slugs so agent shows sources as active even if build failed
-        const intendedSlugs = enabledSources.map(s => s.config.slug)
-        managed.agent?.setSourceServers(mcpServers, apiServers, intendedSlugs)
-
-        // Persist the session with updated enabled sources
-        this.persistSession(managed)
-
-        console.log(`[SessionManager] Source '${sourceSlug}' activated. Now ${managed.enabledSourceSlugs.length} sources enabled.`)
-      }
-
-      // Wire up onAgentsChanged to notify renderer when agents are created/synced/deleted
-      managed.agent.onAgentsChanged = async () => {
-        console.log(`[SessionManager] Agents changed for session ${managed.id} - broadcasting to all windows`)
-        // Broadcast to all windows to refresh agents list
-        this.broadcastAgentsChanged()
-      }
+      // NOTE: Source and agent reloading is now handled by ConfigWatcher callbacks
+      // which detect filesystem changes and update all affected sessions.
+      // See setupConfigWatcher() for the full reload logic.
 
       // NOTE: Agent definition is now applied in sendMessage() via AgentStateManager.activate()
       // This ensures proper state machine flow: extraction → auth checks → activation

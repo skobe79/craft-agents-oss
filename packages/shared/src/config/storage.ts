@@ -11,6 +11,7 @@ import {
   isValidWorkspace,
 } from '../workspaces/storage.ts';
 import { findIconInDir } from '../sources/storage.ts';
+import { initializeDocs } from '../docs/index.ts';
 import { expandPath, toPortablePath } from '../utils/paths.ts';
 import type { StoredAttachment } from '@craft-agent/core/types';
 import type { Plan } from '../agents/plan-types.ts';
@@ -82,6 +83,8 @@ export function ensureConfigDir(): void {
   if (!existsSync(CONFIG_DIR)) {
     mkdirSync(CONFIG_DIR, { recursive: true });
   }
+  // Initialize bundled docs (creates ~/.craft-agent/docs/ with sources.md, agents.md, permissions.md)
+  initializeDocs();
 }
 
 export function loadStoredConfig(): StoredConfig | null {

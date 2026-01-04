@@ -172,6 +172,7 @@ export class SourceServerBuilder {
       name: source.config.slug,
       baseUrl: api.baseUrl,
       documentation: source.guide?.raw || '',
+      defaultHeaders: api.defaultHeaders,
     };
 
     // Map auth type

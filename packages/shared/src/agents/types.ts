@@ -135,6 +135,8 @@ export interface ApiConfig {
   documentation?: string;
   /** Link to official API documentation if found */
   docsUrl?: string;
+  /** Headers to include with every request (e.g., beta feature flags) */
+  defaultHeaders?: Record<string, string>;
   /** Local logo filename (e.g., "exa.png") stored in agent's logos directory */
   logo?: string;
   /**

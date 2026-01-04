@@ -55,6 +55,7 @@ import type { FolderSourceConfig, LoadedSource } from '../sources/types.ts';
 import { getSourceCredentialManager, getSourceServerBuilder, type SourceWithCredential } from '../sources/index.ts';
 import { CraftOAuth, getMcpBaseUrl, type OAuthConfig, type OAuthCallbacks } from '../auth/oauth.ts';
 import { startGmailOAuth } from '../auth/gmail-oauth.ts';
+import { DOC_REFS } from '../docs/index.ts';
 
 // ============================================================
 // Session-Scoped Tool Callbacks
@@ -112,12 +113,6 @@ export interface SessionScopedToolCallbacks {
   onOAuthError?: (sourceSlug: string, error: string) => void;
   /** Called when credential input is needed - returns promise that resolves with user response */
   onCredentialRequest?: (request: CredentialRequest) => Promise<CredentialResponse>;
-  /** Called when sources change (created/authenticated/deleted) - triggers reload of MCP servers */
-  onSourcesChanged?: () => Promise<void>;
-  /** Called to activate a source for the current session (adds to enabled sources) */
-  onSourceActivated?: (sourceSlug: string) => Promise<void>;
-  /** Called when agents change (created/synced/deleted) - triggers reload of agent list */
-  onAgentsChanged?: () => Promise<void>;
 }
 
 /**
@@ -476,6 +471,16 @@ async function testApiSource(
     return { success: false, error: 'No API URL configured' };
   }
 
+  const requiresAuth = source.api.authType && source.api.authType !== 'none';
+
+  // Require testEndpoint for authenticated APIs - without it we can't validate credentials
+  if (requiresAuth && !source.api.testEndpoint) {
+    return {
+      success: false,
+      error: `Authenticated API sources require a \`testEndpoint\` configuration to validate credentials. Add \`testEndpoint\` to config.json. See \`${DOC_REFS.sources}\` for format.`,
+    };
+  }
+
   try {
     const headers: Record<string, string> = {
       'Accept': 'application/json',
@@ -484,29 +489,34 @@ async function testApiSource(
     let credentialType: string | undefined;
     let credValue: string | undefined;
 
-    // Get credentials if needed - try multiple credential types
-    if (source.api.authType && source.api.authType !== 'none') {
+    // Get credentials if needed - determine correct credential type based on authType
+    if (requiresAuth) {
       const credentialManager = getCredentialManager();
       // Extract workspace ID from root path for credential lookups
       const wsId = basename(workspaceId);
-      const baseId = { workspaceId: wsId, sourceId: source.slug };
 
-      // Try credential types in order of preference
-      const credTypesToTry: Array<'source_oauth' | 'source_bearer' | 'source_apikey' | 'source_basic'> = [
-        'source_oauth',
-        'source_bearer',
-        'source_apikey',
-        'source_basic',
-      ];
+      // Determine the correct credential type based on source.api.authType
+      // This matches the logic in SourceCredentialManager.getCredentialId()
+      let credType: 'source_oauth' | 'source_bearer' | 'source_apikey' | 'source_basic';
+      if (source.api.authType === 'oauth') {
+        credType = 'source_oauth';
+      } else if (source.api.authType === 'bearer') {
+        credType = 'source_bearer';
+      } else if (source.api.authType === 'basic') {
+        credType = 'source_basic';
+      } else {
+        // 'header', 'query', or other → stored as apikey
+        credType = 'source_apikey';
+      }
 
-      for (const credType of credTypesToTry) {
-        const cred = await credentialManager.get({ type: credType, ...baseId });
-        if (cred?.value) {
-          credValue = cred.value;
-          credentialType = credType;
-          debug(`[testApiSource] Found credential type ${credType} for ${source.slug}`);
-          break;
-        }
+      debug(`[testApiSource] Looking up credentials for source=${source.slug}, authType=${source.api.authType}, credType=${credType}`);
+      const cred = await credentialManager.get({ type: credType, workspaceId: wsId, sourceId: source.slug });
+      if (cred?.value) {
+        credValue = cred.value;
+        credentialType = credType;
+        debug(`[testApiSource] Found credential for ${source.slug}`);
+      } else {
+        debug(`[testApiSource] No credential found for ${source.slug}`);
       }
 
       if (credValue) {
@@ -525,25 +535,30 @@ async function testApiSource(
     }
 
     let response: Response;
-    let usedTestEndpoint = false;
 
-    // Use testEndpoint if configured for real validation
+    // Use testEndpoint if configured (required for authenticated APIs, optional for public)
     if (source.api.testEndpoint) {
-      usedTestEndpoint = true;
       const testUrl = new URL(source.api.testEndpoint.path, source.api.baseUrl).toString();
       const fetchOptions: RequestInit = {
         method: source.api.testEndpoint.method,
         headers,
       };
 
+      // Apply custom test endpoint headers if specified
+      if (source.api.testEndpoint.headers) {
+        Object.assign(headers, source.api.testEndpoint.headers);
+      }
+
       if (source.api.testEndpoint.method === 'POST' && source.api.testEndpoint.body) {
         headers['Content-Type'] = 'application/json';
         fetchOptions.body = JSON.stringify(source.api.testEndpoint.body);
       }
 
+      debug(`[testApiSource] Testing URL: ${testUrl}, method: ${fetchOptions.method}`);
       response = await fetch(testUrl, fetchOptions);
+      debug(`[testApiSource] Response: ${response.status} ${response.statusText}`);
     } else {
-      // Fallback: Try HEAD first (lighter), fall back to GET
+      // Fallback for public APIs only (authType: 'none')
       response = await fetch(source.api.baseUrl, { method: 'HEAD', headers });
 
       // Some APIs don't support HEAD, try GET
@@ -561,22 +576,10 @@ async function testApiSource(
     }
 
     if (response.status === 401 || response.status === 403) {
-      // Server is reachable but auth is needed/invalid
       return {
         success: false,
         status: response.status,
-        error: `HTTP ${response.status} - Authentication required`,
-        credentialType,
-      };
-    }
-
-    if (response.status === 404 && !usedTestEndpoint) {
-      // 404 on base URL fallback - server responds but no root endpoint
-      // This is still a connectivity success, just not fully validated
-      return {
-        success: true,
-        status: response.status,
-        error: 'Server reachable (no root endpoint). Configure testEndpoint for full validation.',
+        error: `HTTP ${response.status} - Authentication failed. Check your credentials.`,
         credentialType,
       };
     }
@@ -615,7 +618,7 @@ After creating or editing a source's config.json, run this tool to:
 - Auto-download icons from service URLs
 - Verify the connection works
 
-**Reference:** See \`~/.craft-agent/docs/sources.md\` for config format.
+**Reference:** See \`${DOC_REFS.sources}\` for config format.
 
 **Returns:**
 - Validation status with specific errors if invalid
@@ -634,7 +637,7 @@ After creating or editing a source's config.json, run this tool to:
           return {
             content: [{
               type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found.\n\nCreate the source folder at:\n\`~/.craft-agent/workspaces/{workspace}/sources/${args.sourceSlug}/config.json\`\n\nSee \`~/.craft-agent/docs/sources.md\` for config format.`,
+              text: `Source '${args.sourceSlug}' not found.\n\nCreate the source folder at:\n\`~/.craft-agent/workspaces/{workspace}/sources/${args.sourceSlug}/config.json\`\n\nSee \`${DOC_REFS.sources}\` for config format.`,
             }],
             isError: true,
           };
@@ -659,7 +662,7 @@ After creating or editing a source's config.json, run this tool to:
             }
           }
           results.push('');
-          results.push('See `~/.craft-agent/docs/sources.md` for config format.');
+          results.push(`See \`${DOC_REFS.sources}\` for config format.`);
 
           return {
             content: [{
@@ -716,7 +719,35 @@ After creating or editing a source's config.json, run this tool to:
             results.push('**○ No Icon**');
           }
         } else {
-          results.push(`**✓ Icon Cached** (${source.iconUrl})`);
+          // iconUrl starts with './' - verify the file actually exists
+          const { existsSync } = await import('fs');
+          const { join } = await import('path');
+          const iconPath = join(sourcePath, source.iconUrl.slice(2)); // Remove './' prefix
+
+          if (existsSync(iconPath)) {
+            results.push(`**✓ Icon Cached** (${source.iconUrl})`);
+          } else {
+            // File missing - try to re-download from original source
+            if (source.iconSourceUrl) {
+              const { cacheIcon } = await import('../utils/logo.ts');
+              const cached = await cacheIcon(source.iconSourceUrl, sourcePath);
+              if (cached) {
+                source.iconUrl = cached;
+                saveSourceConfigWithContext(workspaceId, source, sourceContext);
+                results.push(`**✓ Icon Re-downloaded** (${cached})`);
+              } else {
+                // Clear invalid iconUrl since file doesn't exist
+                source.iconUrl = undefined;
+                saveSourceConfigWithContext(workspaceId, source, sourceContext);
+                results.push('**⚠ Icon Missing** - re-download failed, cleared config');
+              }
+            } else {
+              // No source URL to re-download from
+              source.iconUrl = undefined;
+              saveSourceConfigWithContext(workspaceId, source, sourceContext);
+              results.push('**⚠ Icon Missing** - file not found, cleared config');
+            }
+          }
         }
 
         // ============================================================
@@ -748,11 +779,13 @@ After creating or editing a source's config.json, run this tool to:
             }
 
             // Verify the source has valid credentials for session use
+            // Note: workspaceId for LoadedSource should be just the ID, not the full path
+            const wsId = basename(workspaceId);
             const loadedSource: LoadedSource = {
               config: source,
               guide: null,
               folderPath: sourcePath,
-              workspaceId,
+              workspaceId: wsId,
               agentSlug: sourceContext.agentSlug,
             };
             const credManager = getSourceCredentialManager();
@@ -1071,20 +1104,7 @@ A browser window will open for the user to complete authentication.
         // Notify success callback
         callbacks?.onOAuthSuccess?.(args.sourceSlug);
 
-        // Activate the source for this session
-        try {
-          await callbacks?.onSourceActivated?.(args.sourceSlug);
-          debug('[source_oauth_trigger] Source activated for session:', args.sourceSlug);
-        } catch (err) {
-          console.log('[source_oauth_trigger] onSourceActivated callback error:', err);
-        }
-
-        // Trigger source reload callback so new tools are available (don't let failures affect tool result)
-        try {
-          await callbacks?.onSourcesChanged?.();
-        } catch (err) {
-          console.log('[source_oauth_trigger] onSourcesChanged callback error:', err);
-        }
+        // Source reload is now handled by ConfigWatcher detecting the config.json change
 
         return {
           content: [{
@@ -1217,20 +1237,7 @@ After successful authentication, the tokens are stored and the source is marked 
         const callbacks = getSessionScopedToolCallbacks(sessionId);
         callbacks?.onOAuthSuccess?.(args.sourceSlug);
 
-        // Activate the source for this session
-        try {
-          await callbacks?.onSourceActivated?.(args.sourceSlug);
-          debug('[source_gmail_oauth_trigger] Source activated for session:', args.sourceSlug);
-        } catch (err) {
-          console.log('[source_gmail_oauth_trigger] onSourceActivated callback error:', err);
-        }
-
-        // Trigger source reload callback so new tools are available (don't let failures affect tool result)
-        try {
-          await callbacks?.onSourcesChanged?.();
-        } catch (err) {
-          console.log('[source_gmail_oauth_trigger] onSourcesChanged callback error:', err);
-        }
+        // Source reload is now handled by ConfigWatcher detecting the config.json change
 
         return {
           content: [{
@@ -1249,559 +1256,6 @@ After successful authentication, the tokens are stored and the source is marked 
           content: [{
             type: 'text' as const,
             text: `Gmail OAuth failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-}
-
-// ============================================================
-// Source CRUD Tools
-// ============================================================
-
-/**
- * List all sources in the workspace.
- */
-export function createSourceListTool(sessionId: string, workspaceId: string) {
-  return tool(
-    'source_list',
-    `List all configured sources in the current workspace.
-
-Returns source names, types, providers, and authentication status.
-Use this to see what sources are available before creating or modifying them.`,
-    {},
-    async () => {
-      debug('[source_list] Listing sources for workspace:', workspaceId);
-
-      try {
-        const { loadWorkspaceSources } = await import('../sources/storage.ts');
-        const sources = loadWorkspaceSources(workspaceId);
-
-        if (sources.length === 0) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'No sources configured in this workspace.',
-            }],
-            isError: false,
-          };
-        }
-
-        const lines: string[] = ['**Configured Sources**\n'];
-        for (const source of sources) {
-          const status = source.config.isAuthenticated ? '✓' : '○';
-          const enabled = source.config.enabled ? '' : ' (disabled)';
-          lines.push(`- ${status} **${source.config.name}** (${source.config.type}/${source.config.provider})${enabled}`);
-          if (source.config.type === 'mcp' && source.config.mcp?.url) {
-            lines.push(`  URL: ${source.config.mcp.url}`);
-          } else if (source.config.type === 'api' && source.config.api?.baseUrl) {
-            lines.push(`  URL: ${source.config.api.baseUrl}`);
-          }
-        }
-
-        return {
-          content: [{
-            type: 'text' as const,
-            text: lines.join('\n'),
-          }],
-          isError: false,
-        };
-      } catch (error) {
-        debug('[source_list] Error:', error);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Error listing sources: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-}
-
-/**
- * Create a new source in the workspace or scoped to an agent.
- * When called in an agent context (activeAgentSlug is set), sources are agent-scoped by default.
- */
-export function createSourceCreateTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
-  const scopeDescription = activeAgentSlug
-    ? `By default, sources are scoped to the current agent (\`${activeAgentSlug}\`).
-To create a workspace-scoped source instead, explicitly set \`scope: "workspace"\`.`
-    : `By default, sources are workspace-scoped (available to all agents).
-To create an agent-scoped source, provide an \`agentSlug\`.`;
-
-  return tool(
-    'source_create',
-    `Create a new source in the workspace or scoped to a specific agent.
-
-**Source Types:**
-- \`mcp\`: Model Context Protocol server
-- \`api\`: REST API
-- \`local\`: Local filesystem
-
-**Scoping:**
-${scopeDescription}
-
-**MCP Auth Types:** oauth, bearer, none
-**API Auth Types:** bearer, header, query, basic, oauth, none
-
-**Examples:**
-- Workspace MCP: \`{ name: "Linear", provider: "linear", type: "mcp", mcpUrl: "https://mcp.linear.app", mcpAuthType: "oauth", scope: "workspace" }\`
-- Agent-scoped API: \`{ name: "Exa", provider: "exa", type: "api", apiBaseUrl: "https://api.exa.ai", apiAuthType: "header", apiHeaderName: "x-api-key" }\``,
-    {
-      name: z.string().describe('Human-readable name for the source'),
-      provider: z.string().describe('Provider identifier (e.g., "linear", "github", "custom")'),
-      type: z.enum(['mcp', 'api', 'local']).describe('Source type'),
-      scope: z.enum(['agent', 'workspace']).optional().describe('Where to store the source: "agent" (under active agent) or "workspace" (global)'),
-      agentSlug: z.string().optional().describe('Override: specific agent to scope source to (defaults to active agent if in agent context)'),
-      mcpUrl: z.string().optional().describe('MCP server URL (required for type=mcp)'),
-      mcpAuthType: z.enum(['oauth', 'bearer', 'none']).optional().describe('MCP auth type (default: none)'),
-      apiBaseUrl: z.string().optional().describe('API base URL (required for type=api)'),
-      apiAuthType: z.enum(['bearer', 'header', 'query', 'basic', 'oauth', 'none']).optional().describe('API auth type (default: none)'),
-      apiHeaderName: z.string().optional().describe('Header name for header auth (e.g., "X-API-Key")'),
-      apiTestEndpoint: z.object({
-        method: z.enum(['GET', 'POST']).describe('HTTP method for test request'),
-        path: z.string().describe('Path to test (e.g., "/search", "/v1/models")'),
-        body: z.record(z.unknown()).optional().describe('Request body for POST tests'),
-      }).optional().describe('Endpoint used for connection testing. If not set, tests base URL only.'),
-      localPath: z.string().optional().describe('Local path (required for type=local)'),
-      iconUrl: z.string().optional().describe('Icon URL: relative path (./icon.png), direct image URL, or domain for favicon lookup'),
-      enabled: z.boolean().optional().describe('Whether source is enabled (default: true)'),
-    },
-    async (args) => {
-      debug('[source_create] Creating source:', args.name, 'agentSlug:', args.agentSlug);
-
-      try {
-        const { createSource, createAgentSource } = await import('../sources/storage.ts');
-
-        // Build the source input
-        const input: {
-          name: string;
-          provider: string;
-          type: 'mcp' | 'api' | 'local';
-          mcp?: { url: string; authType: 'oauth' | 'bearer' | 'none' };
-          api?: { baseUrl: string; authType: 'bearer' | 'header' | 'query' | 'basic' | 'oauth' | 'none'; headerName?: string; testEndpoint?: { method: 'GET' | 'POST'; path: string; body?: Record<string, unknown> } };
-          local?: { path: string };
-          iconUrl?: string;
-          enabled?: boolean;
-        } = {
-          name: args.name,
-          provider: args.provider,
-          type: args.type,
-          enabled: args.enabled ?? true,
-        };
-
-        // Add iconUrl if provided
-        if (args.iconUrl) {
-          input.iconUrl = args.iconUrl;
-        }
-
-        // Add type-specific config
-        if (args.type === 'mcp') {
-          if (!args.mcpUrl) {
-            return {
-              content: [{
-                type: 'text' as const,
-                text: 'Error: mcpUrl is required for MCP sources.',
-              }],
-              isError: true,
-            };
-          }
-          input.mcp = {
-            url: args.mcpUrl,
-            authType: args.mcpAuthType ?? 'none',
-          };
-        } else if (args.type === 'api') {
-          if (!args.apiBaseUrl) {
-            return {
-              content: [{
-                type: 'text' as const,
-                text: 'Error: apiBaseUrl is required for API sources.',
-              }],
-              isError: true,
-            };
-          }
-          input.api = {
-            baseUrl: args.apiBaseUrl,
-            authType: args.apiAuthType ?? 'none',
-            headerName: args.apiHeaderName,
-            testEndpoint: args.apiTestEndpoint,
-          };
-        } else if (args.type === 'local') {
-          if (!args.localPath) {
-            return {
-              content: [{
-                type: 'text' as const,
-                text: 'Error: localPath is required for local sources.',
-              }],
-              isError: true,
-            };
-          }
-          input.local = {
-            path: args.localPath,
-          };
-        }
-
-        // Determine effective agent slug for scoping:
-        // 1. If explicit agentSlug provided, use it
-        // 2. If scope is 'workspace', no agent scoping
-        // 3. If active agent is a built-in (dot-prefixed like .source-setup), default to workspace
-        // 4. Otherwise, default to activeAgentSlug (if in agent context)
-        const isBuiltinAgent = activeAgentSlug?.startsWith('.');
-        const effectiveAgentSlug = args.agentSlug ?? (
-          args.scope === 'workspace' || isBuiltinAgent ? undefined : activeAgentSlug
-        );
-
-        // Create source: agent-scoped or workspace-scoped
-        const config = await (effectiveAgentSlug
-          ? createAgentSource(workspaceId, effectiveAgentSlug, input)
-          : createSource(workspaceId, input));
-
-        debug('[source_create] Created source:', args.name, 'effectiveAgentSlug:', effectiveAgentSlug);
-
-        // Get callbacks
-        const callbacks = getSessionScopedToolCallbacks(sessionId);
-
-        // Determine if source needs authentication
-        const needsAuth = (args.type === 'mcp' && args.mcpAuthType && args.mcpAuthType !== 'none') ||
-                          (args.type === 'api' && args.apiAuthType && args.apiAuthType !== 'none');
-
-        // Activate source for this session if it doesn't need auth
-        // (sources needing auth will be activated after authentication completes)
-        if (!needsAuth) {
-          try {
-            await callbacks?.onSourceActivated?.(config.slug);
-            debug('[source_create] Source activated for session:', config.slug);
-          } catch (err) {
-            console.log('[source_create] onSourceActivated callback error:', err);
-          }
-        }
-
-        // Trigger source reload callback (don't let failures affect tool result)
-        try {
-          await callbacks?.onSourcesChanged?.();
-        } catch (err) {
-          console.log('[source_create] onSourcesChanged callback error:', err);
-        }
-
-        const authNote = args.type === 'mcp' && args.mcpAuthType === 'oauth'
-          ? '\n\nUse `source_oauth_trigger` to authenticate this source.'
-          : args.type === 'mcp' && args.mcpAuthType === 'bearer'
-          ? '\n\nA bearer token will need to be configured for authentication.'
-          : args.type === 'api' && args.apiAuthType && args.apiAuthType !== 'none'
-          ? '\n\nUse `source_credential_prompt` to provide credentials for this API.'
-          : '';
-
-        const scopeNote = effectiveAgentSlug
-          ? `\nScope: Agent (${effectiveAgentSlug})`
-          : '\nScope: Workspace';
-
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `**Source created successfully**\n\nName: ${config.name}\nSlug: ${config.slug}\nType: ${config.type}\nProvider: ${config.provider}${scopeNote}${authNote}`,
-          }],
-          isError: false,
-        };
-      } catch (error) {
-        debug('[source_create] Error:', error);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Error creating source: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-}
-
-/**
- * Update an existing source's configuration.
- */
-export function createSourceConfigurationUpdateTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
-  return tool(
-    'source_configuration_update',
-    `Update an existing source's configuration.
-
-Only the provided fields will be updated; others remain unchanged.`,
-    {
-      sourceSlug: z.string().describe('The slug of the source to update'),
-      name: z.string().optional().describe('New name for the source'),
-      enabled: z.boolean().optional().describe('Enable or disable the source'),
-      mcpUrl: z.string().optional().describe('New MCP URL'),
-      mcpAuthType: z.enum(['oauth', 'bearer', 'none']).optional().describe('New MCP auth type'),
-      apiBaseUrl: z.string().optional().describe('New API base URL'),
-      apiAuthType: z.enum(['bearer', 'header', 'query', 'basic', 'oauth', 'none']).optional().describe('New API auth type'),
-      iconUrl: z.string().optional().describe('Icon URL: relative path (./icon.png), direct image URL, or domain for favicon lookup'),
-    },
-    async (args) => {
-      debug('[source_update] Updating source:', args.sourceSlug);
-
-      try {
-        // Load source (checks agent folder first if activeAgentSlug set, then workspace)
-        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug, activeAgentSlug);
-        if (!sourceResult) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found.`,
-            }],
-            isError: true,
-          };
-        }
-        const config = sourceResult.config;
-        const sourceContext = { isAgentScoped: sourceResult.isAgentScoped, agentSlug: sourceResult.agentSlug };
-
-        // Update fields
-        if (args.name !== undefined) config.name = args.name;
-        if (args.enabled !== undefined) config.enabled = args.enabled;
-
-        if (config.mcp) {
-          if (args.mcpUrl !== undefined) config.mcp.url = args.mcpUrl;
-          if (args.mcpAuthType !== undefined) config.mcp.authType = args.mcpAuthType;
-        }
-
-        if (config.api) {
-          if (args.apiBaseUrl !== undefined) config.api.baseUrl = args.apiBaseUrl;
-          if (args.apiAuthType !== undefined) config.api.authType = args.apiAuthType;
-        }
-
-        if (args.iconUrl !== undefined) config.iconUrl = args.iconUrl;
-
-        saveSourceConfigWithContext(workspaceId, config, sourceContext);
-
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `**Source '${config.name}' updated successfully**`,
-          }],
-          isError: false,
-        };
-      } catch (error) {
-        debug('[source_update] Error:', error);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Error updating source: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-}
-
-/**
- * Delete a source from the workspace.
- */
-export function createSourceDeleteTool(sessionId: string, workspaceId: string) {
-  return tool(
-    'source_delete',
-    `Delete a source from the workspace.
-
-**Warning:** This permanently removes the source and any stored credentials.`,
-    {
-      sourceSlug: z.string().describe('The slug of the source to delete'),
-    },
-    async (args) => {
-      debug('[source_delete] Deleting source:', args.sourceSlug);
-
-      try {
-        const { deleteSource, sourceExists } = await import('../sources/storage.ts');
-
-        if (!sourceExists(workspaceId, args.sourceSlug)) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found.`,
-            }],
-            isError: true,
-          };
-        }
-
-        deleteSource(workspaceId, args.sourceSlug);
-
-        // Trigger source reload callback (don't let failures affect tool result)
-        const callbacks = getSessionScopedToolCallbacks(sessionId);
-        try {
-          await callbacks?.onSourcesChanged?.();
-        } catch (err) {
-          console.log('[source_delete] onSourcesChanged callback error:', err);
-        }
-
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `**Source '${args.sourceSlug}' deleted successfully**`,
-          }],
-          isError: false,
-        };
-      } catch (error) {
-        debug('[source_delete] Error:', error);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Error deleting source: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          }],
-          isError: true,
-        };
-      }
-    }
-  );
-}
-
-// ============================================================
-// Source Permissions Tool
-// ============================================================
-
-/**
- * Create or update permissions rules for a source.
- * Creates a permissions.json file in the source folder with Zod validation.
- */
-export function createSourcePermissionsUpdateTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
-  const exploreName = PERMISSION_MODE_CONFIG['safe'].displayName;
-
-  return tool(
-    'source_permissions_update',
-    `Create or update permissions rules for a source.
-
-${exploreName} mode is a read-only exploration mode. Custom rules let you allow specific operations that would otherwise be blocked.
-
-**Rule Types:**
-- \`allowedMcpPatterns\`: Regex patterns for MCP tool names to allow (e.g., \`^mcp__linear__list\`)
-- \`allowedApiEndpoints\`: Fine-grained API rules with method + path pattern (e.g., POST /search)
-- \`allowedBashPatterns\`: Regex patterns for bash commands to allow
-- \`blockedTools\`: Additional tools to block (rarely needed)
-
-Rules are additive - they extend the defaults to make ${exploreName} mode more permissive for this source.`,
-    {
-      sourceSlug: z.string().describe('The slug of the source to configure'),
-      allowedMcpPatterns: z.array(z.object({
-        pattern: z.string().describe('Regex pattern for tool names (e.g., ^mcp__linear__list)'),
-        comment: z.string().optional().describe('Optional comment explaining the pattern'),
-      })).optional().describe('MCP tool patterns to allow'),
-      allowedApiEndpoints: z.array(z.object({
-        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).describe('HTTP method'),
-        path: z.string().describe('Regex pattern for API path (e.g., ^/search, ^/v1/query)'),
-        comment: z.string().optional().describe('Optional comment explaining the rule'),
-      })).optional().describe('API endpoint rules (method + path pattern)'),
-      allowedBashPatterns: z.array(z.object({
-        pattern: z.string().describe('Regex pattern for bash commands'),
-        comment: z.string().optional().describe('Optional comment explaining the pattern'),
-      })).optional().describe('Bash command patterns to allow'),
-      blockedTools: z.array(z.string()).optional().describe('Additional tools to block'),
-    },
-    async (args) => {
-      debug('[source_permissions_update] Updating permissions for source:', args.sourceSlug);
-
-      try {
-        const { existsSync, writeFileSync, mkdirSync, readFileSync } = await import('fs');
-        const { join } = await import('path');
-        const { getSourcePath, getAgentSourcePath, sourceExists, agentSourceExists } = await import('../sources/storage.ts');
-        const { validatePermissionsConfig } = await import('./permissions-config.ts');
-
-        // Check if source exists (agent-scoped first if activeAgentSlug, then workspace)
-        // Skip agent scope check for built-in agents (dot-prefixed like .source-setup)
-        let sourcePath: string;
-        let sourceName = args.sourceSlug;
-        const isBuiltinAgent = activeAgentSlug?.startsWith('.');
-
-        if (activeAgentSlug && !isBuiltinAgent && agentSourceExists(workspaceId, activeAgentSlug, args.sourceSlug)) {
-          sourcePath = getAgentSourcePath(workspaceId, activeAgentSlug, args.sourceSlug);
-        } else if (sourceExists(workspaceId, args.sourceSlug)) {
-          sourcePath = getSourcePath(workspaceId, args.sourceSlug);
-        } else {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: `Source '${args.sourceSlug}' not found.`,
-            }],
-            isError: true,
-          };
-        }
-
-        // Try to get source name from config
-        try {
-          const configPath = join(sourcePath, 'config.json');
-          if (existsSync(configPath)) {
-            const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-            sourceName = config.name || args.sourceSlug;
-          }
-        } catch {
-          // Ignore, use slug as name
-        }
-
-        // Build the JSON config object
-        const config: Record<string, unknown> = {};
-
-        if (args.allowedMcpPatterns && args.allowedMcpPatterns.length > 0) {
-          config.allowedMcpPatterns = args.allowedMcpPatterns;
-        }
-
-        if (args.allowedApiEndpoints && args.allowedApiEndpoints.length > 0) {
-          config.allowedApiEndpoints = args.allowedApiEndpoints;
-        }
-
-        if (args.allowedBashPatterns && args.allowedBashPatterns.length > 0) {
-          config.allowedBashPatterns = args.allowedBashPatterns;
-        }
-
-        if (args.blockedTools && args.blockedTools.length > 0) {
-          config.blockedTools = args.blockedTools;
-        }
-
-        // Validate the config before writing
-        const errors = validatePermissionsConfig(config);
-        if (errors.length > 0) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: `Invalid permissions configuration:\n${errors.map(e => `- ${e}`).join('\n')}`,
-            }],
-            isError: true,
-          };
-        }
-
-        // Write the JSON file
-        const safeModePath = join(sourcePath, 'permissions.json');
-        mkdirSync(sourcePath, { recursive: true });
-        writeFileSync(safeModePath, JSON.stringify(config, null, 2), 'utf-8');
-
-        debug('[source_permissions_update] Created permissions.json at:', safeModePath);
-
-        // Build summary of what was configured
-        const summary: string[] = [];
-        if (args.allowedMcpPatterns?.length) {
-          summary.push(`${args.allowedMcpPatterns.length} MCP pattern(s)`);
-        }
-        if (args.allowedApiEndpoints?.length) {
-          summary.push(`${args.allowedApiEndpoints.length} API endpoint(s)`);
-        }
-        if (args.allowedBashPatterns?.length) {
-          summary.push(`${args.allowedBashPatterns.length} bash pattern(s)`);
-        }
-        if (args.blockedTools?.length) {
-          summary.push(`${args.blockedTools.length} blocked tool(s)`);
-        }
-
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `**Permissions rules created for '${sourceName}'**\n\nConfigured: ${summary.join(', ') || 'empty config'}\n\nFile: \`${safeModePath}\`\n\nThese rules will be applied when ${exploreName} mode is active.`,
-          }],
-          isError: false,
-        };
-      } catch (error) {
-        debug('[source_permissions_update] Error:', error);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Error creating permissions rules: ${error instanceof Error ? error.message : 'Unknown error'}`,
           }],
           isError: true,
         };
@@ -1954,20 +1408,7 @@ source_credential_prompt({
         source.updatedAt = Date.now();
         saveSourceConfigWithContext(workspaceId, source, sourceContext);
 
-        // Activate the source for this session
-        try {
-          await callbacks?.onSourceActivated?.(args.sourceSlug);
-          debug('[source_credential_prompt] Source activated for session:', args.sourceSlug);
-        } catch (err) {
-          console.log('[source_credential_prompt] onSourceActivated callback error:', err);
-        }
-
-        // Trigger source reload callback so new tools are available (don't let failures affect tool result)
-        try {
-          await callbacks?.onSourcesChanged?.();
-        } catch (err) {
-          console.log('[source_credential_prompt] onSourcesChanged callback error:', err);
-        }
+        // Source reload is now handled by ConfigWatcher detecting the config.json change
 
         return {
           content: [{
@@ -2092,13 +1533,7 @@ agent_create({
           enabled: args.enabled ?? true,
         });
 
-        // Trigger agents reload callback
-        const callbacks = getSessionScopedToolCallbacks(sessionId);
-        try {
-          await callbacks?.onAgentsChanged?.();
-        } catch (err) {
-          console.log('[agent_create] onAgentsChanged callback error:', err);
-        }
+        // Agent reload is now handled by ConfigWatcher detecting the config.json change
 
         const sourcesNote = args.useSources?.length
           ? `\nAttached sources: ${args.useSources.join(', ')}`
@@ -2155,13 +1590,7 @@ export function createAgentDeleteTool(sessionId: string, workspaceId: string) {
 
         deleteAgent(workspaceId, args.agentSlug);
 
-        // Trigger agents reload callback
-        const callbacks = getSessionScopedToolCallbacks(sessionId);
-        try {
-          await callbacks?.onAgentsChanged?.();
-        } catch (err) {
-          console.log('[agent_delete] onAgentsChanged callback error:', err);
-        }
+        // Agent reload is now handled by ConfigWatcher detecting the folder deletion
 
         return {
           content: [{

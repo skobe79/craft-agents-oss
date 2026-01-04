@@ -12,6 +12,7 @@ import { TerminalPreviewWindowManager } from './terminal-preview-window'
 import { MultiFileDiffWindowManager } from './multi-file-diff-window'
 import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces } from '@craft-agent/shared/config'
+import { initializeDocs } from '@craft-agent/shared/docs'
 import { handleDeepLink } from './deep-link'
 
 // Custom URL scheme for deeplinks (e.g., craftagents://auth-complete)
@@ -118,6 +119,9 @@ async function createInitialWindows(): Promise<void> {
 
 app.whenReady().then(async () => {
   app.setName('Craft Agents')
+
+  // Initialize bundled docs
+  initializeDocs()
 
   // Create the application menu
   createApplicationMenu()
