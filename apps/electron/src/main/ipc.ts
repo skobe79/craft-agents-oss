@@ -889,11 +889,12 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       permissionMode: config?.defaults?.permissionMode,
       workingDirectory: config?.defaults?.workingDirectory,
       credentialStrategy: config?.defaults?.credentialStrategy || 'local',
+      localMcpEnabled: config?.localMcpServers?.enabled ?? true,
     }
   })
 
   // Update a workspace setting
-  // Valid keys: 'name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'credentialStrategy'
+  // Valid keys: 'name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'credentialStrategy', 'localMcpEnabled'
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_SETTINGS_UPDATE, async (_event, workspaceId: string, key: string, value: unknown) => {
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) {
@@ -901,7 +902,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     }
 
     // Validate key is a known workspace setting
-    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'credentialStrategy']
+    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'credentialStrategy', 'localMcpEnabled']
     if (!validKeys.includes(key)) {
       throw new Error(`Invalid workspace setting key: ${key}. Valid keys: ${validKeys.join(', ')}`)
     }
@@ -915,6 +916,10 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     // Handle 'name' specially - it's a top-level config property, not in defaults
     if (key === 'name') {
       config.name = String(value).trim()
+    } else if (key === 'localMcpEnabled') {
+      // Store in localMcpServers.enabled (top-level, not in defaults)
+      config.localMcpServers = config.localMcpServers || { enabled: true }
+      config.localMcpServers.enabled = Boolean(value)
     } else {
       // Update the setting in defaults
       config.defaults = config.defaults || {}

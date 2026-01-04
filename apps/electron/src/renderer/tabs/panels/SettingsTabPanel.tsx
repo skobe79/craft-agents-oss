@@ -679,6 +679,7 @@ interface WorkspaceSettings {
   permissionMode?: PermissionMode
   workingDirectory?: string
   credentialStrategy?: CredentialStrategy
+  localMcpEnabled?: boolean
 }
 
 // ============================================
@@ -728,6 +729,7 @@ export default function SettingsTabPanel({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask')
   const [workingDirectory, setWorkingDirectory] = useState('')
   const [credentialStrategy, setCredentialStrategy] = useState<CredentialStrategy>('local')
+  const [localMcpEnabled, setLocalMcpEnabled] = useState(true)
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true)
 
   // Password dialog state
@@ -770,6 +772,7 @@ export default function SettingsTabPanel({
           setPermissionMode(settings.permissionMode || 'ask')
           setWorkingDirectory(settings.workingDirectory || '')
           setCredentialStrategy(settings.credentialStrategy || 'local')
+          setLocalMcpEnabled(settings.localMcpEnabled ?? true)
         }
 
         // Try to load workspace icon (check common extensions)
@@ -1039,6 +1042,14 @@ export default function SettingsTabPanel({
       console.error('Failed to change working directory:', error)
     }
   }, [updateWorkspaceSetting])
+
+  const handleLocalMcpEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      setLocalMcpEnabled(enabled)
+      await updateWorkspaceSetting('localMcpEnabled', enabled)
+    },
+    [updateWorkspaceSetting]
+  )
 
   const handleCredentialStrategyChange = useCallback(
     async (newStrategy: CredentialStrategy) => {
@@ -1361,6 +1372,17 @@ export default function SettingsTabPanel({
                     />
                   </div>
                 )}
+              </div>
+
+              {/* Advanced */}
+              <div>
+                <SectionHeader>Advanced</SectionHeader>
+                <ToggleRow
+                  label="Local MCP Servers"
+                  description="· spawn subprocess servers"
+                  checked={localMcpEnabled}
+                  onCheckedChange={handleLocalMcpEnabledChange}
+                />
               </div>
             </>
           )}
