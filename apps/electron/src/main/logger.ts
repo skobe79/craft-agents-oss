@@ -17,7 +17,10 @@ if (isDebugMode) {
       timestamp: message.date.toISOString(),
       level: message.level,
       scope: message.scope,
-      message: message.data,
+      // Handle Error objects specially (they don't serialize well with JSON.stringify)
+      message: message.data.map((d: unknown) =>
+        d instanceof Error ? { error: d.name, message: d.message, stack: d.stack } : d
+      ),
     }),
   ]
 
@@ -28,9 +31,15 @@ if (isDebugMode) {
     const scope = message.scope ? `[${message.scope}]` : ''
     const level = message.level.toUpperCase().padEnd(5)
     const data = message.data
-      .map((d: unknown) => (typeof d === 'object' ? JSON.stringify(d) : String(d)))
+      .map((d: unknown) => {
+        // Handle Error objects specially (they don't serialize well with JSON.stringify)
+        if (d instanceof Error) {
+          return `${d.name}: ${d.message}`
+        }
+        return typeof d === 'object' ? JSON.stringify(d) : String(d)
+      })
       .join(' ')
-    return `${message.date.toISOString()} ${level} ${scope} ${data}`
+    return [`${message.date.toISOString()} ${level} ${scope} ${data}`]
   }
   log.transports.console.level = 'debug'
 } else {
