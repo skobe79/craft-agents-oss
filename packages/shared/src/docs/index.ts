@@ -618,7 +618,7 @@ URL: \`https://mcp.linear.app\`, OAuth auth.
 
 ### GitHub
 Provider: \`github\`, Type: \`mcp\`
-URL: \`https://mcp.github.com\`, OAuth auth.
+URL: \`https://api.githubcopilot.com/mcp/\`, **bearer auth** (PAT required - OAuth will fail).
 
 ### Exa (Search)
 Provider: \`exa\`, Type: \`api\`

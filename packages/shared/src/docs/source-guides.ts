@@ -450,6 +450,7 @@ domains:
   - github.com
   - api.github.com
   - mcp.github.com
+  - api.githubcopilot.com
 providers:
   - github
 ---
@@ -481,6 +482,45 @@ GitHub organizes code and collaboration around:
 <!-- SETUP: This section is ONLY for the setup agent -->
 
 ## Setup Hints
+
+### CRITICAL - Do NOT Search for MCP URLs
+
+The MCP URL \`https://api.githubcopilot.com/mcp/\` is **CORRECT**. Do NOT use WebSearch or WebFetch to find alternative URLs. The URL works - the issue is authentication method only.
+
+### Authentication - OAuth Will Fail (Expected)
+
+GitHub's MCP server requires OAuth with a **pre-registered client app**. Craft Agent is NOT registered with GitHub, so OAuth authentication WILL fail. This is expected behavior - do NOT troubleshoot or search for solutions.
+
+**The ONLY solution is a Personal Access Token (PAT):**
+
+1. Ask the user to create a PAT at: GitHub Settings → Developer settings → Personal access tokens
+2. Required scopes: \`repo\`, \`read:org\` (optional)
+3. Set \`authType: "bearer"\` in config (NOT "oauth")
+4. Use \`source_credential_prompt\` to collect the PAT from the user
+
+**Required config.json:**
+\`\`\`json
+{
+  "type": "mcp",
+  "mcp": {
+    "url": "https://api.githubcopilot.com/mcp/",
+    "authType": "bearer"
+  }
+}
+\`\`\`
+
+**Alternative - Local MCP Server (if user prefers):**
+\`\`\`json
+{
+  "type": "mcp",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..." }
+  }
+}
+\`\`\`
 
 ### Recommended Questions
 - Which repositories do you work with most?

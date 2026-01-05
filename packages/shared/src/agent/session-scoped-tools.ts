@@ -1256,13 +1256,10 @@ After successful authentication, the tokens are stored and the source is marked 
       sourceSlug: z.string().describe('The slug of the Gmail source to authenticate'),
     },
     async (args) => {
-      debug('[source_gmail_oauth_trigger] Starting Gmail OAuth for source:', args.sourceSlug);
-
       try {
         // Load the source config (checks agent folder first if activeAgentSlug set, then workspace)
         const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug, activeAgentSlug);
         if (!sourceResult) {
-          debug('[source_gmail_oauth_trigger] Source not found:', args.sourceSlug);
           return {
             content: [{
               type: 'text' as const,
@@ -1274,14 +1271,11 @@ After successful authentication, the tokens are stored and the source is marked 
         const source = sourceResult.config;
         const sourceContext = { isAgentScoped: sourceResult.isAgentScoped, agentSlug: sourceResult.agentSlug };
 
-        debug('[source_gmail_oauth_trigger] Loaded config:', JSON.stringify(source, null, 2));
-
         // Verify this is a Gmail source
         if (source.provider !== 'gmail') {
           const hint = !source.provider
             ? `Add "provider": "gmail" to config.json and retry.`
             : `This source has provider '${source.provider}'. Use source_oauth_trigger for MCP sources.`;
-          debug('[source_gmail_oauth_trigger] Provider mismatch - expected "gmail", got:', source.provider);
           return {
             content: [{
               type: 'text' as const,
@@ -1292,7 +1286,6 @@ After successful authentication, the tokens are stored and the source is marked 
         }
 
         if (source.isAuthenticated) {
-          debug('[source_gmail_oauth_trigger] Source already authenticated');
           return {
             content: [{
               type: 'text' as const,
@@ -1303,11 +1296,9 @@ After successful authentication, the tokens are stored and the source is marked 
         }
 
         // Run the Gmail OAuth flow
-        debug('[source_gmail_oauth_trigger] Starting OAuth flow...');
         const result = await startGmailOAuth('electron');
 
         if (!result.success) {
-          debug('[source_gmail_oauth_trigger] OAuth failed:', result.error);
           const callbacks = getSessionScopedToolCallbacks(sessionId);
           callbacks?.onOAuthError?.(args.sourceSlug, result.error || 'Unknown error');
 
@@ -1320,7 +1311,6 @@ After successful authentication, the tokens are stored and the source is marked 
           };
         }
 
-        debug('[source_gmail_oauth_trigger] OAuth successful for:', result.email);
         // Store the tokens
         const credentialManager = getCredentialManager();
         // Extract workspace ID from root path for credential storage
@@ -1359,8 +1349,6 @@ After successful authentication, the tokens are stored and the source is marked 
           isError: false,
         };
       } catch (error) {
-        debug('[source_gmail_oauth_trigger] Error:', error);
-
         const callbacks = getSessionScopedToolCallbacks(sessionId);
         callbacks?.onOAuthError?.(args.sourceSlug, error instanceof Error ? error.message : 'Unknown error');
 
