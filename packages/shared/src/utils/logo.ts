@@ -15,7 +15,7 @@ const GOOGLE_FAVICON_URL = 'https://t2.gstatic.com/faviconV2?client=SOCIAL&type=
  * This fixes issues like api.gmail.com returning a globe icon instead of Gmail logo.
  */
 export const PROVIDER_CANONICAL_DOMAINS: Record<string, string> = {
-  gmail: 'gmail.com',
+  gmail: 'mail.google.com',
 };
 
 /**
