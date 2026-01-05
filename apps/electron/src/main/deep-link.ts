@@ -20,6 +20,7 @@
  */
 
 import type { BrowserWindow } from 'electron'
+import { mainLog } from './logger'
 import type { WindowManager } from './window-manager'
 import { IPC_CHANNELS } from '../shared/types'
 
@@ -192,7 +193,7 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
 
     return null
   } catch (error) {
-    console.error('[DeepLink] Failed to parse URL:', url, error)
+    mainLog.error('[DeepLink] Failed to parse URL:', url, error)
     return null
   }
 }
@@ -257,7 +258,7 @@ export async function handleDeepLink(
     return { success: false, error: 'Invalid deep link URL' }
   }
 
-  console.log('[DeepLink] Handling:', target)
+  mainLog.info('[DeepLink] Handling:', target)
 
   // 1. Get target window
   let window: BrowserWindow | null = null

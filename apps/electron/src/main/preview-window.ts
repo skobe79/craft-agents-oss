@@ -1,4 +1,5 @@
 import { BrowserWindow, shell, nativeTheme } from 'electron'
+import { windowLog } from './logger'
 import { join, basename } from 'path'
 import { readFile, writeFile } from 'fs/promises'
 import { IPC_CHANNELS, type MarkdownPreviewData } from '../shared/types'
@@ -62,7 +63,7 @@ export class PreviewWindowManager {
       try {
         content = await readFile(data.filePath, 'utf-8')
       } catch (err) {
-        console.error(`[PreviewWindowManager] Failed to read file: ${data.filePath}`, err)
+        windowLog.error(`[PreviewWindowManager] Failed to read file: ${data.filePath}`, err)
         content = `Error reading file: ${err instanceof Error ? err.message : String(err)}`
       }
     }
@@ -131,10 +132,10 @@ export class PreviewWindowManager {
     window.on('closed', () => {
       nativeTheme.removeListener('updated', themeHandler)
       this.windows.delete(previewId)
-      console.log(`[PreviewWindowManager] Preview window closed for ${previewId}`)
+      windowLog.info(`[PreviewWindowManager] Preview window closed for ${previewId}`)
     })
 
-    console.log(`[PreviewWindowManager] Created preview window for ${previewId}`)
+    windowLog.info(`[PreviewWindowManager] Created preview window for ${previewId}`)
     return window
   }
 
@@ -170,7 +171,7 @@ export class PreviewWindowManager {
     windowData.content = content
     windowData.originalContent = content
 
-    console.log(`[PreviewWindowManager] Saved content to ${filePath}`)
+    windowLog.info(`[PreviewWindowManager] Saved content to ${filePath}`)
 
     // Broadcast file saved event to all workspace windows
     if (this.windowManager) {

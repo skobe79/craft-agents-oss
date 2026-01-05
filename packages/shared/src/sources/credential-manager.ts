@@ -84,7 +84,8 @@ export class SourceCredentialManager {
     const manager = getCredentialManager();
 
     // For MCP sources, try both OAuth and bearer credentials
-    if (source.config.type === 'mcp' && source.config.mcp?.authType !== 'none') {
+    // (stdio transport doesn't need credentials)
+    if (source.config.type === 'mcp' && source.config.mcp?.transport !== 'stdio' && source.config.mcp?.authType !== 'none') {
       return this.loadMcpCredential(source);
     }
 
@@ -473,8 +474,14 @@ export class SourceCredentialManager {
     }
 
     try {
+      // Only HTTP/SSE transport can refresh tokens - stdio doesn't use OAuth
+      if (!source.config.mcp?.url) {
+        debug(`[SourceCredentialManager] No URL for MCP token refresh (stdio transport?)`);
+        return null;
+      }
+
       const oauth = new CraftOAuth(
-        { mcpBaseUrl: getMcpBaseUrl(source.config.mcp!.url) },
+        { mcpBaseUrl: getMcpBaseUrl(source.config.mcp.url) },
         {
           onStatus: () => {},
           onError: () => {},
@@ -515,8 +522,12 @@ export function getSourcesNeedingAuth(sources: LoadedSource[]): LoadedSource[] {
     const mcp = source.config.mcp;
     const api = source.config.api;
 
-    // MCP sources with oauth/bearer auth
+    // MCP sources with oauth/bearer auth (stdio transport never needs auth)
     if (source.config.type === 'mcp' && mcp) {
+      if (mcp.transport === 'stdio') {
+        // Stdio sources run locally and don't need authentication
+        return false;
+      }
       if (mcp.authType !== 'none' && !source.config.isAuthenticated) {
         return true;
       }

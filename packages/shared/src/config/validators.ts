@@ -310,11 +310,33 @@ import { getWorkspaceSourcesPath, getWorkspaceAgentsPath } from '../workspaces/s
 
 const SourceTypeSchema = z.enum(['mcp', 'api', 'local']);
 
+// MCP source supports two transport types:
+// - HTTP/SSE: requires url and authType
+// - Stdio: requires command (and optional args, env)
 const McpSourceConfigSchema = z.object({
-  url: z.string().url(),
-  authType: z.enum(['oauth', 'bearer', 'none']),
+  transport: z.enum(['http', 'sse', 'stdio']).optional(),
+  // HTTP/SSE fields
+  url: z.string().url().optional(),
+  authType: z.enum(['oauth', 'bearer', 'none']).optional(),
   clientId: z.string().optional(),
-});
+  // Stdio fields
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string()).optional(),
+}).refine(
+  (data) => {
+    if (data.transport === 'stdio') {
+      // Stdio transport requires command
+      return !!data.command;
+    } else {
+      // HTTP/SSE transport (default) requires url and authType
+      return !!data.url && !!data.authType;
+    }
+  },
+  {
+    message: 'MCP config requires either (url + authType) for HTTP/SSE or (command) for stdio transport',
+  }
+);
 
 const ApiSourceConfigSchema = z.object({
   baseUrl: z.string().url(),

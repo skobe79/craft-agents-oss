@@ -693,6 +693,7 @@ export default function App() {
       const isUltrathink = sessionOptions.get(sessionId)?.ultrathinkEnabled ?? false
 
       // Step 4: Create user message with StoredAttachments (for UI display)
+      // Mark as isPending for optimistic UI - will be confirmed by user_message event
       const userMessage: Message = {
         id: generateMessageId(),
         role: 'user',
@@ -700,6 +701,7 @@ export default function App() {
         timestamp: Date.now(),
         attachments: storedAttachments,
         ultrathink: isUltrathink || undefined,  // Only set if true
+        isPending: true,  // Optimistic - will be confirmed by backend
       }
 
       setSessions(prev => prev.map(s =>

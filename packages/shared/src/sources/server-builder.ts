@@ -21,12 +21,11 @@ import { debug } from '../utils/debug.ts';
 
 /**
  * MCP server configuration compatible with Claude Agent SDK
+ * Supports HTTP/SSE (remote) and stdio (local subprocess) transports.
  */
-export interface McpServerConfig {
-  type: 'http' | 'sse';
-  url: string;
-  headers?: Record<string, string>;
-}
+export type McpServerConfig =
+  | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> }
+  | { type: 'stdio'; command: string; args?: string[]; env?: Record<string, string> };
 
 /**
  * Source with its credential pre-loaded
@@ -72,7 +71,7 @@ export class SourceServerBuilder {
    * Build MCP server config from a source
    *
    * @param source - The source configuration
-   * @param token - Authentication token (null for public sources)
+   * @param token - Authentication token (null for public/stdio sources)
    */
   buildMcpServer(source: LoadedSource, token: string | null): McpServerConfig | null {
     if (source.config.type !== 'mcp' || !source.config.mcp) {
@@ -80,6 +79,27 @@ export class SourceServerBuilder {
     }
 
     const mcp = source.config.mcp;
+
+    // Handle stdio transport (local subprocess servers)
+    if (mcp.transport === 'stdio') {
+      if (!mcp.command) {
+        debug(`[SourceServerBuilder] Stdio source ${source.config.slug} missing command`);
+        return null;
+      }
+      return {
+        type: 'stdio',
+        command: mcp.command,
+        args: mcp.args,
+        env: mcp.env,
+      };
+    }
+
+    // Handle HTTP/SSE transport (remote servers)
+    if (!mcp.url) {
+      debug(`[SourceServerBuilder] HTTP/SSE source ${source.config.slug} missing URL`);
+      return null;
+    }
+
     const url = normalizeMcpUrl(mcp.url);
 
     const config: McpServerConfig = {
@@ -87,10 +107,10 @@ export class SourceServerBuilder {
       url,
     };
 
-    // Handle authentication
+    // Handle authentication for HTTP/SSE
     if (mcp.authType !== 'none') {
       if (token) {
-        config.headers = { Authorization: `Bearer ${token}` };
+        (config as { headers?: Record<string, string> }).headers = { Authorization: `Bearer ${token}` };
       } else if (source.config.isAuthenticated) {
         // Expected token but not provided - needs re-auth
         debug(`[SourceServerBuilder] Source ${source.config.slug} needs re-authentication`);
@@ -220,7 +240,9 @@ export class SourceServerBuilder {
           if (config) {
             debug(`[SourceServerBuilder] Built MCP server for ${source.config.slug}`);
             mcpServers[source.config.slug] = config;
-          } else if (source.config.mcp?.authType !== 'none') {
+          } else if (source.config.mcp?.transport !== 'stdio' && source.config.mcp?.authType !== 'none') {
+            // Only report auth error for HTTP/SSE sources that need auth
+            // Stdio sources don't need auth
             debug(`[SourceServerBuilder] MCP server ${source.config.slug} needs auth`);
             errors.push({
               sourceSlug: source.config.slug,

@@ -1,4 +1,5 @@
 import { BrowserWindow, shell, nativeTheme } from 'electron'
+import { windowLog } from './logger'
 import { join } from 'path'
 import { IPC_CHANNELS, type MultiFileDiffData } from '../shared/types'
 
@@ -101,10 +102,10 @@ export class MultiFileDiffWindowManager {
     window.on('closed', () => {
       nativeTheme.removeListener('updated', themeHandler)
       this.windows.delete(key)
-      console.log(`[MultiFileDiffWindowManager] Multi-file diff window closed for ${key}`)
+      windowLog.info(`[MultiFileDiffWindowManager] Multi-file diff window closed for ${key}`)
     })
 
-    console.log(`[MultiFileDiffWindowManager] Created multi-file diff window for ${key} with ${data.changes.length} changes`)
+    windowLog.info(`[MultiFileDiffWindowManager] Created multi-file diff window for ${key} with ${data.changes.length} changes`)
     return window
   }
 

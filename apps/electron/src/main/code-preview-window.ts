@@ -1,4 +1,5 @@
 import { BrowserWindow, shell, nativeTheme } from 'electron'
+import { windowLog } from './logger'
 import { join } from 'path'
 import { IPC_CHANNELS, type CodePreviewData } from '../shared/types'
 
@@ -101,10 +102,10 @@ export class CodePreviewWindowManager {
     window.on('closed', () => {
       nativeTheme.removeListener('updated', themeHandler)
       this.windows.delete(key)
-      console.log(`[CodePreviewWindowManager] Code preview window closed for ${key}`)
+      windowLog.info(`[CodePreviewWindowManager] Code preview window closed for ${key}`)
     })
 
-    console.log(`[CodePreviewWindowManager] Created code preview window for ${key}`)
+    windowLog.info(`[CodePreviewWindowManager] Created code preview window for ${key}`)
     return window
   }
 

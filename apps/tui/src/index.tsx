@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+
+// Mark as TUI environment before any imports (for debug utility routing)
+process.env.CRAFT_TUI = '1';
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { render } from 'ink';
 import { createHash } from 'crypto';

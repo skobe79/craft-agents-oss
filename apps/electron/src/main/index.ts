@@ -14,6 +14,10 @@ import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces } from '@craft-agent/shared/config'
 import { initializeDocs } from '@craft-agent/shared/docs'
 import { handleDeepLink } from './deep-link'
+import log, { isDebugMode, mainLog, getLogFilePath } from './logger'
+
+// Initialize electron-log for renderer process support
+log.initialize()
 
 // Custom URL scheme for deeplinks (e.g., craftagents://auth-complete)
 const DEEPLINK_SCHEME = 'craftagents'
@@ -44,11 +48,11 @@ if (process.defaultApp) {
 // Handle deeplink on macOS (when app is already running)
 app.on('open-url', (event, url) => {
   event.preventDefault()
-  console.log('[Main] Received deeplink:', url)
+  mainLog.info('Received deeplink:', url)
 
   if (windowManager) {
     handleDeepLink(url, windowManager).catch(err => {
-      console.error('[Main] Failed to handle deep link:', err)
+      mainLog.error('Failed to handle deep link:', err)
     })
   } else {
     // App not ready - store for later
@@ -66,9 +70,9 @@ if (!gotTheLock) {
     // On Windows/Linux, the deeplink is in commandLine
     const url = commandLine.find(arg => arg.startsWith(`${DEEPLINK_SCHEME}://`))
     if (url && windowManager) {
-      console.log('[Main] Received deeplink from second instance:', url)
+      mainLog.info('Received deeplink from second instance:', url)
       handleDeepLink(url, windowManager).catch(err => {
-        console.error('[Main] Failed to handle deep link:', err)
+        mainLog.error('Failed to handle deep link:', err)
       })
     } else if (windowManager) {
       // No deep link - just focus the first window
@@ -107,14 +111,14 @@ async function createInitialWindows(): Promise<void> {
       for (const wsId of validWorkspaceIds) {
         windowManager.createWindow(wsId)
       }
-      console.log(`[Main] Restored ${validWorkspaceIds.length} window(s) from saved state`)
+      mainLog.info(`Restored ${validWorkspaceIds.length} window(s) from saved state`)
       return
     }
   }
 
   // Default: open window for first workspace
   windowManager.createWindow(workspaces[0].id)
-  console.log(`[Main] Created window for first workspace: ${workspaces[0].name}`)
+  mainLog.info(`Created window for first workspace: ${workspaces[0].name}`)
 }
 
 app.whenReady().then(async () => {
@@ -169,14 +173,17 @@ app.whenReady().then(async () => {
 
     // Process pending deep link from cold start
     if (pendingDeepLink) {
-      console.log('[Main] Processing pending deep link:', pendingDeepLink)
+      mainLog.info('Processing pending deep link:', pendingDeepLink)
       await handleDeepLink(pendingDeepLink, windowManager)
       pendingDeepLink = null
     }
 
-    console.log('[Main] App initialized successfully')
+    mainLog.info('App initialized successfully')
+    if (isDebugMode) {
+      mainLog.info('Debug mode enabled - logs at:', getLogFilePath())
+    }
   } catch (error) {
-    console.error('[Main] Failed to initialize app:', error)
+    mainLog.error('Failed to initialize app:', error)
     // Continue anyway - the app will show errors in the UI
   }
 
@@ -228,7 +235,7 @@ app.on('before-quit', async (event) => {
       openWorkspaceIds,
       lastFocusedWorkspaceId,
     })
-    console.log('[Main] Saved window state:', openWorkspaceIds.length, 'workspaces')
+    mainLog.info('Saved window state:', openWorkspaceIds.length, 'workspaces')
   }
 
   // Flush all pending session writes before quitting
@@ -237,9 +244,9 @@ app.on('before-quit', async (event) => {
     event.preventDefault()
     try {
       await sessionManager.flushAllSessions()
-      console.log('[Main] Flushed all pending session writes')
+      mainLog.info('Flushed all pending session writes')
     } catch (error) {
-      console.error('[Main] Failed to flush sessions:', error)
+      mainLog.error('Failed to flush sessions:', error)
     }
     // Clean up SessionManager resources (file watchers, timers, etc.)
     sessionManager.cleanup()
@@ -250,9 +257,9 @@ app.on('before-quit', async (event) => {
 
 // Handle uncaught exceptions to prevent crashes
 process.on('uncaughtException', (error) => {
-  console.error('[Main] Uncaught exception:', error)
+  mainLog.error('Uncaught exception:', error)
 })
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[Main] Unhandled rejection at:', promise, 'reason:', reason)
+  mainLog.error('Unhandled rejection at:', promise, 'reason:', reason)
 })

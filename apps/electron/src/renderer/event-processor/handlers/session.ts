@@ -22,6 +22,7 @@ import type {
   WorkingDirectoryChangedEvent,
   PermissionModeChangedEvent,
   AskQuestionRequestEvent,
+  UserMessageEvent,
 } from '../types'
 import type { Message } from '../../../shared/types'
 import { generateMessageId, appendMessage } from '../helpers'
@@ -335,6 +336,68 @@ export function handleAskQuestionRequest(
       sessionId: event.sessionId,
       request: event.request,
     }],
+  }
+}
+
+/**
+ * Handle user_message - confirms optimistic user message from backend
+ *
+ * Three statuses:
+ * - 'accepted': Message is being processed (confirms optimistic message)
+ * - 'queued': Message was queued during ongoing response (adds if not present, marks as queued)
+ * - 'processing': Queued message is now being processed (updates status)
+ */
+export function handleUserMessage(
+  state: SessionState,
+  event: UserMessageEvent
+): ProcessResult {
+  const { session, streaming } = state
+  const { message, status } = event
+
+  // Find existing message by content + timestamp match (for optimistic updates)
+  // or by ID (for queued messages where backend created the ID)
+  const existingIndex = session.messages.findIndex(m =>
+    m.role === 'user' && (
+      m.id === message.id ||
+      (m.content === message.content && Math.abs(m.timestamp - message.timestamp) < 5000)
+    )
+  )
+
+  let updatedMessages: Message[]
+
+  if (existingIndex >= 0) {
+    // Update existing message - remove isPending, add isQueued if status is 'queued'
+    updatedMessages = session.messages.map((m, i) => {
+      if (i === existingIndex) {
+        return {
+          ...m,
+          id: message.id,  // Use backend's ID as canonical
+          isPending: false,
+          isQueued: status === 'queued',
+        }
+      }
+      return m
+    })
+  } else {
+    // Message not found (e.g., queued message from backend) - add it
+    const newMessage: Message = {
+      ...message,
+      isPending: false,
+      isQueued: status === 'queued',
+    }
+    updatedMessages = [...session.messages, newMessage]
+  }
+
+  return {
+    state: {
+      session: {
+        ...session,
+        messages: updatedMessages,
+        lastMessageAt: Date.now(),
+      },
+      streaming,
+    },
+    effects: [],
   }
 }
 

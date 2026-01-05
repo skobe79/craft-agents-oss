@@ -298,17 +298,96 @@ Tools available within agent sessions with per-session callbacks:
 | `utils/` | debug, files, summarize, icon, title-generator |
 | `workspaces/` | storage |
 
-## Debugging
+## Logging & Debugging
+
+### Overview
+
+Craft Agent uses a unified `debug()` utility that auto-routes based on environment:
+
+| Environment | Console | File | Detection |
+|-------------|---------|------|-----------|
+| Electron Main | ✓ | ✓ | `process.type === 'browser'` |
+| Electron Renderer | ✓ | - | `process.type === 'renderer'` |
+| TUI (Ink) | - | ✓ | `CRAFT_TUI=1` env var |
+| CLI/Scripts | ✓ | - | Default |
+
+### Enabling Debug Mode
 
 ```bash
-# Terminal 1: Run with debug logging
+# TUI: Pass --debug flag
 bun start --debug
 
-# Terminal 2: Watch logs
-tail -f /tmp/craft-debug.log
+# Electron: Automatic in development (!app.isPackaged)
+bun run electron:start
 ```
 
-Use `debug()` from `@craft-agent/shared/utils`. Never truncate log output.
+### Using the Debug Utility
+
+```typescript
+import { debug, createLogger, enableDebug } from '@craft-agent/shared/utils'
+
+// Enable debug mode (TUI does this when --debug flag passed)
+enableDebug()
+
+// Simple logging
+debug('Processing request')
+debug('User data', { id: 123 })
+
+// Scoped logger with levels
+const log = createLogger('agent')
+log.debug('Starting session')
+log.info('Connected to MCP')
+log.warn('Retrying connection')
+log.error('Failed to connect', error)
+```
+
+### Log Locations
+
+| Environment | Location |
+|-------------|----------|
+| TUI | `/tmp/craft-debug.log` |
+| Electron Main | `~/Library/Logs/Craft Agents/main.log` |
+| Electron Renderer | Browser DevTools console |
+| CLI | Terminal (stderr) |
+
+### Log Format
+
+```
+2026-01-05T06:30:00.000Z [agent] INFO  Connected to MCP {"serverId":"abc"}
+```
+
+### Querying Logs
+
+```bash
+# Watch TUI logs live
+tail -f /tmp/craft-debug.log
+
+# Watch Electron logs
+tail -f ~/Library/Logs/Craft\ Agents/main.log
+
+# Search by scope
+grep '\[agent\]' /tmp/craft-debug.log
+
+# Search by level
+grep 'ERROR' /tmp/craft-debug.log
+```
+
+### Electron Scoped Loggers
+
+Electron main process also has `electron-log` based loggers with JSON file output:
+
+```typescript
+import { mainLog, sessionLog, ipcLog, windowLog, agentLog } from './logger'
+
+sessionLog.info('Session started', { sessionId: 'abc123' })
+```
+
+### Best Practices
+
+1. **Use `debug()` in shared code** - Auto-routes based on environment
+2. **Use scoped loggers** - `createLogger('module')` for organized output
+3. **Include context** - Pass objects as additional arguments
+4. **Never truncate** - Log full objects, files rotate automatically
 
 ## Development Secrets (1Password)
 

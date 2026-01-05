@@ -193,6 +193,10 @@ function extractTodosFromActivities(activities: ActivityItem[]): TodoItem[] | un
  * means final response.
  */
 export function groupMessagesByTurn(messages: Message[]): Turn[] {
+  // Sort by timestamp for correct chronological order
+  // This ensures correct turn grouping even if messages are added out of order during streaming
+  const sortedMessages = [...messages].sort((a, b) => a.timestamp - b.timestamp)
+
   const turns: Turn[] = []
   let currentTurn: AssistantTurn | null = null
 
@@ -231,7 +235,7 @@ export function groupMessagesByTurn(messages: Message[]): Turn[] {
     }
   }
 
-  for (const message of messages) {
+  for (const message of sortedMessages) {
     // User messages are their own turn
     if (message.role === 'user') {
       flushCurrentTurn()

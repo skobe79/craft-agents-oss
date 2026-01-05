@@ -4,6 +4,7 @@
  */
 
 import { getWorkspaceByNameOrId, loadStoredConfig, type Workspace } from '@craft-agent/shared/config'
+import { agentLog } from './logger'
 import { DEFAULT_MODEL } from '@craft-agent/shared/config'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { CraftMcpClient } from '@craft-agent/shared/mcp'
@@ -57,7 +58,7 @@ export class AgentService {
         createdAt: agent.config.createdAt,
       }))
     } catch (error) {
-      console.error('[AgentService] Error discovering agents:', error)
+      agentLog.error('Error discovering agents:', error)
       return []
     }
   }
@@ -72,7 +73,7 @@ export class AgentService {
       agentManager.reload()
       return this.getAgents(workspaceId)
     } catch (error) {
-      console.error('[AgentService] Error refreshing agents:', error)
+      agentLog.error('Error refreshing agents:', error)
       return []
     }
   }
@@ -114,7 +115,7 @@ export class AgentService {
       }
       return null
     } catch (error) {
-      console.error('[AgentService] Error ensuring builtin agent:', error)
+      agentLog.error('Error ensuring builtin agent:', error)
       return null
     }
   }
@@ -154,7 +155,7 @@ export class AgentService {
 
       return { needsAuth: false }
     } catch (error) {
-      console.error('[AgentService] Error checking auth status:', error)
+      agentLog.error('Error checking auth status:', error)
       return { needsAuth: false }
     }
   }
@@ -195,7 +196,7 @@ export class AgentService {
       // Folder agent is ready - no setup needed
       return { needsSetup: false, needsAuth: false }
     } catch (error) {
-      console.error('[AgentService] Error getting setup status:', error)
+      agentLog.error('Error getting setup status:', error)
       return { needsSetup: false, needsAuth: false }
     }
   }
@@ -230,7 +231,7 @@ export class AgentService {
 
       return { mcpServers, apis }
     } catch (error) {
-      console.error('[AgentService] Error getting auth status:', error)
+      agentLog.error('Error getting auth status:', error)
       return { mcpServers: [], apis: [] }
     }
   }
@@ -245,7 +246,7 @@ export class AgentService {
       const agentManager = this.getAgentManager(workspaceRootPath)
       return agentManager.getAgentDefinition(agentSlug)
     } catch (error) {
-      console.error('[AgentService] Error getting agent definition:', error)
+      agentLog.error('Error getting agent definition:', error)
       return null
     }
   }
@@ -262,7 +263,7 @@ export class AgentService {
       const definition = agentManager.getAgentDefinition(agentSlug)
       return definition !== null
     } catch (error) {
-      console.error('[AgentService] Error reloading agent:', error)
+      agentLog.error('Error reloading agent:', error)
       return false
     }
   }
@@ -289,7 +290,7 @@ export class AgentService {
         apis: apis.map((a: ApiConfig) => ({ name: a.name, auth: a.auth }))
       }
     } catch (error) {
-      console.error('[AgentService] Error getting auth requirements:', error)
+      agentLog.error('Error getting auth requirements:', error)
       return { mcpServers: [], apis: [] }
     }
   }
@@ -303,18 +304,18 @@ export class AgentService {
       const oauth = new CraftOAuth(
         { mcpBaseUrl },
         {
-          onStatus: (msg) => console.log('[AgentService] OAuth:', msg),
-          onError: (err) => console.error('[AgentService] OAuth error:', err),
+          onStatus: (msg) => agentLog.info('OAuth:', msg),
+          onError: (err) => agentLog.error('OAuth error:', err),
         }
       )
 
       const { tokens, clientId } = await oauth.authenticate()
 
       // TODO: Save credentials to source-based credential store
-      console.log(`[AgentService] OAuth successful for ${serverName}`)
+      agentLog.info(`OAuth successful for ${serverName}`)
       return { success: true }
     } catch (error) {
-      console.error('[AgentService] OAuth failed:', error)
+      agentLog.error('OAuth failed:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'OAuth failed'
@@ -327,7 +328,7 @@ export class AgentService {
    */
   async saveMcpBearer(_workspaceId: string, _agentId: string, serverName: string, token: string): Promise<void> {
     // TODO: Save to source-based credential store
-    console.log(`[AgentService] Saved bearer token for ${serverName}`)
+    agentLog.info(`Saved bearer token for ${serverName}`)
   }
 
   /**
@@ -335,7 +336,7 @@ export class AgentService {
    */
   async saveApiCredentials(_workspaceId: string, _agentId: string, apiName: string, credential: string): Promise<void> {
     // TODO: Save to source-based credential store
-    console.log(`[AgentService] Saved credentials for API ${apiName}`)
+    agentLog.info(`Saved credentials for API ${apiName}`)
   }
 
   /**
@@ -359,7 +360,7 @@ export class AgentService {
         tools: result.tools,
       }
     } catch (error) {
-      console.error('[AgentService] Validation error:', error)
+      agentLog.error('Validation error:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Validation failed'

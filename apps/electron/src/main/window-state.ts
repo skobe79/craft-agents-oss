@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { mainLog } from './logger'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -21,9 +22,9 @@ export function saveWindowState(state: WindowState): void {
     }
 
     writeFileSync(WINDOW_STATE_FILE, JSON.stringify(state, null, 2), 'utf-8')
-    console.log('[WindowState] Saved window state:', state.openWorkspaceIds.length, 'workspaces')
+    mainLog.info('[WindowState] Saved window state:', state.openWorkspaceIds.length, 'workspaces')
   } catch (error) {
-    console.error('[WindowState] Failed to save window state:', error)
+    mainLog.error('[WindowState] Failed to save window state:', error)
   }
 }
 
@@ -41,14 +42,14 @@ export function loadWindowState(): WindowState | null {
 
     // Validate structure
     if (!Array.isArray(state.openWorkspaceIds)) {
-      console.warn('[WindowState] Invalid window state file, ignoring')
+      mainLog.warn('[WindowState] Invalid window state file, ignoring')
       return null
     }
 
-    console.log('[WindowState] Loaded window state:', state.openWorkspaceIds.length, 'workspaces')
+    mainLog.info('[WindowState] Loaded window state:', state.openWorkspaceIds.length, 'workspaces')
     return state
   } catch (error) {
-    console.error('[WindowState] Failed to load window state:', error)
+    mainLog.error('[WindowState] Failed to load window state:', error)
     return null
   }
 }
@@ -60,9 +61,9 @@ export function clearWindowState(): void {
   try {
     if (existsSync(WINDOW_STATE_FILE)) {
       writeFileSync(WINDOW_STATE_FILE, JSON.stringify({ openWorkspaceIds: [] }, null, 2), 'utf-8')
-      console.log('[WindowState] Cleared window state')
+      mainLog.info('[WindowState] Cleared window state')
     }
   } catch (error) {
-    console.error('[WindowState] Failed to clear window state:', error)
+    mainLog.error('[WindowState] Failed to clear window state:', error)
   }
 }

@@ -1,4 +1,5 @@
 import { BrowserWindow, shell, nativeTheme, Menu, app } from 'electron'
+import { windowLog } from './logger'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { IPC_CHANNELS } from '../shared/types'
@@ -37,7 +38,7 @@ export class WindowManager {
     const iconExists = existsSync(iconPath)
 
     if (!iconExists) {
-      console.warn('[WindowManager] App icon not found at:', iconPath)
+      windowLog.warn('App icon not found at:', iconPath)
     }
 
     const window = new BrowserWindow({
@@ -125,10 +126,10 @@ export class WindowManager {
     window.on('closed', () => {
       nativeTheme.removeListener('updated', themeHandler)
       this.windows.delete(webContentsId)
-      console.log(`[WindowManager] Window closed for workspace ${workspaceId}`)
+      windowLog.info(`Window closed for workspace ${workspaceId}`)
     })
 
-    console.log(`[WindowManager] Created window for workspace ${workspaceId}`)
+    windowLog.info(`Created window for workspace ${workspaceId}`)
     return window
   }
 
@@ -190,7 +191,7 @@ export class WindowManager {
     if (managed) {
       const oldWorkspaceId = managed.workspaceId
       managed.workspaceId = workspaceId
-      console.log(`[WindowManager] Updated window ${webContentsId} from workspace ${oldWorkspaceId} to ${workspaceId}`)
+      windowLog.info(`Updated window ${webContentsId} from workspace ${oldWorkspaceId} to ${workspaceId}`)
     }
   }
 

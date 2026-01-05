@@ -1,4 +1,5 @@
 import { BrowserWindow, shell, nativeTheme } from 'electron'
+import { windowLog } from './logger'
 import { join } from 'path'
 import { IPC_CHANNELS, type DiffPreviewData } from '../shared/types'
 
@@ -100,10 +101,10 @@ export class DiffPreviewWindowManager {
     window.on('closed', () => {
       nativeTheme.removeListener('updated', themeHandler)
       this.windows.delete(key)
-      console.log(`[DiffPreviewWindowManager] Diff preview window closed for ${key}`)
+      windowLog.info(`[DiffPreviewWindowManager] Diff preview window closed for ${key}`)
     })
 
-    console.log(`[DiffPreviewWindowManager] Created diff preview window for ${key}`)
+    windowLog.info(`[DiffPreviewWindowManager] Created diff preview window for ${key}`)
     return window
   }
 

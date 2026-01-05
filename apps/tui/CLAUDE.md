@@ -146,17 +146,75 @@ bun run apps/tui/src/index.tsx   # Run directly
 --print, -p      # Non-interactive print mode
 ```
 
-## Debugging
+## Logging & Debugging
+
+### Overview
+
+The TUI uses the `debug()` utility from `@craft-agent/shared`. The utility auto-detects the TUI environment (via `CRAFT_TUI=1` env var set at startup) and routes logs to **file only** to avoid interfering with Ink's terminal rendering.
+
+### Running with Logs
 
 ```bash
-# Terminal 1: Run with debug logging
+# Run with debug logging enabled
 bun start --debug
 
-# Terminal 2: Watch logs
+# Logs appear in:
+# File: /tmp/craft-debug.log (file only - no console output in TUI)
+
+# Watch logs in a separate terminal
 tail -f /tmp/craft-debug.log
 ```
 
-Use `debug()` from `@craft-agent/shared/utils` to add log entries.
+### Using the Debug Utility
+
+```typescript
+import { debug, createLogger, isDebugEnabled } from '@craft-agent/shared/utils'
+
+// Simple debug
+debug('Processing request', { id: 123 })
+
+// Scoped logger with levels
+const log = createLogger('session')
+log.debug('Starting session')
+log.info('Connected to MCP')
+log.warn('Retrying connection')
+log.error('Failed to connect', error)
+
+// Check if debug mode is active
+if (isDebugEnabled()) {
+  // Additional debug logic
+}
+```
+
+### Log Format
+
+```
+2026-01-05T06:30:00.000Z [session] INFO  Connected to MCP {"serverId":"abc"}
+```
+
+### Watching Logs
+
+```bash
+# Watch log file in separate terminal
+tail -f /tmp/craft-debug.log
+
+# Search for specific entries
+grep '\[session\]' /tmp/craft-debug.log
+
+# Search by level
+grep 'ERROR' /tmp/craft-debug.log
+```
+
+### Environment Detection
+
+The TUI sets `CRAFT_TUI=1` at startup (before imports) so the debug utility knows to route to file only. This avoids stdout/stderr interference with Ink's terminal rendering.
+
+### Production
+
+When `--debug` is not passed:
+- `debug()` calls are no-ops (immediate return)
+- No performance impact from logging code
+- No files written
 
 ## Dependencies
 

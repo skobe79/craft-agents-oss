@@ -30,6 +30,7 @@ import {
   handleWorkingDirectoryChanged,
   handlePermissionModeChanged,
   handleAskQuestionRequest,
+  handleUserMessage,
 } from './handlers/session'
 
 /**
@@ -128,6 +129,9 @@ export function processEvent(
 
     case 'plan_submitted':
       return handlePlanSubmitted(state, event)
+
+    case 'user_message':
+      return handleUserMessage(state, event)
 
     default: {
       // Unknown event type - return state unchanged but as new reference

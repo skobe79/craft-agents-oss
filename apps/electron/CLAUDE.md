@@ -838,11 +838,106 @@ const exponentialSpring = {
 
 **Note:** The sidebar uses `width` animation (not `transform`) for proper layout flow, but the content inside is fixed-width so it doesn't reflow during animation.
 
-## Debugging
+## Logging & Debugging
 
-- Console logs print to the terminal running `electron:start`
-- DevTools opens automatically in development mode (`!app.isPackaged`)
-- Key log prefixes: `[Main]`, `[SessionManager]`, `[IPC]`
+### Overview
+
+The Electron app has two logging systems:
+1. **`electron-log`** - Main process scoped loggers (JSON file + console)
+2. **`debug()` utility** - Shared code (auto-routes to console + file in Electron)
+
+**Debug mode:** Automatically enabled when running from source (`!app.isPackaged`)
+
+### Running with Logs
+
+```bash
+# Start Electron in development (debug mode automatic)
+bun run electron:start
+
+# Logs appear in:
+# 1. Terminal console - immediate visibility
+# 2. File: ~/Library/Logs/Craft Agents/main.log - JSON Lines format
+# 3. File: /tmp/craft-debug.log - shared code debug logs
+```
+
+### Main Process Loggers (electron-log)
+
+Import from `src/main/logger.ts`:
+
+```typescript
+import { mainLog, sessionLog, ipcLog, windowLog, agentLog, isDebugMode } from './logger'
+
+mainLog.info('App started')
+sessionLog.info('Session created', { sessionId: 'abc123' })
+ipcLog.debug('Message received', { channel: 'chat' })
+windowLog.warn('Window not found', { windowId: 123 })
+agentLog.error('Agent failed', { error: err.message })
+```
+
+### Shared Code Logger (debug utility)
+
+For code in `@craft-agent/shared` that runs in Electron:
+
+```typescript
+import { debug, createLogger } from '@craft-agent/shared/utils'
+
+// Simple debug
+debug('Processing request', { id: 123 })
+
+// Scoped logger
+const log = createLogger('mcp')
+log.info('Connected to server')
+log.error('Connection failed', error)
+```
+
+The utility auto-detects Electron and outputs to both console and `/tmp/craft-debug.log`.
+
+### Log Scopes Reference
+
+| Scope | Logger | Use For |
+|-------|--------|---------|
+| `main` | `mainLog` | App lifecycle, global events, menu actions |
+| `session` | `sessionLog` | Session CRUD, state changes, persistence |
+| `ipc` | `ipcLog` | Renderer ↔ Main communication |
+| `window` | `windowLog` | Window creation, focus, state, positioning |
+| `agent` | `agentLog` | Claude SDK, tool calls, streaming, events |
+
+### Log Formats
+
+**Console output (readable):**
+```
+2026-01-05T06:30:00.000Z INFO  [session] Session created {"sessionId":"abc123"}
+```
+
+**File output (JSON Lines):**
+```json
+{"timestamp":"2026-01-05T06:30:00.000Z","level":"info","scope":"session","message":["Session created",{"sessionId":"abc123"}]}
+```
+
+### Querying Log Files
+
+```bash
+# Watch electron-log output
+tail -f ~/Library/Logs/Craft\ Agents/main.log
+
+# Watch shared debug output
+tail -f /tmp/craft-debug.log
+
+# Search by scope (electron-log)
+grep '"scope":"session"' ~/Library/Logs/Craft\ Agents/main.log
+
+# Parse with jq
+cat ~/Library/Logs/Craft\ Agents/main.log | jq 'select(.level == "error")'
+```
+
+### Configuration
+
+- **electron-log:** `src/main/logger.ts` - 5MB rotation, disabled in production
+- **debug utility:** `@craft-agent/shared/utils` - auto-routes by environment
+
+### DevTools
+
+Opens automatically in development for renderer debugging (React DevTools, network inspection).
 
 ## Markdown Rendering
 

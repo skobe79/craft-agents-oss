@@ -256,6 +256,17 @@ export interface TaskProgressEvent {
   turnId?: string
 }
 
+/**
+ * User message event - backend confirmation of optimistic user message
+ * Used for optimistic UI: frontend shows message immediately,
+ * backend confirms/updates status via this event
+ */
+export interface UserMessageEvent {
+  type: 'user_message'
+  sessionId: string
+  message: Message
+  status: 'accepted' | 'queued' | 'processing'
+}
 
 /**
  * Union of all agent events
@@ -283,6 +294,7 @@ export type AgentEvent =
   | TaskBackgroundedEvent
   | ShellBackgroundedEvent
   | TaskProgressEvent
+  | UserMessageEvent
 
 /**
  * Side effects that need to be handled outside the pure processor

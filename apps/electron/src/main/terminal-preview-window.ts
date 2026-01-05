@@ -1,4 +1,5 @@
 import { BrowserWindow, shell, nativeTheme } from 'electron'
+import { windowLog } from './logger'
 import { join } from 'path'
 import { IPC_CHANNELS, type TerminalPreviewData } from '../shared/types'
 
@@ -105,10 +106,10 @@ export class TerminalPreviewWindowManager {
     window.on('closed', () => {
       nativeTheme.removeListener('updated', themeHandler)
       this.windows.delete(key)
-      console.log(`[TerminalPreviewWindowManager] Terminal preview window closed for ${key}`)
+      windowLog.info(`[TerminalPreviewWindowManager] Terminal preview window closed for ${key}`)
     })
 
-    console.log(`[TerminalPreviewWindowManager] Created terminal preview window for ${key}`)
+    windowLog.info(`[TerminalPreviewWindowManager] Created terminal preview window for ${key}`)
     return window
   }
 

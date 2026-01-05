@@ -582,3 +582,40 @@ html[data-font="system"] {
     transform: scale(1);
   }
 }
+
+/* =============================================================================
+   SHIMMER ANIMATION FOR OPTIMISTIC UI
+
+   Subtle shimmer effect for messages awaiting backend confirmation.
+   Uses a gradient sweep to indicate pending state without being distracting.
+============================================================================= */
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.animate-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(from var(--foreground) l c h / 0.06) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+}

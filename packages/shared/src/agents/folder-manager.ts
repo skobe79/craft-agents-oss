@@ -182,21 +182,35 @@ export class FolderAgentManager {
    */
   private sourceToMcpConfig(source: LoadedSource): McpServerConfig {
     const mcp = source.config.mcp!;
-    // Resolve icon: explicit iconUrl → derive from MCP URL → undefined
+    // Resolve icon: explicit iconUrl → derive from MCP URL (for http/sse) → undefined
     const logo = resolveSourceIconUrl(source.config.iconUrl, source.folderPath)
-      ?? getLogoUrl(mcp.url)
+      ?? (mcp.url ? getLogoUrl(mcp.url) : undefined)
       ?? undefined;
-    return {
+
+    // Base config with common fields
+    const config: McpServerConfig = {
       name: source.config.slug,
-      url: mcp.url,
-      requiresAuth: mcp.authType !== 'none',
-      bearerToken: undefined, // Looked up from CredentialManager at runtime
+      transport: mcp.transport,
       description: source.guide?.scope,
       logo,
       // Pass through for credential lookup
       agentSlug: source.agentSlug,
       workspaceId: source.workspaceId,
     };
+
+    // Add transport-specific fields
+    if (mcp.transport === 'stdio') {
+      config.command = mcp.command;
+      config.args = mcp.args;
+      config.env = mcp.env;
+    } else {
+      // HTTP/SSE transport
+      config.url = mcp.url;
+      config.requiresAuth = mcp.authType !== 'none';
+      config.bearerToken = undefined; // Looked up from CredentialManager at runtime
+    }
+
+    return config;
   }
 
   /**

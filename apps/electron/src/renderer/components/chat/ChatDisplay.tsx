@@ -932,9 +932,11 @@ function MessageBubble({
   // === USER MESSAGE: Right-aligned blue bubble with attachments above ===
   if (message.role === 'user') {
     const hasAttachments = message.attachments && message.attachments.length > 0
+    const isPending = message.isPending
+    const isQueued = message.isQueued
 
     return (
-      <div className="flex flex-col items-end gap-3">
+      <div className="flex flex-col items-end gap-3 w-full">
         {/* Attachment preview row - stored attachments with thumbnails */}
         {hasAttachments && (
           <div className="flex gap-2 justify-end max-w-[80%] flex-wrap">
@@ -994,7 +996,11 @@ function MessageBubble({
           </div>
         )}
         {/* Text content bubble */}
-        <div className="max-w-[80%] bg-foreground/5 rounded-[16px] px-4 py-1 break-words min-w-0 select-text">
+        <div
+          className={`max-w-[80%] bg-foreground/5 rounded-[16px] px-4 py-1 break-words min-w-0 select-text ${
+            isPending ? 'animate-shimmer' : ''
+          }`}
+        >
           <Markdown
             mode="minimal"
             onUrlClick={onOpenUrl}
@@ -1004,6 +1010,12 @@ function MessageBubble({
             {message.content}
           </Markdown>
         </div>
+        {/* Queued badge */}
+        {isQueued && (
+          <span className="text-[10px] text-muted-foreground bg-foreground/5 px-2 py-0.5 rounded-full">
+            queued
+          </span>
+        )}
       </div>
     )
   }

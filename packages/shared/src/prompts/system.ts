@@ -82,6 +82,12 @@ export function getDateTimeContext(): string {
   return `**USER'S DATE AND TIME: ${formatted}** - ALWAYS use this as the authoritative current date/time. Ignore any other date information.`;
 }
 
+/** Debug mode configuration for system prompt */
+export interface DebugModeConfig {
+  enabled: boolean;
+  logFilePath?: string;
+}
+
 /**
  * Get the full system prompt with current date/time and user preferences
  * Optionally includes active sub-agent context and temporary clarifications.
@@ -92,11 +98,13 @@ export function getDateTimeContext(): string {
 export function getSystemPrompt(
   activeAgent?: SubAgentDefinition,
   temporaryClarifications?: string,
-  pinnedPreferencesPrompt?: string
+  pinnedPreferencesPrompt?: string,
+  debugMode?: DebugModeConfig
 ): string {
   // Use pinned preferences if provided (for session consistency after compaction)
   const preferences = pinnedPreferencesPrompt ?? formatPreferencesForPrompt();
   const agentContext = activeAgent ? formatAgentContext(activeAgent, temporaryClarifications) : '';
+  const debugContext = debugMode?.enabled ? formatDebugModeContext(debugMode.logFilePath) : '';
 
   debug('[getSystemPrompt] activeAgent:', activeAgent?.name || 'none');
   debug('[getSystemPrompt] instructions length:', activeAgent?.instructions?.length || 0);
@@ -107,12 +115,59 @@ export function getSystemPrompt(
   // Note: Date/time context is now added to user messages instead of system prompt
   // to enable prompt caching. The system prompt stays static and cacheable.
   // Safe Mode context is also in user messages for the same reason.
-  const fullPrompt = `${preferences}${CRAFT_ASSISTANT_SYSTEM_PROMPT}${agentContext}`;
+  const fullPrompt = `${preferences}${CRAFT_ASSISTANT_SYSTEM_PROMPT}${agentContext}${debugContext}`;
 
   debug('[getSystemPrompt] full prompt length:', fullPrompt.length);
   debug('[getSystemPrompt] agentContext length:', agentContext.length);
 
   return fullPrompt;
+}
+
+/**
+ * Format debug mode context for the system prompt.
+ * Only included when running in development mode.
+ */
+function formatDebugModeContext(logFilePath?: string): string {
+  if (!logFilePath) {
+    return '';
+  }
+
+  return `
+
+## Debug Mode
+
+You are running in **debug mode** (development build). Application logs are available for analysis.
+
+### Log Access
+
+- **Log file:** \`${logFilePath}\`
+- **Format:** JSON Lines (one JSON object per line)
+
+Each log entry has this structure:
+\`\`\`json
+{"timestamp":"2025-01-04T10:30:00.000Z","level":"info","scope":"session","message":["Log message here"]}
+\`\`\`
+
+### Querying Logs
+
+Use the Grep tool to search logs efficiently:
+
+\`\`\`bash
+# Search by scope (session, ipc, window, agent, main)
+Grep pattern="session" path="${logFilePath}"
+
+# Search by level (error, warn, info)
+Grep pattern='"level":"error"' path="${logFilePath}"
+
+# Search for specific keywords
+Grep pattern="OAuth" path="${logFilePath}"
+
+# Recent logs (last 50 lines)
+Grep pattern="." path="${logFilePath}" head_limit=50
+\`\`\`
+
+**Tip:** Use \`-C 2\` for context around matches when debugging issues.
+`;
 }
 
 /**

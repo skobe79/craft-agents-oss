@@ -261,15 +261,18 @@ ${this.config.prompt}
     }
 
     // Check MCP auth requirements - FAIL if missing (don't prompt)
-    const serversNeedingAuth = (agentDef.mcpServers || []).filter((s: { requiresAuth?: boolean }) => s.requiresAuth);
+    // Note: stdio transport servers don't require auth
+    const serversNeedingAuth = (agentDef.mcpServers || []).filter((s: { requiresAuth?: boolean; transport?: string }) =>
+      s.requiresAuth && s.transport !== 'stdio'
+    );
     if (serversNeedingAuth.length > 0) {
-      const serverNames = serversNeedingAuth.map((s: { name: string; url: string }) => s.name || s.url).join(', ');
+      const serverNames = serversNeedingAuth.map((s: { name: string; url?: string }) => s.name || s.url || 'unknown').join(', ');
       return {
         success: false,
         error: {
           code: 'auth_required',
           message: `MCP server authentication required: ${serverNames}. Run 'craft' interactively and activate @${agentName} to authenticate.`,
-          details: { servers: serversNeedingAuth.map((s: { name: string; url: string }) => s.name || s.url) },
+          details: { servers: serversNeedingAuth.map((s: { name: string; url?: string }) => s.name || s.url || 'unknown') },
         },
       };
     }

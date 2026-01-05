@@ -5,6 +5,7 @@ import { normalize, isAbsolute, join, basename, dirname, resolve } from 'path'
 import { homedir, tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { SessionManager } from './sessions'
+import { ipcLog } from './logger'
 import { WindowManager } from './window-manager'
 import { PreviewWindowManager } from './preview-window'
 import { DiffPreviewWindowManager } from './diff-preview-window'
@@ -123,7 +124,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     const workspace = addWorkspace({ name, rootPath })
     // Make it active
     setActiveWorkspace(workspace.id)
-    console.log(`[IPC] Created workspace "${name}" at ${rootPath}`)
+    ipcLog.info(`Created workspace "${name}" at ${rootPath}`)
     return workspace
   })
 
@@ -191,7 +192,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
     // Start processing in background, errors are sent via event stream
     sessionManager.sendMessage(sessionId, message, attachments, storedAttachments, options).catch(err => {
-      console.error('[IPC] Error in sendMessage:', err)
+      ipcLog.error('Error in sendMessage:', err)
       // Send error to renderer so user sees it (route to correct window)
       const window = callingWorkspaceId
         ? windowManager.getWindowByWorkspace(callingWorkspaceId)
@@ -229,7 +230,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       const output = await sessionManager.getTaskOutput(taskId)
       return output
     } catch (err) {
-      console.error('[IPC] Failed to get task output:', err)
+      ipcLog.error('Failed to get task output:', err)
       throw err
     }
   })
@@ -303,7 +304,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       return content
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[IPC] readFile error:', message)
+      ipcLog.error('readFile error:', message)
       throw new Error(`Failed to read file: ${message}`)
     }
   })
@@ -339,13 +340,13 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
         }
       } catch (thumbError) {
         // Thumbnail generation failed - this is ok, we'll show an icon fallback
-        console.log('[IPC] Quick Look thumbnail failed (using fallback):', thumbError instanceof Error ? thumbError.message : thumbError)
+        ipcLog.info('Quick Look thumbnail failed (using fallback):', thumbError instanceof Error ? thumbError.message : thumbError)
       }
 
       return attachment
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[IPC] readFileAttachment error:', message)
+      ipcLog.error('readFileAttachment error:', message)
       return null
     }
   })
@@ -375,7 +376,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     } catch (error) {
       // Clean up temp file on error
       await unlink(tempPath).catch(() => {})
-      console.log('[IPC] generateThumbnail failed:', error instanceof Error ? error.message : error)
+      ipcLog.info('generateThumbnail failed:', error instanceof Error ? error.message : error)
       return null
     }
   })
@@ -447,7 +448,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
         }
       } catch (thumbError) {
         // Thumbnail generation failed - this is ok, we'll show an icon fallback
-        console.log('[IPC] Thumbnail generation failed (using fallback):', thumbError instanceof Error ? thumbError.message : thumbError)
+        ipcLog.info('Thumbnail generation failed (using fallback):', thumbError instanceof Error ? thumbError.message : thumbError)
       }
 
       // 3. Convert Office files to markdown (for sending to Claude)
@@ -465,12 +466,12 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
           await writeFile(mdPath, result.textContent, 'utf-8')
           markdownPath = mdPath
           filesToCleanup.push(mdPath)
-          console.log(`[IPC] Converted Office file to markdown: ${mdPath}`)
+          ipcLog.info(`Converted Office file to markdown: ${mdPath}`)
         } catch (convertError) {
           // Conversion failed - throw so user knows the file can't be processed
           // Claude can't read raw Office binary, so a failed conversion = unusable file
           const errorMsg = convertError instanceof Error ? convertError.message : String(convertError)
-          console.error('[IPC] Office to markdown conversion failed:', errorMsg)
+          ipcLog.error('Office to markdown conversion failed:', errorMsg)
           throw new Error(`Failed to convert "${attachment.name}" to readable format: ${errorMsg}`)
         }
       }
@@ -490,12 +491,12 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     } catch (error) {
       // Clean up any files we've written before the error
       if (filesToCleanup.length > 0) {
-        console.log(`[IPC] Cleaning up ${filesToCleanup.length} orphaned file(s) after storage error`)
+        ipcLog.info(`Cleaning up ${filesToCleanup.length} orphaned file(s) after storage error`)
         await Promise.all(filesToCleanup.map(f => unlink(f).catch(() => {})))
       }
 
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[IPC] storeAttachment error:', message)
+      ipcLog.error('storeAttachment error:', message)
       throw new Error(`Failed to store attachment: ${message}`)
     }
   })
@@ -653,7 +654,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       await shell.openExternal(url)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[IPC] openUrl error:', message)
+      ipcLog.error('openUrl error:', message)
       throw new Error(`Failed to open URL: ${message}`)
     }
   })
@@ -671,7 +672,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[IPC] openFile error:', message)
+      ipcLog.error('openFile error:', message)
       throw new Error(`Failed to open file: ${message}`)
     }
   })
@@ -684,7 +685,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       shell.showItemInFolder(safePath)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[IPC] showInFolder error:', message)
+      ipcLog.error('showInFolder error:', message)
       throw new Error(`Failed to show in folder: ${message}`)
     }
   })
@@ -740,9 +741,9 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
         // Ignore if file doesn't exist
       })
 
-      console.log('[IPC] Logout complete - cleared all credentials and config')
+      ipcLog.info('Logout complete - cleared all credentials and config')
     } catch (error) {
-      console.error('[IPC] Logout error:', error)
+      ipcLog.error('Logout error:', error)
       throw error
     }
   })
@@ -774,7 +775,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     try {
       return await getAiCreditTopUpUrl()
     } catch (error) {
-      console.error('[IPC] Failed to get credits URL:', error)
+      ipcLog.error('Failed to get credits URL:', error)
       return null
     }
   })
@@ -805,14 +806,14 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
     }
 
-    console.log(`[IPC] Billing method updated to: ${authType}`)
+    ipcLog.info(`Billing method updated to: ${authType}`)
 
     // Reinitialize SessionManager auth to pick up new credentials
     try {
       await sessionManager.reinitializeAuth()
-      console.log('[IPC] Reinitialized auth after billing update')
+      ipcLog.info('Reinitialized auth after billing update')
     } catch (authError) {
-      console.error('[IPC] Failed to reinitialize auth:', authError)
+      ipcLog.error('Failed to reinitialize auth:', authError)
       // Don't fail the whole operation if auth reinit fails
     }
   })
@@ -829,7 +830,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Set model preference
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SET_MODEL, async (_event, model: string) => {
     setModel(model)
-    console.log(`[IPC] Model updated to: ${model}`)
+    ipcLog.info(`Model updated to: ${model}`)
   })
 
   // ============================================================
@@ -844,7 +845,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Set default permission mode for new sessions
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SET_DEFAULT_PERMISSION_MODE, async (_event, mode: import('../shared/types').PermissionMode) => {
     setDefaultPermissionMode(mode)
-    console.log(`[IPC] Default permission mode updated to:`, mode)
+    ipcLog.info(`Default permission mode updated to:`, mode)
   })
 
   // Get default working directory for new sessions
@@ -855,7 +856,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Set default working directory for new sessions
   ipcMain.handle(IPC_CHANNELS.SETTINGS_SET_DEFAULT_WORKING_DIR, async (_event, path: string) => {
     setDefaultWorkingDirectory(path)
-    console.log(`[IPC] Default working directory updated to: ${path}`)
+    ipcLog.info(`Default working directory updated to: ${path}`)
   })
 
   // Open native folder dialog for selecting working directory
@@ -875,7 +876,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_SETTINGS_GET, async (_event, workspaceId: string) => {
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) {
-      console.error(`[IPC] Workspace not found: ${workspaceId}`)
+      ipcLog.error(`Workspace not found: ${workspaceId}`)
       return null
     }
 
@@ -928,7 +929,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
     // Save the config
     saveWorkspaceConfig(workspace.rootPath, config)
-    console.log(`[IPC] Workspace setting updated: ${key} = ${JSON.stringify(value)}`)
+    ipcLog.info(`Workspace setting updated: ${key} = ${JSON.stringify(value)}`)
   })
 
   // Enable portable credentials for a workspace
@@ -949,14 +950,14 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     // Migrate existing credentials to portable storage
     const manager = getCredentialManager()
     const migrated = await manager.migrateToPortable(config.id, workspace.rootPath, password)
-    console.log(`[IPC] Migrated ${migrated} credentials to portable storage`)
+    ipcLog.info(`Migrated ${migrated} credentials to portable storage`)
 
     // Update the credential strategy
     config.defaults = config.defaults || {}
     config.defaults.credentialStrategy = 'portable'
     saveWorkspaceConfig(workspace.rootPath, config)
 
-    console.log(`[IPC] Enabled portable credentials for workspace: ${workspaceId}`)
+    ipcLog.info(`Enabled portable credentials for workspace: ${workspaceId}`)
   })
 
   // Disable portable credentials for a workspace (migrate back to local)
@@ -977,14 +978,14 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     // Migrate credentials from portable back to local storage
     const manager = getCredentialManager()
     const migrated = await manager.migrateFromPortable(workspace.rootPath, password)
-    console.log(`[IPC] Migrated ${migrated} credentials from portable to local storage`)
+    ipcLog.info(`Migrated ${migrated} credentials from portable to local storage`)
 
     // Update the credential strategy
     config.defaults = config.defaults || {}
     config.defaults.credentialStrategy = 'local'
     saveWorkspaceConfig(workspace.rootPath, config)
 
-    console.log(`[IPC] Disabled portable credentials for workspace: ${workspaceId}`)
+    ipcLog.info(`Disabled portable credentials for workspace: ${workspaceId}`)
   })
 
   // ============================================================
@@ -1121,7 +1122,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       const content = await readFile(validPath, 'utf-8')
       return content
     } catch (err) {
-      console.error('[IPC] Error reading file for diff:', err)
+      ipcLog.error('Error reading file for diff:', err)
       return null
     }
   })
@@ -1135,7 +1136,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     // Look up workspace to get rootPath
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) {
-      console.error(`[IPC] SOURCES_GET: Workspace not found: ${workspaceId}`)
+      ipcLog.error(`SOURCES_GET: Workspace not found: ${workspaceId}`)
       return []
     }
     // Set up ConfigWatcher for this workspace to broadcast live updates
@@ -1183,8 +1184,8 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
       const credManager = getSourceCredentialManager()
       const result = await credManager.authenticate(source, {
-        onStatus: (message) => console.log(`[OAuth] ${source.config.name}: ${message}`),
-        onError: (error) => console.error(`[OAuth] ${source.config.name} error: ${error}`),
+        onStatus: (message) => ipcLog.info(`[OAuth] ${source.config.name}: ${message}`),
+        onError: (error) => ipcLog.error(`[OAuth] ${source.config.name} error: ${error}`),
       })
 
       if (!result.success) {
@@ -1194,10 +1195,10 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       // Get token to return to caller
       const token = await credManager.getToken(source)
 
-      console.log(`[IPC] Source OAuth complete: ${sourceSlug}`)
+      ipcLog.info(`Source OAuth complete: ${sourceSlug}`)
       return { success: true, accessToken: token }
     } catch (error) {
-      console.error(`[IPC] Source OAuth failed:`, error)
+      ipcLog.error(`Source OAuth failed:`, error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'OAuth authentication failed',
@@ -1220,7 +1221,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     const credManager = getSourceCredentialManager()
     await credManager.save(source, { value: credential })
 
-    console.log(`[IPC] Saved credentials for source: ${sourceSlug}`)
+    ipcLog.info(`Saved credentials for source: ${sourceSlug}`)
   })
 
   // Get agent-scoped sources
@@ -1261,7 +1262,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       enabled: agentSource.config.enabled,
     })
 
-    console.log(`[IPC] Promoted source ${sourceSlug} from agent ${agentSlug} to workspace`)
+    ipcLog.info(`Promoted source ${sourceSlug} from agent ${agentSlug} to workspace`)
     return newConfig
   })
 
@@ -1281,7 +1282,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       const content = readFileSync(path, 'utf-8')
       return JSON.parse(content)
     } catch (error) {
-      console.error('[IPC] Error reading permissions config:', error)
+      ipcLog.error('Error reading permissions config:', error)
       return null
     }
   })
@@ -1322,7 +1323,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
 
       // Connect to MCP and list tools
-      console.log(`[IPC] Fetching MCP tools from ${source.config.mcp.url}`)
+      ipcLog.info(`Fetching MCP tools from ${source.config.mcp.url}`)
       const { CraftMcpClient } = await import('@craft-agent/shared/mcp')
       const client = new CraftMcpClient({
         url: source.config.mcp.url,
@@ -1355,7 +1356,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
       return { success: true, tools: toolsWithPermission }
     } catch (error) {
-      console.error('[IPC] Failed to get MCP tools:', error)
+      ipcLog.error('Failed to get MCP tools:', error)
       const errorMessage = error instanceof Error ? error.message : 'Failed to fetch tools'
       // Provide more helpful error messages
       if (errorMessage.includes('404')) {

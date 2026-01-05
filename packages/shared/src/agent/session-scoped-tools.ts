@@ -825,7 +825,31 @@ After creating or editing a source's config.json, run this tool to:
 
         // Handle MCP sources
         else if (source.type === 'mcp') {
-          if (!source.mcp?.url) {
+          // Handle stdio transport (local MCP servers)
+          if (source.mcp?.transport === 'stdio') {
+            if (!source.mcp.command) {
+              hasErrors = true;
+              results.push('**❌ No command configured for stdio MCP source**');
+            } else {
+              // For stdio sources, just verify the config is valid
+              // The actual server will be spawned when the source is used
+              source.lastTestedAt = Date.now();
+              source.connectionStatus = 'connected';
+              source.connectionError = undefined;
+              source.isAuthenticated = true; // Stdio sources don't need auth
+              saveSourceConfigWithContext(workspaceId, source, sourceContext);
+
+              results.push('**✓ Stdio MCP Source Configured**');
+              results.push(`  Command: ${source.mcp.command}`);
+              if (source.mcp.args?.length) {
+                results.push(`  Args: ${source.mcp.args.join(' ')}`);
+              }
+              results.push('');
+              results.push('Note: The MCP server will be spawned when the source is activated.');
+            }
+          }
+          // Handle HTTP/SSE transport (remote MCP servers)
+          else if (!source.mcp?.url) {
             hasErrors = true;
             results.push('**❌ No MCP URL configured**');
           } else {

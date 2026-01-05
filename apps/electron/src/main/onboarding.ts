@@ -4,6 +4,7 @@
  * Handles Craft OAuth, workspace setup, and configuration persistence.
  */
 import { ipcMain } from 'electron'
+import { mainLog } from './logger'
 import crypto from 'crypto'
 import open from 'open'
 import { createCallbackServer } from '@craft-agent/shared/auth'
@@ -123,7 +124,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[Onboarding] Craft OAuth error:', message)
+      mainLog.error('[Onboarding] Craft OAuth error:', message)
       return { success: false, error: message }
     }
   })
@@ -166,7 +167,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[Onboarding] Get Craft profile error:', message)
+      mainLog.error('[Onboarding] Get Craft profile error:', message)
       return { success: false, error: message }
     }
   })
@@ -187,23 +188,23 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
 
   // Start MCP server OAuth
   ipcMain.handle(IPC_CHANNELS.ONBOARDING_START_MCP_OAUTH, async (_event, mcpUrl: string) => {
-    console.log('[Onboarding:Main] ONBOARDING_START_MCP_OAUTH received', { mcpUrl })
+    mainLog.info('[Onboarding:Main] ONBOARDING_START_MCP_OAUTH received', { mcpUrl })
     try {
       const baseUrl = getMcpBaseUrl(mcpUrl)
-      console.log('[Onboarding:Main] MCP OAuth baseUrl:', baseUrl)
-      console.log('[Onboarding:Main] Creating CraftOAuth instance...')
+      mainLog.info('[Onboarding:Main] MCP OAuth baseUrl:', baseUrl)
+      mainLog.info('[Onboarding:Main] Creating CraftOAuth instance...')
 
       const oauth = new CraftOAuth(
         { mcpBaseUrl: baseUrl },
         {
-          onStatus: (msg) => console.log('[Onboarding:Main] MCP OAuth status:', msg),
-          onError: (err) => console.error('[Onboarding:Main] MCP OAuth error:', err),
+          onStatus: (msg) => mainLog.info('[Onboarding:Main] MCP OAuth status:', msg),
+          onError: (err) => mainLog.error('[Onboarding:Main] MCP OAuth error:', err),
         }
       )
 
-      console.log('[Onboarding:Main] Calling oauth.authenticate() - this may open browser and wait...')
+      mainLog.info('[Onboarding:Main] Calling oauth.authenticate() - this may open browser and wait...')
       const { tokens, clientId } = await oauth.authenticate()
-      console.log('[Onboarding:Main] MCP OAuth completed successfully')
+      mainLog.info('[Onboarding:Main] MCP OAuth completed successfully')
 
       return {
         success: true,
@@ -212,7 +213,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[Onboarding:Main] MCP OAuth failed:', message, error)
+      mainLog.error('[Onboarding:Main] MCP OAuth failed:', message, error)
       return { success: false, error: message }
     }
   })
@@ -224,7 +225,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
     credential?: string
     mcpCredentials?: { accessToken: string; clientId?: string }
   }): Promise<OnboardingSaveResult> => {
-    console.log('[Onboarding:Main] ONBOARDING_SAVE_CONFIG received', {
+    mainLog.info('[Onboarding:Main] ONBOARDING_SAVE_CONFIG received', {
       authType: config.authType,
       hasWorkspace: !!config.workspace,
       workspaceName: config.workspace?.name,
@@ -239,28 +240,28 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
 
       // 1. Save billing credential if provided (only when authType is specified)
       if (config.credential && config.authType) {
-        console.log('[Onboarding:Main] Saving credential for authType:', config.authType)
+        mainLog.info('[Onboarding:Main] Saving credential for authType:', config.authType)
         if (config.authType === 'api_key') {
-          console.log('[Onboarding:Main] Calling manager.setApiKey...')
+          mainLog.info('[Onboarding:Main] Calling manager.setApiKey...')
           await manager.setApiKey(config.credential)
-          console.log('[Onboarding:Main] API key saved successfully')
+          mainLog.info('[Onboarding:Main] API key saved successfully')
         } else if (config.authType === 'oauth_token') {
-          console.log('[Onboarding:Main] Calling manager.setClaudeOAuth...')
+          mainLog.info('[Onboarding:Main] Calling manager.setClaudeOAuth...')
           await manager.setClaudeOAuth(config.credential)
-          console.log('[Onboarding:Main] Claude OAuth saved successfully')
+          mainLog.info('[Onboarding:Main] Claude OAuth saved successfully')
         }
         // craft_credits doesn't need additional credentials
       } else {
-        console.log('[Onboarding:Main] Skipping credential save', {
+        mainLog.info('[Onboarding:Main] Skipping credential save', {
           hasCredential: !!config.credential,
           hasAuthType: !!config.authType,
         })
       }
 
       // 2. Load or create config
-      console.log('[Onboarding:Main] Loading existing config...')
+      mainLog.info('[Onboarding:Main] Loading existing config...')
       const existingConfig = loadStoredConfig()
-      console.log('[Onboarding:Main] Existing config:', existingConfig ? 'found' : 'not found')
+      mainLog.info('[Onboarding:Main] Existing config:', existingConfig ? 'found' : 'not found')
 
       const newConfig: StoredConfig = existingConfig || {
         authType: config.authType || 'craft_credits', // Default to craft_credits for new configs
@@ -271,7 +272,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
 
       // 3. Update authType if provided
       if (config.authType) {
-        console.log('[Onboarding:Main] Updating authType from', newConfig.authType, 'to', config.authType)
+        mainLog.info('[Onboarding:Main] Updating authType from', newConfig.authType, 'to', config.authType)
         newConfig.authType = config.authType
       }
 
@@ -284,7 +285,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
 
         // Use existing ID if updating, otherwise generate new one
         workspaceId = existingWorkspace?.id ?? generateWorkspaceId()
-        console.log('[Onboarding:Main] Creating workspace:', workspaceId)
+        mainLog.info('[Onboarding:Main] Creating workspace:', workspaceId)
 
         const workspace = {
           id: workspaceId,
@@ -294,17 +295,17 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
           iconUrl: config.workspace.iconUrl,
           mcpUrl: config.workspace.mcpUrl,
         }
-        console.log('[Onboarding:Main] Workspace config:', workspace, existingWorkspace ? '(updating existing)' : '(new)')
+        mainLog.info('[Onboarding:Main] Workspace config:', workspace, existingWorkspace ? '(updating existing)' : '(new)')
 
         // Save MCP credentials if provided
         if (config.mcpCredentials) {
-          console.log('[Onboarding:Main] Saving MCP credentials for workspace')
+          mainLog.info('[Onboarding:Main] Saving MCP credentials for workspace')
           await manager.setWorkspaceOAuth(workspaceId, {
             accessToken: config.mcpCredentials.accessToken,
             tokenType: 'Bearer',
             clientId: config.mcpCredentials.clientId,
           })
-          console.log('[Onboarding:Main] MCP credentials saved')
+          mainLog.info('[Onboarding:Main] MCP credentials saved')
         }
 
         if (existingIndex !== -1) {
@@ -316,13 +317,13 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
         }
         newConfig.activeWorkspaceId = workspaceId
       } else {
-        console.log('[Onboarding:Main] No workspace to create (billing-only update)')
+        mainLog.info('[Onboarding:Main] No workspace to create (billing-only update)')
 
         // 4b. Auto-create default workspace if no workspaces exist
         // This ensures users have a workspace to start with after billing-only onboarding
         if (newConfig.workspaces.length === 0) {
           workspaceId = generateWorkspaceId()
-          console.log('[Onboarding:Main] Auto-creating default workspace:', workspaceId)
+          mainLog.info('[Onboarding:Main] Auto-creating default workspace:', workspaceId)
 
           const defaultWorkspace = {
             id: workspaceId,
@@ -336,28 +337,28 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
       }
 
       // 5. Save config
-      console.log('[Onboarding:Main] Saving config to disk...')
+      mainLog.info('[Onboarding:Main] Saving config to disk...')
       saveConfig(newConfig)
-      console.log('[Onboarding:Main] Config saved successfully')
+      mainLog.info('[Onboarding:Main] Config saved successfully')
 
       // 6. Reinitialize SessionManager auth to pick up new credentials
       try {
-        console.log('[Onboarding:Main] Reinitializing SessionManager auth...')
+        mainLog.info('[Onboarding:Main] Reinitializing SessionManager auth...')
         await sessionManager.reinitializeAuth()
-        console.log('[Onboarding:Main] Reinitialized auth after config save')
+        mainLog.info('[Onboarding:Main] Reinitialized auth after config save')
       } catch (authError) {
-        console.error('[Onboarding:Main] Failed to reinitialize auth:', authError)
+        mainLog.error('[Onboarding:Main] Failed to reinitialize auth:', authError)
         // Don't fail the whole operation if auth reinit fails
       }
 
-      console.log('[Onboarding:Main] Returning success', { workspaceId })
+      mainLog.info('[Onboarding:Main] Returning success', { workspaceId })
       return {
         success: true,
         workspaceId,
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[Onboarding:Main] Save config error:', message, error)
+      mainLog.error('[Onboarding:Main] Save config error:', message, error)
       return { success: false, error: message }
     }
   })
@@ -367,7 +368,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
     try {
       return getExistingClaudeToken()
     } catch (error) {
-      console.error('[Onboarding] Get existing Claude token error:', error)
+      mainLog.error('[Onboarding] Get existing Claude token error:', error)
       return null
     }
   })
@@ -377,7 +378,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
     try {
       return isClaudeCliInstalled()
     } catch (error) {
-      console.error('[Onboarding] Check Claude CLI error:', error)
+      mainLog.error('[Onboarding] Check Claude CLI error:', error)
       return false
     }
   })
@@ -386,12 +387,12 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
   ipcMain.handle(IPC_CHANNELS.ONBOARDING_RUN_CLAUDE_SETUP_TOKEN, async () => {
     try {
       const result = await runClaudeSetupToken((status) => {
-        console.log('[Onboarding] Claude setup-token status:', status)
+        mainLog.info('[Onboarding] Claude setup-token status:', status)
       })
       return result
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-      console.error('[Onboarding] Run Claude setup-token error:', message)
+      mainLog.error('[Onboarding] Run Claude setup-token error:', message)
       return { success: false, error: message }
     }
   })

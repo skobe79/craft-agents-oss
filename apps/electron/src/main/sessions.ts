@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { rm, readFile } from 'fs/promises'
 import { CraftAgent, type AgentEvent, setPermissionMode, type PermissionMode, unregisterSessionScopedToolCallbacks } from '@craft-agent/shared/agent'
+import { sessionLog, isDebugMode, getLogFilePath } from './logger'
 import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { WindowManager } from './window-manager'
 import {
@@ -153,6 +154,7 @@ interface ManagedSession {
     attachments?: FileAttachment[]
     storedAttachments?: StoredAttachment[]
     options?: SendMessageOptions
+    messageId?: string  // Pre-generated ID for matching with UI
   }>
 }
 
@@ -261,11 +263,11 @@ export class SessionManager {
       return // Already watching this workspace
     }
 
-    console.log(`[SessionManager] Setting up ConfigWatcher for workspace: ${workspaceRootPath}`)
+    sessionLog.info(`Setting up ConfigWatcher for workspace: ${workspaceRootPath}`)
 
     const callbacks: ConfigWatcherCallbacks = {
       onSourcesListChange: async (sources: LoadedSource[]) => {
-        console.log(`[SessionManager] Sources list changed in ${workspaceRootPath} (${sources.length} sources)`)
+        sessionLog.info(`Sources list changed in ${workspaceRootPath} (${sources.length} sources)`)
         // Broadcast to UI
         this.broadcastSourcesChanged(sources)
         // Reload sources for all sessions in this workspace
@@ -276,7 +278,7 @@ export class SessionManager {
         }
       },
       onSourceChange: async (slug: string, source: LoadedSource | null) => {
-        console.log(`[SessionManager] Source '${slug}' changed:`, source ? 'updated' : 'deleted')
+        sessionLog.info(`Source '${slug}' changed:`, source ? 'updated' : 'deleted')
         // Broadcast updated list to UI
         const sources = loadWorkspaceSources(workspaceRootPath)
         this.broadcastSourcesChanged(sources)
@@ -288,38 +290,38 @@ export class SessionManager {
         }
       },
       onSourceGuideChange: (sourceSlug: string) => {
-        console.log(`[SessionManager] Source guide changed: ${sourceSlug}`)
+        sessionLog.info(`Source guide changed: ${sourceSlug}`)
         // Broadcast the updated sources list so sidebar picks up guide changes
         // Note: Guide changes don't require session source reload (no server changes)
         const sources = loadWorkspaceSources(workspaceRootPath)
         this.broadcastSourcesChanged(sources)
       },
       onAgentsListChange: () => {
-        console.log(`[SessionManager] Agents list changed in ${workspaceRootPath}`)
+        sessionLog.info(`Agents list changed in ${workspaceRootPath}`)
         this.broadcastAgentsChanged()
       },
       onAgentChange: () => {
-        console.log(`[SessionManager] Agent changed in ${workspaceRootPath}`)
+        sessionLog.info(`Agent changed in ${workspaceRootPath}`)
         this.broadcastAgentsChanged()
       },
       onStatusConfigChange: (workspaceId: string) => {
-        console.log(`[SessionManager] Status config changed in ${workspaceId}`)
+        sessionLog.info(`Status config changed in ${workspaceId}`)
         this.broadcastStatusesChanged(workspaceId)
       },
       onStatusIconChange: (workspaceId: string, iconFilename: string) => {
-        console.log(`[SessionManager] Status icon changed: ${iconFilename} in ${workspaceId}`)
+        sessionLog.info(`Status icon changed: ${iconFilename} in ${workspaceId}`)
         this.broadcastStatusesChanged(workspaceId)
       },
       onAppThemeChange: (theme) => {
-        console.log(`[SessionManager] App theme changed`)
+        sessionLog.info(`App theme changed`)
         this.broadcastAppThemeChanged(theme)
       },
       onWorkspaceThemeChange: (theme) => {
-        console.log(`[SessionManager] Workspace theme changed in ${workspaceRootPath}`)
+        sessionLog.info(`Workspace theme changed in ${workspaceRootPath}`)
         this.broadcastWorkspaceThemeChanged(theme)
       },
       onAgentThemeChange: (agentSlug, theme) => {
-        console.log(`[SessionManager] Agent theme changed: ${agentSlug}`)
+        sessionLog.info(`Agent theme changed: ${agentSlug}`)
         this.broadcastAgentThemeChanged(agentSlug, theme)
       },
     }
@@ -352,7 +354,7 @@ export class SessionManager {
    */
   private broadcastStatusesChanged(workspaceId: string): void {
     if (!this.windowManager) return
-    console.log(`[SessionManager] Broadcasting statuses changed for ${workspaceId}`)
+    sessionLog.info(`Broadcasting statuses changed for ${workspaceId}`)
     this.windowManager.broadcastToAll(IPC_CHANNELS.STATUSES_CHANGED, workspaceId)
   }
 
@@ -361,7 +363,7 @@ export class SessionManager {
    */
   private broadcastAppThemeChanged(theme: import('@craft-agent/shared/config').ThemeOverrides | null): void {
     if (!this.windowManager) return
-    console.log(`[SessionManager] Broadcasting app theme changed`)
+    sessionLog.info(`Broadcasting app theme changed`)
     this.windowManager.broadcastToAll(IPC_CHANNELS.THEME_APP_CHANGED, theme)
   }
 
@@ -370,7 +372,7 @@ export class SessionManager {
    */
   private broadcastWorkspaceThemeChanged(theme: import('@craft-agent/shared/config').ThemeOverrides | null): void {
     if (!this.windowManager) return
-    console.log(`[SessionManager] Broadcasting workspace theme changed`)
+    sessionLog.info(`Broadcasting workspace theme changed`)
     this.windowManager.broadcastToAll(IPC_CHANNELS.THEME_WORKSPACE_CHANGED, theme)
   }
 
@@ -379,7 +381,7 @@ export class SessionManager {
    */
   private broadcastAgentThemeChanged(agentSlug: string, theme: import('@craft-agent/shared/config').ThemeOverrides | null): void {
     if (!this.windowManager) return
-    console.log(`[SessionManager] Broadcasting agent theme changed for ${agentSlug}`)
+    sessionLog.info(`Broadcasting agent theme changed for ${agentSlug}`)
     this.windowManager.broadcastToAll(IPC_CHANNELS.THEME_AGENT_CHANGED, agentSlug, theme)
   }
 
@@ -391,7 +393,7 @@ export class SessionManager {
     if (!managed.agent) return
 
     const workspaceRootPath = managed.workspace.rootPath
-    console.log(`[SessionManager] Reloading sources for session ${managed.id}`)
+    sessionLog.info(`Reloading sources for session ${managed.id}`)
 
     // Reload all sources from disk
     const allSources = loadWorkspaceSources(workspaceRootPath)
@@ -409,7 +411,7 @@ export class SessionManager {
     const intendedSlugs = enabledSources.map(s => s.config.slug)
     managed.agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
 
-    console.log(`[SessionManager] Sources reloaded for session ${managed.id}: ${Object.keys(mcpServers).length} MCP, ${Object.keys(apiServers).length} API`)
+    sessionLog.info(`Sources reloaded for session ${managed.id}: ${Object.keys(mcpServers).length} MCP, ${Object.keys(apiServers).length} API`)
   }
 
   /**
@@ -435,11 +437,11 @@ export class SessionManager {
       const manager = this.getFolderAgentManager(workspaceRootPath)
       const definition = manager.getAgentDefinition(agentId)
       if (definition) {
-        console.log(`[SessionManager] Loaded agent definition: ${definition.name}`)
+        sessionLog.info(`Loaded agent definition: ${definition.name}`)
       }
       return definition
     } catch (error) {
-      console.error(`[SessionManager] Failed to load agent definition ${agentId}:`, error)
+      sessionLog.error(`Failed to load agent definition ${agentId}:`, error)
       return null
     }
   }
@@ -465,12 +467,12 @@ export class SessionManager {
       return this.agentStateManagers.get(key)!
     }
 
-    console.log(`[SessionManager] Creating AgentStateManager for workspace="${workspaceId}", agent="${agentId}"`)
+    sessionLog.info(`Creating AgentStateManager for workspace="${workspaceId}", agent="${agentId}"`)
 
     // Get workspace to get the slug for folder-based agent manager
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) {
-      console.error(`[SessionManager] Workspace not found: ${workspaceId}`)
+      sessionLog.error(`Workspace not found: ${workspaceId}`)
       return null
     }
     const workspaceRootPath = workspace.rootPath
@@ -487,7 +489,7 @@ export class SessionManager {
 
     // Cache it
     this.agentStateManagers.set(key, stateManager)
-    console.log(`[SessionManager] Created AgentStateManager for agent ${agentId} in workspace ${workspaceId}`)
+    sessionLog.info(`Created AgentStateManager for agent ${agentId} in workspace ${workspaceId}`)
 
     return stateManager
   }
@@ -518,7 +520,7 @@ export class SessionManager {
 
     // Broadcast to all windows
     this.windowManager.broadcastToAll(IPC_CHANNELS.AGENT_STATUS_CHANGED, workspaceId, agentId, completeState)
-    console.log(`[SessionManager] Broadcast agent state: ${status.status}, needsSetup=${setupStatus.needsSetup}, needsAuth=${setupStatus.needsAuth} for ${agentId}`)
+    sessionLog.info(`Broadcast agent state: ${status.status}, needsSetup=${setupStatus.needsSetup}, needsAuth=${setupStatus.needsAuth} for ${agentId}`)
   }
 
 
@@ -553,11 +555,11 @@ export class SessionManager {
     agentId: string,
     options?: AgentActivateOptions
   ): Promise<AgentStatus> {
-    console.log(`[SessionManager] activateAgent called: workspaceId="${workspaceId}", agentId="${agentId}"`)
+    sessionLog.info(`activateAgent called: workspaceId="${workspaceId}", agentId="${agentId}"`)
 
     const stateManager = await this.getOrCreateAgentStateManager(workspaceId, agentId)
     if (!stateManager) {
-      console.error(`[SessionManager] Failed to create state manager for workspace="${workspaceId}", agent="${agentId}"`)
+      sessionLog.error(`Failed to create state manager for workspace="${workspaceId}", agent="${agentId}"`)
       return { status: 'error', agentId, agentName: agentId || 'unknown', error: 'Could not create state manager' }
     }
     return stateManager.activate(agentId, options)
@@ -635,7 +637,7 @@ export class SessionManager {
       const authState = await getAuthState()
       const { billing } = authState
 
-      console.log('[SessionManager] Reinitializing auth with billing type:', billing.type)
+      sessionLog.info('Reinitializing auth with billing type:', billing.type)
 
       if (billing.type === 'craft_credits') {
         const token = await getCraftToken()
@@ -645,26 +647,26 @@ export class SessionManager {
         })
         // Set placeholder API key so SDK starts
         process.env.ANTHROPIC_API_KEY = 'craft-credits-placeholder'
-        console.log('[SessionManager] Set Craft API Gateway Token')
+        sessionLog.info('Set Craft API Gateway Token')
       } else if (billing.type === 'oauth_token' && billing.claudeOAuthToken) {
         // Use Claude Max subscription via OAuth token
         process.env.CLAUDE_CODE_OAUTH_TOKEN = billing.claudeOAuthToken
         delete process.env.ANTHROPIC_API_KEY
         delete process.env.USE_CRAFT_AI_GATEWAY
         delete process.env.CRAFT_API_GATEWAY_TOKEN
-        console.log('[SessionManager] Set Claude Max OAuth Token')
+        sessionLog.info('Set Claude Max OAuth Token')
       } else if (billing.apiKey) {
         // Use API key (pay-as-you-go)
         process.env.ANTHROPIC_API_KEY = billing.apiKey
         delete process.env.CLAUDE_CODE_OAUTH_TOKEN
         delete process.env.USE_CRAFT_AI_GATEWAY
         delete process.env.CRAFT_API_GATEWAY_TOKEN
-        console.log('[SessionManager] Set Anthropic API Key')
+        sessionLog.info('Set Anthropic API Key')
       } else {
-        console.error('[SessionManager] No authentication configured!')
+        sessionLog.error('No authentication configured!')
       }
     } catch (error) {
-      console.error('[SessionManager] Failed to reinitialize auth:', error)
+      sessionLog.error('Failed to reinitialize auth:', error)
       throw error
     }
   }
@@ -673,13 +675,13 @@ export class SessionManager {
     // Set path to Claude Code executable (cli.js from SDK)
     // This is critical because the bundled SDK can't auto-detect the path
     const cliPath = join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js')
-    console.log('[SessionManager] Setting pathToClaudeCodeExecutable:', cliPath)
+    sessionLog.info('Setting pathToClaudeCodeExecutable:', cliPath)
     setPathToClaudeCodeExecutable(cliPath)
 
     // Set path to cache-ttl-interceptor for SDK subprocess
     // This interceptor redirects requests to the Craft gateway when using Craft credits
     const interceptorPath = join(process.cwd(), 'packages', 'shared', 'src', 'cache-ttl-interceptor.ts')
-    console.log('[SessionManager] Setting interceptorPath:', interceptorPath)
+    sessionLog.info('Setting interceptorPath:', interceptorPath)
     setInterceptorPath(interceptorPath)
 
     // Set up authentication environment variables (critical for SDK to work)
@@ -704,7 +706,7 @@ export class SessionManager {
           // Load full session data
           const storedSession = loadStoredSession(workspaceRootPath, meta.id)
           if (!storedSession) {
-            console.warn(`[SessionManager] Skipping session ${meta.id}: could not load from disk`)
+            sessionLog.warn(`Skipping session ${meta.id}: could not load from disk`)
             continue
           }
 
@@ -743,9 +745,9 @@ export class SessionManager {
         }
       }
 
-      console.log(`[SessionManager] Loaded ${totalSessions} sessions from disk`)
+      sessionLog.info(`Loaded ${totalSessions} sessions from disk`)
     } catch (error) {
-      console.error('[SessionManager] Failed to load sessions from disk:', error)
+      sessionLog.error('Failed to load sessions from disk:', error)
     }
   }
 
@@ -804,7 +806,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       // Queue for async persistence with debouncing
       sessionPersistenceQueue.enqueue(storedSession)
     } catch (error) {
-      console.error(`[SessionManager] Failed to queue session ${managed.id} for persistence:`, error)
+      sessionLog.error(`Failed to queue session ${managed.id} for persistence:`, error)
     }
   }
 
@@ -872,7 +874,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       if (loadedAgent) {
         sourcesNeedingAuth = getSourcesNeedingAuth(loadedAgent.sources)
         if (sourcesNeedingAuth.length > 0) {
-          console.log(`[SessionManager] Agent '${agentId}' has ${sourcesNeedingAuth.length} source(s) needing auth:`,
+          sessionLog.info(`Agent '${agentId}' has ${sourcesNeedingAuth.length} source(s) needing auth:`,
             sourcesNeedingAuth.map(s => s.config.slug).join(', '))
         }
       }
@@ -953,12 +955,17 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
           lastUsedAt: managed.lastMessageAt,
           workingDirectory: managed.workingDirectory,
         },
+        // Debug mode - enables log file path injection into system prompt
+        debugMode: isDebugMode ? {
+          enabled: true,
+          logFilePath: getLogFilePath(),
+        } : undefined,
       })
-      console.log(`[SessionManager] Created agent for session ${managed.id}${managed.sdkSessionId ? ' (resuming)' : ''}`)
+      sessionLog.info(`Created agent for session ${managed.id}${managed.sdkSessionId ? ' (resuming)' : ''}`)
 
       // Set up permission handler to forward requests to renderer
       managed.agent.onPermissionRequest = (request) => {
-        console.log(`[SessionManager] Permission request for session ${managed.id}:`, request.command)
+        sessionLog.info(`Permission request for session ${managed.id}:`, request.command)
         this.sendEvent({
           type: 'permission_request',
           sessionId: managed.id,
@@ -971,7 +978,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
 
       // Set up credential request handler to forward requests to renderer and await response
       managed.agent.onCredentialRequest = (request) => {
-        console.log(`[SessionManager] Credential request for session ${managed.id}:`, request.sourceSlug)
+        sessionLog.info(`Credential request for session ${managed.id}:`, request.sourceSlug)
         return new Promise<import('../shared/types').CredentialResponse>((resolve) => {
           // Store the resolver to be called when renderer responds
           this.pendingCredentialResolvers.set(request.requestId, resolve)
@@ -990,7 +997,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
 
       // Set up mode change handlers
       managed.agent.onPermissionModeChange = (mode) => {
-        console.log(`[SessionManager] Permission mode changed for session ${managed.id}:`, mode)
+        sessionLog.info(`Permission mode changed for session ${managed.id}:`, mode)
         managed.permissionMode = mode
         this.sendEvent({
           type: 'permission_mode_changed',
@@ -1001,7 +1008,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
 
       // Wire up onPlanSubmitted to add plan message to conversation
       managed.agent.onPlanSubmitted = async (planPath) => {
-        console.log(`[SessionManager] Plan submitted for session ${managed.id}:`, planPath)
+        sessionLog.info(`Plan submitted for session ${managed.id}:`, planPath)
         try {
           // Read the plan file content
           const planContent = await readFile(planPath, 'utf-8')
@@ -1028,7 +1035,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
           // Interrupt execution - plan presentation is a stopping point
           // The user needs to review and respond before continuing
           if (managed.isProcessing && managed.agent) {
-            console.log(`[SessionManager] Interrupting after plan submission for session ${managed.id}`)
+            sessionLog.info(`Interrupting after plan submission for session ${managed.id}`)
             managed.agent.interrupt()
             managed.isProcessing = false
             managed.abortController = undefined
@@ -1045,13 +1052,13 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
             this.persistSession(managed)
           }
         } catch (error) {
-          console.error(`[SessionManager] Failed to read plan file:`, error)
+          sessionLog.error(`Failed to read plan file:`, error)
         }
       }
 
       // Wire up onWorkingDirectoryChange to sync cwd changes (e.g., from Bash cd)
       managed.agent.onWorkingDirectoryChange = (path) => {
-        console.log(`[SessionManager] Working directory changed for session ${managed.id}:`, path)
+        sessionLog.info(`Working directory changed for session ${managed.id}:`, path)
         managed.workingDirectory = path
         this.persistSession(managed)
         this.sendEvent({
@@ -1072,7 +1079,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       // This ensures the UI toggle state is reflected in the agent before first message
       if (managed.permissionMode) {
         setPermissionMode(managed.id, managed.permissionMode)
-        console.log(`[SessionManager] Applied permission mode '${managed.permissionMode}' to agent for session ${managed.id}`)
+        sessionLog.info(`Applied permission mode '${managed.permissionMode}' to agent for session ${managed.id}`)
       }
     }
     return managed.agent
@@ -1120,7 +1127,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
     }
 
     const workspaceRootPath = managed.workspace.rootPath
-    console.log(`[SessionManager] Setting sources for session ${sessionId}:`, sourceSlugs)
+    sessionLog.info(`Setting sources for session ${sessionId}:`, sourceSlugs)
 
     // Store the selection
     managed.enabledSourceSlugs = sourceSlugs
@@ -1130,7 +1137,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
     const { mcpServers, apiServers, errors } = await buildServersFromSources(sources)
 
     if (errors.length > 0) {
-      console.warn(`[SessionManager] Source build errors:`, errors)
+      sessionLog.warn(`Source build errors:`, errors)
     }
 
     // Store the built configs
@@ -1147,7 +1154,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       // Pass intended slugs so agent shows sources as active even if build failed
       const intendedSlugs = sources.filter(s => s.config.enabled && s.config.isAuthenticated).map(s => s.config.slug)
       managed.agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
-      console.log(`[SessionManager] Applied ${Object.keys(mcpServers).length} MCP + ${Object.keys(apiServers).length} API sources to active agent (${allSources.length} total)`)
+      sessionLog.info(`Applied ${Object.keys(mcpServers).length} MCP + ${Object.keys(apiServers).length} API sources to active agent (${allSources.length} total)`)
     }
 
     // Persist the session with updated sources
@@ -1160,7 +1167,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       enabledSourceSlugs: sourceSlugs,
     }, managed.workspace.id)
 
-    console.log(`[SessionManager] Session ${sessionId} sources updated: ${sourceSlugs.length} sources`)
+    sessionLog.info(`Session ${sessionId} sources updated: ${sourceSlugs.length} sources`)
   }
 
   /**
@@ -1257,13 +1264,13 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
   updateMessageContent(sessionId: string, messageId: string, content: string): void {
     const managed = this.sessions.get(sessionId)
     if (!managed) {
-      console.warn(`[SessionManager] Cannot update message: session ${sessionId} not found`)
+      sessionLog.warn(`Cannot update message: session ${sessionId} not found`)
       return
     }
 
     const message = managed.messages.find(m => m.id === messageId)
     if (!message) {
-      console.warn(`[SessionManager] Cannot update message: message ${messageId} not found in session ${sessionId}`)
+      sessionLog.warn(`Cannot update message: message ${messageId} not found in session ${sessionId}`)
       return
     }
 
@@ -1271,13 +1278,13 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
     message.content = content
     // Persist the updated session
     this.persistSession(managed)
-    console.log(`[SessionManager] Updated message ${messageId} content in session ${sessionId}`)
+    sessionLog.info(`Updated message ${messageId} content in session ${sessionId}`)
   }
 
   async deleteSession(sessionId: string): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (!managed) {
-      console.warn(`[SessionManager] Cannot delete session: ${sessionId} not found`)
+      sessionLog.warn(`Cannot delete session: ${sessionId} not found`)
       return
     }
 
@@ -1314,10 +1321,10 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
     deleteStoredSession(workspaceRootPath, sessionId)
 
     // Clean up attachments directory (handled by deleteStoredSession for workspace-scoped storage)
-    console.log(`[SessionManager] Deleted session ${sessionId}`)
+    sessionLog.info(`Deleted session ${sessionId}`)
   }
 
-  async sendMessage(sessionId: string, message: string, attachments?: FileAttachment[], storedAttachments?: StoredAttachment[], options?: SendMessageOptions): Promise<void> {
+  async sendMessage(sessionId: string, message: string, attachments?: FileAttachment[], storedAttachments?: StoredAttachment[], options?: SendMessageOptions, existingMessageId?: string): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (!managed) {
       throw new Error(`Session ${sessionId} not found`)
@@ -1325,26 +1332,67 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
 
     // If currently processing, interrupt and queue the new message
     if (managed.isProcessing) {
-      console.log(`[SessionManager] Session ${sessionId} is processing, interrupting and queueing message`)
+      sessionLog.info(`Session ${sessionId} is processing, interrupting and queueing message`)
 
       // Interrupt current processing
       managed.agent?.interrupt()
       managed.abortController?.abort()
 
-      // Queue the new message
-      managed.messageQueue.push({ message, attachments, storedAttachments, options })
+      // Create user message for queued state (so UI can show it)
+      const queuedMessage: Message = {
+        id: generateMessageId(),
+        role: 'user',
+        content: message,
+        timestamp: Date.now(),
+        attachments: storedAttachments,
+      }
+
+      // Add to messages immediately so it's persisted
+      managed.messages.push(queuedMessage)
+
+      // Queue the message info (with the generated ID for later matching)
+      managed.messageQueue.push({ message, attachments, storedAttachments, options, messageId: queuedMessage.id })
+
+      // Emit user_message event so UI can show queued state
+      this.sendEvent({
+        type: 'user_message',
+        sessionId,
+        message: queuedMessage,
+        status: 'queued'
+      }, managed.workspace.id)
+
       return
     }
 
     // Add user message with stored attachments for persistence
-    const userMessage: Message = {
-      id: generateMessageId(),
-      role: 'user',
-      content: message,
-      timestamp: Date.now(),
-      attachments: storedAttachments, // Include for persistence (has thumbnailBase64)
+    // Skip if existingMessageId is provided (message was already created when queued)
+    let userMessage: Message
+    if (existingMessageId) {
+      // Find existing message (already added when queued)
+      userMessage = managed.messages.find(m => m.id === existingMessageId)!
+      if (!userMessage) {
+        throw new Error(`Existing message ${existingMessageId} not found`)
+      }
+    } else {
+      // Create new message
+      userMessage = {
+        id: generateMessageId(),
+        role: 'user',
+        content: message,
+        timestamp: Date.now(),
+        attachments: storedAttachments, // Include for persistence (has thumbnailBase64)
+      }
+      managed.messages.push(userMessage)
+
+      // Emit user_message event so UI can confirm the optimistic message
+      this.sendEvent({
+        type: 'user_message',
+        sessionId,
+        message: userMessage,
+        status: 'accepted'
+      }, managed.workspace.id)
     }
-    managed.messages.push(userMessage)
+
     managed.lastMessageAt = Date.now()
     managed.isProcessing = true
     managed.streamingText = ''
@@ -1360,7 +1408,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
     // If session has an agent that hasn't been activated yet, activate via AgentStateManager
     // This is the source of truth for agent state - ensures proper extraction, auth handling, etc.
     if (managed.agentId && !managed.agentActivated) {
-      console.log(`[SessionManager] Activating agent ${managed.agentId} for session ${sessionId}`)
+      sessionLog.info(`Activating agent ${managed.agentId} for session ${sessionId}`)
 
       // Emit extracting status so UI knows we're loading
       this.sendEvent({
@@ -1380,7 +1428,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
           // Activate via state machine (handles registry population, extraction, auth checks)
           status = await stateManager.activate(managed.agentId)
         }
-        console.log(`[SessionManager] Agent activation result: ${status.status}`)
+        sessionLog.info(`Agent activation result: ${status.status}`)
 
         // Emit final status
         this.sendEvent({ type: 'agent_status', sessionId, status }, managed.workspace.id)
@@ -1414,15 +1462,15 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
               // Pass sources needing auth to inject setup instructions into the agent
               agent.setActiveAgentDefinition(definition, mcpServers, apiServers, managed.sourcesNeedingAuth)
               managed.agentActivated = true
-              console.log(`[SessionManager] Applied agent definition "${definition.name}" to session ${sessionId}`)
+              sessionLog.info(`Applied agent definition "${definition.name}" to session ${sessionId}`)
             } catch (error) {
-              console.error(`[SessionManager] Failed to build agent configs for ${managed.agentId}:`, error)
+              sessionLog.error(`Failed to build agent configs for ${managed.agentId}:`, error)
               this.sendEvent({ type: 'error', sessionId, error: `Failed to configure agent: ${error instanceof Error ? error.message : String(error)}` }, managed.workspace.id)
             }
           }
         }
       } else {
-        console.warn(`[SessionManager] Could not create AgentStateManager for session ${sessionId}`)
+        sessionLog.warn(`Could not create AgentStateManager for session ${sessionId}`)
       }
     }
 
@@ -1438,7 +1486,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       if (!managed.sourceMcpServers) {
         const { mcpServers, apiServers, errors } = await buildServersFromSources(sources)
         if (errors.length > 0) {
-          console.warn(`[SessionManager] Source build errors:`, errors)
+          sessionLog.warn(`Source build errors:`, errors)
         }
         managed.sourceMcpServers = mcpServers
         managed.sourceApiServers = apiServers
@@ -1451,7 +1499,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
         // Pass intended slugs so agent shows sources as active even if build failed
         const intendedSlugs = sources.filter(s => s.config.enabled && s.config.isAuthenticated).map(s => s.config.slug)
         agent.setSourceServers(managed.sourceMcpServers || {}, managed.sourceApiServers || {}, intendedSlugs)
-        console.log(`[SessionManager] Applied ${mcpCount} MCP + ${apiCount} API sources to session ${sessionId} (${allSources.length} total)`)
+        sessionLog.info(`Applied ${mcpCount} MCP + ${apiCount} API sources to session ${sessionId} (${allSources.length} total)`)
       }
     }
 
@@ -1460,44 +1508,44 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       managed.autoSetupTriggered = true
       const setupContext = this.buildSetupContext(managed.sourcesNeedingAuth)
       message = setupContext + '\n\n' + message
-      console.log(`[SessionManager] Prepended setup context for ${managed.sourcesNeedingAuth.length} source(s) needing auth`)
+      sessionLog.info(`Prepended setup context for ${managed.sourcesNeedingAuth.length} source(s) needing auth`)
     }
 
     try {
-      console.log('[SessionManager] Starting chat for session:', sessionId)
-      console.log('[SessionManager] Workspace:', JSON.stringify(managed.workspace, null, 2))
-      console.log('[SessionManager] Message:', message)
-      console.log('[SessionManager] Agent model:', agent.getModel())
-      console.log('[SessionManager] process.cwd():', process.cwd())
+      sessionLog.info('Starting chat for session:', sessionId)
+      sessionLog.info('Workspace:', JSON.stringify(managed.workspace, null, 2))
+      sessionLog.info('Message:', message)
+      sessionLog.info('Agent model:', agent.getModel())
+      sessionLog.info('process.cwd():', process.cwd())
 
       // Set ultrathink mode if enabled (single-shot - resets after query)
       if (options?.ultrathinkEnabled) {
-        console.log('[SessionManager] Ultrathink mode ENABLED')
+        sessionLog.info('Ultrathink mode ENABLED')
         agent.setUltrathinkMode(true)
       }
 
       // Process the message through the agent
-      console.log('[SessionManager] Calling agent.chat()...')
+      sessionLog.info('Calling agent.chat()...')
       if (attachments?.length) {
-        console.log('[SessionManager] Attachments:', attachments.length)
+        sessionLog.info('Attachments:', attachments.length)
       }
       const chatIterator = agent.chat(message, attachments)
-      console.log('[SessionManager] Got chat iterator, starting iteration...')
+      sessionLog.info('Got chat iterator, starting iteration...')
 
       for await (const event of chatIterator) {
         // Log events (skip noisy text_delta)
         if (event.type !== 'text_delta') {
           if (event.type === 'tool_start') {
-            console.log(`[SessionManager] tool_start: ${event.toolName} (${event.toolUseId})`)
+            sessionLog.info(`tool_start: ${event.toolName} (${event.toolUseId})`)
           } else if (event.type === 'tool_result') {
-            console.log(`[SessionManager] tool_result: ${event.toolUseId} isError=${event.isError}`)
+            sessionLog.info(`tool_result: ${event.toolUseId} isError=${event.isError}`)
           } else {
-            console.log('[SessionManager] Got event:', event.type)
+            sessionLog.info('Got event:', event.type)
           }
         }
         // Check if cancelled - break immediately (interrupted event already sent by cancelProcessing)
         if (managed.abortController?.signal.aborted || !managed.isProcessing) {
-          console.log('[SessionManager] Aborted, breaking out of event loop')
+          sessionLog.info('Aborted, breaking out of event loop')
           break
         }
         this.processEvent(managed, event)
@@ -1507,16 +1555,16 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
           const sdkId = agent.getSessionId()
           if (sdkId) {
             managed.sdkSessionId = sdkId
-            console.log(`[SessionManager] Captured SDK session ID: ${sdkId}`)
+            sessionLog.info(`Captured SDK session ID: ${sdkId}`)
           }
         }
       }
 
-      console.log('[SessionManager] Chat completed')
+      sessionLog.info('Chat completed')
     } catch (error) {
-      console.error('[SessionManager] Error in chat:', error)
-      console.error('[SessionManager] Error message:', error instanceof Error ? error.message : String(error))
-      console.error('[SessionManager] Error stack:', error instanceof Error ? error.stack : 'No stack')
+      sessionLog.error('Error in chat:', error)
+      sessionLog.error('Error message:', error instanceof Error ? error.message : String(error))
+      sessionLog.error('Error stack:', error instanceof Error ? error.stack : 'No stack')
       this.sendEvent({
         type: 'error',
         sessionId,
@@ -1536,14 +1584,32 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
         // Check if there are queued messages to process
         if (managed.messageQueue.length > 0) {
           const next = managed.messageQueue.shift()!
-          console.log(`[SessionManager] Processing queued message for session ${sessionId}`)
-          // Process next message (don't await - let it run independently)
-          this.sendMessage(sessionId, next.message, next.attachments, next.storedAttachments, next.options)
-            .catch(err => {
-              console.error('[SessionManager] Error processing queued message:', err)
-              this.sendEvent({ type: 'error', sessionId, error: err instanceof Error ? err.message : 'Unknown error' }, managed.workspace.id)
-              this.sendEvent({ type: 'complete', sessionId }, managed.workspace.id)
-            })
+          sessionLog.info(`Processing queued message for session ${sessionId}`)
+
+          // Emit user_message with 'processing' status so UI can update
+          if (next.messageId) {
+            // Find the message that was already added to managed.messages when queued
+            const existingMessage = managed.messages.find(m => m.id === next.messageId)
+            if (existingMessage) {
+              this.sendEvent({
+                type: 'user_message',
+                sessionId,
+                message: existingMessage,
+                status: 'processing'
+              }, managed.workspace.id)
+            }
+          }
+
+          // Defer to next tick to allow current query cleanup to complete
+          // This prevents race conditions with SDK session resume after interrupt
+          setImmediate(() => {
+            this.sendMessage(sessionId, next.message, next.attachments, next.storedAttachments, next.options, next.messageId)
+              .catch(err => {
+                sessionLog.error('Error processing queued message:', err)
+                this.sendEvent({ type: 'error', sessionId, error: err instanceof Error ? err.message : 'Unknown error' }, managed.workspace.id)
+                this.sendEvent({ type: 'complete', sessionId }, managed.workspace.id)
+              })
+          })
         } else {
           // No queued messages - send complete event
           this.sendEvent({ type: 'complete', sessionId }, managed.workspace.id)
@@ -1560,7 +1626,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       return // Not processing, nothing to cancel
     }
 
-    console.log('[SessionManager] Cancelling processing for session:', sessionId, silent ? '(silent)' : '')
+    sessionLog.info('Cancelling processing for session:', sessionId, silent ? '(silent)' : '')
 
     // Call agent.interrupt() directly like TUI does - this signals the SDK
     if (managed.agent) {
@@ -1607,7 +1673,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       return { success: false, error: 'Session not found' }
     }
 
-    console.log(`[SessionManager] Hiding shell ${shellId} for session: ${sessionId}`)
+    sessionLog.info(`Hiding shell ${shellId} for session: ${sessionId}`)
 
     // Background shells are managed by the Claude Agent SDK. There's no direct API
     // to terminate them from outside the agent's tool calling loop.
@@ -1638,7 +1704,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
    * @returns Placeholder message explaining the limitation
    */
   async getTaskOutput(taskId: string): Promise<string | null> {
-    console.log(`[SessionManager] Getting output for task: ${taskId} (not implemented)`)
+    sessionLog.info(`Getting output for task: ${taskId} (not implemented)`)
 
     // This functionality requires a dedicated output tracking system.
     // The SDK manages shells internally but doesn't expose an API for querying
@@ -1660,11 +1726,11 @@ To view this task's output:
   respondToPermission(sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean): boolean {
     const managed = this.sessions.get(sessionId)
     if (managed?.agent) {
-      console.log(`[SessionManager] Permission response for ${requestId}: allowed=${allowed}, alwaysAllow=${alwaysAllow}`)
+      sessionLog.info(`Permission response for ${requestId}: allowed=${allowed}, alwaysAllow=${alwaysAllow}`)
       managed.agent.respondToPermission(requestId, allowed, alwaysAllow)
       return true
     } else {
-      console.warn(`[SessionManager] Cannot respond to permission - no agent for session ${sessionId}`)
+      sessionLog.warn(`Cannot respond to permission - no agent for session ${sessionId}`)
       return false
     }
   }
@@ -1676,12 +1742,12 @@ To view this task's output:
   respondToCredential(sessionId: string, requestId: string, response: import('../shared/types').CredentialResponse): boolean {
     const resolver = this.pendingCredentialResolvers.get(requestId)
     if (resolver) {
-      console.log(`[SessionManager] Credential response for ${requestId}: cancelled=${response.cancelled}`)
+      sessionLog.info(`Credential response for ${requestId}: cancelled=${response.cancelled}`)
       resolver(response)
       this.pendingCredentialResolvers.delete(requestId)
       return true
     } else {
-      console.warn(`[SessionManager] Cannot respond to credential - no pending request for ${requestId}`)
+      sessionLog.warn(`Cannot respond to credential - no pending request for ${requestId}`)
       return false
     }
   }
@@ -1720,10 +1786,10 @@ To view this task's output:
         this.persistSession(managed)
         // Notify renderer of the generated title
         this.sendEvent({ type: 'title_generated', sessionId: managed.id, title }, managed.workspace.id)
-        console.log(`[SessionManager] Generated title for session ${managed.id}: "${title}"`)
+        sessionLog.info(`Generated title for session ${managed.id}: "${title}"`)
       }
     } catch (error) {
-      console.error(`[SessionManager] Failed to generate title for session ${managed.id}:`, error)
+      sessionLog.error(`Failed to generate title for session ${managed.id}:`, error)
     }
   }
 
@@ -1822,7 +1888,7 @@ To view this task's output:
         // IMPORTANT: Only push on first event, not duplicate events (SDK sends two tool_start per tool)
         if (isParentTool && !isDuplicateEvent) {
           managed.parentToolStack.push(event.toolUseId)
-          console.log(`[SessionManager] PARENT STACK PUSH: ${event.toolName} (${event.toolUseId}), stack=${JSON.stringify(managed.parentToolStack)}`)
+          sessionLog.info(`PARENT STACK PUSH: ${event.toolName} (${event.toolUseId}), stack=${JSON.stringify(managed.parentToolStack)}`)
         }
 
         // Store the parent assignment for this tool (only on first event)
@@ -1898,11 +1964,11 @@ To view this task's output:
         const stackIndex = managed.parentToolStack.indexOf(event.toolUseId)
         if (stackIndex !== -1) {
           managed.parentToolStack.splice(stackIndex, 1)
-          console.log(`[SessionManager] PARENT STACK POP: ${event.toolUseId}, stack=${JSON.stringify(managed.parentToolStack)}`)
+          sessionLog.info(`PARENT STACK POP: ${event.toolUseId}, stack=${JSON.stringify(managed.parentToolStack)}`)
         } else if (PARENT_TOOLS.includes(toolName)) {
           // Only log/warn for parent tools that SHOULD have been on the stack
           // Non-parent tools (Read, Grep, Bash, etc.) are never on the stack - that's expected
-          console.warn(`[SessionManager] PARENT STACK UNEXPECTED: ${toolName} (${event.toolUseId}) not found, stack=${JSON.stringify(managed.parentToolStack)}`)
+          sessionLog.warn(`PARENT STACK UNEXPECTED: ${toolName} (${event.toolUseId}) not found, stack=${JSON.stringify(managed.parentToolStack)}`)
           // Defensive cleanup: try to find and remove by matching tool name in messages
           const fallbackIdx = managed.parentToolStack.findIndex(id => {
             const msg = managed.messages.find(m => m.toolUseId === id)
@@ -1910,7 +1976,7 @@ To view this task's output:
           })
           if (fallbackIdx !== -1) {
             const removedId = managed.parentToolStack.splice(fallbackIdx, 1)[0]
-            console.log(`[SessionManager] PARENT STACK FALLBACK POP: ${removedId} (matched by toolName=${toolName}), stack=${JSON.stringify(managed.parentToolStack)}`)
+            sessionLog.info(`PARENT STACK FALLBACK POP: ${removedId} (matched by toolName=${toolName}), stack=${JSON.stringify(managed.parentToolStack)}`)
           }
         }
         // Non-parent tools: silent (expected behavior - they use toolToParentMap for hierarchy)
@@ -1929,7 +1995,7 @@ To view this task's output:
         // Track if already completed to avoid sending duplicate events
         const wasAlreadyComplete = existingToolMsg?.toolStatus === 'completed'
 
-        console.log(`[SessionManager] RESULT MATCH: toolUseId=${event.toolUseId}, found=${!!existingToolMsg}, toolName=${existingToolMsg?.toolName || toolName}, wasComplete=${wasAlreadyComplete}`)
+        sessionLog.info(`RESULT MATCH: toolUseId=${event.toolUseId}, found=${!!existingToolMsg}, toolName=${existingToolMsg?.toolName || toolName}, wasComplete=${wasAlreadyComplete}`)
 
         if (existingToolMsg) {
           existingToolMsg.content = formattedResult
@@ -1985,7 +2051,7 @@ To view this task's output:
         // now we know the correct parent from the tool result
         const existingToolMsg = managed.messages.find(m => m.toolUseId === event.toolUseId)
         if (existingToolMsg) {
-          console.log(`[SessionManager] PARENT UPDATE: ${event.toolUseId} -> parent ${event.parentToolUseId}`)
+          sessionLog.info(`PARENT UPDATE: ${event.toolUseId} -> parent ${event.parentToolUseId}`)
           existingToolMsg.parentToolUseId = event.parentToolUseId
           // Also update the toolToParentMap for consistency
           managed.toolToParentMap.set(event.toolUseId, event.parentToolUseId)
@@ -2032,7 +2098,7 @@ To view this task's output:
 
       case 'typed_error':
         // Typed errors have structured information - send both formats for compatibility
-        console.log('[SessionManager] typed_error:', JSON.stringify(event.error, null, 2))
+        sessionLog.info('typed_error:', JSON.stringify(event.error, null, 2))
         const typedErrorMessage: Message = {
           id: generateMessageId(),
           role: 'error',
@@ -2078,7 +2144,7 @@ To view this task's output:
 
   private sendEvent(event: SessionEvent, workspaceId?: string): void {
     if (!this.windowManager) {
-      console.warn('[SessionManager] Cannot send event - no window manager')
+      sessionLog.warn('Cannot send event - no window manager')
       return
     }
 
@@ -2088,19 +2154,19 @@ To view this task's output:
       : null
 
     if (!window) {
-      console.warn(`[SessionManager] Cannot send ${event.type} event - no window for workspace ${workspaceId}`)
+      sessionLog.warn(`Cannot send ${event.type} event - no window for workspace ${workspaceId}`)
       return
     }
 
     if (window.isDestroyed()) {
-      console.warn(`[SessionManager] Cannot send ${event.type} event - window destroyed for workspace ${workspaceId}`)
+      sessionLog.warn(`Cannot send ${event.type} event - window destroyed for workspace ${workspaceId}`)
       return
     }
 
     try {
       window.webContents.send(IPC_CHANNELS.SESSION_EVENT, event)
     } catch (error) {
-      console.error(`[SessionManager] Failed to send ${event.type} event:`, error)
+      sessionLog.error(`Failed to send ${event.type} event:`, error)
     }
   }
 
@@ -2159,12 +2225,12 @@ To view this task's output:
    * Should be called on app shutdown to prevent resource leaks.
    */
   cleanup(): void {
-    console.log('[SessionManager] Cleaning up resources...')
+    sessionLog.info('Cleaning up resources...')
 
     // Stop all ConfigWatchers (file system watchers)
     for (const [path, watcher] of this.configWatchers) {
       watcher.stop()
-      console.log(`[SessionManager] Stopped config watcher for ${path}`)
+      sessionLog.info(`Stopped config watcher for ${path}`)
     }
     this.configWatchers.clear()
 
@@ -2183,6 +2249,6 @@ To view this task's output:
       unregisterSessionScopedToolCallbacks(sessionId)
     }
 
-    console.log('[SessionManager] Cleanup complete')
+    sessionLog.info('Cleanup complete')
   }
 }

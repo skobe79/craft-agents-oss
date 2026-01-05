@@ -82,6 +82,10 @@ export interface CraftAgentConfig {
   model?: string;
   onSdkSessionIdUpdate?: (sdkSessionId: string) => void;  // Callback when SDK session ID is captured
   isHeadless?: boolean;        // Running in headless mode (disables interactive tools)
+  debugMode?: {                // Debug mode configuration (when running in dev)
+    enabled: boolean;          // Whether debug mode is active
+    logFilePath?: string;      // Path to the log file for querying
+  };
 }
 
 // Permission request tracking
@@ -1081,7 +1085,8 @@ export class CraftAgent {
           append: getSystemPrompt(
             this.pinnedAgentDefinition ?? undefined,
             this.temporaryClarifications ?? undefined,
-            this.pinnedPreferencesPrompt ?? undefined
+            this.pinnedPreferencesPrompt ?? undefined,
+            this.config.debugMode
           ),
         },
         // Option B: Custom system prompt (uncomment to use instead)
