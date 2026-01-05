@@ -24,13 +24,14 @@ if (isDebugMode) {
   log.transports.file.maxSize = 5 * 1024 * 1024 // 5MB
 
   // Console output in debug mode with readable format
+  // Note: format must return an array - electron-log's transformStyles calls .reduce() on it
   log.transports.console.format = ({ message }) => {
     const scope = message.scope ? `[${message.scope}]` : ''
     const level = message.level.toUpperCase().padEnd(5)
     const data = message.data
       .map((d: unknown) => (typeof d === 'object' ? JSON.stringify(d) : String(d)))
       .join(' ')
-    return `${message.date.toISOString()} ${level} ${scope} ${data}`
+    return [`${message.date.toISOString()} ${level} ${scope} ${data}`]
   }
   log.transports.console.level = 'debug'
 } else {
