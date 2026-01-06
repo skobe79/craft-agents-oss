@@ -1289,7 +1289,7 @@ export class CraftAgent {
                 if (intent || displayName) {
                   const { _intent, _displayName, ...cleanInput } = toolInput;
 
-                  // Return with updatedInput - SDK will use this instead of original
+                  // Return with updatedInput to strip metadata before forwarding to MCP
                   return {
                     continue: true,
                     hookSpecificOutput: {
