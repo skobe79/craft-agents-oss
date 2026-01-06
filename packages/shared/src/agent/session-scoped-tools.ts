@@ -795,7 +795,9 @@ After creating or editing a source's config.json, run this tool to:
 
           if (serviceUrl) {
             const { getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.ts');
-            const logoUrl = await getHighQualityLogoUrl(serviceUrl, source.provider);
+            // Use googleService for Google APIs (e.g., 'gmail') over provider (e.g., 'google')
+            const providerForIcon = source.api?.googleService || source.provider;
+            const logoUrl = await getHighQualityLogoUrl(serviceUrl, providerForIcon);
             if (logoUrl) {
               const cached = await cacheIcon(logoUrl, sourcePath);
               if (cached) {
@@ -1264,7 +1266,7 @@ A browser window will open for the user to complete authentication.
         return {
           content: [{
             type: 'text' as const,
-            text: `**Source '${args.sourceSlug}' authenticated successfully**\n\nOAuth tokens have been stored securely. You can now use source_test to verify it's working.`,
+            text: `**Source '${args.sourceSlug}' authenticated successfully**\n\nOAuth tokens have been stored securely.\n\n**Next step:** Run \`source_test({ sourceSlug: "${args.sourceSlug}" })\` to download the icon and verify the connection works.`,
           }],
           isError: false,
         };
@@ -1435,7 +1437,7 @@ After successful authentication, the tokens are stored and the source is marked 
         return {
           content: [{
             type: 'text' as const,
-            text: `**${serviceName} source '${args.sourceSlug}' authenticated successfully**\n\nConnected as: ${result.email}\n\nYou can now use the api_${args.sourceSlug} tool to access this Google API.`,
+            text: `**${serviceName} source '${args.sourceSlug}' authenticated successfully**\n\nConnected as: ${result.email}\n\n**Next step:** Run \`source_test({ sourceSlug: "${args.sourceSlug}" })\` to download the icon and verify the connection works.`,
           }],
           isError: false,
         };

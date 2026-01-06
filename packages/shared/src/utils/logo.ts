@@ -14,8 +14,30 @@ const GOOGLE_FAVICON_URL = 'https://t2.gstatic.com/faviconV2?client=SOCIAL&type=
  * Maps provider names to their canonical domain for proper favicon resolution.
  * This fixes issues like api.gmail.com returning a globe icon instead of Gmail logo.
  */
+/**
+ * Direct icon URLs for providers that need explicit URLs.
+ * These take precedence over domain-based favicon fetching.
+ */
+export const PROVIDER_ICON_URLS: Record<string, string> = {
+  // Docs and Sheets need direct URLs - their domains return generic Google logo
+  docs: 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico',
+  sheets: 'https://ssl.gstatic.com/docs/spreadsheets/favicon3.ico',
+};
+
+/**
+ * Canonical domains for known providers.
+ * Maps provider names to their canonical domain for proper favicon resolution.
+ */
 export const PROVIDER_CANONICAL_DOMAINS: Record<string, string> = {
+  // Google services - use product-specific subdomains (docs/sheets use direct URLs instead)
   gmail: 'mail.google.com',
+  calendar: 'calendar.google.com',
+  drive: 'drive.google.com',
+  // Common MCP providers - their MCP URLs differ from their main domain
+  github: 'github.com',
+  linear: 'linear.app',
+  slack: 'slack.com',
+  notion: 'notion.so',
 };
 
 /**
@@ -186,8 +208,14 @@ function pickBestFavicon(favicons: Array<{href: string, sizes: string | null}>):
  * @param provider - Optional provider name (e.g., 'gmail') to use canonical domain mapping
  */
 export async function getHighQualityLogoUrl(serviceUrl: string, provider?: string): Promise<string | null> {
-  // Check if provider has a canonical domain mapping
+  // Check if provider has a direct icon URL (highest priority)
   if (provider) {
+    const directIconUrl = PROVIDER_ICON_URLS[provider.toLowerCase()];
+    if (directIconUrl) {
+      return directIconUrl;
+    }
+
+    // Check if provider has a canonical domain mapping
     const canonicalDomain = PROVIDER_CANONICAL_DOMAINS[provider.toLowerCase()];
     if (canonicalDomain) {
       // Use canonical domain for favicon resolution
@@ -206,27 +234,48 @@ export async function getHighQualityLogoUrl(serviceUrl: string, provider?: strin
   }
 
   const rootDomain = extractRootDomain(fullDomain);
-  const origin = `https://${rootDomain}`;
+  const hasSubdomain = fullDomain !== rootDomain;
 
-  // Step 1: Try high-res favicon paths
-  for (const path of HIGH_RES_FAVICON_PATHS) {
-    const url = `${origin}${path}`;
-    if (await urlExists(url)) {
-      return url;
+  // Helper to try favicon paths on a domain
+  async function tryFaviconPaths(domain: string): Promise<string | null> {
+    const origin = `https://${domain}`;
+
+    // Try high-res favicon paths
+    for (const path of HIGH_RES_FAVICON_PATHS) {
+      const url = `${origin}${path}`;
+      if (await urlExists(url)) {
+        return url;
+      }
+    }
+
+    // Parse HTML <head> for favicon links
+    const favicons = await parseFaviconsFromHtml(origin);
+    if (favicons.length > 0) {
+      const bestFavicon = pickBestFavicon(favicons);
+      if (bestFavicon && await urlExists(bestFavicon)) {
+        return bestFavicon;
+      }
+    }
+
+    return null;
+  }
+
+  // Step 1: Try full domain first (e.g., mail.google.com)
+  if (hasSubdomain) {
+    const result = await tryFaviconPaths(fullDomain);
+    if (result) {
+      return result;
     }
   }
 
-  // Step 2: Parse HTML <head> for favicon links
-  const favicons = await parseFaviconsFromHtml(origin);
-  if (favicons.length > 0) {
-    const bestFavicon = pickBestFavicon(favicons);
-    if (bestFavicon && await urlExists(bestFavicon)) {
-      return bestFavicon;
-    }
+  // Step 2: Try root domain (e.g., google.com)
+  const result = await tryFaviconPaths(rootDomain);
+  if (result) {
+    return result;
   }
 
-  // Step 3: Fall back to Google Favicon V2 API
-  return `${GOOGLE_FAVICON_URL}128&url=https://${rootDomain}`;
+  // Step 3: Fall back to Google Favicon V2 API (uses full domain for better results)
+  return `${GOOGLE_FAVICON_URL}128&url=https://${fullDomain}`;
 }
 
 /**
@@ -238,8 +287,14 @@ export async function getHighQualityLogoUrl(serviceUrl: string, provider?: strin
  * @deprecated Use getHighQualityLogoUrl() when possible for better quality
  */
 export function getLogoUrl(serviceUrl: string, provider?: string): string | null {
-  // Check if provider has a canonical domain mapping
+  // Check if provider has a direct icon URL (highest priority)
   if (provider) {
+    const directIconUrl = PROVIDER_ICON_URLS[provider.toLowerCase()];
+    if (directIconUrl) {
+      return directIconUrl;
+    }
+
+    // Check if provider has a canonical domain mapping
     const canonicalDomain = PROVIDER_CANONICAL_DOMAINS[provider.toLowerCase()];
     if (canonicalDomain) {
       return `${GOOGLE_FAVICON_URL}128&url=https://${canonicalDomain}`;
