@@ -38,15 +38,19 @@ export const PROVIDER_ICON_URLS: Record<string, string> = {
  * Maps provider names to their canonical domain for proper favicon resolution.
  */
 const STATIC_PROVIDER_DOMAINS: Readonly<Record<string, string>> = Object.freeze({
-  // Google services - use product-specific subdomains (docs/sheets use direct URLs instead)
-  gmail: 'mail.google.com',
-  calendar: 'calendar.google.com',
-  drive: 'drive.google.com',
+  // Google services - map both short names and full slugs
+  'gmail': 'mail.google.com',
+  'google-calendar': 'calendar.google.com',
+  'calendar': 'calendar.google.com',
+  'google-drive': 'drive.google.com',
+  'drive': 'drive.google.com',
+  'google-docs': 'docs.google.com',
+  'google-sheets': 'sheets.google.com',
   // Common MCP providers - their MCP URLs differ from their main domain
-  github: 'github.com',
-  linear: 'linear.app',
-  slack: 'slack.com',
-  notion: 'notion.so',
+  'github': 'github.com',
+  'linear': 'linear.app',
+  'slack': 'slack.com',
+  'notion': 'notion.so',
 });
 
 // Re-export browser-safe utility for backward compatibility
