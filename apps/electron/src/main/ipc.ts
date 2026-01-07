@@ -1288,15 +1288,20 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       let tools: Array<{ name: string; description?: string }>
 
       if (source.config.mcp.transport === 'stdio') {
+        // Validate command exists before spawning
+        if (!source.config.mcp.command) {
+          return { success: false, error: 'Stdio MCP source is missing required "command" field' }
+        }
+
         // Stdio transport - spawn process and list tools
         ipcLog.info(`Fetching MCP tools via stdio: ${source.config.mcp.command}`)
         const { validateStdioMcpConnection } = await import('@craft-agent/shared/mcp')
 
         const result = await validateStdioMcpConnection({
-          command: source.config.mcp.command!,
+          command: source.config.mcp.command,
           args: source.config.mcp.args,
           env: source.config.mcp.env,
-          timeout: 30000,
+          timeout: 10000,
         })
 
         if (!result.success) {

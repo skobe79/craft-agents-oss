@@ -24,7 +24,7 @@ import { CrossfadeAvatar } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 import { Mail, Plug, Globe, HardDrive } from 'lucide-react'
 import { McpIcon } from '@/components/icons/McpIcon'
-import { getLogoUrl } from '@craft-agent/shared/utils/logo'
+import { getLogoUrl, deriveServiceUrl } from '@craft-agent/shared/utils/logo'
 import type { LoadedSource } from '@craft-agent/shared/sources/types'
 import type { SourceConnectionStatus } from '../../../shared/types'
 import { SourceStatusIndicator, deriveConnectionStatus } from './source-status-indicator'
@@ -106,13 +106,7 @@ export function getSourceFallbackIcon(type: SourceType): React.ComponentType<{ c
  */
 function deriveServiceFavicon(source: LoadedSource): string | null {
   const config = source.config
-  let url = config.mcp?.url ?? config.api?.baseUrl
-
-  // For stdio sources (no URL), try provider name as domain
-  if (!url && config.provider) {
-    url = `https://${config.provider}.com`
-  }
-
+  const url = deriveServiceUrl(config)
   return url ? getLogoUrl(url, config.provider) : null
 }
 

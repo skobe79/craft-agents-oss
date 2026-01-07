@@ -573,14 +573,9 @@ export async function createSource(
     }
   } else {
     // Auto-fetch from service URL
-    let serviceUrl = input.type === 'api' ? input.api?.baseUrl :
-                     input.type === 'mcp' ? input.mcp?.url : null;
-    // For stdio sources (no URL), try provider name as domain
-    if (!serviceUrl && input.provider) {
-      serviceUrl = `https://${input.provider}.com`;
-    }
+    const { deriveServiceUrl, getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.js');
+    const serviceUrl = deriveServiceUrl(input);
     if (serviceUrl) {
-      const { getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.js');
       const logoUrl = await getHighQualityLogoUrl(serviceUrl, input.provider);
       if (logoUrl) {
         const cached = await cacheIcon(logoUrl, sourcePath);
@@ -744,14 +739,9 @@ export async function createAgentSource(
     }
   } else {
     // Auto-fetch from service URL
-    let serviceUrl = input.type === 'api' ? input.api?.baseUrl :
-                     input.type === 'mcp' ? input.mcp?.url : null;
-    // For stdio sources (no URL), try provider name as domain
-    if (!serviceUrl && input.provider) {
-      serviceUrl = `https://${input.provider}.com`;
-    }
+    const { deriveServiceUrl, getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.js');
+    const serviceUrl = deriveServiceUrl(input);
     if (serviceUrl) {
-      const { getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.js');
       const logoUrl = await getHighQualityLogoUrl(serviceUrl, input.provider);
       if (logoUrl) {
         const cached = await cacheIcon(logoUrl, sourcePath);

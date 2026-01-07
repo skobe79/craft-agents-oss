@@ -36,16 +36,38 @@ export type GoogleService = 'gmail' | 'calendar' | 'drive' | 'docs' | 'sheets';
 /**
  * Infer Google service from API baseUrl.
  * Returns undefined if URL doesn't match a known Google API pattern.
+ *
+ * Uses proper URL parsing to avoid false positives from arbitrary path matching.
  */
 export function inferGoogleServiceFromUrl(baseUrl: string | undefined): GoogleService | undefined {
   if (!baseUrl) return undefined;
-  const url = baseUrl.toLowerCase();
 
-  if (url.includes('calendar.googleapis.com') || url.includes('/calendar/')) return 'calendar';
-  if (url.includes('drive.googleapis.com') || url.includes('/drive/')) return 'drive';
-  if (url.includes('gmail.googleapis.com') || url.includes('/gmail/')) return 'gmail';
-  if (url.includes('docs.googleapis.com') || url.includes('/documents/')) return 'docs';
-  if (url.includes('sheets.googleapis.com') || url.includes('/spreadsheets/')) return 'sheets';
+  let hostname: string;
+  let pathname: string;
+  try {
+    const parsed = new URL(baseUrl);
+    hostname = parsed.hostname.toLowerCase();
+    pathname = parsed.pathname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+
+  // Match by hostname (most reliable)
+  if (hostname === 'calendar.googleapis.com') return 'calendar';
+  if (hostname === 'drive.googleapis.com') return 'drive';
+  if (hostname === 'gmail.googleapis.com') return 'gmail';
+  if (hostname === 'docs.googleapis.com') return 'docs';
+  if (hostname === 'sheets.googleapis.com') return 'sheets';
+
+  // Fallback: check path patterns only on googleapis.com domains
+  if (hostname === 'www.googleapis.com' || hostname === 'googleapis.com') {
+    if (pathname.startsWith('/calendar/')) return 'calendar';
+    if (pathname.startsWith('/drive/')) return 'drive';
+    if (pathname.startsWith('/gmail/')) return 'gmail';
+    if (pathname.startsWith('/v1/documents') || pathname.startsWith('/documents/')) return 'docs';
+    if (pathname.startsWith('/v4/spreadsheets') || pathname.startsWith('/spreadsheets/')) return 'sheets';
+  }
+
   return undefined;
 }
 

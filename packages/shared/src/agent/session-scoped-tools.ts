@@ -785,16 +785,10 @@ After creating or editing a source's config.json, run this tool to:
         // Auto-fetch icon if not set
         if (!source.iconUrl) {
           // No icon - try to auto-fetch from service URL or provider domain
-          let serviceUrl = source.type === 'api' ? source.api?.baseUrl :
-                          source.type === 'mcp' ? source.mcp?.url : null;
-
-          // For stdio sources (no URL), try provider name as domain
-          if (!serviceUrl && source.provider) {
-            serviceUrl = `https://${source.provider}.com`;
-          }
+          const { deriveServiceUrl, getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.ts');
+          const serviceUrl = deriveServiceUrl(source);
 
           if (serviceUrl) {
-            const { getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.ts');
             // Use googleService for Google APIs (e.g., 'gmail') over provider (e.g., 'google')
             const providerForIcon = source.api?.googleService || source.provider;
             const logoUrl = await getHighQualityLogoUrl(serviceUrl, providerForIcon);
