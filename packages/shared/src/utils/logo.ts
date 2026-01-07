@@ -8,7 +8,7 @@
 import { debug } from './debug.ts';
 import { homedir } from 'os';
 import { join } from 'path';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 
 // Cache path for persisted provider domains
 const CRAFT_AGENT_DIR = join(homedir(), '.craft-agent');
@@ -72,26 +72,6 @@ function loadProviderDomainsCache(): Record<string, string> {
     return cache.domains || {};
   } catch {
     return {};
-  }
-}
-
-/**
- * Save provider domain to cache file
- */
-function saveProviderDomainToCache(provider: string, domain: string): void {
-  try {
-    // ~/.craft-agent/ always exists at this point (created during app setup)
-    const existing = loadProviderDomainsCache();
-    existing[provider.toLowerCase()] = domain;
-
-    const cache: ProviderDomainsCache = {
-      version: 1,
-      domains: existing,
-      updatedAt: Date.now(),
-    };
-    writeFileSync(PROVIDER_DOMAINS_CACHE_PATH, JSON.stringify(cache, null, 2), 'utf-8');
-  } catch (error) {
-    debug('[saveProviderDomainToCache] Failed:', error);
   }
 }
 

@@ -655,6 +655,31 @@ Icons can be specified in several ways:
 
 When using URLs or domains, \`source_test\` will download and cache the icon locally.
 
+## Provider Domain Cache
+
+For favicon resolution, a cache maps provider names to their canonical domains at:
+\`~/.craft-agent/provider-domains.json\`
+
+**Format:**
+\`\`\`json
+{
+  "version": 1,
+  "domains": {
+    "linear": "linear.app",
+    "notion": "notion.so",
+    "brave": "brave.com"
+  },
+  "updatedAt": 1704067200000
+}
+\`\`\`
+
+**When to update:** If a source's favicon appears incorrect (generic globe, wrong icon), add the provider→domain mapping to this file. The app loads this cache on startup.
+
+**Example:** If "acme-mcp" source shows wrong icon, add:
+\`\`\`json
+"acme": "acme.com"
+\`\`\`
+
 ## Common Providers
 
 ### Gmail
