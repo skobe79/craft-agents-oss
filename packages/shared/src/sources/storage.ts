@@ -562,7 +562,7 @@ export async function createSource(
   const sourcePath = getSourcePath(workspaceRootPath, slug);
   if (input.iconUrl) {
     // User-provided URL: download and cache it
-    const { cacheIcon } = await import('../utils/logo.js');
+    const { cacheIcon } = await import('../utils/logo.ts');
     const cached = await cacheIcon(input.iconUrl, sourcePath);
     if (cached) {
       config.iconUrl = cached;
@@ -573,7 +573,7 @@ export async function createSource(
     }
   } else {
     // Auto-fetch from service URL
-    const { deriveServiceUrl, getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.js');
+    const { deriveServiceUrl, getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.ts');
     const serviceUrl = deriveServiceUrl(input);
     if (serviceUrl) {
       const logoUrl = await getHighQualityLogoUrl(serviceUrl, input.provider);
@@ -728,7 +728,7 @@ export async function createAgentSource(
   const sourcePath = getAgentSourcePath(workspaceRootPath, agentSlug, slug);
   if (input.iconUrl) {
     // User-provided URL: download and cache it
-    const { cacheIcon } = await import('../utils/logo.js');
+    const { cacheIcon } = await import('../utils/logo.ts');
     const cached = await cacheIcon(input.iconUrl, sourcePath);
     if (cached) {
       config.iconUrl = cached;
@@ -739,7 +739,7 @@ export async function createAgentSource(
     }
   } else {
     // Auto-fetch from service URL
-    const { deriveServiceUrl, getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.js');
+    const { deriveServiceUrl, getHighQualityLogoUrl, cacheIcon } = await import('../utils/logo.ts');
     const serviceUrl = deriveServiceUrl(input);
     if (serviceUrl) {
       const logoUrl = await getHighQualityLogoUrl(serviceUrl, input.provider);
@@ -890,7 +890,7 @@ export async function migrateSourceIcon(
     ? getAgentSourcePath(workspaceRootPath, agentSlug, sourceSlug)
     : getSourcePath(workspaceRootPath, sourceSlug);
 
-  const { cacheIcon } = await import('../utils/logo.js');
+  const { cacheIcon } = await import('../utils/logo.ts');
   const cached = await cacheIcon(config.iconUrl, sourcePath);
 
   if (cached) {
