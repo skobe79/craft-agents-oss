@@ -6,6 +6,13 @@
  */
 
 import { debug } from './debug.ts';
+import { homedir } from 'os';
+import { join } from 'path';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+
+// Cache path for persisted provider domains
+const CRAFT_AGENT_DIR = join(homedir(), '.craft-agent');
+const PROVIDER_DOMAINS_CACHE_PATH = join(CRAFT_AGENT_DIR, 'provider-domains.json');
 
 // Google Favicon V2 API - free, reliable, no API key needed
 // Updated URL: Google migrated from /s2/favicons to faviconV2
@@ -41,6 +48,74 @@ export const PROVIDER_CANONICAL_DOMAINS: Record<string, string> = {
   slack: 'slack.com',
   notion: 'notion.so',
 };
+
+/**
+ * Cache structure for persisted provider domains
+ */
+interface ProviderDomainsCache {
+  version: 1;
+  domains: Record<string, string>;
+  updatedAt: number;
+}
+
+/**
+ * Load cached provider domains from filesystem
+ */
+function loadProviderDomainsCache(): Record<string, string> {
+  try {
+    if (!existsSync(PROVIDER_DOMAINS_CACHE_PATH)) return {};
+    const content = readFileSync(PROVIDER_DOMAINS_CACHE_PATH, 'utf-8');
+    const cache = JSON.parse(content) as ProviderDomainsCache;
+    return cache.domains || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Save provider domain to cache file
+ */
+function saveProviderDomainToCache(provider: string, domain: string): void {
+  try {
+    // ~/.craft-agent/ always exists at this point (created during app setup)
+    const existing = loadProviderDomainsCache();
+    existing[provider.toLowerCase()] = domain;
+
+    const cache: ProviderDomainsCache = {
+      version: 1,
+      domains: existing,
+      updatedAt: Date.now(),
+    };
+    writeFileSync(PROVIDER_DOMAINS_CACHE_PATH, JSON.stringify(cache, null, 2), 'utf-8');
+  } catch (error) {
+    debug('[saveProviderDomainToCache] Failed:', error);
+  }
+}
+
+/**
+ * Lazy initialization flag for cached domains
+ */
+let providerDomainsInitialized = false;
+
+/**
+ * Load cached provider domains into memory on first use
+ */
+function ensureProviderDomainsLoaded(): void {
+  if (providerDomainsInitialized) return;
+  providerDomainsInitialized = true;
+
+  const cached = loadProviderDomainsCache();
+  // Merge cached domains into static map, but static takes precedence.
+  // Using for loop over Object.assign for clarity - we only add keys that don't exist.
+  for (const [provider, domain] of Object.entries(cached)) {
+    if (!PROVIDER_CANONICAL_DOMAINS[provider]) {
+      PROVIDER_CANONICAL_DOMAINS[provider] = domain;
+    }
+  }
+  if (Object.keys(cached).length > 0) {
+    debug(`[logo] Loaded ${Object.keys(cached).length} cached provider domains`);
+  }
+}
 
 /**
  * Extract domain from URL
@@ -227,6 +302,10 @@ async function resolveProviderWithHaiku(provider: string): Promise<string | null
 
     // Cache for future calls in this process
     PROVIDER_CANONICAL_DOMAINS[provider.toLowerCase()] = domain;
+
+    // Persist to filesystem for future app restarts
+    saveProviderDomainToCache(provider, domain);
+
     debug(`[resolveProviderWithHaiku] Resolved "${provider}" → "${domain}"`);
 
     return domain;
@@ -247,6 +326,9 @@ async function resolveProviderWithHaiku(provider: string): Promise<string | null
  * @param provider - Optional provider name (e.g., 'gmail') to use canonical domain mapping
  */
 export async function getHighQualityLogoUrl(serviceUrl: string, provider?: string): Promise<string | null> {
+  // Load cached provider domains on first call
+  ensureProviderDomainsLoaded();
+
   // Check if provider has a direct icon URL (highest priority)
   if (provider) {
     const directIconUrl = PROVIDER_ICON_URLS[provider.toLowerCase()];
