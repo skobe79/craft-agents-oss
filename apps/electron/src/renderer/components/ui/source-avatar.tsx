@@ -268,7 +268,9 @@ export function SourceAvatar(props: SourceAvatarProps) {
     type = source.config.type as SourceType
     name = source.config.name
     workspaceId = source.workspaceId
-    provider = source.config.provider
+    // Use googleService (gmail, calendar, drive, docs, sheets) for favicon resolution
+    // since domain mappings use service names, not the generic "google" provider
+    provider = source.config.api?.googleService ?? source.config.provider
 
     // Check if iconUrl is a local path
     const iconUrl = source.config.iconUrl
