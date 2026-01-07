@@ -5,6 +5,8 @@
  * Browser handles caching - no need to save files locally.
  */
 
+import { debug } from './debug.ts';
+
 // Google Favicon V2 API - free, reliable, no API key needed
 // Updated URL: Google migrated from /s2/favicons to faviconV2
 const GOOGLE_FAVICON_URL = 'https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&size=';
@@ -198,6 +200,43 @@ function pickBestFavicon(favicons: Array<{href: string, sizes: string | null}>):
 }
 
 /**
+ * Use Haiku to resolve unknown provider names to canonical domains.
+ * Only called when static maps don't have the provider.
+ */
+async function resolveProviderWithHaiku(provider: string): Promise<string | null> {
+  try {
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const client = new Anthropic();
+
+    const response = await client.messages.create({
+      model: 'claude-3-5-haiku-latest',
+      max_tokens: 50,
+      messages: [{
+        role: 'user',
+        content: `What is the main website domain for the service "${provider}"? Reply with ONLY the domain (e.g., "notion.so", "github.com", "brave.com") or "unknown" if you're not sure.`
+      }]
+    });
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const domain = text.trim().toLowerCase();
+
+    // Validate it looks like a domain
+    if (domain === 'unknown' || !domain.includes('.') || domain.length > 50) {
+      return null;
+    }
+
+    // Cache for future calls in this process
+    PROVIDER_CANONICAL_DOMAINS[provider.toLowerCase()] = domain;
+    debug(`[resolveProviderWithHaiku] Resolved "${provider}" → "${domain}"`);
+
+    return domain;
+  } catch (error) {
+    debug(`[resolveProviderWithHaiku] Failed for "${provider}":`, error);
+    return null;
+  }
+}
+
+/**
  * Get high-quality logo URL for a service
  * Tries direct favicon paths, then parses HTML <head>, before falling back to Google API
  *
@@ -220,6 +259,12 @@ export async function getHighQualityLogoUrl(serviceUrl: string, provider?: strin
     if (canonicalDomain) {
       // Use canonical domain for favicon resolution
       return getHighQualityLogoUrl(`https://${canonicalDomain}`);
+    }
+
+    // Try Haiku resolution for unknown providers
+    const resolvedDomain = await resolveProviderWithHaiku(provider);
+    if (resolvedDomain) {
+      return getHighQualityLogoUrl(`https://${resolvedDomain}`);
     }
   }
 
