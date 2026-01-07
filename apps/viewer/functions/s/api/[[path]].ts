@@ -56,11 +56,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         httpMetadata: { contentType: 'application/json' },
       })
 
-      const baseUrl = new URL(request.url).origin
+      // Use public URL (not the Pages URL) for the response
+      const publicUrl = 'https://agents.craft.do'
       return Response.json(
         {
           id,
-          url: `${baseUrl}/s/${id}`,
+          url: `${publicUrl}/s/${id}`,
         },
         { headers: corsHeaders }
       )
