@@ -15,10 +15,8 @@ export default defineConfig({
         main: resolve(__dirname, 'src/renderer/index.html'),
         playground: resolve(__dirname, 'src/renderer/playground.html'),
         preview: resolve(__dirname, 'src/renderer/preview.html'),
-        'diff-preview': resolve(__dirname, 'src/renderer/diff-preview.html'),
-        'code-preview': resolve(__dirname, 'src/renderer/code-preview.html'),
         'terminal-preview': resolve(__dirname, 'src/renderer/terminal-preview.html'),
-        'multi-file-diff': resolve(__dirname, 'src/renderer/multi-file-diff.html'),
+        'file-preview': resolve(__dirname, 'src/renderer/file-preview.html'),
       }
     }
   },
@@ -34,7 +32,8 @@ export default defineConfig({
     dedupe: ['react', 'react-dom']
   },
   optimizeDeps: {
-    include: ['react', 'react-dom', 'jotai', '@craft-agent/ui']
+    include: ['react', 'react-dom', 'jotai'],
+    exclude: ['@craft-agent/ui']
   },
   server: {
     port: 5173,

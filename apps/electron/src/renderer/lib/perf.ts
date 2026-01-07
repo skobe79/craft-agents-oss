@@ -58,9 +58,13 @@ export function isRendererPerfEnabled(): boolean {
 /**
  * Start tracking a session switch.
  * Call this when user clicks on a session in the list.
+ * Clears any other pending switches (user navigated away before completion).
  */
 export function startSessionSwitch(sessionId: string): void {
   if (!debugMode) return
+
+  // Clear any other pending switches - user navigated away before they completed
+  pendingSwitches.clear()
 
   const metric: SessionSwitchMetric = {
     sessionId,

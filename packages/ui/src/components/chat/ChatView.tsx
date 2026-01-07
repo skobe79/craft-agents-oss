@@ -13,6 +13,7 @@ import type { ReactNode } from 'react'
 import { useMemo, useState, useCallback } from 'react'
 import type { StoredSession } from '@craft-agent/core'
 import { cn } from '../../lib/utils'
+import { CHAT_LAYOUT, CHAT_CLASSES } from '../../lib/layout'
 import { PlatformProvider, type PlatformActions } from '../../context'
 import { Markdown } from '../markdown'
 import { TurnCard } from './TurnCard'
@@ -176,18 +177,19 @@ export function ChatView({
         )}
 
         {/* Messages area */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-4xl mx-auto py-4 space-y-2">
+        <div className="flex-1 overflow-y-auto bg-foreground-2">
+          <div className={cn(CHAT_LAYOUT.maxWidth, "mx-auto", CHAT_LAYOUT.containerPadding, CHAT_LAYOUT.messageSpacing)}>
             {turns.map((turn) => {
               if (turn.type === 'user') {
                 return (
-                  <UserMessageBubble
-                    key={turn.message.id}
-                    content={turn.message.content}
-                    attachments={turn.message.attachments}
-                    onUrlClick={platformActions.onOpenUrl}
-                    onFileClick={platformActions.onOpenFile}
-                  />
+                  <div key={turn.message.id} className={CHAT_LAYOUT.userMessageTopPadding}>
+                    <UserMessageBubble
+                      content={turn.message.content}
+                      attachments={turn.message.attachments}
+                      onUrlClick={platformActions.onOpenUrl}
+                      onFileClick={platformActions.onOpenFile}
+                    />
+                  </div>
                 )
               }
 
@@ -206,45 +208,44 @@ export function ChatView({
 
               if (turn.type === 'plan') {
                 return (
-                  <div key={turn.message.id} className="px-4">
-                    <PlanCard
-                      content={turn.message.content}
-                      onOpenFile={platformActions.onOpenFile}
-                      onOpenUrl={platformActions.onOpenUrl}
-                    />
-                  </div>
+                  <PlanCard
+                    key={turn.message.id}
+                    content={turn.message.content}
+                    onOpenFile={platformActions.onOpenFile}
+                    onOpenUrl={platformActions.onOpenUrl}
+                    showAcceptPlan={mode !== 'readonly'}
+                  />
                 )
               }
 
               if (turn.type === 'assistant') {
                 return (
-                  <div key={turn.turnId} className="px-4">
-                    <TurnCard
-                      turnId={turn.turnId}
-                      activities={turn.activities}
-                      response={turn.response}
-                      intent={turn.intent}
-                      isStreaming={turn.isStreaming}
-                      isComplete={turn.isComplete}
-                      isExpanded={expandedTurns.has(turn.turnId)}
-                      onExpandedChange={(expanded) => handleExpandedChange(turn.turnId, expanded)}
-                      onOpenFile={platformActions.onOpenFile}
-                      onOpenUrl={platformActions.onOpenUrl}
-                      onPopOut={platformActions.onOpenMarkdownPreview}
-                      onOpenDetails={() => handleOpenTurnDetails(turn.turnId)}
-                      onOpenActivityDetails={handleOpenActivityDetails}
-                      todos={turn.todos}
-                      expandedActivityGroups={expandedActivityGroups}
-                      onExpandedActivityGroupsChange={handleExpandedActivityGroupsChange}
-                      hasEditOrWriteActivities={turn.activities.some(a =>
-                        a.toolName === 'Edit' || a.toolName === 'Write'
-                      )}
-                      onOpenMultiFileDiff={platformActions.onOpenMultiFileDiff
-                        ? () => platformActions.onOpenMultiFileDiff!(session.id, turn.turnId)
-                        : undefined
-                      }
-                    />
-                  </div>
+                  <TurnCard
+                    key={turn.turnId}
+                    turnId={turn.turnId}
+                    activities={turn.activities}
+                    response={turn.response}
+                    intent={turn.intent}
+                    isStreaming={turn.isStreaming}
+                    isComplete={turn.isComplete}
+                    isExpanded={expandedTurns.has(turn.turnId)}
+                    onExpandedChange={(expanded) => handleExpandedChange(turn.turnId, expanded)}
+                    onOpenFile={platformActions.onOpenFile}
+                    onOpenUrl={platformActions.onOpenUrl}
+                    onPopOut={platformActions.onOpenMarkdownPreview}
+                    onOpenDetails={() => handleOpenTurnDetails(turn.turnId)}
+                    onOpenActivityDetails={handleOpenActivityDetails}
+                    todos={turn.todos}
+                    expandedActivityGroups={expandedActivityGroups}
+                    onExpandedActivityGroupsChange={handleExpandedActivityGroupsChange}
+                    hasEditOrWriteActivities={turn.activities.some(a =>
+                      a.toolName === 'Edit' || a.toolName === 'Write'
+                    )}
+                    onOpenMultiFileDiff={platformActions.onOpenMultiFileDiff
+                      ? () => platformActions.onOpenMultiFileDiff!(session.id, turn.turnId)
+                      : undefined
+                    }
+                  />
                 )
               }
 
@@ -252,7 +253,7 @@ export function ChatView({
             })}
 
             {/* Bottom branding */}
-            <div className="flex justify-center pt-16 pb-24">
+            <div className={CHAT_CLASSES.brandingContainer}>
               <CraftAgentLogo className="w-8 h-8 text-[#9570BE]/40" />
             </div>
           </div>

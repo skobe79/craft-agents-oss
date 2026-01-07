@@ -8,13 +8,11 @@ import { SessionManager } from './sessions'
 import { ipcLog } from './logger'
 import { WindowManager } from './window-manager'
 import { PreviewWindowManager } from './preview-window'
-import { DiffPreviewWindowManager } from './diff-preview-window'
-import { CodePreviewWindowManager } from './code-preview-window'
 import { TerminalPreviewWindowManager } from './terminal-preview-window'
-import { MultiFileDiffWindowManager } from './multi-file-diff-window'
+import { FilePreviewWindowManager } from './file-preview-window'
 import { agentService } from './agent-service'
 import { registerOnboardingHandlers } from './onboarding'
-import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions, type DiffPreviewData, type CodePreviewData, type TerminalPreviewData, type MultiFileDiffData } from '../shared/types'
+import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AgentActivateOptions, type AuthType, type BillingMethodInfo, type SendMessageOptions, type TerminalPreviewData, type FilePreviewData } from '../shared/types'
 import { readFileAttachment, perf } from '@craft-agent/shared/utils'
 import { getAiCreditTopUpUrl } from '@craft-agent/shared/auth'
 import { getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultPermissionMode, setDefaultPermissionMode, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, type Workspace } from '@craft-agent/shared/config'
@@ -118,7 +116,7 @@ async function validateFilePath(filePath: string): Promise<string> {
   return realPath
 }
 
-export function registerIpcHandlers(sessionManager: SessionManager, windowManager: WindowManager, previewWindowManager: PreviewWindowManager, diffPreviewWindowManager: DiffPreviewWindowManager, codePreviewWindowManager: CodePreviewWindowManager, terminalPreviewWindowManager: TerminalPreviewWindowManager, multiFileDiffWindowManager: MultiFileDiffWindowManager): void {
+export function registerIpcHandlers(sessionManager: SessionManager, windowManager: WindowManager, previewWindowManager: PreviewWindowManager, terminalPreviewWindowManager: TerminalPreviewWindowManager, filePreviewWindowManager: FilePreviewWindowManager): void {
   // Get all sessions
   ipcMain.handle(IPC_CHANNELS.GET_SESSIONS, async () => {
     const end = perf.start('ipc.getSessions')
@@ -1044,34 +1042,6 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   })
 
   // ============================================================
-  // Diff Preview Window
-  // ============================================================
-
-  // Open diff preview window
-  ipcMain.handle(IPC_CHANNELS.DIFF_PREVIEW_OPEN, async (_event, sessionId: string, diffId: string, data: DiffPreviewData) => {
-    diffPreviewWindowManager.openDiffPreview(sessionId, diffId, data)
-  })
-
-  // Get data for a diff preview (called from diff preview window on mount)
-  ipcMain.handle(IPC_CHANNELS.DIFF_PREVIEW_GET_DATA, async (_event, sessionId: string, diffId: string) => {
-    return diffPreviewWindowManager.getData(sessionId, diffId)
-  })
-
-  // ============================================================
-  // Code Preview Window (Read/Write tools)
-  // ============================================================
-
-  // Open code preview window
-  ipcMain.handle(IPC_CHANNELS.CODE_PREVIEW_OPEN, async (_event, sessionId: string, previewId: string, data: CodePreviewData) => {
-    codePreviewWindowManager.openCodePreview(sessionId, previewId, data)
-  })
-
-  // Get data for a code preview (called from code preview window on mount)
-  ipcMain.handle(IPC_CHANNELS.CODE_PREVIEW_GET_DATA, async (_event, sessionId: string, previewId: string) => {
-    return codePreviewWindowManager.getData(sessionId, previewId)
-  })
-
-  // ============================================================
   // Terminal Preview Window (Bash tools)
   // ============================================================
 
@@ -1086,29 +1056,28 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   })
 
   // ============================================================
-  // Multi-File Diff Window (all edits/writes in a turn)
+  // Unified File Preview Window (view, diff, multi-diff)
   // ============================================================
 
-  // Open multi-file diff window
-  ipcMain.handle(IPC_CHANNELS.MULTI_FILE_DIFF_OPEN, async (_event, sessionId: string, turnId: string, data: MultiFileDiffData) => {
-    multiFileDiffWindowManager.openMultiFileDiff(sessionId, turnId, data)
+  // Open unified file preview window
+  ipcMain.handle(IPC_CHANNELS.FILE_PREVIEW_OPEN, async (_event, data: FilePreviewData) => {
+    filePreviewWindowManager.openFilePreview(data)
   })
 
-  // Get data for a multi-file diff window (called from multi-file diff window on mount)
-  ipcMain.handle(IPC_CHANNELS.MULTI_FILE_DIFF_GET_DATA, async (_event, sessionId: string, turnId: string) => {
-    return multiFileDiffWindowManager.getData(sessionId, turnId)
+  // Get data for file preview (called from file preview window on mount)
+  ipcMain.handle(IPC_CHANNELS.FILE_PREVIEW_GET_DATA, async (_event, sessionId: string, previewId: string) => {
+    return filePreviewWindowManager.getData(sessionId, previewId)
   })
 
-  // Read a file for full-context diff view
-  ipcMain.handle(IPC_CHANNELS.MULTI_FILE_DIFF_READ_FILE, async (_event, filePath: string) => {
+  // Read a file for full-context view
+  ipcMain.handle(IPC_CHANNELS.FILE_PREVIEW_READ_FILE, async (_event, filePath: string) => {
     try {
-      // Resolve relative paths to absolute (Edit tool may use relative paths)
       const absolutePath = resolve(filePath)
       const validPath = await validateFilePath(absolutePath)
       const content = await readFile(validPath, 'utf-8')
       return content
     } catch (err) {
-      ipcLog.error('Error reading file for diff:', err)
+      ipcLog.error('Error reading file for preview:', err)
       return null
     }
   })

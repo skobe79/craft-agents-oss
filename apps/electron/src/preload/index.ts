@@ -239,6 +239,14 @@ const api: ElectronAPI = {
   readFileForDiff: (filePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.MULTI_FILE_DIFF_READ_FILE, filePath),
 
+  // Unified file preview window (replaces code/diff/multi-file diff)
+  openFilePreview: (data: import('../shared/types').FilePreviewData) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_PREVIEW_OPEN, data),
+  getFilePreviewData: (sessionId: string, previewId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_PREVIEW_GET_DATA, sessionId, previewId),
+  readFileForPreview: (filePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_PREVIEW_READ_FILE, filePath),
+
   // Session Drafts (persisted input text)
   getDraft: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_GET, sessionId),
   setDraft: (sessionId: string, text: string) => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_SET, sessionId, text),

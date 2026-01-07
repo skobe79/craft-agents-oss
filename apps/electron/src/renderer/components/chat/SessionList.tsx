@@ -297,7 +297,9 @@ function SessionItem({
         <button
           {...itemProps}
           className={cn(
-            "flex w-full items-start gap-2 pl-2 pr-4 py-3 text-left text-sm transition-all outline-none rounded-[8px]",
+            "flex w-full items-start gap-2 pl-2 pr-4 py-3 text-left text-sm outline-none rounded-[8px]",
+            // Fast hover transition (75ms vs default 150ms), selection is instant
+            "transition-[background-color] duration-75",
             isSelected
               ? "bg-foreground/5 hover:bg-foreground/7"
               : "hover:bg-foreground/2"

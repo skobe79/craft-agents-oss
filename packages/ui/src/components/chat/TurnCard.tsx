@@ -12,8 +12,6 @@ import {
   Ban,
   Copy,
   Check,
-  FileDiff,
-  MoreHorizontal,
   X,
   Maximize2,
   CircleCheck,
@@ -22,6 +20,7 @@ import * as ReactDOM from 'react-dom'
 import { cn } from '../../lib/utils'
 import { Markdown } from '../markdown'
 import { Spinner } from '../ui/LoadingIndicator'
+import { TurnCardActionsMenu } from './TurnCardActionsMenu'
 import { computeLastChildSet, groupActivitiesByParent, isActivityGroup, formatDuration, formatTokens, type ActivityGroup } from './turn-utils'
 
 // ============================================================================
@@ -1138,7 +1137,7 @@ function TodoList({ todos }: TodoListProps) {
   if (todos.length === 0) return null
 
   return (
-    <div className="pl-4 pr-3 pt-2.5 pb-1.5 space-y-0.5 border-l-2 border-muted ml-[19px]">
+    <div className="pl-4 pr-2 pt-2.5 pb-1.5 space-y-0.5 border-l-2 border-muted ml-[13px]">
       {/* Header */}
       <div className={cn("text-muted-foreground pb-1", SIZE_CONFIG.fontSize)}>
         Todo List
@@ -1167,8 +1166,11 @@ function TodoList({ todos }: TodoListProps) {
  *
  * Batches all activities (tools, thinking) into a collapsible section
  * with the final response displayed separately below.
+ *
+ * Memoized to prevent re-renders of completed turns during session switches.
+ * Only complete, non-streaming turns are memoized - active turns always re-render.
  */
-export function TurnCard({
+export const TurnCard = React.memo(function TurnCard({
   sessionId,
   turnId,
   activities,
@@ -1280,7 +1282,7 @@ export function TurnCard({
           <button
             onClick={toggleExpanded}
             className={cn(
-              "flex items-center gap-2 w-full pl-4 pr-3 py-1.5 rounded-[8px] text-left",
+              "flex items-center gap-2 w-full pl-2.5 pr-1.5 py-1.5 rounded-[8px] text-left",
               SIZE_CONFIG.fontSize,
               "text-muted-foreground",
               "hover:bg-muted/50 transition-colors",
@@ -1298,7 +1300,7 @@ export function TurnCard({
             </motion.div>
 
             {/* Step count badge */}
-            <span className="shrink-0 px-1.5 py-0.5 rounded-[4px] bg-background shadow-minimal text-[10px] font-medium tabular-nums">
+            <span className="-ml-0.5 shrink-0 px-1.5 py-0.5 rounded-[4px] bg-background shadow-minimal text-[10px] font-medium tabular-nums">
               {activities.length}
             </span>
 
@@ -1318,8 +1320,14 @@ export function TurnCard({
               </AnimatePresence>
             </span>
 
-            {/* Turn actions menu - provided by platform */}
-            {renderActionsMenu?.()}
+            {/* Turn actions menu - use platform override or default */}
+            {renderActionsMenu ? renderActionsMenu() : (
+              <TurnCardActionsMenu
+                onOpenDetails={onOpenDetails}
+                onOpenMultiFileDiff={onOpenMultiFileDiff}
+                hasEditOrWriteActivities={hasEditOrWriteActivities}
+              />
+            )}
           </button>
 
           {/* Expanded Activity List */}
@@ -1336,10 +1344,10 @@ export function TurnCard({
                 className="overflow-hidden"
               >
                 {/* Scrollable container when many activities - subtle background for scroll context */}
-                {/* ml-[19px] positions the border-l under the chevron */}
+                {/* ml-[15px] positions the border-l under the chevron */}
                 <div
                   className={cn(
-                    "pl-4 pr-3 py-0 space-y-0.5 border-l-2 border-muted ml-[19px]",
+                    "pl-4 pr-2 py-0 space-y-0.5 border-l-2 border-muted ml-[13px]",
                     sortedActivities.length > SIZE_CONFIG.maxVisibleActivities && "rounded-r-md overflow-y-auto py-1.5"
                   )}
                   style={{
@@ -1439,4 +1447,21 @@ export function TurnCard({
       )}
     </div>
   )
-}
+}, (prev, next) => {
+  // Conservative memoization: only skip re-render for completed, non-streaming turns
+  // Active turns (streaming or incomplete) always re-render to show updates
+
+  // Always re-render streaming turns
+  if (prev.isStreaming || next.isStreaming) return false
+
+  // Always re-render incomplete turns
+  if (!prev.isComplete || !next.isComplete) return false
+
+  // Re-render if expansion state changed
+  if (prev.isExpanded !== next.isExpanded) return false
+  if (prev.expandedActivityGroups !== next.expandedActivityGroups) return false
+
+  // For complete, non-streaming turns: skip re-render if same turn
+  // These are static and safe to cache
+  return prev.turnId === next.turnId
+})

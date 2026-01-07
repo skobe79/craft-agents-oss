@@ -17,9 +17,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { Markdown, CollapsibleMarkdownProvider, StreamingMarkdown, type RenderMode } from "@/components/markdown"
 import { AnimatedCollapsibleContent } from "@/components/ui/collapsible"
-import { Spinner } from "@craft-agent/ui"
+import { Spinner, parseReadResult, parseBashResult, parseGrepResult, parseGlobResult } from "@craft-agent/ui"
 import { useFocusZone } from "@/hooks/keyboard"
-import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, LoadedSource, FileChange, MultiFileDiffData } from "../../../shared/types"
+import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, LoadedSource, FileChange, MultiFileDiffData, FilePreviewData } from "../../../shared/types"
 import type { PermissionMode } from "@craft-agent/shared/agent/modes"
 import { SetupAuthBanner, type BannerState } from "./SetupAuthBanner"
 import { TurnCard, PlanCard, UserMessageBubble, groupMessagesByTurn, formatTurnAsMarkdown, formatActivityAsMarkdown, type Turn, type AssistantTurn, type UserTurn, type SystemTurn, type PlanTurn } from "@craft-agent/ui"
@@ -28,7 +28,7 @@ import { InputContainer, type StructuredInputState, type StructuredResponse, typ
 import { useBackgroundTasks } from "@/hooks/useBackgroundTasks"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { SlashCommandMenu, DEFAULT_SLASH_COMMANDS, type SlashCommandId } from "@/components/ui/slash-command-menu"
-import { CONTENT_MAX_WIDTH_CLASS } from "@/config/layout"
+import { CONTENT_MAX_WIDTH_CLASS, CHAT_LAYOUT } from "@/config/layout"
 
 /** Agent setup state for showing setup indicator in input area */
 interface AgentSetupState {
@@ -276,6 +276,9 @@ export function ChatDisplay({
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const scrollViewportRef = React.useRef<HTMLDivElement>(null)
   const prevSessionIdRef = React.useRef<string | null>(null)
+  // Reverse pagination: show last N turns initially, load more on scroll up
+  const TURNS_PER_PAGE = 20
+  const [visibleTurnCount, setVisibleTurnCount] = React.useState(TURNS_PER_PAGE)
   // Sticky-bottom: When true, auto-scroll on content changes. Toggled by user scroll behavior.
   const isStickToBottomRef = React.useRef(true)
   const internalTextareaRef = React.useRef<HTMLTextAreaElement>(null)
@@ -311,9 +314,13 @@ export function ChatDisplay({
     })
   }, [session])
 
+  // Ref to track total turn count for scroll handler
+  const totalTurnCountRef = React.useRef(0)
+
   // Track scroll position to toggle sticky-bottom behavior
   // - User scrolls up → unstick (stop auto-scrolling)
   // - User scrolls back to bottom → re-stick (resume auto-scrolling)
+  // Also handles loading more turns when scrolling near top
   const handleScroll = React.useCallback(() => {
     const viewport = scrollViewportRef.current
     if (!viewport) return
@@ -321,6 +328,26 @@ export function ChatDisplay({
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight
     // 20px threshold for "at bottom" detection
     isStickToBottomRef.current = distanceFromBottom < 20
+
+    // Load more turns when scrolling near top (within 100px)
+    if (scrollTop < 100) {
+      setVisibleTurnCount(prev => {
+        // Check if there are more turns to load
+        const currentStartIndex = Math.max(0, totalTurnCountRef.current - prev)
+        if (currentStartIndex <= 0) return prev // Already showing all
+
+        // Remember scroll height before adding more items
+        const prevScrollHeight = viewport.scrollHeight
+
+        // Schedule scroll position adjustment after render
+        requestAnimationFrame(() => {
+          const newScrollHeight = viewport.scrollHeight
+          viewport.scrollTop = newScrollHeight - prevScrollHeight + scrollTop
+        })
+
+        return prev + TURNS_PER_PAGE
+      })
+    }
   }, [])
 
   // Set up scroll event listener
@@ -340,9 +367,10 @@ export function ChatDisplay({
     const isSessionSwitch = prevSessionIdRef.current !== session?.id
     prevSessionIdRef.current = session?.id ?? null
 
-    // On session switch: scroll immediately and re-stick to bottom
+    // On session switch: scroll immediately, re-stick to bottom, reset pagination
     if (isSessionSwitch) {
       isStickToBottomRef.current = true
+      setVisibleTurnCount(TURNS_PER_PAGE)
       messagesEndRef.current?.scrollIntoView({ behavior: 'instant' })
     }
 
@@ -426,21 +454,29 @@ export function ChatDisplay({
   }, [pendingPermission, pendingCredential])
 
   // Memoize turn grouping - avoids O(n) iteration on every render/keystroke
-  const turns = React.useMemo(() => {
+  const allTurns = React.useMemo(() => {
     if (!session) return []
     return groupMessagesByTurn(session.messages)
   }, [session?.messages])
 
+  // Keep ref in sync for scroll handler
+  totalTurnCountRef.current = allTurns.length
+
+  // Reverse pagination: only render last N turns for fast initial render
+  const startIndex = Math.max(0, allTurns.length - visibleTurnCount)
+  const turns = allTurns.slice(startIndex)
+  const hasMoreAbove = startIndex > 0
+
   return (
     <div ref={zoneRef} className="flex h-full flex-col min-w-0" data-focus-zone="chat">
       {session ? (
-        <div className="flex flex-1 flex-col min-h-0 min-w-0">
+        <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-foreground-2">
           {/* === MESSAGES AREA: Scrollable list of message bubbles === */}
           <div className="relative flex-1 min-h-0">
             {/* Top fade gradient - absolutely positioned overlay */}
-            <div className="absolute top-0 left-0 right-2 h-8 z-10 bg-gradient-to-b from-background to-transparent pointer-events-none" />
+            <div className="absolute top-0 left-0 right-2 h-8 z-10 bg-gradient-to-b from-foreground-2 to-transparent pointer-events-none" />
             <ScrollArea className="h-full min-w-0" viewportRef={scrollViewportRef}>
-            <div className={cn(CONTENT_MAX_WIDTH_CLASS, "mx-auto px-5 py-8 space-y-2.5 min-w-0")}>
+            <div className={cn(CHAT_LAYOUT.maxWidth, "mx-auto", CHAT_LAYOUT.containerPadding, CHAT_LAYOUT.messageSpacing, "min-w-0")}>
               {session.messages.length === 0 ? (
                 /* Empty State: Welcome message for new sessions */
                 <div className="flex flex-col items-center justify-center h-64 text-muted-foreground px-8">
@@ -451,13 +487,19 @@ export function ChatDisplay({
                 </div>
               ) : (
                 /* Turn-based Message Display - memoized to avoid re-grouping on every render */
-                (() => {
-                  return turns.map((turn, index) => {
+                <>
+                  {/* Load more indicator - shown when there are older messages */}
+                  {hasMoreAbove && (
+                    <div className="text-center text-muted-foreground/60 text-xs py-3 select-none">
+                      ↑ Scroll up for earlier messages ({startIndex} more)
+                    </div>
+                  )}
+                  {turns.map((turn, index) => {
                     // User turns - render with MemoizedMessageBubble
                     // Extra top margin creates visual separation after AI responses
                     if (turn.type === 'user') {
                       return (
-                        <div key={`user-${turn.message.id}`} className="pt-3">
+                        <div key={`user-${turn.message.id}`} className={CHAT_LAYOUT.userMessageTopPadding}>
                           <MemoizedMessageBubble
                             message={turn.message}
                             onOpenFile={onOpenFile}
@@ -587,82 +629,52 @@ export function ChatDisplay({
                               }
 
                               if (changes.length > 0) {
-                                const diffData: MultiFileDiffData = {
+                                const previewData: FilePreviewData = {
+                                  mode: 'multi-diff',
                                   sessionId: session.id,
-                                  turnId: turn.turnId,
-                                  changes,
-                                  consolidated: false, // Ungrouped mode
-                                  focusedChangeId: activity.id, // Focus on clicked activity
+                                  previewId: `multi-${turn.turnId}-${activity.id}`,
+                                  multiDiff: {
+                                    turnId: turn.turnId,
+                                    changes,
+                                    consolidated: false, // Ungrouped mode
+                                    focusedChangeId: activity.id, // Focus on clicked activity
+                                  },
                                 }
-                                window.electronAPI.openMultiFileDiff(session.id, turn.turnId, diffData)
+                                window.electronAPI.openFilePreview(previewData)
                               }
                             }
                             // Read tool → Code preview (read mode)
                             else if (activity.toolName === 'Read' && input) {
                               // Always use input.file_path as the absolute path for opening files
                               const filePath = (input.file_path as string) || 'unknown'
-                              let content = activity.content || ''
-                              let numLines: number | undefined
-                              let startLine: number | undefined
-                              let totalLines: number | undefined
+                              const parsed = parseReadResult(activity.content || '')
 
-                              // Try to parse JSON structure from Read tool result for metadata
-                              try {
-                                const parsed = JSON.parse(content)
-                                if (parsed.file) {
-                                  // Use content and metadata from JSON, but keep absolute filePath from input
-                                  content = parsed.file.content || ''
-                                  numLines = parsed.file.numLines
-                                  startLine = parsed.file.startLine
-                                  totalLines = parsed.file.totalLines
-                                }
-                              } catch {
-                                // Not JSON, use as plain text
+                              const previewData: FilePreviewData = {
+                                mode: 'view',
+                                sessionId: session.id,
+                                previewId: `code-${activity.id}`,
+                                view: {
+                                  filePath,
+                                  content: parsed.content,
+                                  toolType: 'read',
+                                  numLines: parsed.numLines,
+                                  startLine: parsed.startLine,
+                                  totalLines: parsed.totalLines,
+                                },
                               }
-
-                              window.electronAPI.openCodePreview(session.id, `code-${activity.id}`, {
-                                filePath,
-                                content,
-                                mode: 'read',
-                                numLines,
-                                startLine,
-                                totalLines,
-                              })
+                              window.electronAPI.openFilePreview(previewData)
                             }
                             // Bash tool → Terminal preview
                             else if (activity.toolName === 'Bash' && input) {
                               const command = (input.command as string) || ''
                               const description = (input.description as string) || undefined
-                              // Parse exit code and output from JSON result
-                              let exitCode: number | undefined
-                              let output = activity.content || ''
-
-                              // Try to parse JSON structure from Bash tool result
-                              try {
-                                const parsed = JSON.parse(output)
-                                if (parsed.stdout !== undefined || parsed.stderr !== undefined) {
-                                  // Combine stdout and stderr, preserving formatting
-                                  const stdout = parsed.stdout || ''
-                                  const stderr = parsed.stderr || ''
-                                  output = stdout + (stderr ? `\n${stderr}` : '')
-                                  // exitCode might not be in the result, check interrupted flag
-                                  if (parsed.interrupted) {
-                                    exitCode = 130 // Standard SIGINT exit code
-                                  }
-                                }
-                              } catch {
-                                // Not JSON, parse exit code from text if present
-                                const exitMatch = output.match(/Exit code: (\d+)/)
-                                if (exitMatch) {
-                                  exitCode = parseInt(exitMatch[1], 10)
-                                }
-                              }
+                              const parsed = parseBashResult(activity.content || '')
 
                               window.electronAPI.openTerminalPreview(session.id, `terminal-${activity.id}`, {
                                 command,
-                                output,
+                                output: parsed.output,
                                 description,
-                                exitCode,
+                                exitCode: parsed.exitCode,
                                 toolType: 'bash',
                               })
                             }
@@ -671,34 +683,12 @@ export function ChatDisplay({
                               const pattern = (input.pattern as string) || ''
                               const searchPath = (input.path as string) || '.'
                               const outputMode = (input.output_mode as string) || 'files_with_matches'
-                              const rawOutput = activity.content || ''
-
-                              // Try to parse JSON structure from Grep tool result
-                              let output = rawOutput
-                              let description = `Search for "${pattern}"`
-                              try {
-                                const parsed = JSON.parse(rawOutput)
-                                if (parsed.content !== undefined) {
-                                  output = parsed.content || ''
-                                  // Add file count info if available
-                                  if (parsed.numFiles !== undefined) {
-                                    description = `Search for "${pattern}" (${parsed.numFiles} files, ${parsed.numLines || 0} lines)`
-                                  }
-                                } else if (parsed.filenames) {
-                                  // files_with_matches mode returns filenames array
-                                  output = parsed.filenames.join('\n')
-                                  description = `Search for "${pattern}" (${parsed.filenames.length} files)`
-                                }
-                              } catch {
-                                // Not JSON, use as plain text
-                              }
-
-                              const command = `grep "${pattern}" ${searchPath} --${outputMode}`
+                              const parsed = parseGrepResult(activity.content || '', pattern, searchPath, outputMode)
 
                               window.electronAPI.openTerminalPreview(session.id, `terminal-${activity.id}`, {
-                                command,
-                                output,
-                                description,
+                                command: parsed.command,
+                                output: parsed.output,
+                                description: parsed.description,
                                 toolType: 'grep',
                               })
                             }
@@ -706,33 +696,12 @@ export function ChatDisplay({
                             else if (activity.toolName === 'Glob' && input) {
                               const pattern = (input.pattern as string) || '*'
                               const searchPath = (input.path as string) || '.'
-                              const rawOutput = activity.content || ''
-
-                              // Try to parse JSON structure from Glob tool result
-                              let output = rawOutput
-                              let description = `Find files matching "${pattern}"`
-                              try {
-                                const parsed = JSON.parse(rawOutput)
-                                if (parsed.filenames && Array.isArray(parsed.filenames)) {
-                                  // Standard Glob result format: { filenames: [...], numFiles, durationMs, truncated }
-                                  output = parsed.filenames.join('\n')
-                                  const truncatedNote = parsed.truncated ? ' (truncated)' : ''
-                                  description = `Find files matching "${pattern}" (${parsed.numFiles || parsed.filenames.length} files${truncatedNote})`
-                                } else if (Array.isArray(parsed)) {
-                                  // Simple array format
-                                  output = parsed.join('\n')
-                                  description = `Find files matching "${pattern}" (${parsed.length} matches)`
-                                }
-                              } catch {
-                                // Not JSON, use as plain text
-                              }
-
-                              const command = `glob "${pattern}" in ${searchPath}`
+                              const parsed = parseGlobResult(activity.content || '', pattern, searchPath)
 
                               window.electronAPI.openTerminalPreview(session.id, `terminal-${activity.id}`, {
-                                command,
-                                output,
-                                description,
+                                command: parsed.command,
+                                output: parsed.output,
+                                description: parsed.description,
                                 toolType: 'glob',
                               })
                             }
@@ -778,19 +747,23 @@ export function ChatDisplay({
                             }
 
                             if (changes.length > 0) {
-                              const diffData: MultiFileDiffData = {
+                              const previewData: FilePreviewData = {
+                                mode: 'multi-diff',
                                 sessionId: session.id,
-                                turnId: turn.turnId,
-                                changes,
+                                previewId: `multi-${turn.turnId}`,
+                                multiDiff: {
+                                  turnId: turn.turnId,
+                                  changes,
+                                },
                               }
-                              window.electronAPI.openMultiFileDiff(session.id, turn.turnId, diffData)
+                              window.electronAPI.openFilePreview(previewData)
                             }
                           }
                         }}
                       />
                     )
-                  })
-                })()
+                  })}
+                </>
               )}
               {/* Processing Indicator - always visible while processing */}
               {session.isProcessing && (() => {
@@ -808,7 +781,7 @@ export function ChatDisplay({
             </div>
           </ScrollArea>
             {/* Bottom fade gradient - absolutely positioned overlay */}
-            <div className="absolute bottom-0 left-0 right-2 h-8 z-10 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+            <div className="absolute bottom-0 left-0 right-2 h-8 z-10 bg-gradient-to-t from-foreground-2 to-transparent pointer-events-none" />
           </div>
 
           {/* === INPUT CONTAINER: FreeForm or Structured Input === */}

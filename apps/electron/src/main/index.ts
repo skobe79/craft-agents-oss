@@ -6,10 +6,8 @@ import { registerIpcHandlers } from './ipc'
 import { createApplicationMenu } from './menu'
 import { WindowManager } from './window-manager'
 import { PreviewWindowManager } from './preview-window'
-import { DiffPreviewWindowManager } from './diff-preview-window'
-import { CodePreviewWindowManager } from './code-preview-window'
 import { TerminalPreviewWindowManager } from './terminal-preview-window'
-import { MultiFileDiffWindowManager } from './multi-file-diff-window'
+import { FilePreviewWindowManager } from './file-preview-window'
 import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces } from '@craft-agent/shared/config'
 import { initializeDocs } from '@craft-agent/shared/docs'
@@ -31,10 +29,8 @@ const DEEPLINK_SCHEME = 'craftagents'
 let windowManager: WindowManager | null = null
 let sessionManager: SessionManager | null = null
 let previewWindowManager: PreviewWindowManager | null = null
-let diffPreviewWindowManager: DiffPreviewWindowManager | null = null
-let codePreviewWindowManager: CodePreviewWindowManager | null = null
 let terminalPreviewWindowManager: TerminalPreviewWindowManager | null = null
-let multiFileDiffWindowManager: MultiFileDiffWindowManager | null = null
+let filePreviewWindowManager: FilePreviewWindowManager | null = null
 
 // Store pending deep link if app not ready yet (cold start)
 let pendingDeepLink: string | null = null
@@ -148,28 +144,22 @@ app.whenReady().then(async () => {
     // Initialize window manager
     windowManager = new WindowManager()
 
-    // Initialize preview window manager
+    // Initialize preview window manager (markdown)
     previewWindowManager = new PreviewWindowManager()
     previewWindowManager.setWindowManager(windowManager)
-
-    // Initialize diff preview window manager
-    diffPreviewWindowManager = new DiffPreviewWindowManager()
-
-    // Initialize code preview window manager
-    codePreviewWindowManager = new CodePreviewWindowManager()
 
     // Initialize terminal preview window manager
     terminalPreviewWindowManager = new TerminalPreviewWindowManager()
 
-    // Initialize multi-file diff window manager
-    multiFileDiffWindowManager = new MultiFileDiffWindowManager()
+    // Initialize unified file preview window manager (view, diff, multi-diff)
+    filePreviewWindowManager = new FilePreviewWindowManager()
 
     // Initialize session manager
     sessionManager = new SessionManager()
     sessionManager.setWindowManager(windowManager)
 
     // Register IPC handlers (must happen before window creation)
-    registerIpcHandlers(sessionManager, windowManager, previewWindowManager, diffPreviewWindowManager, codePreviewWindowManager, terminalPreviewWindowManager, multiFileDiffWindowManager)
+    registerIpcHandlers(sessionManager, windowManager, previewWindowManager, terminalPreviewWindowManager, filePreviewWindowManager)
 
     // Create initial windows (restores from saved state or opens first workspace)
     await createInitialWindows()

@@ -160,8 +160,8 @@ export function ShikiCodeEditor({
     return highlightedCode || code
   }, [resolvedLang, theme, highlight, highlightedCode])
 
-  // Background color to match Monaco's themes
-  const backgroundColor = resolvedMode === 'dark' ? '#1e1e1e' : '#ffffff'
+  // Background color (must match CSS --background values)
+  const backgroundColor = resolvedMode === 'dark' ? '#302f33' : '#faf9fb'
   const textColor = resolvedMode === 'dark' ? '#d4d4d4' : '#1f1f1f'
   const placeholderColor = resolvedMode === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'
 

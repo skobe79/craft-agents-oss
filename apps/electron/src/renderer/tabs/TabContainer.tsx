@@ -36,7 +36,7 @@ import { TabBar } from './TabBar'
 import { TabContent } from './TabContent'
 import { useTabs } from './useTabs'
 import type { Tab, FileTab, BrowserTab, ChatTab } from './types'
-import type { FileChange, MultiFileDiffData } from '../../shared/types'
+import type { FileChange, FilePreviewData } from '../../shared/types'
 
 interface TabContainerProps {
   className?: string
@@ -259,12 +259,16 @@ function TabHeaderActions({ tab, onOpenRename }: TabHeaderActionsProps) {
     }
 
     if (changes.length > 0) {
-      const diffData: MultiFileDiffData = {
+      const previewData: FilePreviewData = {
+        mode: 'multi-diff',
         sessionId: session.id,
-        turnId: 'session', // Use 'session' as a special turnId for session-level view
-        changes,
+        previewId: 'session', // Use 'session' as a special previewId for session-level view
+        multiDiff: {
+          turnId: 'session',
+          changes,
+        },
       }
-      window.electronAPI.openMultiFileDiff(session.id, 'session', diffData)
+      window.electronAPI.openFilePreview(previewData)
     }
   }, [session])
 

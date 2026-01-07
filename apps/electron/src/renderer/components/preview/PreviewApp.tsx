@@ -96,15 +96,14 @@ export function PreviewApp({ previewId }: PreviewAppProps) {
   }, [handleSave, isReadOnly])
 
   // Theme colors
-  const backgroundColor = resolvedMode === 'dark' ? '#1e1e1e' : '#ffffff'
   const toolbarBorder = resolvedMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="h-screen w-screen flex flex-col" style={{ backgroundColor }}>
+      <div className="h-screen w-screen flex flex-col bg-background">
         {/* Toolbar / Title bar */}
         <div
-          className="titlebar-drag-region h-[52px] shrink-0 flex items-center justify-between px-4"
+          className="titlebar-drag-region h-[52px] shrink-0 flex items-center justify-between px-4 bg-background"
           style={{ borderBottom: `1px solid ${toolbarBorder}` }}
         >
           {/* Left side - space for traffic lights on macOS */}
@@ -113,13 +112,7 @@ export function PreviewApp({ previewId }: PreviewAppProps) {
           {/* Center - optional title or indicator */}
           <div className="flex items-center gap-2">
             {hasUnsavedChanges && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full"
-                style={{
-                  backgroundColor: resolvedMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
-                  color: resolvedMode === 'dark' ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)',
-                }}
-              >
+              <span className="text-xs px-2 py-0.5 rounded-full bg-foreground/10 text-foreground/60">
                 Edited
               </span>
             )}
@@ -159,8 +152,8 @@ export function PreviewApp({ previewId }: PreviewAppProps) {
         {/* Editor with fade-in */}
         {content !== null && !error && (
           <div
-            className="flex-1 min-h-0 transition-opacity duration-200"
-            style={{ opacity: isEditorReady ? 1 : 0, backgroundColor }}
+            className="flex-1 min-h-0 bg-background transition-opacity duration-200"
+            style={{ opacity: isEditorReady ? 1 : 0 }}
           >
             <ShikiCodeEditor
               value={content}

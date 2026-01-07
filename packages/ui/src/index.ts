@@ -26,6 +26,7 @@ export {
 export {
   ChatView,
   TurnCard,
+  TurnCardActionsMenu,
   PlanCard,
   UserMessageBubble,
   FileTypeIcon,
@@ -33,6 +34,7 @@ export {
   type ChatViewProps,
   type ChatViewMode,
   type TurnCardProps,
+  type TurnCardActionsMenuProps,
   type PlanCardProps,
   type UserMessageBubbleProps,
   type FileTypeIconProps,
@@ -54,13 +56,82 @@ export {
 } from './components/markdown'
 
 // UI primitives
-export { Spinner, type SpinnerProps } from './components/ui'
+export {
+  Spinner,
+  SimpleDropdown,
+  SimpleDropdownItem,
+  type SpinnerProps,
+  type SimpleDropdownProps,
+  type SimpleDropdownItemProps,
+} from './components/ui'
+
+// Code viewer components
+export {
+  ShikiCodeViewer,
+  ShikiDiffViewer,
+  LANGUAGE_MAP,
+  getLanguageFromPath,
+  formatFilePath,
+  type ShikiCodeViewerProps,
+  type ShikiDiffViewerProps,
+} from './components/code-viewer'
+
+// Terminal components
+export {
+  TerminalOutput,
+  parseAnsi,
+  stripAnsi,
+  isGrepContentOutput,
+  parseGrepOutput,
+  ANSI_COLORS,
+  type TerminalOutputProps,
+  type ToolType,
+  type AnsiSpan,
+  type GrepLine,
+} from './components/terminal'
 
 // Overlay components
-export { CodeOverlay, detectLanguageFromPath, type CodeOverlayProps } from './components/overlay'
+export {
+  CodeOverlay,
+  detectLanguageFromPath,
+  CodePreviewOverlay,
+  DiffPreviewOverlay,
+  TerminalPreviewOverlay,
+  type CodeOverlayProps,
+  type CodePreviewOverlayProps,
+  type DiffPreviewOverlayProps,
+  type TerminalPreviewOverlayProps,
+} from './components/overlay'
 
 // Utilities
 export { cn } from './lib/utils'
+
+// Layout constants and hooks
+export {
+  CHAT_LAYOUT,
+  CHAT_CLASSES,
+  OVERLAY_LAYOUT,
+  useOverlayMode,
+  type OverlayMode,
+} from './lib/layout'
+
+// Tool result parsers
+export {
+  parseReadResult,
+  parseBashResult,
+  parseGrepResult,
+  parseGlobResult,
+  extractOverlayData,
+  type ReadResult,
+  type BashResult,
+  type GrepResult,
+  type GlobResult,
+  type CodeOverlayData,
+  type DiffOverlayData,
+  type TerminalOverlayData,
+  type GenericOverlayData,
+  type OverlayData,
+} from './lib/tool-parsers'
 
 // Turn utilities (pure functions)
 export * from './components/chat/turn-utils'
