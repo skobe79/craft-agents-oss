@@ -1,7 +1,56 @@
 import { debug } from '../utils/debug';
-import { createServer, type Server } from 'http';
+import { createServer as createHttpServer, type Server as HttpServer } from 'http';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'https';
 import { URL } from 'url';
+import selfsigned from 'selfsigned';
 import { CRAFT_LOGO_HTML } from '../branding.ts';
+
+type Server = HttpServer | HttpsServer;
+
+// Cache the generated certificate for reuse during the session
+let cachedCert: { key: string; cert: string } | null = null;
+let certGenerationPromise: Promise<{ key: string; cert: string }> | null = null;
+
+/**
+ * Generate a self-signed certificate for localhost
+ * Caches the result so we don't regenerate on every OAuth flow
+ */
+async function getOrCreateSelfSignedCert(): Promise<{ key: string; cert: string }> {
+  if (cachedCert) {
+    return cachedCert;
+  }
+
+  // Prevent multiple concurrent generations
+  if (certGenerationPromise) {
+    return certGenerationPromise;
+  }
+
+  certGenerationPromise = (async () => {
+    const attrs = [{ name: 'commonName', value: 'localhost' }];
+    const pems = await selfsigned.generate(attrs, {
+      keySize: 2048,
+      extensions: [
+        { name: 'basicConstraints', cA: true },
+        {
+          name: 'subjectAltName',
+          altNames: [
+            { type: 2, value: 'localhost' },
+            { type: 7, ip: '127.0.0.1' },
+          ],
+        },
+      ],
+    });
+
+    cachedCert = {
+      key: pems.private,
+      cert: pems.cert,
+    };
+
+    return cachedCert;
+  })();
+
+  return certGenerationPromise;
+}
 
 const START_PORT = 6477;
 const MAX_PORT_ATTEMPTS = 100;
@@ -514,7 +563,7 @@ ${autoCloseScript}
 
 async function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const server = createServer();
+    const server = createHttpServer();
     server.once('error', () => {
       resolve(false);
     });
@@ -539,13 +588,17 @@ export interface CreateCallbackServerOptions {
   appType?: AppType;
   /** Deep link URL to redirect to after successful auth (e.g., craftagents://auth-complete) */
   deeplinkUrl?: string;
+  /** Use HTTPS instead of HTTP (required for some OAuth providers like Slack) */
+  useHttps?: boolean;
 }
 
 export async function createCallbackServer(options?: CreateCallbackServerOptions): Promise<CallbackServer> {
   const appType = options?.appType ?? 'terminal';
   const deeplinkUrl = options?.deeplinkUrl;
+  const useHttps = options?.useHttps ?? false;
   const port = await findAvailablePort();
-  
+  const protocol = useHttps ? 'https' : 'http';
+
   let server: Server | null = null;
   let resolveCallback: ((payload: CallbackPayload) => void) | null = null;
   let rejectCallback: ((error: Error) => void) | null = null;
@@ -555,7 +608,7 @@ export async function createCallbackServer(options?: CreateCallbackServerOptions
     rejectCallback = reject;
   });
 
-  server = createServer(async (req, res) => {
+  const requestHandler = async (req: import('http').IncomingMessage, res: import('http').ServerResponse) => {
     try {
       const url = new URL(req.url || '/', `http://127.0.0.1:${port}`);
 
@@ -620,7 +673,15 @@ export async function createCallbackServer(options?: CreateCallbackServerOptions
         server = null;
       }
     }
-  });
+  };
+
+  // Create HTTP or HTTPS server based on option
+  if (useHttps) {
+    const cert = await getOrCreateSelfSignedCert();
+    server = createHttpsServer({ key: cert.key, cert: cert.cert }, requestHandler);
+  } else {
+    server = createHttpServer(requestHandler);
+  }
 
   await new Promise<void>((resolve, reject) => {
     server?.once('error', (error) => {
@@ -633,7 +694,7 @@ export async function createCallbackServer(options?: CreateCallbackServerOptions
   });
   return {
     promise: callbackPromise,
-    url: `http://localhost:${port}`,
+    url: `${protocol}://localhost:${port}`,
     close: () => {
       if (server) {
         server.close();
