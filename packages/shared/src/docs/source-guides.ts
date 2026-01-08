@@ -1510,7 +1510,7 @@ Microsoft Graph has throttling limits. If you receive 429 errors, wait before re
     "microsoftService": "teams",
     "testEndpoint": {
       "method": "GET",
-      "path": "me/joinedTeams?$top=1"
+      "path": "me/chats?$top=1"
     }
   },
   "iconUrl": "https://res.cdn.office.net/files/fabric-cdn-prod_20241209.001/assets/brand-icons/product/svg/teams_48x1.svg"
@@ -1840,7 +1840,7 @@ Microsoft Graph has throttling limits. If you receive 429 errors, wait before re
   "provider": "microsoft",
   "type": "api",
   "api": {
-    "baseUrl": "https://graph.microsoft.com/v1.0",
+    "baseUrl": "https://graph.microsoft.com/v1.0/",
     "authType": "bearer",
     "microsoftService": "sharepoint",
     "testEndpoint": {
