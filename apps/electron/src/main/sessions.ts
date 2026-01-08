@@ -33,7 +33,7 @@ import {
   type SessionMetadata,
   type TodoState,
 } from '@craft-agent/shared/sessions'
-import { loadWorkspaceSources, getSourcesBySlugs, type LoadedSource, type McpServerConfig, getSourcesNeedingAuth, getSourceCredentialManager, getSourceServerBuilder, type SourceWithCredential } from '@craft-agent/shared/sources'
+import { loadWorkspaceSources, getSourcesBySlugs, type LoadedSource, type McpServerConfig, getSourcesNeedingAuth, getSourceCredentialManager, getSourceServerBuilder, type SourceWithCredential, isApiOAuthProvider } from '@craft-agent/shared/sources'
 import { ConfigWatcher, type ConfigWatcherCallbacks } from '@craft-agent/shared/config'
 import { getAuthState } from '@craft-agent/shared/auth'
 import { setAnthropicOptionsEnv, setPathToClaudeCodeExecutable, setInterceptorPath, setExecutable } from '@craft-agent/shared/agent'
@@ -55,9 +55,6 @@ export const AGENT_FLAGS = {
   defaultModesEnabled: true,
 } as const
 
-/** Providers that use OAuth for API authentication */
-const OAUTH_PROVIDERS = ['google', 'slack']
-
 /**
  * Build MCP and API servers from sources using the new unified modules.
  * Handles credential loading and server building in one step.
@@ -77,10 +74,10 @@ async function buildServersFromSources(sources: LoadedSource[]) {
   )
   span.mark('credentials.loaded')
 
-  // Build token getter for OAuth sources (Google, Slack use OAuth)
+  // Build token getter for OAuth sources (Google, Slack, Microsoft use OAuth)
   const getTokenForSource = (source: LoadedSource) => {
     const provider = source.config.provider
-    if (provider && OAUTH_PROVIDERS.includes(provider)) {
+    if (isApiOAuthProvider(provider)) {
       return async () => {
         const token = await credManager.getToken(source)
         if (!token) throw new Error(`No token for ${source.config.slug}`)
@@ -155,6 +152,10 @@ interface ManagedSession {
   sourceApiServers?: Record<string, ReturnType<typeof createSdkMcpServer>>
   // Working directory for this session (used by agent for bash commands)
   workingDirectory?: string
+  // Shared viewer URL (if shared via viewer)
+  sharedUrl?: string
+  // Shared session ID in viewer (for revoke)
+  sharedId?: string
   // Sources that need credentials (detected at session creation)
   sourcesNeedingAuth?: LoadedSource[]
   // Whether auto-setup context has been triggered (prevents multiple triggers)
@@ -168,6 +169,8 @@ interface ManagedSession {
     options?: SendMessageOptions
     messageId?: string  // Pre-generated ID for matching with UI
   }>
+  // Map of shellId -> command for killing background shells
+  backgroundShellCommands: Map<string, string>
 }
 
 // Convert runtime Message to StoredMessage for persistence
@@ -779,6 +782,7 @@ export class SessionManager {
             enabledSourceSlugs: storedSession.enabledSourceSlugs,
             workingDirectory: storedSession.workingDirectory ?? wsDefaultWorkingDir,
             messageQueue: [],
+            backgroundShellCommands: new Map(),
           }
 
           this.sessions.set(storedSession.id, managed)
@@ -888,6 +892,32 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
   }
 
   /**
+   * Get a single session by ID with all messages loaded.
+   * Used for lazy loading session messages when session is selected.
+   */
+  getSession(sessionId: string): Session | null {
+    const m = this.sessions.get(sessionId)
+    if (!m) return null
+    return {
+      id: m.id,
+      workspaceId: m.workspace.id,
+      workspaceName: m.workspace.name,
+      name: m.name,
+      lastMessageAt: m.lastMessageAt,
+      messages: m.messages,
+      isProcessing: m.isProcessing,
+      agentId: m.agentId,
+      agentName: m.agentName,
+      isFlagged: m.isFlagged,
+      permissionMode: m.permissionMode,
+      todoState: m.todoState,
+      lastReadMessageId: m.lastReadMessageId,
+      workingDirectory: m.workingDirectory,
+      enabledSourceSlugs: m.enabledSourceSlugs,
+    }
+  }
+
+  /**
    * Get the filesystem path to a session's folder
    */
   getSessionPath(sessionId: string): string | null {
@@ -951,6 +981,7 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       sourcesNeedingAuth: sourcesNeedingAuth.length > 0 ? sourcesNeedingAuth : undefined,
       autoSetupTriggered: false,
       messageQueue: [],
+      backgroundShellCommands: new Map(),
     }
 
     this.sessions.set(storedSession.id, managed)
@@ -1097,29 +1128,6 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
         } catch (error) {
           sessionLog.error(`Failed to read plan file:`, error)
         }
-      }
-
-      // Wire up onWorkingDirectoryChange to sync cwd changes (e.g., from Bash cd)
-      //
-      // CRITICAL: Working directory determines where the SDK stores/finds session files.
-      // The SDK uses `~/.claude/projects/{encoded-cwd}/{session-id}.jsonl` for session data.
-      // If the app crashes/force-quits before persisting workingDirectory, on restart we'll
-      // look in the wrong folder and the session won't resume properly ("No conversation found").
-      //
-      // Solution: Use async handler with immediate flush to ensure workingDirectory is
-      // persisted to disk before any potential crash. The debounced queue alone isn't
-      // sufficient since force-quit can happen before the debounce timer fires.
-      managed.agent.onWorkingDirectoryChange = async (path) => {
-        sessionLog.info(`Working directory changed for session ${managed.id}:`, path)
-        managed.workingDirectory = path
-        this.persistSession(managed)
-        // Force immediate flush - bypasses debounce to ensure crash safety
-        await sessionPersistenceQueue.flush(managed.id)
-        this.sendEvent({
-          type: 'working_directory_changed',
-          sessionId: managed.id,
-          workingDirectory: path
-        }, managed.workspace.id)
       }
 
       // NOTE: Source and agent reloading is now handled by ConfigWatcher callbacks
@@ -1924,17 +1932,66 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       return { success: false, error: 'Session not found' }
     }
 
-    sessionLog.info(`Hiding shell ${shellId} for session: ${sessionId}`)
+    sessionLog.info(`Killing shell ${shellId} for session: ${sessionId}`)
 
-    // Background shells are managed by the Claude Agent SDK. There's no direct API
-    // to terminate them from outside the agent's tool calling loop.
-    //
-    // Rather than sending a visible message to the LLM (which creates poor UX),
-    // we simply acknowledge the request and let the UI remove the task badge.
-    // The shell may continue running in the background until it completes naturally.
-    //
-    // TODO: Consider adding a direct SDK API for shell termination if this becomes
-    // a problem in practice.
+    // Try to kill the actual process using the stored command
+    const command = managed.backgroundShellCommands.get(shellId)
+    if (command) {
+      try {
+        // Use pkill to find and kill processes matching the command
+        // The -f flag matches against the full command line
+        const { exec } = await import('child_process')
+        const { promisify } = await import('util')
+        const execAsync = promisify(exec)
+
+        // Escape the command for use in pkill pattern
+        // We search for the unique command string in process args
+        const escapedCommand = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+        sessionLog.info(`Attempting to kill process with command: ${command.slice(0, 100)}...`)
+
+        // Use pgrep first to find the PID, then kill it
+        // This is safer than pkill -f which can match too broadly
+        try {
+          const { stdout } = await execAsync(`pgrep -f "${escapedCommand}"`)
+          const pids = stdout.trim().split('\n').filter(Boolean)
+
+          if (pids.length > 0) {
+            sessionLog.info(`Found ${pids.length} process(es) to kill: ${pids.join(', ')}`)
+            // Kill each process
+            for (const pid of pids) {
+              try {
+                await execAsync(`kill -TERM ${pid}`)
+                sessionLog.info(`Sent SIGTERM to process ${pid}`)
+              } catch (killErr) {
+                // Process may have already exited
+                sessionLog.warn(`Failed to kill process ${pid}: ${killErr}`)
+              }
+            }
+          } else {
+            sessionLog.info(`No processes found matching command`)
+          }
+        } catch (pgrepErr) {
+          // pgrep returns exit code 1 when no processes found, which is fine
+          sessionLog.info(`No matching processes found (pgrep returned no results)`)
+        }
+
+        // Clean up the stored command
+        managed.backgroundShellCommands.delete(shellId)
+      } catch (err) {
+        sessionLog.error(`Error killing shell process: ${err}`)
+      }
+    } else {
+      sessionLog.warn(`No command stored for shell ${shellId}, cannot kill process`)
+    }
+
+    // Always emit shell_killed to remove from UI regardless of process kill success
+    this.sendEvent({
+      type: 'shell_killed',
+      sessionId,
+      shellId,
+    }, managed.workspace.id)
+
     return { success: true }
   }
 
@@ -2385,9 +2442,21 @@ To view this task's output:
         break
 
       case 'task_backgrounded':
-      case 'shell_backgrounded':
       case 'task_progress':
         // Forward background task events directly to renderer
+        this.sendEvent({
+          ...event,
+          sessionId,
+        }, workspaceId)
+        break
+
+      case 'shell_backgrounded':
+        // Store the command for later process killing
+        if (event.command && managed) {
+          managed.backgroundShellCommands.set(event.shellId, event.command)
+          sessionLog.info(`Stored command for shell ${event.shellId}: ${event.command.slice(0, 50)}...`)
+        }
+        // Forward to renderer
         this.sendEvent({
           ...event,
           sessionId,
@@ -2399,8 +2468,8 @@ To view this task's output:
         // comes from the finally block in sendMessage, not here
         break
 
-      // Note: working_directory_changed is handled via onWorkingDirectoryChange callback,
-      // not through processEvent, so no case needed here
+      // Note: working_directory_changed is user-initiated only (via updateWorkingDirectory),
+      // the agent no longer has a change_working_directory tool
     }
   }
 

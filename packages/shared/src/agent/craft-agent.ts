@@ -626,9 +626,6 @@ export class CraftAgent {
   // Callback when a plan is submitted - set by TUI to display plan message
   public onPlanSubmitted: ((planPath: string) => void) | null = null;
 
-  // Callback when working directory changes (e.g., Bash cd command)
-  public onWorkingDirectoryChange: ((path: string) => void) | null = null;
-
   // Callback when credential input is needed - set by Electron/TUI to show secure input UI
   // Returns a promise that resolves with the user's response
   public onCredentialRequest: ((request: CredentialRequest) => Promise<CredentialResponse>) | null = null;
@@ -677,13 +674,6 @@ export class CraftAgent {
       onPlanSubmitted: (planPath) => {
         this.onDebug?.(`[CraftAgent] onPlanSubmitted received: ${planPath}`);
         this.onPlanSubmitted?.(planPath);
-      },
-      onWorkingDirectoryChange: (path) => {
-        this.onDebug?.(`[CraftAgent] onWorkingDirectoryChange received: ${path}`);
-        if (this.config.session) {
-          this.config.session.workingDirectory = path;
-        }
-        this.onWorkingDirectoryChange?.(path);
       },
       onCredentialRequest: async (request) => {
         this.onDebug?.(`[CraftAgent] onCredentialRequest received: ${request.sourceSlug}`);
@@ -1550,23 +1540,6 @@ export class CraftAgent {
               // Note: EnterPlanMode/ExitPlanMode are disallowed (line ~811) since Safe Mode is user-controlled.
               // The agent uses SubmitPlan (universal) to submit plans at any time.
 
-              // ─────────────────────────────────────────────────────────────────────
-              // WORKING DIRECTORY SYNC: Detect when Bash cd changes the cwd
-              // The SDK tracks cwd internally and passes it to hooks. When it changes,
-              // we update our session config and notify the callback so the UI stays in sync.
-              // ─────────────────────────────────────────────────────────────────────
-              if (input.cwd && this.config.session?.workingDirectory !== input.cwd) {
-                this.onDebug?.(`PostToolUse: cwd changed to ${input.cwd}`);
-
-                // Update internal state
-                if (this.config.session) {
-                  this.config.session.workingDirectory = input.cwd;
-                }
-
-                // Notify callback so UI can update the folder selector
-                this.onWorkingDirectoryChange?.(input.cwd);
-              }
-
               // Skip built-in SDK tools (they have their own context management)
               const builtInTools = new Set([
                 'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
@@ -1988,7 +1961,7 @@ export class CraftAgent {
             this.pinnedPreferencesPrompt = null;
             this.pinnedAgentDefinition = null;
             // Use 'info' instead of 'status' to show message without spinner
-            yield { type: 'info', message: 'Session expired, starting fresh...' };
+            yield { type: 'info', message: 'Session expired, restoring context...' };
             // Recursively call with isRetry=true (yield* delegates all events)
             yield* this.chat(userMessage, attachments, true);
             return;
@@ -2809,21 +2782,29 @@ export class CraftAgent {
                 const intentValue = (typeof toolUse.input._intent === 'string' && toolUse.input._intent)
                   || (typeof toolUse.input.description === 'string' && toolUse.input.description)
                   || undefined;
-                const event: AgentEvent = intentValue
-                  ? {
-                      type: 'shell_backgrounded',
-                      toolUseId,
-                      shellId,
-                      intent: intentValue,
-                      turnId: turnId || undefined,
-                    }
-                  : {
-                      type: 'shell_backgrounded',
-                      toolUseId,
-                      shellId,
-                      turnId: turnId || undefined,
-                    };
+                // Extract command for process killing
+                const commandValue = typeof toolUse.input.command === 'string' ? toolUse.input.command : undefined;
+                const event: AgentEvent = {
+                  type: 'shell_backgrounded',
+                  toolUseId,
+                  shellId,
+                  turnId: turnId || undefined,
+                  ...(intentValue && { intent: intentValue }),
+                  ...(commandValue && { command: commandValue }),
+                };
                 events.push(event);
+              }
+            }
+
+            // Detect shell killed - KillShell tool was called (success or "not found" both mean shell is gone)
+            if (toolUse?.name === 'KillShell') {
+              const shellId = toolUse.input.shell_id as string;
+              if (shellId) {
+                events.push({
+                  type: 'shell_killed',
+                  shellId,
+                  turnId: turnId || undefined,
+                });
               }
             }
 

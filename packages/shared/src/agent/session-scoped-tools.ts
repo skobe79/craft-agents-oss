@@ -6,7 +6,6 @@
  *
  * Tools included:
  * - SubmitPlan: Submit a plan file for user review/display
- * - change_working_directory: Change the working directory for the session
  * - config_validate: Validate configuration files
  * - source_test: Validate schema, download icons, test connections
  * - source_oauth_trigger: Start OAuth authentication for MCP sources
@@ -20,7 +19,7 @@
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { basename } from 'path';
 import { getSessionPlansPath } from '../sessions/storage.ts';
 import { debug } from '../utils/debug.ts';
@@ -65,7 +64,12 @@ import {
   type SlackOAuthOptions,
   type SlackOAuthResult,
 } from '../auth/slack-oauth.ts';
-import { inferGoogleServiceFromUrl, inferSlackServiceFromUrl, type GoogleService, type SlackService } from '../sources/types.ts';
+import {
+  startMicrosoftOAuth,
+  type MicrosoftOAuthOptions,
+  type MicrosoftOAuthResult,
+} from '../auth/microsoft-oauth.ts';
+import { inferGoogleServiceFromUrl, inferSlackServiceFromUrl, inferMicrosoftServiceFromUrl, isApiOAuthProvider, type GoogleService, type SlackService, type MicrosoftService } from '../sources/types.ts';
 import { DOC_REFS } from '../docs/index.ts';
 
 // ============================================================
@@ -114,8 +118,6 @@ export interface CredentialResponse {
 export interface SessionScopedToolCallbacks {
   /** Called when a plan is submitted - triggers plan message display in UI */
   onPlanSubmitted?: (planPath: string) => void;
-  /** Called when the working directory changes - syncs with UI and persists */
-  onWorkingDirectoryChange?: (path: string) => void;
   /** Called when OAuth flow needs to open a browser URL - returns promise that resolves when auth completes */
   onOAuthBrowserOpen?: (url: string) => Promise<void>;
   /** Called when OAuth flow completes successfully */
@@ -283,98 +285,6 @@ Brief description of what this plan accomplishes.
         content: [{
           type: 'text' as const,
           text: 'Plan submitted for review. Waiting for user feedback.',
-        }],
-        isError: false,
-      };
-    }
-  );
-}
-
-/**
- * Create a session-scoped change_working_directory tool.
- * The sessionId is captured at creation time.
- *
- * This tool allows the agent to change the working directory for bash commands
- * and file operations.
- */
-export function createChangeWorkingDirectoryTool(sessionId: string) {
-  return tool(
-    'change_working_directory',
-    `Change the working directory for this session.
-
-This changes the directory used for:
-- Bash command execution
-- File operations (Read, Write, Edit, Glob, Grep)
-- Git operations
-
-The change is persisted for the session and reflected in the UI.
-
-Use this when:
-- The user asks to work in a different directory
-- You need to switch context to a different project
-- The current working directory doesn't match the task`,
-    {
-      path: z.string().describe('Absolute path to the new working directory'),
-    },
-    async (args) => {
-      debug('[change_working_directory] Called with path:', args.path);
-      debug('[change_working_directory] sessionId (from closure):', sessionId);
-
-      // Validate the path exists
-      if (!existsSync(args.path)) {
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Error: Directory does not exist: ${args.path}`,
-          }],
-          isError: true,
-        };
-      }
-
-      // Validate it's a directory
-      try {
-        const stats = statSync(args.path);
-        if (!stats.isDirectory()) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: `Error: Path is not a directory: ${args.path}`,
-            }],
-            isError: true,
-          };
-        }
-      } catch (error) {
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Error checking path: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          }],
-          isError: true,
-        };
-      }
-
-      // Get callbacks and notify
-      const callbacks = getSessionScopedToolCallbacks(sessionId);
-      debug('[change_working_directory] Registry callbacks found:', !!callbacks);
-
-      if (callbacks?.onWorkingDirectoryChange) {
-        callbacks.onWorkingDirectoryChange(args.path);
-        debug('[change_working_directory] Callback completed');
-      } else {
-        debug('[change_working_directory] No callback registered for session');
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `Error: Unable to change working directory - no handler registered`,
-          }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [{
-          type: 'text' as const,
-          text: `Working directory changed to: ${args.path}`,
         }],
         isError: false,
       };
@@ -556,8 +466,8 @@ async function testApiSource(
       // Extract workspace ID from root path for credential lookups
       const wsId = basename(workspaceId);
 
-      if (source.provider === 'google') {
-        // Use SourceCredentialManager for Google OAuth - handles expiry checking and refresh
+      if (isApiOAuthProvider(source.provider)) {
+        // Use SourceCredentialManager for OAuth providers - handles expiry checking and refresh
         const sourceCredManager = getSourceCredentialManager();
         const loadedSource: LoadedSource = {
           config: source,
@@ -609,7 +519,7 @@ async function testApiSource(
 
       if (credValue) {
         // Apply credential based on authType config
-        if (source.api.authType === 'bearer' || source.provider === 'google') {
+        if (source.api.authType === 'bearer' || isApiOAuthProvider(source.provider)) {
           const scheme = source.api.authScheme || 'Bearer';
           headers['Authorization'] = `${scheme} ${credValue}`;
         } else if (source.api.authType === 'header' && source.api.headerName) {
@@ -794,9 +704,10 @@ After creating or editing a source's config.json, run this tool to:
           const serviceUrl = deriveServiceUrl(source);
 
           if (serviceUrl) {
-            // Use googleService for Google APIs (e.g., 'gmail') over provider (e.g., 'google')
-            const providerForIcon = source.api?.googleService || source.provider;
-            const logoUrl = await getHighQualityLogoUrl(serviceUrl, providerForIcon);
+            // Try slug first (most specific), then provider (fallback)
+            // This allows PROVIDER_ICON_URLS to map 'outlook', 'teams', 'gmail' etc. directly
+            const logoUrl = await getHighQualityLogoUrl(serviceUrl, source.slug)
+              || await getHighQualityLogoUrl(serviceUrl, source.provider);
             if (logoUrl) {
               const cached = await cacheIcon(logoUrl, sourcePath);
               if (cached) {
@@ -1623,6 +1534,174 @@ After successful authentication, the tokens are stored and the source is marked 
   );
 }
 
+/**
+ * Create a session-scoped source_microsoft_oauth_trigger tool.
+ * Handles OAuth authentication for Microsoft API sources (Outlook, OneDrive, Calendar, Teams, SharePoint).
+ */
+export function createMicrosoftOAuthTriggerTool(sessionId: string, workspaceId: string, activeAgentSlug?: string) {
+  return tool(
+    'source_microsoft_oauth_trigger',
+    `Trigger Microsoft OAuth authentication flow for a Microsoft API source.
+
+Opens a browser window for the user to sign in with their Microsoft account and authorize access to the specified Microsoft service.
+After successful authentication, the tokens are stored and the source is marked as authenticated.
+
+**Supported services:**
+- outlook: Read, compose, and manage emails
+- calendar: Read and manage calendar events
+- onedrive: Read and manage OneDrive files
+- teams: Read and send Teams messages
+- sharepoint: Read and manage SharePoint sites
+
+**Prerequisites:**
+- The source must have provider 'microsoft'
+- Microsoft OAuth must be configured in the build
+
+**Returns:**
+- Success message with the authenticated email address
+- Error message if OAuth flow fails or is not configured`,
+    {
+      sourceSlug: z.string().describe('The slug of the Microsoft API source to authenticate'),
+    },
+    async (args) => {
+      try {
+        // Load the source config (checks agent folder first if activeAgentSlug set, then workspace)
+        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug, activeAgentSlug);
+        if (!sourceResult) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Source '${args.sourceSlug}' not found. Check ~/.craft-agent/workspaces/{workspace}/sources/ for available sources.`,
+            }],
+            isError: true,
+          };
+        }
+        const source = sourceResult.config;
+        const sourceContext = { isAgentScoped: sourceResult.isAgentScoped, agentSlug: sourceResult.agentSlug };
+
+        // Verify this is a Microsoft source
+        if (source.provider !== 'microsoft') {
+          const hint = !source.provider
+            ? `Add "provider": "microsoft" to config.json and retry.`
+            : `This source has provider '${source.provider}'. Use source_oauth_trigger for MCP sources, source_google_oauth_trigger for Google sources, or source_slack_oauth_trigger for Slack sources.`;
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Source '${args.sourceSlug}' is not configured as a Microsoft API source. ${hint}\n\nCurrent config: ${JSON.stringify(source, null, 2)}`,
+            }],
+            isError: true,
+          };
+        }
+
+        if (source.isAuthenticated) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Source '${args.sourceSlug}' is already authenticated.`,
+            }],
+            isError: false,
+          };
+        }
+
+        // Determine service/scopes from config
+        let service: MicrosoftService | undefined;
+        let scopes: string[] | undefined;
+        const api = source.api;
+
+        if (api?.microsoftScopes && api.microsoftScopes.length > 0) {
+          // Custom scopes take precedence
+          scopes = api.microsoftScopes;
+        } else if (api?.microsoftService) {
+          // Use predefined service scopes
+          service = api.microsoftService;
+        } else {
+          // Infer from baseUrl (defaults to 'outlook' for graph.microsoft.com)
+          service = inferMicrosoftServiceFromUrl(api?.baseUrl);
+          if (!service) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: `Cannot determine Microsoft service for source '${args.sourceSlug}'. Set microsoftService ('outlook', 'calendar', 'onedrive', 'teams', or 'sharepoint') in api config, or use a recognizable baseUrl like 'https://graph.microsoft.com'.`,
+              }],
+              isError: true,
+            };
+          }
+        }
+
+        const serviceName = service || 'Microsoft API';
+
+        // Run the Microsoft OAuth flow
+        const options: MicrosoftOAuthOptions = {
+          service,
+          scopes,
+          appType: 'electron',
+        };
+        const result: MicrosoftOAuthResult = await startMicrosoftOAuth(options);
+
+        if (!result.success) {
+          const callbacks = getSessionScopedToolCallbacks(sessionId);
+          callbacks?.onOAuthError?.(args.sourceSlug, result.error || 'Unknown error');
+
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `${serviceName} OAuth failed: ${result.error || 'Unknown error'}`,
+            }],
+            isError: true,
+          };
+        }
+
+        // Store the tokens
+        const credentialManager = getCredentialManager();
+        // Extract workspace ID from root path for credential storage
+        const wsId = basename(workspaceId);
+        await credentialManager.set(
+          {
+            type: 'source_oauth',
+            workspaceId: wsId,
+            sourceId: args.sourceSlug,
+          },
+          {
+            value: result.accessToken!,
+            refreshToken: result.refreshToken,
+            expiresAt: result.expiresAt,
+          }
+        );
+
+        // Update source status with email info
+        source.isAuthenticated = true;
+        source.connectionStatus = 'connected';
+        source.connectionError = undefined;
+        source.updatedAt = Date.now();
+        saveSourceConfigWithContext(workspaceId, source, sourceContext);
+
+        // Notify success callback
+        const callbacks = getSessionScopedToolCallbacks(sessionId);
+        callbacks?.onOAuthSuccess?.(args.sourceSlug);
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `**${serviceName} source '${args.sourceSlug}' authenticated successfully**\n\nConnected as: ${result.email}\n\n**Next step:** Run \`source_test({ sourceSlug: "${args.sourceSlug}" })\` to download the icon and verify the connection works.`,
+          }],
+          isError: false,
+        };
+      } catch (error) {
+        const callbacks = getSessionScopedToolCallbacks(sessionId);
+        callbacks?.onOAuthError?.(args.sourceSlug, error instanceof Error ? error.message : 'Unknown error');
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Microsoft OAuth failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+}
+
 // ============================================================
 // Credential Prompt Tool
 // ============================================================
@@ -2003,7 +2082,6 @@ export function getSessionScopedTools(sessionId: string, workspaceId: string, ac
       version: '1.0.0',
       tools: [
         createSubmitPlanTool(sessionId),
-        createChangeWorkingDirectoryTool(sessionId),
         // Config validation tool
         createConfigValidateTool(sessionId, workspaceId),
         // Source tools: test + auth only (CRUD via file editing)
@@ -2011,6 +2089,7 @@ export function getSessionScopedTools(sessionId: string, workspaceId: string, ac
         createOAuthTriggerTool(sessionId, workspaceId, activeAgentSlug),
         createGoogleOAuthTriggerTool(sessionId, workspaceId, activeAgentSlug),
         createSlackOAuthTriggerTool(sessionId, workspaceId, activeAgentSlug),
+        createMicrosoftOAuthTriggerTool(sessionId, workspaceId, activeAgentSlug),
         createCredentialPromptTool(sessionId, workspaceId, activeAgentSlug),
         // Agent tools
         createAgentListTool(sessionId, workspaceId),
