@@ -1597,6 +1597,160 @@ This is a **local stdio MCP server** with no external dependencies.
 This is a local server - no API keys or OAuth needed.
 `;
 
+const SHAREPOINT_GUIDE = `---
+domains:
+  - sharepoint.com
+  - graph.microsoft.com
+providers:
+  - microsoft
+  - sharepoint
+---
+
+# SharePoint
+
+Access to Microsoft SharePoint sites, document libraries, and files via the Microsoft Graph API.
+
+## Scope
+
+- List and search SharePoint sites
+- Access document libraries and folders
+- Read, upload, and manage files
+- Access site lists and list items
+
+## Guidelines
+
+- Use the \`api_sharepoint\` tool with \`path\`, \`method\`, and optional \`params\`
+- Base URL: \`https://graph.microsoft.com/v1.0\`
+- All paths are relative to the base URL
+
+## Common Endpoints
+
+### List All Sites
+\`\`\`
+GET /sites?search=*
+\`\`\`
+Returns all SharePoint sites the user has access to.
+
+### Get Root Site
+\`\`\`
+GET /sites/root
+\`\`\`
+
+### Get Site by ID
+\`\`\`
+GET /sites/{site-id}
+\`\`\`
+
+### Search Sites
+\`\`\`
+GET /sites?search={query}
+\`\`\`
+
+### List Document Libraries (Drives)
+\`\`\`
+GET /sites/{site-id}/drives
+\`\`\`
+
+### List Files in Drive Root
+\`\`\`
+GET /sites/{site-id}/drive/root/children
+\`\`\`
+
+### List Files in Folder
+\`\`\`
+GET /sites/{site-id}/drive/root:/{folder-path}:/children
+\`\`\`
+
+### Get File Metadata
+\`\`\`
+GET /sites/{site-id}/drive/items/{item-id}
+\`\`\`
+
+### Download File Content
+\`\`\`
+GET /sites/{site-id}/drive/items/{item-id}/content
+\`\`\`
+
+### Search Files in Site
+\`\`\`
+GET /sites/{site-id}/drive/root/search(q='{query}')
+\`\`\`
+
+### List Site Lists
+\`\`\`
+GET /sites/{site-id}/lists
+\`\`\`
+
+### Get List Items
+\`\`\`
+GET /sites/{site-id}/lists/{list-id}/items
+\`\`\`
+
+### Upload File
+\`\`\`
+PUT /sites/{site-id}/drive/root:/{filename}:/content
+Body: [file content]
+\`\`\`
+
+## Query Parameters
+
+Common OData query parameters:
+- \`$select\`: Choose specific fields
+- \`$expand\`: Include related entities
+- \`$filter\`: Filter results
+- \`$orderby\`: Sort results
+- \`$top\`: Limit number of results
+- \`$skip\`: Skip results for pagination
+
+## Rate Limits
+
+Microsoft Graph has throttling limits. If you receive 429 errors, wait before retrying.
+
+<!-- SETUP: This section is ONLY for the setup agent -->
+
+## Setup Hints
+
+### Configuration
+
+**Required config.json:**
+\`\`\`json
+{
+  "id": "src_sharepoint",
+  "name": "SharePoint",
+  "slug": "sharepoint",
+  "enabled": true,
+  "provider": "microsoft",
+  "type": "api",
+  "api": {
+    "baseUrl": "https://graph.microsoft.com/v1.0",
+    "authType": "bearer",
+    "microsoftService": "sharepoint",
+    "testEndpoint": {
+      "method": "GET",
+      "path": "sites?search=*"
+    }
+  }
+}
+\`\`\`
+
+### Authentication
+Use \`source_microsoft_oauth_trigger\` to start the Microsoft OAuth flow.
+
+### Recommended Questions
+- Which SharePoint sites do you primarily work with?
+- Do you need to upload files or just read/browse?
+- Are there specific document libraries you frequently access?
+
+### Permissions for Explore Mode
+\`\`\`json
+{
+  "allowedApiEndpoints": [
+    { "method": "GET", "path": ".*", "comment": "All GET requests are read-only" }
+  ]
+}
+\`\`\`
+`;
+
 /**
  * Map of bundled source guide files
  */
@@ -1612,6 +1766,7 @@ export const BUNDLED_SOURCE_GUIDES: Record<string, string> = {
   'slack.com.md': SLACK_GUIDE,
   'outlook.com.md': OUTLOOK_GUIDE,
   'teams.microsoft.com.md': TEAMS_GUIDE,
+  'sharepoint.com.md': SHAREPOINT_GUIDE,
   'filesystem.md': FILESYSTEM_GUIDE,
   'brave-search.md': BRAVE_SEARCH_GUIDE,
   'memory.md': MEMORY_GUIDE,
