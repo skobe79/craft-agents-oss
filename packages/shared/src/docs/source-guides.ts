@@ -1286,6 +1286,7 @@ Check \`Retry-After\` header when rate limited.
 }
 \`\`\`
 
+**IMPORTANT**: For testEndpoint, use \`api.test\` with method POST to verify the connection. And have a trailing slash in the baseUrl.
 ### Authentication
 Use \`source_oauth_trigger\` with provider "slack" to start the Slack OAuth flow.
 
