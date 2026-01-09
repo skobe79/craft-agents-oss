@@ -536,10 +536,7 @@ async function testApiSource(
 
     // Use testEndpoint if configured (required for authenticated APIs, optional for public)
     if (source.api.testEndpoint) {
-      // Ensure proper URL joining: baseUrl needs trailing slash, path should not have leading slash
-      const baseWithSlash = source.api.baseUrl.endsWith('/') ? source.api.baseUrl : `${source.api.baseUrl}/`;
-      const pathWithoutLeadingSlash = source.api.testEndpoint.path.replace(/^\//, '');
-      const testUrl = new URL(pathWithoutLeadingSlash, baseWithSlash).toString();
+      const testUrl = new URL(source.api.testEndpoint.path, source.api.baseUrl).toString();
       const fetchOptions: RequestInit = {
         method: source.api.testEndpoint.method,
         headers,

@@ -419,6 +419,8 @@ export type SessionEvent =
   | { type: 'session_unflagged'; sessionId: string }
   | { type: 'todo_state_changed'; sessionId: string; todoState: TodoState }
   | { type: 'session_deleted'; sessionId: string }
+  | { type: 'session_shared'; sessionId: string; sharedUrl: string }
+  | { type: 'session_unshared'; sessionId: string }
 
 // Options for sendMessage
 export interface SendMessageOptions {
@@ -446,6 +448,7 @@ export type SessionCommand =
   | { type: 'setSources'; sourceSlugs: string[] }
   | { type: 'showInFinder' }
   | { type: 'shareToViewer' }
+  | { type: 'updateShare' }
   | { type: 'revokeShare' }
 
 /**
@@ -646,6 +649,11 @@ export const IPC_CHANNELS = {
   NOTIFICATION_NAVIGATE: 'notification:navigate',  // Broadcast: { workspaceId, sessionId }
   NOTIFICATION_GET_ENABLED: 'notification:getEnabled',
   NOTIFICATION_SET_ENABLED: 'notification:setEnabled',
+
+  // Mode cycling settings
+  MODE_CYCLING_GET_ENABLED: 'modeCycling:getEnabled',
+  MODE_CYCLING_SET_ENABLED: 'modeCycling:setEnabled',
+
   BADGE_UPDATE: 'badge:update',
   BADGE_CLEAR: 'badge:clear',
   BADGE_SET_ICON: 'badge:setIcon',
@@ -1008,6 +1016,11 @@ export interface ElectronAPI {
   showNotification(title: string, body: string, workspaceId: string, sessionId: string): Promise<void>
   getNotificationsEnabled(): Promise<boolean>
   setNotificationsEnabled(enabled: boolean): Promise<void>
+
+  // Mode cycling
+  getEnabledPermissionModes(): Promise<PermissionMode[]>
+  setEnabledPermissionModes(modes: PermissionMode[]): Promise<void>
+
   updateBadgeCount(count: number): Promise<void>
   clearBadgeCount(): Promise<void>
   setDockIconWithBadge(dataUrl: string): Promise<void>

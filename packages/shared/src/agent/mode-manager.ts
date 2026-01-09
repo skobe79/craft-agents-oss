@@ -417,14 +417,29 @@ export function setPermissionMode(sessionId: string, mode: PermissionMode): void
 
 /**
  * Cycle to the next permission mode (for SHIFT+TAB)
+ * @param sessionId - The session to cycle mode for
+ * @param enabledModes - Optional list of enabled modes to cycle through (defaults to all 3)
  * Returns the new mode
  */
-export function cyclePermissionMode(sessionId: string): PermissionMode {
+export function cyclePermissionMode(
+  sessionId: string,
+  enabledModes?: PermissionMode[]
+): PermissionMode {
   const currentMode = getPermissionMode(sessionId);
-  const currentIndex = PERMISSION_MODE_ORDER.indexOf(currentMode);
-  const nextIndex = (currentIndex + 1) % PERMISSION_MODE_ORDER.length;
+  // Use provided modes or default to all modes
+  const modes = enabledModes && enabledModes.length >= 2 ? enabledModes : PERMISSION_MODE_ORDER;
+  const currentIndex = modes.indexOf(currentMode);
+
+  // If current mode not in enabled list, jump to first enabled mode
+  if (currentIndex === -1) {
+    const nextMode = modes[0] ?? 'ask';
+    setPermissionMode(sessionId, nextMode);
+    return nextMode;
+  }
+
+  const nextIndex = (currentIndex + 1) % modes.length;
   // Safe assertion: nextIndex is always valid due to modulo operation
-  const nextMode = PERMISSION_MODE_ORDER[nextIndex] as PermissionMode;
+  const nextMode = modes[nextIndex] as PermissionMode;
   setPermissionMode(sessionId, nextMode);
   return nextMode;
 }

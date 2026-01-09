@@ -324,6 +324,8 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
       case 'shareToViewer':
         return sessionManager.shareToViewer(sessionId)
+      case 'updateShare':
+        return sessionManager.updateShare(sessionId)
       case 'revokeShare':
         return sessionManager.revokeShare(sessionId)
       default: {
@@ -700,8 +702,10 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Shell operations - open file in default application
   ipcMain.handle(IPC_CHANNELS.OPEN_FILE, async (_event, path: string) => {
     try {
+      // Resolve relative paths to absolute before validation
+      const absolutePath = resolve(path)
       // Validate path is within allowed directories
-      const safePath = await validateFilePath(path)
+      const safePath = await validateFilePath(absolutePath)
       // openPath opens file with default application (e.g., VS Code for .ts files)
       const result = await shell.openPath(safePath)
       if (result) {
@@ -718,8 +722,10 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Shell operations - show file in folder (opens Finder/Explorer with file selected)
   ipcMain.handle(IPC_CHANNELS.SHOW_IN_FOLDER, async (_event, path: string) => {
     try {
+      // Resolve relative paths to absolute before validation
+      const absolutePath = resolve(path)
       // Validate path is within allowed directories
-      const safePath = await validateFilePath(path)
+      const safePath = await validateFilePath(absolutePath)
       shell.showItemInFolder(safePath)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
@@ -1582,5 +1588,17 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   ipcMain.handle(IPC_CHANNELS.WINDOW_GET_FOCUS_STATE, () => {
     const { isAnyWindowFocused } = require('./notifications')
     return isAnyWindowFocused()
+  })
+
+  // Get enabled permission modes for SHIFT+TAB cycling
+  ipcMain.handle(IPC_CHANNELS.MODE_CYCLING_GET_ENABLED, async () => {
+    const { getEnabledPermissionModes } = await import('@craft-agent/shared/config/storage')
+    return getEnabledPermissionModes()
+  })
+
+  // Set enabled permission modes for SHIFT+TAB cycling
+  ipcMain.handle(IPC_CHANNELS.MODE_CYCLING_SET_ENABLED, async (_event, modes: string[]) => {
+    const { setEnabledPermissionModes } = await import('@craft-agent/shared/config/storage')
+    setEnabledPermissionModes(modes as ('safe' | 'ask' | 'allow-all')[])
   })
 }

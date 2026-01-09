@@ -565,8 +565,8 @@ export function ChatDisplay({
                       )
                     }
 
-                    // Check if any subsequent turn is a user message (for plan footer visibility)
-                    const hasUserResponse = turns.slice(index + 1).some(t => t.type === 'user')
+                    // Check if this is the last response (for Accept Plan button visibility)
+                    const isLastResponse = index === turns.length - 1 || !turns.slice(index + 1).some(t => t.type === 'user')
 
                     // Assistant turns - render with TurnCard (buffered streaming)
                     return (
@@ -582,7 +582,7 @@ export function ChatDisplay({
                         todos={turn.todos}
                         onOpenFile={onOpenFile}
                         onOpenUrl={onOpenUrl}
-                        hasUserResponse={hasUserResponse}
+                        isLastResponse={isLastResponse}
                         onAcceptPlan={() => {
                           window.dispatchEvent(new CustomEvent('craft:approve-plan', {
                             detail: { text: 'Plan approved, please execute.', sessionId: session?.id }

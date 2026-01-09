@@ -1199,9 +1199,51 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       })
 
       sessionLog.info(`Session ${sessionId} shared at ${data.url}`)
+      // Notify all windows for this workspace
+      this.sendEvent({ type: 'session_shared', sessionId, sharedUrl: data.url }, managed.workspace.id)
       return { success: true, url: data.url }
     } catch (error) {
       sessionLog.error('Share error:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  /**
+   * Update an existing shared session
+   * Re-uploads session data to the same URL
+   */
+  async updateShare(sessionId: string): Promise<import('../shared/types').ShareResult> {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) {
+      return { success: false, error: 'Session not found' }
+    }
+    if (!managed.sharedId) {
+      return { success: false, error: 'Session not shared' }
+    }
+
+    try {
+      // Load session directly from disk (already in correct format)
+      const storedSession = loadStoredSession(managed.workspace.rootPath, sessionId)
+      if (!storedSession) {
+        return { success: false, error: 'Session file not found' }
+      }
+
+      const { VIEWER_URL } = await import('@craft-agent/shared/branding')
+      const response = await fetch(`${VIEWER_URL}/s/api/${managed.sharedId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(storedSession)
+      })
+
+      if (!response.ok) {
+        sessionLog.error(`Update share failed with status ${response.status}`)
+        return { success: false, error: 'Failed to update shared session' }
+      }
+
+      sessionLog.info(`Session ${sessionId} share updated at ${managed.sharedUrl}`)
+      return { success: true, url: managed.sharedUrl }
+    } catch (error) {
+      sessionLog.error('Update share error:', error)
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
     }
   }
@@ -1241,6 +1283,8 @@ Use oauth_trigger for OAuth sources, credential_prompt for API key/bearer token 
       })
 
       sessionLog.info(`Session ${sessionId} share revoked`)
+      // Notify all windows for this workspace
+      this.sendEvent({ type: 'session_unshared', sessionId }, managed.workspace.id)
       return { success: true }
     } catch (error) {
       sessionLog.error('Revoke error:', error)

@@ -334,6 +334,11 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.NOTIFICATION_GET_ENABLED) as Promise<boolean>,
   setNotificationsEnabled: (enabled: boolean) =>
     ipcRenderer.invoke(IPC_CHANNELS.NOTIFICATION_SET_ENABLED, enabled),
+  // Mode cycling
+  getEnabledPermissionModes: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.MODE_CYCLING_GET_ENABLED) as Promise<('safe' | 'ask' | 'allow-all')[]>,
+  setEnabledPermissionModes: (modes: ('safe' | 'ask' | 'allow-all')[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MODE_CYCLING_SET_ENABLED, modes),
   updateBadgeCount: (count: number) =>
     ipcRenderer.invoke(IPC_CHANNELS.BADGE_UPDATE, count),
   clearBadgeCount: () =>

@@ -77,6 +77,8 @@ export interface StoredConfig {
   // Note: defaultWorkingDirectory is stored per-workspace in workspace config.json, not here
   // Notifications
   notificationsEnabled?: boolean;  // Desktop notifications for task completion (default: true)
+  // Mode cycling
+  enabledPermissionModes?: PermissionMode[];  // Modes to include in SHIFT+TAB cycling (min 2, default: all 3)
 }
 
 const CONFIG_DIR = join(homedir(), '.craft-agent');
@@ -290,6 +292,29 @@ export function setNotificationsEnabled(enabled: boolean): void {
 
 // Note: getDefaultWorkingDirectory/setDefaultWorkingDirectory removed
 // Working directory is now stored per-workspace in workspace config.json (defaults.workingDirectory)
+
+/**
+ * Get the enabled permission modes for SHIFT+TAB cycling.
+ * Defaults to all 3 modes if not set.
+ */
+export function getEnabledPermissionModes(): PermissionMode[] {
+  const config = loadStoredConfig();
+  return config?.enabledPermissionModes ?? ['safe', 'ask', 'allow-all'];
+}
+
+/**
+ * Set the enabled permission modes for SHIFT+TAB cycling.
+ * @throws Error if fewer than 2 modes are provided
+ */
+export function setEnabledPermissionModes(modes: PermissionMode[]): void {
+  if (modes.length < 2) {
+    throw new Error('At least 2 permission modes must be enabled');
+  }
+  const config = loadStoredConfig();
+  if (!config) return;
+  config.enabledPermissionModes = modes;
+  saveConfig(config);
+}
 
 export function getCumulativeUsage(): CumulativeUsage {
   const config = loadStoredConfig();
