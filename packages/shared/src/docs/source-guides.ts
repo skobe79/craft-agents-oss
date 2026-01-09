@@ -1223,6 +1223,8 @@ providers:
 
 Access Slack workspaces, channels, and messages through the Slack Web API.
 
+**IMPORTANT:** Always use the native Slack API integration (type: "api", provider: "slack"). Do NOT use third-party Slack MCP servers - they require manual credential management and don't support OAuth.
+
 ## API Reference
 
 This source provides a single flexible \`api_slack\` tool that accepts:
@@ -1302,7 +1304,6 @@ Check \`Retry-After\` header when rate limited.
 **Required config.json:**
 \`\`\`json
 {
-  "id": "src_slack",
   "name": "Slack",
   "slug": "slack",
   "enabled": true,
@@ -1313,16 +1314,17 @@ Check \`Retry-After\` header when rate limited.
     "authType": "bearer",
     "testEndpoint": {
       "method": "POST",
-      "path": "api.test"
+      "path": "auth.test"
     }
   },
-  "iconUrl": "https://slack.com"
+  "iconUrl": "slack.com"
 }
 \`\`\`
 
-**IMPORTANT**: For testEndpoint, use \`api.test\` with method POST to verify the connection. And have a trailing slash in the baseUrl.
+**IMPORTANT**: Use \`auth.test\` (not \`api.test\`) as the testEndpoint - it validates the OAuth token. Use trailing slash on baseUrl and no leading slash on path.
+
 ### Authentication
-Use \`source_oauth_trigger\` with provider "slack" to start the Slack OAuth flow.
+Use \`source_slack_oauth_trigger\` to start the Slack OAuth flow. This is a native integration that handles token storage automatically.
 
 ### Required Scopes
 Common scopes needed:
