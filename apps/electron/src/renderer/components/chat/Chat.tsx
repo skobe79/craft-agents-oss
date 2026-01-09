@@ -577,7 +577,7 @@ export function Chat({
     return storage.get(storage.KEYS.sidebarVisible, !defaultCollapsed)
   })
   const [sidebarWidth, setSidebarWidth] = React.useState(() => {
-    return storage.get(storage.KEYS.sidebarWidth, 260)
+    return storage.get(storage.KEYS.sidebarWidth, 220)
   })
   // Session list width in pixels (min 280, max 500)
   const [sessionListWidth, setSessionListWidth] = React.useState(() => {
@@ -975,7 +975,7 @@ export function Chat({
 
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizing === 'sidebar') {
-        const newWidth = Math.min(Math.max(e.clientX, 200), 400)
+        const newWidth = Math.min(Math.max(e.clientX, 180), 320)
         setSidebarWidth(newWidth)
         if (resizeHandleRef.current) {
           const rect = resizeHandleRef.current.getBoundingClientRect()
@@ -1804,7 +1804,7 @@ export function Chat({
           <div
             ref={sidebarRef}
             style={{ width: sidebarWidth }}
-            className={`h-full ${resolvedMode === 'dark' ? 'bg-background/90' : 'bg-background/70'} font-sans relative border-r border-border`}
+            className="h-full font-sans relative"
             data-focus-zone="sidebar"
             tabIndex={sidebarFocused ? 0 : -1}
             onKeyDown={handleSidebarKeyDown}
@@ -1850,7 +1850,7 @@ export function Chat({
                     New Chat
                   </Button>
                 </div>
-                {/* Primary Nav: All Chats, Sources, Flagged */}
+                {/* Primary Nav: All Chats (with expandable submenu), Sources */}
                 <LeftSidebar
                   isCollapsed={false}
                   getItemProps={getSidebarItemProps}
@@ -1863,6 +1863,73 @@ export function Chat({
                       icon: Inbox,
                       variant: chatFilter?.kind === 'inbox' ? "default" : "ghost",
                       onClick: handleInboxClick,
+                      expandable: true,
+                      expanded: !statusCollapsed,
+                      onToggle: () => setStatusCollapsed(!statusCollapsed),
+                      children: (
+                        <LeftSidebar
+                          isCollapsed={false}
+                          isNested={true}
+                          getItemProps={getSidebarItemProps}
+                          focusedItemId={focusedSidebarItemId}
+                          links={[
+                            {
+                              id: "nav:flagged",
+                              title: "Flagged",
+                              label: String(flaggedCount),
+                              icon: <Flag className="h-3.5 w-3.5 fill-current" />,
+                              iconColor: "text-orange-500",
+                              variant: chatFilter?.kind === 'flagged' ? "default" : "ghost",
+                              onClick: handleFlaggedClick,
+                            },
+                            {
+                              id: "nav:state:todo",
+                              title: "Todo",
+                              label: String(todoStateCounts['todo']),
+                              icon: <CircleDashed className="h-3.5 w-3.5" />,
+                              iconColor: "text-muted-foreground",
+                              variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'todo' ? "default" : "ghost",
+                              onClick: () => handleTodoStateClick('todo'),
+                            },
+                            {
+                              id: "nav:state:in-progress",
+                              title: "In Progress",
+                              label: String(todoStateCounts['in-progress']),
+                              icon: <CircleProgress className="h-3.5 w-3.5" />,
+                              iconColor: getStateColor('in-progress', todoStates),
+                              variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'in-progress' ? "default" : "ghost",
+                              onClick: () => handleTodoStateClick('in-progress'),
+                            },
+                            {
+                              id: "nav:state:needs-review",
+                              title: "Needs Review",
+                              label: String(todoStateCounts['needs-review']),
+                              icon: <CircleEye className="h-3.5 w-3.5" />,
+                              iconColor: getStateColor('needs-review', todoStates),
+                              variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'needs-review' ? "default" : "ghost",
+                              onClick: () => handleTodoStateClick('needs-review'),
+                            },
+                            {
+                              id: "nav:state:done",
+                              title: "Done",
+                              label: String(todoStateCounts['done']),
+                              icon: <CircleCheckFilled className="h-3.5 w-3.5" />,
+                              iconColor: "text-accent",
+                              variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'done' ? "default" : "ghost",
+                              onClick: () => handleTodoStateClick('done'),
+                            },
+                            {
+                              id: "nav:state:cancelled",
+                              title: "Cancelled",
+                              label: String(todoStateCounts['cancelled']),
+                              icon: <CircleXFilled className="h-3.5 w-3.5" />,
+                              iconColor: "text-muted-foreground/60",
+                              variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'cancelled' ? "default" : "ghost",
+                              onClick: () => handleTodoStateClick('cancelled'),
+                            },
+                          ]}
+                        />
+                      ),
                     },
                     {
                       id: "nav:sources",
@@ -1874,82 +1941,6 @@ export function Chat({
                     },
                   ]}
                 />
-                {/* Chats Section - Collapsible */}
-                <Collapsible open={!statusCollapsed} onOpenChange={(open) => setStatusCollapsed(!open)} className="mb-1">
-                  <CollapsibleTrigger asChild>
-                    <button className="group flex items-center justify-between w-full pl-4 pr-3.5 pt-2 pb-1">
-                      <span className="text-xs font-medium text-muted-foreground select-none">Chats</span>
-                      <ChevronDown className={cn(
-                        "h-3.5 w-3.5 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all duration-200",
-                        statusCollapsed && "-rotate-90"
-                      )} />
-                    </button>
-                  </CollapsibleTrigger>
-                  <AnimatedCollapsibleContent isOpen={!statusCollapsed}>
-                    {/* Chats Nav: Flagged + Todo states */}
-                    <LeftSidebar
-                      isCollapsed={false}
-                      getItemProps={getSidebarItemProps}
-                      focusedItemId={focusedSidebarItemId}
-                      links={[
-                        {
-                          id: "nav:flagged",
-                          title: "Flagged",
-                          label: String(flaggedCount),
-                          icon: <Flag className="h-3.5 w-3.5 fill-current" />,
-                          iconColor: "text-orange-500",
-                          variant: chatFilter?.kind === 'flagged' ? "default" : "ghost",
-                          onClick: handleFlaggedClick,
-                        },
-                        {
-                          id: "nav:state:todo",
-                          title: "Todo",
-                          label: String(todoStateCounts['todo']),
-                          icon: <CircleDashed className="h-3.5 w-3.5" />,
-                          iconColor: "text-muted-foreground",
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'todo' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('todo'),
-                        },
-                        {
-                          id: "nav:state:in-progress",
-                          title: "In Progress",
-                          label: String(todoStateCounts['in-progress']),
-                          icon: <CircleProgress className="h-3.5 w-3.5" />,
-                          iconColor: getStateColor('in-progress', todoStates),
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'in-progress' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('in-progress'),
-                        },
-                        {
-                          id: "nav:state:needs-review",
-                          title: "Needs Review",
-                          label: String(todoStateCounts['needs-review']),
-                          icon: <CircleEye className="h-3.5 w-3.5" />,
-                          iconColor: getStateColor('needs-review', todoStates),
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'needs-review' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('needs-review'),
-                        },
-                        {
-                          id: "nav:state:done",
-                          title: "Done",
-                          label: String(todoStateCounts['done']),
-                          icon: <CircleCheckFilled className="h-3.5 w-3.5" />,
-                          iconColor: "text-accent",
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'done' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('done'),
-                        },
-                        {
-                          id: "nav:state:cancelled",
-                          title: "Cancelled",
-                          label: String(todoStateCounts['cancelled']),
-                          icon: <CircleXFilled className="h-3.5 w-3.5" />,
-                          iconColor: "text-muted-foreground/60",
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'cancelled' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('cancelled'),
-                        },
-                      ]}
-                    />
-                  </AnimatedCollapsibleContent>
-                </Collapsible>
                 {/* Agent Tree: Hierarchical list of agents - Collapsible */}
                 <Collapsible
                   open={!agentsCollapsed}
@@ -2045,7 +2036,6 @@ export function Chat({
 
               {/* Sidebar Bottom Section: WorkspaceSwitcher + Settings */}
               <div className="mt-auto shrink-0">
-                <Separator className="bg-foreground/10" />
                 <div className="flex items-center py-2 px-2 gap-2">
                   <div className="flex-1 min-w-0">
                     <WorkspaceSwitcher
@@ -2099,11 +2089,11 @@ export function Chat({
 
         {/* === MAIN CONTENT (Right) ===
             Flex layout: Session List | Chat Display */}
-        <div className="flex-1 overflow-hidden min-w-0 flex h-full">
+        <div className="flex-1 overflow-hidden min-w-0 flex h-full pl-1.5 pr-2 pb-2 pt-1.5 gap-[3px]">
           {/* === SESSION LIST PANEL === (main mode only) */}
           {!isTabContentMode && (
           <div
-            className="h-full flex flex-col min-w-0 bg-background shrink-0"
+            className="h-full flex flex-col min-w-0 bg-background shrink-0 shadow-middle rounded-[14px] overflow-hidden"
             style={{ width: sessionListWidth }}
           >
             {/* Header: Dynamic title (Conversations/Archive/Agent name)
@@ -2371,7 +2361,7 @@ export function Chat({
           )}
 
           {/* === TAB CONTAINER PANEL === */}
-          <div className="flex-1 overflow-hidden min-w-0 bg-background">
+          <div className="flex-1 overflow-hidden min-w-0 bg-background shadow-middle rounded-[14px]">
             <TabContainer initialTab={initialTab} />
           </div>
         </div>
