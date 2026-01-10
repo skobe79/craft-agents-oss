@@ -16,7 +16,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Markdown } from '@/components/markdown'
 import { cn } from '@/lib/utils'
 import { CONTENT_MAX_WIDTH_CLASS } from '@/config/layout'
-import { useChatContext } from '@/context/ChatContext'
+import { useAppShellContext } from '@/context/AppShellContext'
 import type { Tab, SourceInfoTab } from '../types'
 import type { LoadedSource, McpToolWithPermission } from '../../../shared/types'
 import type { PermissionsConfigFile } from '@craft-agent/shared/agent'
@@ -71,7 +71,7 @@ export default function SourceInfoTabPanel({ tab }: SourceInfoTabPanelProps) {
   const sourceInfoTab = tab as SourceInfoTab
   const { sourceSlug, workspaceId, agentSlug } = sourceInfoTab
 
-  const { textareaRef, openNewChat } = useChatContext()
+  const { textareaRef, openNewChat } = useAppShellContext()
   const [source, setSource] = useState<LoadedSource | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

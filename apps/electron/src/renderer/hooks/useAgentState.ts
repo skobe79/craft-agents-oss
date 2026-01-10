@@ -28,7 +28,7 @@ import type {
   McpServerConfig,
   ApiConfig,
 } from '@craft-agent/shared/agents/types'
-import type { BannerState } from '../components/chat/SetupAuthBanner'
+import type { BannerState } from '../components/app-shell/SetupAuthBanner'
 
 // Renderer-side cache for agent status to prevent banner flash on session switch
 // When switching to a previously-active agent, we use cached status immediately

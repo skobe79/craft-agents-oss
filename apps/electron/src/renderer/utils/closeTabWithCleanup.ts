@@ -3,8 +3,8 @@
  *
  * Contains the cleanup logic for closing tabs with empty sessions.
  * This is a pure function (no React hooks) so it can be used:
- * - By useCloseTab hook (inside ChatProvider)
- * - By Chat.tsx (outside ChatProvider, passes props directly)
+ * - By useCloseTab hook (inside AppShellProvider)
+ * - By AppShell.tsx (outside AppShellProvider, passes props directly)
  *
  * Single source of truth for tab close cleanup behavior.
  */

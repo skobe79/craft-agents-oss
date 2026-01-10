@@ -8,8 +8,8 @@ import { defaultSessionOptions, mergeSessionOptions } from './hooks/useSessionOp
 import { generateMessageId } from '../shared/types'
 import { useEventProcessor } from './event-processor'
 import type { AgentEvent, Effect } from './event-processor'
-import { Chat } from '@/components/chat/Chat'
-import type { ChatContextType } from '@/context/ChatContext'
+import { AppShell } from '@/components/app-shell/AppShell'
+import type { AppShellContextType } from '@/context/AppShellContext'
 import { OnboardingWizard, ReauthScreen } from '@/components/onboarding'
 import { ResetConfirmationDialog } from '@/components/ResetConfirmationDialog'
 import { SplashScreen } from '@/components/SplashScreen'
@@ -894,7 +894,7 @@ export default function App() {
   }, [])
 
   // Open new chat - creates session and opens tab
-  // Used by components via ChatContext and for programmatic navigation
+  // Used by components via AppShellContext and for programmatic navigation
   const openNewChat = useCallback(async (params: NewChatActionParams = {}) => {
     if (!windowWorkspaceId) {
       console.warn('[App] Cannot open new chat: no workspace ID')
@@ -1098,10 +1098,10 @@ export default function App() {
     onboarding.handleCancel()
   }, [onboarding])
 
-  // Build context value for Chat component
+  // Build context value for AppShell component
   // This is memoized to prevent unnecessary re-renders
   // IMPORTANT: Must be before early returns to maintain consistent hook order
-  const chatContextValue = useMemo<ChatContextType>(() => ({
+  const appShellContextValue = useMemo<AppShellContextType>(() => ({
     // Data
     sessions,
     workspaces,
@@ -1248,8 +1248,8 @@ export default function App() {
 
           {/* Main UI - always rendered, splash fades away to reveal it */}
           <div className="h-full text-foreground">
-            <Chat
-              contextValue={chatContextValue}
+            <AppShell
+              contextValue={appShellContextValue}
               defaultLayout={[20, 32, 48]}
               menuNewChatTrigger={menuNewChatTrigger}
               isFocusedMode={isFocusedMode}

@@ -63,7 +63,7 @@ import { SetupAuthBanner, type BannerState } from "./SetupAuthBanner"
 import { useSession } from "@/hooks/useSession"
 import { useAgentState } from "@/hooks/useAgentState"
 import { TabContainer, useTabs, type ChatTab } from "@/tabs"
-import { ChatProvider, type ChatContextType } from "@/context/ChatContext"
+import { AppShellProvider, type AppShellContextType } from "@/context/AppShellContext"
 import { useTheme } from "@/context/ThemeContext"
 import { getResizeGradientStyle } from "@/hooks/useResizeGradient"
 import { useFocusZone, useGlobalShortcuts } from "@/hooks/keyboard"
@@ -87,19 +87,19 @@ import {
 import { SourcesListPanel } from "./SourcesListPanel"
 
 /**
- * ChatProps - Minimal props interface for Chat component
+ * AppShellProps - Minimal props interface for AppShell component
  *
- * Data and callbacks come via contextValue (ChatContextType).
+ * Data and callbacks come via contextValue (AppShellContextType).
  * Only UI-specific state is passed as separate props.
  *
  * Adding new features:
- * 1. Add to ChatContextType in context/ChatContext.tsx
+ * 1. Add to AppShellContextType in context/AppShellContext.tsx
  * 2. Update App.tsx to include in contextValue
- * 3. Use via useChatContext() hook in child components
+ * 3. Use via useAppShellContext() hook in child components
  */
-interface ChatProps {
-  /** All data and callbacks - passed directly to ChatProvider */
-  contextValue: ChatContextType
+interface AppShellProps {
+  /** All data and callbacks - passed directly to AppShellProvider */
+  contextValue: AppShellContextType
   /** UI-specific props */
   defaultLayout?: number[]
   defaultCollapsed?: boolean
@@ -517,23 +517,23 @@ function AgentTree({
 }
 
 /**
- * Chat - Main 3-panel layout container
+ * AppShell - Main 3-panel layout container
  *
- * Layout: [Sidebar 20%] | [Session List + Chat Display 80%]
- *         The right side is split into [Session List 40%] | [Chat Display 60%]
+ * Layout: [LeftSidebar 20%] | [NavigatorPanel 32%] | [MainContentPanel 48%]
  *
  * View Modes:
  * - 'inbox': Shows non-archived sessions
  * - 'archive': Shows archived sessions
  * - 'agent': Shows sessions for a specific agent
+ * - 'sources': Shows workspace sources
  */
-export function Chat({
+export function AppShell({
   contextValue,
   defaultLayout = [20, 32, 48],
   defaultCollapsed = false,
   menuNewChatTrigger,
   isFocusedMode = false,
-}: ChatProps) {
+}: AppShellProps) {
   // Destructure commonly used values from context
   const {
     workspaces,
@@ -1184,7 +1184,7 @@ export function Chat({
   }, [session.selected, setSession, onDeleteSession])
 
   // Extend context value with local overrides (textareaRef, wrapped onDeleteSession, sources)
-  const chatContextValue = React.useMemo<ChatContextType>(() => ({
+  const appShellContextValue = React.useMemo<AppShellContextType>(() => ({
     ...contextValue,
     onDeleteSession: handleDeleteSession,
     textareaRef: chatInputRef,
@@ -1725,7 +1725,7 @@ export function Chat({
   }, [sidebarMode, chatFilter, agents, todoStates])
 
   return (
-    <ChatProvider value={chatContextValue}>
+    <AppShellProvider value={appShellContextValue}>
       <TooltipProvider delayDuration={0}>
         {/*
           Draggable title bar region for transparent window (macOS)
@@ -2337,6 +2337,6 @@ export function Chat({
       </div>
 
       </TooltipProvider>
-    </ChatProvider>
+    </AppShellProvider>
   )
 }

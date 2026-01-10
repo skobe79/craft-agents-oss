@@ -2,15 +2,15 @@
  * ChatTabPanel
  *
  * Wraps the ChatDisplay component for use in the tab system.
- * Gets session data from ChatContext and agent status from main process.
+ * Gets session data from AppShellContext and agent status from main process.
  */
 
 import * as React from 'react'
 import { AlertCircle } from 'lucide-react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { ChatDisplay } from '@/components/chat/ChatDisplay'
+import { ChatDisplay } from '@/components/app-shell/ChatDisplay'
 import { Button } from '@/components/ui/button'
-import { useChatContext, usePendingPermission, usePendingCredential, useSessionOptionsFor, useSession } from '@/context/ChatContext'
+import { useAppShellContext, usePendingPermission, usePendingCredential, useSessionOptionsFor, useSession } from '@/context/AppShellContext'
 import { useAgentState } from '../../hooks/useAgentState'
 import { rendererPerf } from '@/lib/perf'
 import { ensureSessionMessagesLoadedAtom, loadedSessionsAtom, sessionMetaMapAtom } from '../../atoms/sessions'
@@ -24,7 +24,7 @@ interface ChatTabPanelProps {
 /**
  * ChatTabPanel is memoized to prevent re-renders when other sessions stream.
  * The `tab` prop only changes when switching tabs, and all context values
- * extracted via useChatContext() are stable callbacks/refs.
+ * extracted via useAppShellContext() are stable callbacks/refs.
  */
 export default React.memo(function ChatTabPanel({ tab }: ChatTabPanelProps) {
   const chatTab = tab as ChatTab
@@ -50,7 +50,7 @@ export default React.memo(function ChatTabPanel({ tab }: ChatTabPanelProps) {
     // Sources
     enabledSources,
     onSessionSourcesChange,
-  } = useChatContext()
+  } = useAppShellContext()
 
   // Use the unified session options hook for clean access
   const {

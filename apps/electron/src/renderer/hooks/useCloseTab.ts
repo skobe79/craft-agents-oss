@@ -7,7 +7,7 @@
 
 import { useCallback } from 'react'
 import { useTabs } from '@/tabs'
-import { useChatContext } from '@/context/ChatContext'
+import { useAppShellContext } from '@/context/AppShellContext'
 import { closeTabWithCleanup as closeTabWithCleanupFn } from '@/utils/closeTabWithCleanup'
 
 /**
@@ -17,7 +17,7 @@ import { closeTabWithCleanup as closeTabWithCleanupFn } from '@/utils/closeTabWi
  */
 export function useCloseTab() {
   const { tabs, closeTab, activeTab } = useTabs()
-  const { sessions, onDeleteSession } = useChatContext()
+  const { sessions, onDeleteSession } = useAppShellContext()
 
   const closeTabWithCleanup = useCallback((tabId: string) => {
     closeTabWithCleanupFn({

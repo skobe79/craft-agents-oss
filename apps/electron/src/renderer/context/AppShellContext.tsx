@@ -1,5 +1,5 @@
 /**
- * ChatContext
+ * AppShellContext
  *
  * Provides session and workspace data to tab panels without prop drilling.
  * This context is used by ChatTabPanel and other components that need
@@ -26,7 +26,7 @@ import type { SessionOptions, SessionOptionUpdates } from '../hooks/useSessionOp
 import { defaultSessionOptions } from '../hooks/useSessionOptions'
 import { sessionAtomFamily } from '../atoms/sessions'
 
-export interface ChatContextType {
+export interface AppShellContextType {
   // Data
   sessions: Session[]
   workspaces: Workspace[]
@@ -38,7 +38,7 @@ export interface ChatContextType {
   pendingCredentials: Map<string, CredentialRequest[]>
   /** Get draft input text for a session - reads from ref without triggering re-renders */
   getDraft: (sessionId: string) => string
-  /** All enabled sources for this workspace - provided by Chat component */
+  /** All enabled sources for this workspace - provided by AppShell component */
   enabledSources?: LoadedSource[]
 
   // Unified session options (replaces ultrathinkSessions and sessionModes)
@@ -95,7 +95,7 @@ export interface ChatContextType {
   // Input draft callback
   onInputChange: (sessionId: string, value: string) => void
 
-  // Source selection callback (per-session) - provided by Chat component
+  // Source selection callback (per-session) - provided by AppShell component
   onSessionSourcesChange?: (sessionId: string, sourceSlugs: string[]) => void
 
   // Chat input ref (for focusing)
@@ -105,22 +105,22 @@ export interface ChatContextType {
   openNewChat?: (params?: NewChatActionParams) => Promise<void>
 }
 
-const ChatContext = createContext<ChatContextType | null>(null)
+const AppShellContext = createContext<AppShellContextType | null>(null)
 
-export function ChatProvider({
+export function AppShellProvider({
   children,
   value,
 }: {
   children: React.ReactNode
-  value: ChatContextType
+  value: AppShellContextType
 }) {
-  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>
+  return <AppShellContext.Provider value={value}>{children}</AppShellContext.Provider>
 }
 
-export function useChatContext(): ChatContextType {
-  const context = useContext(ChatContext)
+export function useAppShellContext(): AppShellContextType {
+  const context = useContext(AppShellContext)
   if (!context) {
-    throw new Error('useChatContext must be used within a ChatProvider')
+    throw new Error('useAppShellContext must be used within an AppShellProvider')
   }
   return context
 }
@@ -140,7 +140,7 @@ export function useSession(sessionId: string): Session | null {
  * @deprecated Use useSession() instead for better performance
  */
 export function useSessionLegacy(sessionId: string): Session | null {
-  const { sessions } = useChatContext()
+  const { sessions } = useAppShellContext()
   return sessions.find((s) => s.id === sessionId) || null
 }
 
@@ -148,7 +148,7 @@ export function useSessionLegacy(sessionId: string): Session | null {
  * Get the active workspace
  */
 export function useActiveWorkspace(): Workspace | null {
-  const { workspaces, activeWorkspaceId } = useChatContext()
+  const { workspaces, activeWorkspaceId } = useAppShellContext()
   if (!activeWorkspaceId) return null
   return workspaces.find((w) => w.id === activeWorkspaceId) || null
 }
@@ -157,7 +157,7 @@ export function useActiveWorkspace(): Workspace | null {
  * Get pending permission for a session (first in queue)
  */
 export function usePendingPermission(sessionId: string): PermissionRequest | undefined {
-  const { pendingPermissions } = useChatContext()
+  const { pendingPermissions } = useAppShellContext()
   return pendingPermissions.get(sessionId)?.[0]
 }
 
@@ -165,7 +165,7 @@ export function usePendingPermission(sessionId: string): PermissionRequest | und
  * Get pending credential request for a session (first in queue)
  */
 export function usePendingCredential(sessionId: string): CredentialRequest | undefined {
-  const { pendingCredentials } = useChatContext()
+  const { pendingCredentials } = useAppShellContext()
   return pendingCredentials.get(sessionId)?.[0]
 }
 
@@ -186,7 +186,7 @@ export function useSessionOptionsFor(sessionId: string): {
   setPermissionMode: (mode: PermissionMode) => void
   isSafeModeActive: () => boolean
 } {
-  const { sessionOptions, onSessionOptionsChange } = useChatContext()
+  const { sessionOptions, onSessionOptionsChange } = useAppShellContext()
 
   const options = sessionOptions.get(sessionId) ?? defaultSessionOptions
 
@@ -222,4 +222,3 @@ export function useSessionOptionsFor(sessionId: string): {
     isSafeModeActive,
   }
 }
-

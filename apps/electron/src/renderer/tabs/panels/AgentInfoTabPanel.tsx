@@ -20,7 +20,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { SetupAuthBanner, type BannerState } from '@/components/chat/SetupAuthBanner'
+import { SetupAuthBanner, type BannerState } from '@/components/app-shell/SetupAuthBanner'
 import { useAgentState } from '@/hooks/useAgentState'
 import { useTabs } from '../useTabs'
 import type {

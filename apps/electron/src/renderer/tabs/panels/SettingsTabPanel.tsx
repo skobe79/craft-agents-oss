@@ -20,7 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useTheme, type FontFamily } from '@/context/ThemeContext'
-import { useChatContext } from '@/context/ChatContext'
+import { useAppShellContext } from '@/context/AppShellContext'
 import { cn } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -696,11 +696,11 @@ export default function SettingsTabPanel({
   const { mode, setMode, font, setFont } = useTheme()
 
   // Get model, onModelChange, and active workspace from context
-  const chatContext = useChatContext()
-  const model = propModel ?? chatContext.currentModel ?? 'claude-sonnet-4-5-20250929'
-  const onModelChange = propOnModelChange ?? chatContext.onModelChange
-  const activeWorkspaceId = chatContext.activeWorkspaceId
-  const onRefreshWorkspaces = chatContext.onRefreshWorkspaces
+  const appShellContext = useAppShellContext()
+  const model = propModel ?? appShellContext.currentModel ?? 'claude-sonnet-4-5-20250929'
+  const onModelChange = propOnModelChange ?? appShellContext.onModelChange
+  const activeWorkspaceId = appShellContext.activeWorkspaceId
+  const onRefreshWorkspaces = appShellContext.onRefreshWorkspaces
 
   // Billing state
   const [authType, setAuthType] = useState<AuthType>(propAuthType ?? 'craft_credits')

@@ -28,7 +28,7 @@ import {
   StyledDropdownMenuSeparator,
 } from '@/components/ui/styled-dropdown'
 import { Separator } from '@/components/ui/separator'
-import { useChatContext } from '@/context/ChatContext'
+import { useAppShellContext } from '@/context/AppShellContext'
 import { getSessionTitle } from '@/utils/session'
 import { TabContent } from './TabContent'
 import { useTabs } from './useTabs'
@@ -42,7 +42,7 @@ interface TabContainerProps {
 
 export function TabContainer({ className, isFocusedMode }: TabContainerProps) {
   const { activeTab, updateChatTabLabel } = useTabs()
-  const { sessions, onRenameSession } = useChatContext()
+  const { sessions, onRenameSession } = useAppShellContext()
 
   // Rename dialog state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
@@ -187,7 +187,7 @@ interface TabHeaderActionsProps {
  */
 function TabHeaderActions({ tab, onOpenRename }: TabHeaderActionsProps) {
   const { closeTab: rawCloseTab } = useTabs()
-  const { sessions, onDeleteSession, onTodoStateChange } = useChatContext()
+  const { sessions, onDeleteSession, onTodoStateChange } = useAppShellContext()
 
   // Get session for chat tab
   const session = tab.type === 'chat'

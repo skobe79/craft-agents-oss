@@ -2521,12 +2521,15 @@ To view this task's output:
 
     // Send event to all windows for this workspace
     for (const window of windows) {
-      // Check both window and webContents to avoid race condition during window closure
-      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+      // Check mainFrame - it becomes null when render frame is disposed
+      // This prevents Electron's internal error logging before our try-catch
+      if (!window.isDestroyed() &&
+          !window.webContents.isDestroyed() &&
+          window.webContents.mainFrame) {
         try {
           window.webContents.send(IPC_CHANNELS.SESSION_EVENT, event)
         } catch {
-          // Silently ignore - this is expected during window closure race conditions
+          // Silently ignore - expected during window closure race conditions
         }
       }
     }
