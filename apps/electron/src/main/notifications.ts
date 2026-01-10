@@ -145,7 +145,7 @@ export function updateBadgeCount(count: number): void {
       // Reset to original icon (no badge)
       if (baseIconPath) {
         const originalIcon = nativeImage.createFromPath(baseIconPath)
-        app.dock.setIcon(originalIcon)
+        app.dock?.setIcon(originalIcon)
       }
     }
     mainLog.info('Badge count updated:', count)
@@ -165,7 +165,7 @@ export function setDockIconWithBadge(dataUrl: string): void {
 
   try {
     const icon = nativeImage.createFromDataURL(dataUrl)
-    app.dock.setIcon(icon)
+    app.dock?.setIcon(icon)
     mainLog.info('Dock icon updated with badge')
   } catch (error) {
     mainLog.error('Failed to set dock icon with badge:', error)
