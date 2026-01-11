@@ -17,8 +17,10 @@ import {
   isChatsNavigation,
   isSourcesNavigation,
   isSettingsNavigation,
+  isSkillsNavigation,
 } from '@/contexts/NavigationContext'
 import { SettingsPage, PreferencesPage, ShortcutsPage, SourceInfoPage, ChatPage } from '@/pages'
+import SkillInfoPage from '@/pages/SkillInfoPage'
 
 export interface MainContentPanelProps {
   /** Whether the app is in focused mode (single chat, no sidebar) */
@@ -76,6 +78,28 @@ export function MainContentPanel({
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">No sources configured</p>
+        </div>
+      </Panel>
+    )
+  }
+
+  // Skills navigator - show skill info or empty state
+  if (isSkillsNavigation(navState)) {
+    if (navState.details) {
+      return (
+        <Panel variant="grow" className={className}>
+          <SkillInfoPage
+            skillSlug={navState.details.skillSlug}
+            workspaceId={activeWorkspaceId || ''}
+          />
+        </Panel>
+      )
+    }
+    // No skill selected - empty state
+    return (
+      <Panel variant="grow" className={className}>
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          <p className="text-sm">No skills configured</p>
         </div>
       </Panel>
     )

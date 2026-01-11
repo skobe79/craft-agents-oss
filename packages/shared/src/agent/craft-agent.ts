@@ -374,6 +374,8 @@ export class CraftAgent {
   private configWatcher: ConfigWatcher | null = null;
   // Pinned system prompt components (captured on first chat, used for consistency after compaction)
   private pinnedPreferencesPrompt: string | null = null;
+  // Track if preference drift notification has been shown this session
+  private preferencesDriftNotified: boolean = false;
   // Captured stderr from SDK subprocess (for error diagnostics when process exits with code 1)
   private lastStderrOutput: string[] = [];
 
@@ -730,11 +732,12 @@ export class CraftAgent {
         // Detect drift: warn user if context has changed since session started
         const preferencesDrifted = currentPreferencesPrompt !== this.pinnedPreferencesPrompt;
 
-        if (preferencesDrifted) {
+        if (preferencesDrifted && !this.preferencesDriftNotified) {
           yield {
             type: 'info',
             message: `Note: Your preferences changed since this session started. Start a new session to apply changes.`,
           };
+          this.preferencesDriftNotified = true;
           debug(`[chat] Detected drift in: preferences`);
         }
       }
@@ -1379,6 +1382,8 @@ export class CraftAgent {
         },
         // Selectively disable tools - file tools are disabled (use MCP), web/code controlled by settings
         disallowedTools,
+        // Load workspace as SDK plugin (enables skills, commands, agents from workspace)
+        plugins: [{ type: 'local' as const, path: this.workspaceRootPath }],
       };
 
       // Track whether we're trying to resume a session (for error handling)
@@ -1630,6 +1635,7 @@ export class CraftAgent {
             this.sessionId = null;
             // Clear pinned state so retry captures fresh values
             this.pinnedPreferencesPrompt = null;
+            this.preferencesDriftNotified = false;
             // Use 'info' instead of 'status' to show message without spinner
             yield { type: 'info', message: 'Session expired, restoring context...' };
             // Recursively call with isRetry=true (yield* delegates all events)
@@ -1690,6 +1696,7 @@ export class CraftAgent {
           this.sessionId = null;
           // Clear pinned state so retry captures fresh values
           this.pinnedPreferencesPrompt = null;
+          this.preferencesDriftNotified = false;
 
           // Provide context-aware message (conservative: only match explicit session/resume terms)
           const isSessionError =
@@ -2648,6 +2655,7 @@ export class CraftAgent {
     this.sessionId = null;
     // Clear pinned state so next chat() will capture fresh values
     this.pinnedPreferencesPrompt = null;
+    this.preferencesDriftNotified = false;
   }
 
   /**
@@ -2844,6 +2852,7 @@ export class CraftAgent {
 
     // Clear pinned system prompt state
     this.pinnedPreferencesPrompt = null;
+    this.preferencesDriftNotified = false;
 
     // Clear callbacks
     this.onPermissionRequest = null;

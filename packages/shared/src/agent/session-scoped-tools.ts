@@ -7,12 +7,13 @@
  * Tools included:
  * - SubmitPlan: Submit a plan file for user review/display
  * - config_validate: Validate configuration files
+ * - skill_validate: Validate skill SKILL.md files
  * - source_test: Validate schema, download icons, test connections
  * - source_oauth_trigger: Start OAuth authentication for MCP sources
  * - source_google_oauth_trigger: Start Google OAuth authentication (Gmail, Calendar, Drive)
  * - source_credential_prompt: Prompt user for API credentials
  *
- * Source CRUD is done via standard file editing tools (Read/Write/Edit).
+ * Source and Skill CRUD is done via standard file editing tools (Read/Write/Edit).
  * See ~/.craft-agent/docs/ for config format documentation.
  */
 
@@ -29,6 +30,8 @@ import {
   validateAllSources,
   validatePreferences,
   validateAll,
+  validateSkill,
+  validateAllSkills,
   formatValidationResult,
 } from '../config/validators.ts';
 import { PERMISSION_MODE_CONFIG } from './mode-types.ts';
@@ -410,6 +413,60 @@ Returns structured validation results with errors, warnings, and suggestions.
           content: [{
             type: 'text' as const,
             text: `Error validating config: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+}
+
+// ============================================================
+// Skill Validation Tool
+// ============================================================
+
+/**
+ * Create a session-scoped skill_validate tool.
+ * Validates skill SKILL.md files and returns structured error reports.
+ */
+export function createSkillValidateTool(sessionId: string, workspaceRoot: string) {
+  return tool(
+    'skill_validate',
+    `Validate a skill's SKILL.md file.
+
+Checks:
+- Slug format (lowercase alphanumeric with hyphens)
+- SKILL.md exists and is readable
+- YAML frontmatter is valid with required fields (name, description)
+- Content is non-empty after frontmatter
+- Icon format if present (svg/png/jpg)
+
+**Usage:** Call after creating or editing a skill to verify it's valid.
+
+**Returns:** Validation status with specific errors and warnings.`,
+    {
+      skillSlug: z.string().describe('The slug of the skill to validate'),
+    },
+    async (args) => {
+      debug('[skill_validate] Validating skill:', args.skillSlug);
+
+      try {
+        const result = validateSkill(workspaceRoot, args.skillSlug);
+        const formatted = formatValidationResult(result);
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: formatted,
+          }],
+          isError: false,
+        };
+      } catch (error) {
+        debug('[skill_validate] Error:', error);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Error validating skill: ${error instanceof Error ? error.message : 'Unknown error'}`,
           }],
           isError: true,
         };
@@ -1765,6 +1822,8 @@ export function getSessionScopedTools(sessionId: string, workspaceId: string): R
         createSubmitPlanTool(sessionId),
         // Config validation tool
         createConfigValidateTool(sessionId, workspaceId),
+        // Skill validation tool
+        createSkillValidateTool(sessionId, workspaceId),
         // Source tools: test + auth only (CRUD via file editing)
         createSourceTestTool(sessionId, workspaceId),
         createOAuthTriggerTool(sessionId, workspaceId),

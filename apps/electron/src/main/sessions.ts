@@ -348,6 +348,17 @@ export class SessionManager {
         sessionLog.info(`Workspace theme changed in ${workspaceRootPath}`)
         this.broadcastWorkspaceThemeChanged(theme)
       },
+      onSkillsListChange: async (skills) => {
+        sessionLog.info(`Skills list changed in ${workspaceRootPath} (${skills.length} skills)`)
+        this.broadcastSkillsChanged(skills)
+      },
+      onSkillChange: async (slug, skill) => {
+        sessionLog.info(`Skill '${slug}' changed:`, skill ? 'updated' : 'deleted')
+        // Broadcast updated list to UI
+        const { loadWorkspaceSkills } = await import('@craft-agent/shared/skills')
+        const skills = loadWorkspaceSkills(workspaceRootPath)
+        this.broadcastSkillsChanged(skills)
+      },
     }
 
     const watcher = new ConfigWatcher(workspaceRootPath, callbacks)
@@ -389,6 +400,15 @@ export class SessionManager {
     if (!this.windowManager) return
     sessionLog.info(`Broadcasting workspace theme changed`)
     this.windowManager.broadcastToAll(IPC_CHANNELS.THEME_WORKSPACE_CHANGED, theme)
+  }
+
+  /**
+   * Broadcast skills changed event to all windows
+   */
+  private broadcastSkillsChanged(skills: import('@craft-agent/shared/skills').LoadedSkill[]): void {
+    if (!this.windowManager) return
+    sessionLog.info(`Broadcasting skills changed (${skills.length} skills)`)
+    this.windowManager.broadcastToAll(IPC_CHANNELS.SKILLS_CHANGED, skills)
   }
 
   /**
@@ -684,6 +704,33 @@ export class SessionManager {
         error: errorMessage,
       })
     }
+  }
+
+  /**
+   * Start OAuth flow for a pending auth request (called when user clicks "Sign in")
+   * This is the user-initiated trigger - OAuth no longer starts automatically
+   */
+  async startSessionOAuth(sessionId: string, requestId: string): Promise<void> {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) {
+      sessionLog.warn(`Cannot start OAuth - session ${sessionId} not found`)
+      return
+    }
+
+    // Find the pending auth request
+    if (managed.pendingAuthRequestId !== requestId || !managed.pendingAuthRequest) {
+      sessionLog.warn(`Cannot start OAuth - no pending request with id ${requestId}`)
+      return
+    }
+
+    const request = managed.pendingAuthRequest
+    if (request.type === 'credential') {
+      sessionLog.warn(`Cannot start OAuth for credential request`)
+      return
+    }
+
+    // Run the OAuth flow
+    await this.runOAuthFlow(managed, request)
   }
 
   /**
@@ -1183,12 +1230,8 @@ export class SessionManager {
         // Persist session state
         this.persistSession(managed)
 
-        // For OAuth types (not credential), kick off the OAuth flow
-        if (request.type !== 'credential') {
-          this.runOAuthFlow(managed, request).catch(error => {
-            sessionLog.error(`OAuth flow error for ${request.sourceSlug}:`, error)
-          })
-        }
+        // OAuth flow is now user-initiated via startSessionOAuth()
+        // The UI will call sessionCommand({ type: 'startOAuth' }) when user clicks "Sign in"
       }
 
       // NOTE: Source reloading is now handled by ConfigWatcher callbacks
@@ -1673,6 +1716,18 @@ export class SessionManager {
         message: userMessage,
         status: 'accepted'
       }, managed.workspace.id)
+
+      // If this is the first user message and no name exists, immediately update title
+      // with the message preview. The AI-generated title will replace this when it arrives.
+      const isFirstUserMessage = managed.messages.filter(m => m.role === 'user').length === 1
+      if (isFirstUserMessage && !managed.name) {
+        const previewTitle = message.slice(0, 50) + (message.length > 50 ? '…' : '')
+        this.sendEvent({
+          type: 'title_generated',
+          sessionId,
+          title: previewTitle,
+        }, managed.workspace.id)
+      }
     }
 
     managed.lastMessageAt = Date.now()

@@ -5,20 +5,18 @@
  * Features:
  * - Fixed input fields for known preferences (name, timezone, location, language)
  * - Free-form textarea for notes
- * - Parses JSON on load, serializes back on save
- * - Save/Revert buttons
+ * - Auto-saves on change with debouncing
  */
 
 import * as React from 'react'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Spinner } from '@craft-agent/ui'
-import { Save, RotateCcw, Check, ExternalLink } from 'lucide-react'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 
 export const meta: DetailsPageMeta = {
@@ -116,26 +114,18 @@ function FormField({
   )
 }
 
-interface PreferencesPageProps {
-  /** Optional header actions to display in parent panel header */
-  renderHeaderActions?: (props: {
-    isDirty: boolean
-    isSaving: boolean
-    saveSuccess: boolean
-    onSave: () => void
-    onRevert: () => void
-  }) => React.ReactNode
-}
-
-export default function PreferencesPage({ renderHeaderActions }: PreferencesPageProps) {
+export default function PreferencesPage() {
   const [formState, setFormState] = useState<PreferencesFormState>(emptyFormState)
-  const [originalState, setOriginalState] = useState<PreferencesFormState>(emptyFormState)
   const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveSuccess, setSaveSuccess] = useState(false)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isInitialLoadRef = useRef(true)
+  const formStateRef = useRef(formState)
+  const lastSavedRef = useRef<string | null>(null)
 
-  // Deep compare for dirty state
-  const isDirty = JSON.stringify(formState) !== JSON.stringify(originalState)
+  // Keep formStateRef in sync for use in cleanup
+  useEffect(() => {
+    formStateRef.current = formState
+  }, [formState])
 
   // Load stored user preferences on mount
   useEffect(() => {
@@ -144,16 +134,70 @@ export default function PreferencesPage({ renderHeaderActions }: PreferencesPage
         const result = await window.electronAPI.readPreferences()
         const parsed = parsePreferences(result.content)
         setFormState(parsed)
-        setOriginalState(parsed)
+        lastSavedRef.current = serializePreferences(parsed)
       } catch (err) {
         console.error('Failed to load stored user preferences:', err)
         setFormState(emptyFormState)
-        setOriginalState(emptyFormState)
       } finally {
         setIsLoading(false)
+        // Mark initial load as complete after a short delay
+        setTimeout(() => {
+          isInitialLoadRef.current = false
+        }, 100)
       }
     }
     load()
+  }, [])
+
+  // Auto-save with debouncing
+  useEffect(() => {
+    // Skip auto-save during initial load
+    if (isInitialLoadRef.current || isLoading) return
+
+    // Clear any pending save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    // Debounce save by 500ms
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const json = serializePreferences(formState)
+        const result = await window.electronAPI.writePreferences(json)
+        if (result.success) {
+          lastSavedRef.current = json
+        } else {
+          console.error('Failed to save preferences:', result.error)
+        }
+      } catch (err) {
+        console.error('Failed to save preferences:', err)
+      }
+    }, 500)
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [formState, isLoading])
+
+  // Force save on unmount if there are unsaved changes
+  useEffect(() => {
+    return () => {
+      // Clear any pending debounced save
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+
+      // Check if there are unsaved changes and save immediately
+      const currentJson = serializePreferences(formStateRef.current)
+      if (lastSavedRef.current !== currentJson && !isInitialLoadRef.current) {
+        // Fire and forget - we can't await in cleanup
+        window.electronAPI.writePreferences(currentJson).catch((err) => {
+          console.error('Failed to save preferences on unmount:', err)
+        })
+      }
+    }
   }, [])
 
   const updateField = useCallback(<K extends keyof PreferencesFormState>(
@@ -163,29 +207,6 @@ export default function PreferencesPage({ renderHeaderActions }: PreferencesPage
     setFormState(prev => ({ ...prev, [field]: value }))
   }, [])
 
-  const handleSave = useCallback(async () => {
-    setIsSaving(true)
-    try {
-      const json = serializePreferences(formState)
-      const result = await window.electronAPI.writePreferences(json)
-      if (result.success) {
-        setOriginalState(formState)
-        setSaveSuccess(true)
-        setTimeout(() => setSaveSuccess(false), 2000)
-      } else {
-        console.error('Failed to save stored user preferences:', result.error)
-      }
-    } catch (err) {
-      console.error('Failed to save stored user preferences:', err)
-    } finally {
-      setIsSaving(false)
-    }
-  }, [formState])
-
-  const handleRevert = useCallback(() => {
-    setFormState(originalState)
-  }, [originalState])
-
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -194,52 +215,10 @@ export default function PreferencesPage({ renderHeaderActions }: PreferencesPage
     )
   }
 
-  // Inline header actions (when not using renderHeaderActions prop)
-  const headerActions = (
-    <div className="flex items-center gap-1.5">
-      <button
-        onClick={() => window.electronAPI.showInFolder('~/.craft-agent/preferences.json')}
-        className="flex items-center gap-1 text-xs h-7 px-2 rounded-md bg-foreground/5 hover:bg-foreground/10 text-muted-foreground"
-        title="Open in Finder"
-      >
-        <ExternalLink className="h-3 w-3" />
-      </button>
-      <div className={`flex items-center gap-1.5 transition-opacity ${isDirty ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        <button
-          onClick={handleRevert}
-          className="flex items-center gap-1 text-xs h-7 px-2 rounded-md bg-foreground/5 hover:bg-foreground/10 text-muted-foreground"
-        >
-          <RotateCcw className="h-3 w-3" />
-          Revert
-        </button>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={handleSave}
-          disabled={isSaving}
-          className="text-xs h-7 px-2"
-        >
-          {isSaving ? (
-            <Spinner className="h-3.5 w-3.5 mr-1" />
-          ) : saveSuccess ? (
-            <Check className="h-3.5 w-3.5 mr-1 text-success" />
-          ) : (
-            <Save className="h-3.5 w-3.5 mr-1" />
-          )}
-          Save
-        </Button>
-      </div>
-    </div>
-  )
-
   return (
     <div className="h-full flex flex-col">
-      {/* Header actions shown at top of content when standalone */}
-      <div className="flex items-center justify-end px-4 py-2 border-b border-border/50">
-        {renderHeaderActions
-          ? renderHeaderActions({ isDirty, isSaving, saveSuccess, onSave: handleSave, onRevert: handleRevert })
-          : headerActions}
-      </div>
+      <PanelHeader title="Preferences" />
+      <Separator />
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-6">
           {/* Basic Info */}

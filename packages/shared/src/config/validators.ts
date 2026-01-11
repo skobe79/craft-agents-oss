@@ -267,8 +267,10 @@ export function validatePreferences(): ValidationResult {
 
 /**
  * Validate all config files
+ * @param workspaceId - Optional workspace ID for source validation
+ * @param workspaceRoot - Optional workspace root path for skill validation
  */
-export function validateAll(workspaceId?: string): ValidationResult {
+export function validateAll(workspaceId?: string, workspaceRoot?: string): ValidationResult {
   const results: ValidationResult[] = [
     validateConfig(),
     validatePreferences(),
@@ -277,6 +279,11 @@ export function validateAll(workspaceId?: string): ValidationResult {
   // Include workspace-scoped validations if workspaceId is provided
   if (workspaceId) {
     results.push(validateAllSources(workspaceId));
+  }
+
+  // Include skill validation if workspaceRoot is provided
+  if (workspaceRoot) {
+    results.push(validateAllSkills(workspaceRoot));
   }
 
   const allErrors = results.flatMap(r => r.errors);
@@ -505,6 +512,224 @@ export function validateAllSources(workspaceId: string): ValidationResult {
 
   for (const folder of sourceFolders) {
     const result = validateSource(workspaceId, folder);
+    errors.push(...result.errors);
+    warnings.push(...result.warnings);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+// ============================================================
+// Skill Validators
+// ============================================================
+
+import matter from 'gray-matter';
+import { getWorkspaceSkillsPath } from '../workspaces/storage.ts';
+import { basename, extname } from 'path';
+
+/**
+ * Schema for skill metadata (SKILL.md frontmatter)
+ */
+export const SkillMetadataSchema = z.object({
+  name: z.string().min(1, 'Skill name is required'),
+  description: z.string().min(1, 'Skill description is required'),
+  globs: z.array(z.string()).optional(),
+  alwaysAllow: z.array(z.string()).optional(),
+});
+
+/**
+ * Find icon file in skill directory
+ */
+function findSkillIconForValidation(skillDir: string): string | null {
+  const iconExtensions = ['.svg', '.png', '.jpg', '.jpeg'];
+
+  for (const ext of iconExtensions) {
+    const iconPath = join(skillDir, `icon${ext}`);
+    if (existsSync(iconPath)) {
+      return iconPath;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Validate a skill folder
+ * @param workspaceRoot - Absolute path to workspace root folder
+ * @param slug - Skill directory name
+ */
+export function validateSkill(workspaceRoot: string, slug: string): ValidationResult {
+  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
+  const skillDir = join(skillsDir, slug);
+  const skillFile = join(skillDir, 'SKILL.md');
+  const file = `skills/${slug}/SKILL.md`;
+
+  const errors: ValidationIssue[] = [];
+  const warnings: ValidationIssue[] = [];
+
+  // 1. Validate slug format
+  if (!/^[a-z0-9-]+$/.test(slug)) {
+    errors.push({
+      file: `skills/${slug}`,
+      path: 'slug',
+      message: 'Slug must be lowercase alphanumeric with hyphens',
+      severity: 'error',
+      suggestion: 'Rename folder to use lowercase letters, numbers, and hyphens only',
+    });
+  }
+
+  // 2. Check directory exists
+  if (!existsSync(skillDir)) {
+    return {
+      valid: false,
+      errors: [{
+        file: `skills/${slug}`,
+        path: '',
+        message: `Skill folder '${slug}' does not exist`,
+        severity: 'error',
+      }],
+      warnings: [],
+    };
+  }
+
+  // 3. Check SKILL.md exists
+  if (!existsSync(skillFile)) {
+    return {
+      valid: false,
+      errors: [{
+        file,
+        path: '',
+        message: 'SKILL.md not found',
+        severity: 'error',
+        suggestion: 'Create a SKILL.md file with YAML frontmatter',
+      }],
+      warnings: [],
+    };
+  }
+
+  // 4. Parse SKILL.md
+  let content: string;
+  try {
+    content = readFileSync(skillFile, 'utf-8');
+  } catch (e) {
+    return {
+      valid: false,
+      errors: [{
+        file,
+        path: '',
+        message: `Cannot read file: ${e instanceof Error ? e.message : 'Unknown error'}`,
+        severity: 'error',
+      }],
+      warnings: [],
+    };
+  }
+
+  // 5. Parse frontmatter
+  let frontmatter: unknown;
+  let body: string;
+  try {
+    const parsed = matter(content);
+    frontmatter = parsed.data;
+    body = parsed.content;
+  } catch (e) {
+    return {
+      valid: false,
+      errors: [{
+        file,
+        path: 'frontmatter',
+        message: `Invalid YAML frontmatter: ${e instanceof Error ? e.message : 'Unknown error'}`,
+        severity: 'error',
+      }],
+      warnings: [],
+    };
+  }
+
+  // 6. Validate frontmatter schema
+  const metaResult = SkillMetadataSchema.safeParse(frontmatter);
+  if (!metaResult.success) {
+    errors.push(...zodErrorToIssues(metaResult.error, file));
+  }
+
+  // 7. Check content is not empty
+  if (!body || body.trim().length === 0) {
+    errors.push({
+      file,
+      path: 'content',
+      message: 'Skill content is empty (nothing after frontmatter)',
+      severity: 'error',
+      suggestion: 'Add skill instructions after the YAML frontmatter',
+    });
+  }
+
+  // 8. Validate icon if present
+  const iconPath = findSkillIconForValidation(skillDir);
+  if (iconPath) {
+    const ext = extname(iconPath).toLowerCase();
+    if (!['.svg', '.png', '.jpg', '.jpeg'].includes(ext)) {
+      warnings.push({
+        file: `skills/${slug}/${basename(iconPath)}`,
+        path: '',
+        message: `Unexpected icon format: ${ext}`,
+        severity: 'warning',
+        suggestion: 'Use .svg, .png, or .jpg for icons',
+      });
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * Validate all skills in a workspace
+ * @param workspaceRoot - Absolute path to workspace root folder
+ */
+export function validateAllSkills(workspaceRoot: string): ValidationResult {
+  const skillsDir = getWorkspaceSkillsPath(workspaceRoot);
+  const errors: ValidationIssue[] = [];
+  const warnings: ValidationIssue[] = [];
+
+  if (!existsSync(skillsDir)) {
+    return {
+      valid: true,
+      errors: [],
+      warnings: [{
+        file: 'skills/',
+        path: '',
+        message: 'Skills directory does not exist (no skills configured)',
+        severity: 'warning',
+      }],
+    };
+  }
+
+  const entries = readdirSync(skillsDir);
+  const skillFolders = entries.filter((entry) => {
+    const entryPath = join(skillsDir, entry);
+    return statSync(entryPath).isDirectory();
+  });
+
+  if (skillFolders.length === 0) {
+    return {
+      valid: true,
+      errors: [],
+      warnings: [{
+        file: 'skills/',
+        path: '',
+        message: 'No skills configured',
+        severity: 'warning',
+      }],
+    };
+  }
+
+  for (const folder of skillFolders) {
+    const result = validateSkill(workspaceRoot, folder);
     errors.push(...result.errors);
     warnings.push(...result.warnings);
   }

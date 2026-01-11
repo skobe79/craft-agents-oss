@@ -6,14 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
-import { motion, AnimatePresence } from 'motion/react'
 import type { Message, CredentialResponse } from '../../../shared/types'
 import type { AuthRequestType, AuthStatus } from '@craft-agent/core/types'
-
-// Animation configuration - used for layout transitions
-const LAYOUT_TRANSITION = { duration: 0.3, ease: [0.16, 1, 0.3, 1] as const }
-// Content crossfade - smooth overlap transition
-const CONTENT_FADE = { duration: 0.2, ease: 'easeInOut' as const }
 
 // ============================================================================
 // Primitives
@@ -26,7 +20,7 @@ const VARIANT_STYLES: Record<AuthCardVariant, { bg: string; textClass: string; s
   default: { bg: 'var(--background)', textClass: 'text-foreground shadow-minimal' },
   success: { bg: 'oklch(from var(--success) l c h / 0.03)', textClass: 'text-[var(--success-text)] shadow-tinted', shadowColor: 'var(--success-rgb)' },
   error: { bg: 'oklch(from var(--destructive) l c h / 0.03)', textClass: 'text-[var(--destructive-text)] shadow-tinted', shadowColor: 'var(--destructive-rgb)' },
-  muted: { bg: 'var(--muted)', textClass: 'text-muted-foreground shadow-minimal' },
+  muted: { bg: 'var(--foreground-3)', textClass: 'text-foreground/70 shadow-minimal' },
 }
 
 interface AuthCardHeaderProps {
@@ -148,6 +142,8 @@ interface AuthRequestCardProps {
   onRespondToCredential?: (sessionId: string, requestId: string, response: CredentialResponse) => void
   /** Session ID for this auth request */
   sessionId: string
+  /** Whether the card is interactive (last message, no user message after). Default true. */
+  isInteractive?: boolean
 }
 
 /**
@@ -163,7 +159,7 @@ interface AuthRequestCardProps {
  * - cancelled: Show cancelled state
  * - failed: Show error state
  */
-export function AuthRequestCard({ message, onRespondToCredential, sessionId }: AuthRequestCardProps) {
+export function AuthRequestCard({ message, onRespondToCredential, sessionId, isInteractive = true }: AuthRequestCardProps) {
   const [value, setValue] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -225,11 +221,17 @@ export function AuthRequestCard({ message, onRespondToCredential, sessionId }: A
     }
   }, [isValid, handleSubmit, handleCancel])
 
-  const handleOAuthClick = useCallback(() => {
-    // OAuth is handled automatically by the backend
-    // The message status will update when OAuth completes
+  const handleOAuthClick = useCallback(async () => {
+    // Trigger OAuth flow when user clicks - no longer automatic
+    if (!authRequestId) return
     setIsSubmitting(true)
-  }, [])
+    try {
+      await window.electronAPI.sessionCommand(sessionId, { type: 'startOAuth', requestId: authRequestId })
+    } catch (error) {
+      console.error('Failed to start OAuth:', error)
+      setIsSubmitting(false)
+    }
+  }, [sessionId, authRequestId])
 
   // Get field labels
   const credentialLabel = authLabels?.credential ||
@@ -270,16 +272,38 @@ export function AuthRequestCard({ message, onRespondToCredential, sessionId }: A
     !isOAuth || !isSubmitting
   )
 
-  // Content key for AnimatePresence - only changes when content structure changes
-  const contentKey =
-    authStatus === 'completed' ? 'completed' :
-    authStatus === 'cancelled' ? 'cancelled' :
-    authStatus === 'failed' ? 'failed' :
-    isOAuth && isSubmitting ? 'authenticating' :
-    isOAuth ? 'oauth-pending' :
-    'credential-pending'
-
   const { bg: variantBg, textClass: variantTextClass, shadowColor } = VARIANT_STYLES[variant]
+
+  // Compact card view for non-interactive terminal states (after user sends message)
+  if (!isInteractive && authStatus !== 'pending') {
+    const StatusIcon = authStatus === 'completed' ? CheckCircle2 : XCircle
+    const title =
+      authStatus === 'completed' ? `${authSourceName} Connected` :
+      authStatus === 'cancelled' ? `${authSourceName} Cancelled` :
+      `${authSourceName} Failed`
+    const subtitle =
+      authStatus === 'completed' && authEmail ? `Signed in as ${authEmail}` :
+      authStatus === 'failed' && authError ? authError :
+      undefined
+
+    return (
+      <div
+        className={cn('rounded-[8px] overflow-hidden w-fit select-none', variantTextClass)}
+        style={{
+          backgroundColor: variantBg,
+          ...(shadowColor ? { '--shadow-color': shadowColor } as React.CSSProperties : {})
+        }}
+      >
+        <div className="pl-4 pr-5 py-3">
+          <AuthCardHeader
+            icon={StatusIcon}
+            title={title}
+            subtitle={subtitle}
+          />
+        </div>
+      </div>
+    )
+  }
 
   // Render inner content based on state
   const renderContent = () => {
@@ -494,44 +518,25 @@ export function AuthRequestCard({ message, onRespondToCredential, sessionId }: A
   }
 
   return (
-    <motion.div
-      layout
-      className={cn(
-        'rounded-[8px] overflow-hidden',
-        'transition-colors duration-300 ease-out',
-        variantTextClass
-      )}
-      animate={{ backgroundColor: variantBg }}
-      style={shadowColor ? { '--shadow-color': shadowColor } as React.CSSProperties : undefined}
-      transition={LAYOUT_TRANSITION}
+    <div
+      className={cn('rounded-[8px] overflow-hidden', variantTextClass)}
+      style={{
+        backgroundColor: variantBg,
+        ...(shadowColor ? { '--shadow-color': shadowColor } as React.CSSProperties : {})
+      }}
     >
-      {/* Inner container */}
       <div
         className={cn(
           hasActions ? 'p-4' : 'px-4 py-3',
           !isOAuth && authStatus === 'pending' && 'space-y-4'
         )}
       >
-        {/* Crossfade container - both old and new content exist simultaneously */}
-        <div className="relative">
-          <AnimatePresence initial={false}>
-            <motion.div
-              key={contentKey}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, position: 'absolute', top: 0, left: 0, right: 0 }}
-              transition={LAYOUT_TRANSITION}
-            >
-              {renderContent()}
-            </motion.div>
-          </AnimatePresence>
-        </div>
+        {renderContent()}
         {renderCredentialFields()}
       </div>
 
-      {/* Actions bar */}
       {hasActions && renderActions()}
-    </motion.div>
+    </div>
   )
 }
 
@@ -542,6 +547,7 @@ export const MemoizedAuthRequestCard = React.memo(AuthRequestCard, (prev, next) 
   return (
     prev.message.id === next.message.id &&
     prev.message.authStatus === next.message.authStatus &&
-    prev.sessionId === next.sessionId
+    prev.sessionId === next.sessionId &&
+    prev.isInteractive === next.isInteractive
   )
 })

@@ -11,6 +11,7 @@
  * - ~/.craft-agent/workspaces/{slug}/ - Workspace directory (recursive)
  *   - theme.json - Workspace-level theme overrides
  *   - sources/{slug}/config.json, guide.md, permissions.json
+ *   - skills/{slug}/SKILL.md, icon.*
  *   - permissions.json
  */
 
@@ -30,7 +31,9 @@ import {
 import type { LoadedSource, SourceGuide } from '../sources/types.ts';
 import { loadSource, loadWorkspaceSources, loadSourceGuide } from '../sources/storage.ts';
 import { permissionsConfigCache } from '../agent/permissions-config.ts';
-import { getWorkspacePath, getWorkspaceSourcesPath } from '../workspaces/storage.ts';
+import { getWorkspacePath, getWorkspaceSourcesPath, getWorkspaceSkillsPath } from '../workspaces/storage.ts';
+import type { LoadedSkill } from '../skills/types.ts';
+import { loadSkill, loadWorkspaceSkills } from '../skills/storage.ts';
 import { loadAppTheme, loadWorkspaceTheme } from './storage.ts';
 import type { ThemeOverrides } from './theme.ts';
 
@@ -81,6 +84,12 @@ export interface ConfigWatcherCallbacks {
   onSourceGuideChange?: (slug: string, guide: SourceGuide) => void;
   /** Called when the sources list changes (add/remove folders) */
   onSourcesListChange?: (sources: LoadedSource[]) => void;
+
+  // Skill callbacks
+  /** Called when a specific skill changes (null if deleted) */
+  onSkillChange?: (slug: string, skill: LoadedSkill | null) => void;
+  /** Called when the skills list changes (add/remove folders) */
+  onSkillsListChange?: (skills: LoadedSkill[]) => void;
 
   // Permissions callbacks
   /** Called when workspace permissions.json changes */
@@ -145,10 +154,12 @@ export class ConfigWatcher {
 
   // Track known items for detecting adds/removes
   private knownSources: Set<string> = new Set();
+  private knownSkills: Set<string> = new Set();
 
   // Computed paths
   private workspaceDir: string;
   private sourcesDir: string;
+  private skillsDir: string;
 
   constructor(workspaceIdOrPath: string, callbacks: ConfigWatcherCallbacks) {
     this.callbacks = callbacks;
@@ -163,6 +174,7 @@ export class ConfigWatcher {
       this.workspaceDir = getWorkspacePath(workspaceIdOrPath);
     }
     this.sourcesDir = getWorkspaceSourcesPath(this.workspaceDir);
+    this.skillsDir = getWorkspaceSkillsPath(this.workspaceDir);
   }
 
   /**
@@ -199,9 +211,12 @@ export class ConfigWatcher {
     this.watchWorkspaceDir();
     span.mark('watchWorkspaceDir');
 
-    // Initial scan to populate known sources
+    // Initial scan to populate known sources and skills
     this.scanSources();
     span.mark('scanSources');
+
+    this.scanSkills();
+    span.mark('scanSkills');
 
     debug('[ConfigWatcher] Started watching files');
     span.end();
@@ -230,6 +245,7 @@ export class ConfigWatcher {
     this.watchers = [];
 
     this.knownSources.clear();
+    this.knownSkills.clear();
 
     debug('[ConfigWatcher] Stopped');
   }
@@ -320,6 +336,27 @@ export class ConfigWatcher {
         this.debounce(`source-guide:${slug}`, () => this.handleSourceGuideChange(slug));
       } else if (file === 'permissions.json') {
         this.debounce(`source-permissions:${slug}`, () => this.handleSourcePermissionsChange(slug));
+      }
+      return;
+    }
+
+    // Skills changes: skills/{slug}/...
+    if (parts[0] === 'skills' && parts.length >= 2) {
+      const slug = parts[1]!;  // Safe: checked parts.length >= 2
+      const file = parts[2];
+
+      // Directory-level changes (new/removed skill folders)
+      if (parts.length === 2) {
+        this.debounce('skills-dir', () => this.handleSkillsDirChange());
+        return;
+      }
+
+      // File-level changes
+      if (file === 'SKILL.md') {
+        this.debounce(`skill:${slug}`, () => this.handleSkillChange(slug));
+      } else if (file && /^icon\.(svg|png|jpg|jpeg)$/i.test(file)) {
+        // Icon file changes also trigger a skill change (to update iconPath)
+        this.debounce(`skill-icon:${slug}`, () => this.handleSkillChange(slug));
       }
       return;
     }
@@ -500,6 +537,106 @@ export class ConfigWatcher {
 
     // Notify callback
     this.callbacks.onSourcePermissionsChange?.(slug);
+  }
+
+  // ============================================================
+  // Skills Handlers
+  // ============================================================
+
+  /**
+   * Scan skills directory to populate known skills
+   */
+  private scanSkills(): void {
+    if (!existsSync(this.skillsDir)) {
+      mkdirSync(this.skillsDir, { recursive: true });
+      return;
+    }
+
+    try {
+      const entries = readdirSync(this.skillsDir);
+
+      for (const entry of entries) {
+        const entryPath = join(this.skillsDir, entry);
+        if (statSync(entryPath).isDirectory()) {
+          this.knownSkills.add(entry);
+        }
+      }
+
+      debug('[ConfigWatcher] Known skills:', Array.from(this.knownSkills));
+    } catch (error) {
+      debug('[ConfigWatcher] Error scanning skills:', error);
+    }
+  }
+
+  /**
+   * Handle skills directory change (add/remove folders)
+   */
+  private handleSkillsDirChange(): void {
+    debug('[ConfigWatcher] Skills directory changed');
+
+    if (!existsSync(this.skillsDir)) {
+      // Directory was deleted
+      const removed = Array.from(this.knownSkills);
+      this.knownSkills.clear();
+
+      for (const slug of removed) {
+        this.callbacks.onSkillChange?.(slug, null);
+      }
+
+      this.callbacks.onSkillsListChange?.([]);
+      return;
+    }
+
+    try {
+      const entries = readdirSync(this.skillsDir);
+      const currentFolders = new Set<string>();
+
+      for (const entry of entries) {
+        const entryPath = join(this.skillsDir, entry);
+        if (statSync(entryPath).isDirectory()) {
+          currentFolders.add(entry);
+        }
+      }
+
+      // Find added folders
+      for (const folder of currentFolders) {
+        if (!this.knownSkills.has(folder)) {
+          debug('[ConfigWatcher] New skill folder:', folder);
+          this.knownSkills.add(folder);
+
+          const skill = loadSkill(this.workspaceDir, folder);
+          if (skill) {
+            this.callbacks.onSkillChange?.(folder, skill);
+          }
+        }
+      }
+
+      // Find removed folders
+      for (const folder of this.knownSkills) {
+        if (!currentFolders.has(folder)) {
+          debug('[ConfigWatcher] Removed skill folder:', folder);
+          this.knownSkills.delete(folder);
+          this.callbacks.onSkillChange?.(folder, null);
+        }
+      }
+
+      // Notify list change
+      const allSkills = loadWorkspaceSkills(this.workspaceDir);
+      this.callbacks.onSkillsListChange?.(allSkills);
+    } catch (error) {
+      debug('[ConfigWatcher] Error handling skills dir change:', error);
+      this.callbacks.onError?.('skills/', error as Error);
+    }
+  }
+
+  /**
+   * Handle skill SKILL.md or icon change
+   */
+  private handleSkillChange(slug: string): void {
+    debug('[ConfigWatcher] Skill changed:', slug);
+
+    const skill = loadSkill(this.workspaceDir, slug);
+    this.callbacks.onSkillChange?.(slug, skill);
   }
 
   // ============================================================

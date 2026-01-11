@@ -19,6 +19,7 @@ import {
   Plus,
   Trash2,
   DatabaseZap,
+  Zap,
 } from "lucide-react"
 import { McpIcon } from "../icons/McpIcon"
 import {
@@ -63,9 +64,10 @@ import { useFocusZone, useGlobalShortcuts } from "@/hooks/keyboard"
 import { useFocusContext } from "@/context/FocusContext"
 import { getSessionTitle } from "@/utils/session"
 import { useSetAtom } from "jotai"
-import type { Session, Workspace, FileAttachment, PermissionRequest, TodoState, LoadedSource, PermissionMode } from "../../../shared/types"
+import type { Session, Workspace, FileAttachment, PermissionRequest, TodoState, LoadedSource, LoadedSkill, PermissionMode } from "../../../shared/types"
 import { sessionMetaMapAtom, type SessionMeta } from "@/atoms/sessions"
 import { sourcesAtom } from "@/atoms/sources"
+import { skillsAtom } from "@/atoms/skills"
 import { type TodoStateId, getStateColor, statusConfigsToTodoStates } from "@/config/todo-states"
 import { useStatuses } from "@/hooks/useStatuses"
 import * as storage from "@/lib/local-storage"
@@ -77,12 +79,14 @@ import {
   isChatsNavigation,
   isSourcesNavigation,
   isSettingsNavigation,
+  isSkillsNavigation,
   type NavigationState,
   type ChatFilter,
   type SourceCategory,
 } from "@/contexts/NavigationContext"
 import type { SettingsSubpage } from "../../../shared/types"
 import { SourcesListPanel } from "./SourcesListPanel"
+import { SkillsListPanel } from "./SkillsListPanel"
 import { PanelHeader } from "./PanelHeader"
 import SettingsNavigator from "@/pages/settings/SettingsNavigator"
 
@@ -233,6 +237,14 @@ export function AppShell({
   React.useEffect(() => {
     setSourcesAtom(sources)
   }, [sources, setSourcesAtom])
+
+  // Skills state (workspace-scoped)
+  const [skills, setSkills] = React.useState<LoadedSkill[]>([])
+  // Sync skills to atom for NavigationContext auto-selection
+  const setSkillsAtom = useSetAtom(skillsAtom)
+  React.useEffect(() => {
+    setSkillsAtom(skills)
+  }, [skills, setSkillsAtom])
   // Whether local MCP servers are enabled (affects stdio source status)
   const [localMcpEnabled, setLocalMcpEnabled] = React.useState(true)
 
@@ -277,6 +289,25 @@ export function AppShell({
     const cleanup = window.electronAPI.onSourcesChanged((updatedSources) => {
       console.log('[Chat] Sources changed, updating sidebar:', updatedSources.length)
       setSources(updatedSources || [])
+    })
+    return cleanup
+  }, [])
+
+  // Load skills from backend on mount
+  React.useEffect(() => {
+    if (!activeWorkspaceId) return
+    window.electronAPI.getSkills(activeWorkspaceId).then((loaded) => {
+      setSkills(loaded || [])
+    }).catch(err => {
+      console.error('[Chat] Failed to load skills:', err)
+    })
+  }, [activeWorkspaceId])
+
+  // Subscribe to live skill updates (when skills are added/removed dynamically)
+  React.useEffect(() => {
+    const cleanup = window.electronAPI.onSkillsChanged?.((updatedSkills) => {
+      console.log('[Chat] Skills changed, updating sidebar:', updatedSkills.length)
+      setSkills(updatedSkills || [])
     })
     return cleanup
   }, [])
@@ -326,6 +357,12 @@ export function AppShell({
     const currentCategory = isSourcesNavigation(navState) ? navState.category : undefined
     navigate(routes.view.sources({ sourceSlug: source.config.slug, category: currentCategory }))
   }, [activeWorkspaceId, navigate, navState])
+
+  // Handle selecting a skill from the list
+  const handleSkillSelect = React.useCallback((skill: LoadedSkill) => {
+    if (!activeWorkspaceId) return
+    navigate(routes.view.skills(skill.slug))
+  }, [activeWorkspaceId, navigate])
 
   // Focus zone management
   const { focusZone, focusNextZone, focusPreviousZone } = useFocusContext()
@@ -612,6 +649,11 @@ export function AppShell({
     return { localFiles, onlineSources, localMcp }
   }, [sources])
 
+  // Handler for skills view
+  const handleSkillsClick = useCallback(() => {
+    navigate(routes.view.skills())
+  }, [])
+
   // Handler for settings view
   const handleSettingsClick = useCallback((subpage: SettingsSubpage = 'general') => {
     navigate(routes.view.settings(subpage))
@@ -641,6 +683,18 @@ export function AppShell({
     } catch (error) {
       console.error('[Chat] Failed to delete source:', error)
       toast.error('Failed to delete source')
+    }
+  }, [activeWorkspace])
+
+  // Delete Skill
+  const handleDeleteSkill = useCallback(async (skillSlug: string) => {
+    if (!activeWorkspace) return
+    try {
+      await window.electronAPI.deleteSkill(activeWorkspace.id, skillSlug)
+      toast.success(`Deleted skill: ${skillSlug}`)
+    } catch (error) {
+      console.error('[Chat] Failed to delete skill:', error)
+      toast.error('Failed to delete skill')
     }
   }, [activeWorkspace])
 
@@ -1000,6 +1054,14 @@ export function AppShell({
                       ],
                     },
                     {
+                      id: "nav:skills",
+                      title: "Skills",
+                      label: String(skills.length),
+                      icon: Zap,
+                      variant: isSkillsNavigation(navState) ? "default" : "ghost",
+                      onClick: handleSkillsClick,
+                    },
+                    {
                       id: "nav:settings",
                       title: "Settings",
                       icon: Settings,
@@ -1247,6 +1309,16 @@ export function AppShell({
                 selectedSourceSlug={isSourcesNavigation(navState) && navState.details ? navState.details.sourceSlug : null}
                 localMcpEnabled={localMcpEnabled}
                 category={navState.category}
+              />
+            )}
+            {isSkillsNavigation(navState) && activeWorkspaceId && (
+              /* Skills List */
+              <SkillsListPanel
+                skills={skills}
+                workspaceId={activeWorkspaceId}
+                onSkillClick={handleSkillSelect}
+                onDeleteSkill={handleDeleteSkill}
+                selectedSkillSlug={isSkillsNavigation(navState) && navState.details ? navState.details.skillSlug : null}
               />
             )}
             {isSettingsNavigation(navState) && (

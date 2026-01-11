@@ -603,12 +603,15 @@ export function ChatDisplay({
                     // Auth-request turns - render inline auth UI
                     // mt-2 matches ResponseCard spacing for visual consistency
                     if (turn.type === 'auth-request') {
+                      // Interactive only if no user message follows
+                      const isAuthInteractive = !turns.slice(index + 1).some(t => t.type === 'user')
                       return (
                         <div key={`auth-${turn.message.id}`} className="mt-2">
                           <MemoizedAuthRequestCard
                             message={turn.message}
                             sessionId={session.id}
                             onRespondToCredential={onRespondToCredential}
+                            isInteractive={isAuthInteractive}
                           />
                         </div>
                       )

@@ -54,10 +54,12 @@ import {
   isChatsNavigation,
   isSourcesNavigation,
   isSettingsNavigation,
+  isSkillsNavigation,
   DEFAULT_NAVIGATION_STATE,
 } from '../../shared/types'
 import { sessionMetaMapAtom, type SessionMeta } from '@/atoms/sessions'
 import { sourcesAtom } from '@/atoms/sources'
+import { skillsAtom } from '@/atoms/skills'
 
 /**
  * Get the category of a source
@@ -74,7 +76,7 @@ export type { Route }
 
 // Re-export navigation state types for consumers
 export type { NavigationState, ChatFilter, SourceCategory }
-export { isChatsNavigation, isSourcesNavigation, isSettingsNavigation }
+export { isChatsNavigation, isSourcesNavigation, isSettingsNavigation, isSkillsNavigation }
 
 interface NavigationContextValue {
   /** Navigate to a route */
@@ -122,6 +124,9 @@ export function NavigationProvider({
 
   // Read sources from atom (populated by AppShell)
   const sources = useAtomValue(sourcesAtom)
+
+  // Read skills from atom (populated by AppShell)
+  const skills = useAtomValue(skillsAtom)
 
   // UNIFIED NAVIGATION STATE - single source of truth for all 3 panels
   const [navigationState, setNavigationState] = useState<NavigationState>(DEFAULT_NAVIGATION_STATE)
@@ -185,6 +190,14 @@ export function NavigationProvider({
       return filtered[0]?.config.slug ?? null
     },
     [sources]
+  )
+
+  // Helper: Get first skill slug
+  const getFirstSkillSlug = useCallback(
+    (): string | null => {
+      return skills[0]?.slug ?? null
+    },
+    [skills]
   )
 
   // Handle action navigation (side effects that don't change navigation state)
@@ -325,6 +338,22 @@ export function NavigationProvider({
         }
       }
 
+      // For skills: auto-select first skill if no details provided
+      if (isSkillsNavigation(newState) && !newState.details) {
+        const firstSkillSlug = getFirstSkillSlug()
+        if (firstSkillSlug) {
+          const stateWithSelection: NavigationState = {
+            ...newState,
+            details: { type: 'skill', skillSlug: firstSkillSlug },
+          }
+          setNavigationState(stateWithSelection)
+          return stateWithSelection
+        } else {
+          setNavigationState(newState)
+          return newState
+        }
+      }
+
       // For chats with explicit session: update session selection
       if (isChatsNavigation(newState) && newState.details) {
         setSession({ selected: newState.details.sessionId })
@@ -334,7 +363,7 @@ export function NavigationProvider({
       setNavigationState(newState)
       return newState
     },
-    [getFirstSessionId, getFirstSourceSlug, setSession]
+    [getFirstSessionId, getFirstSourceSlug, getFirstSkillSlug, setSession]
   )
 
   // Main navigate function - unified approach using NavigationState
@@ -411,7 +440,7 @@ export function NavigationProvider({
     navigateRef.current = navigate
   }, [navigate])
 
-  // Helper: Check if a route points to a valid session/source
+  // Helper: Check if a route points to a valid session/source/skill
   const isRouteValid = useCallback((route: Route): boolean => {
     const navState = parseRouteToNavigationState(route)
     if (!navState) return true // Non-navigation routes are always valid
@@ -424,8 +453,12 @@ export function NavigationProvider({
       return sources.some(s => s.config.slug === navState.details!.sourceSlug)
     }
 
+    if (isSkillsNavigation(navState) && navState.details) {
+      return skills.some(s => s.slug === navState.details!.skillSlug)
+    }
+
     return true // Routes without details are always valid
-  }, [sessionMetaMap, sources])
+  }, [sessionMetaMap, sources, skills])
 
   // Go back in history (using our custom stack)
   // When encountering invalid entries (deleted sessions/sources), remove them from the stack

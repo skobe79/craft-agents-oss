@@ -37,6 +37,10 @@ export type { AuthState, SetupNeeds, AuthType };
 import type { LoadedSource, FolderSourceConfig, SourceConnectionStatus } from '@craft-agent/shared/sources/types';
 export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
 
+// Import skill types
+import type { LoadedSkill, SkillMetadata } from '@craft-agent/shared/skills/types';
+export type { LoadedSkill, SkillMetadata };
+
 // Import auth request types for unified auth flow
 import type { AuthRequest as SharedAuthRequest, CredentialInputMode as SharedCredentialInputMode, CredentialAuthRequest as SharedCredentialAuthRequest } from '@craft-agent/shared/agent';
 export type { SharedAuthRequest as AuthRequest };
@@ -344,6 +348,7 @@ export type SessionCommand =
   | { type: 'shareToViewer' }
   | { type: 'updateShare' }
   | { type: 'revokeShare' }
+  | { type: 'startOAuth'; requestId: string }
 
 /**
  * Parameters for opening a new chat session
@@ -468,6 +473,13 @@ export const IPC_CHANNELS = {
   SOURCES_GET_PERMISSIONS: 'sources:getPermissions',
   // MCP tools listing
   SOURCES_GET_MCP_TOOLS: 'sources:getMcpTools',
+
+  // Skills (workspace-scoped)
+  SKILLS_GET: 'skills:get',
+  SKILLS_DELETE: 'skills:delete',
+  SKILLS_OPEN_EDITOR: 'skills:openEditor',
+  SKILLS_OPEN_FINDER: 'skills:openFinder',
+  SKILLS_CHANGED: 'skills:changed',
 
   // Status management (workspace-scoped)
   STATUSES_LIST: 'statuses:list',
@@ -811,6 +823,15 @@ export interface ElectronAPI {
   // Sources change listener (live updates when sources are added/removed)
   onSourcesChanged(callback: (sources: LoadedSource[]) => void): () => void
 
+  // Skills
+  getSkills(workspaceId: string): Promise<LoadedSkill[]>
+  deleteSkill(workspaceId: string, skillSlug: string): Promise<void>
+  openSkillInEditor(workspaceId: string, skillSlug: string): Promise<void>
+  openSkillInFinder(workspaceId: string, skillSlug: string): Promise<void>
+
+  // Skills change listener (live updates when skills are added/removed/modified)
+  onSkillsChanged(callback: (skills: LoadedSkill[]) => void): () => void
+
   // Statuses (workspace-scoped)
   listStatuses(workspaceId: string): Promise<import('@craft-agent/shared/statuses').StatusConfig[]>
   // Statuses change listener (live updates when statuses config or icon files change)
@@ -953,6 +974,15 @@ export interface SettingsNavigationState {
 }
 
 /**
+ * Skills navigation state - shows SkillsListPanel in navigator
+ */
+export interface SkillsNavigationState {
+  navigator: 'skills'
+  /** Selected skill details, or null for empty state */
+  details: { type: 'skill'; skillSlug: string } | null
+}
+
+/**
  * Unified navigation state - single source of truth for all 3 panels
  *
  * From this state we can derive:
@@ -964,6 +994,7 @@ export type NavigationState =
   | ChatsNavigationState
   | SourcesNavigationState
   | SettingsNavigationState
+  | SkillsNavigationState
 
 /**
  * Type guard to check if state is chats navigation
@@ -987,6 +1018,13 @@ export const isSettingsNavigation = (
 ): state is SettingsNavigationState => state.navigator === 'settings'
 
 /**
+ * Type guard to check if state is skills navigation
+ */
+export const isSkillsNavigation = (
+  state: NavigationState
+): state is SkillsNavigationState => state.navigator === 'skills'
+
+/**
  * Default navigation state - allChats with no selection
  */
 export const DEFAULT_NAVIGATION_STATE: NavigationState = {
@@ -1005,6 +1043,12 @@ export const getNavigationStateKey = (state: NavigationState): string => {
       return `${base}/source/${state.details.sourceSlug}`
     }
     return base
+  }
+  if (state.navigator === 'skills') {
+    if (state.details) {
+      return `skills/skill/${state.details.skillSlug}`
+    }
+    return 'skills'
   }
   if (state.navigator === 'settings') {
     return `settings:${state.subpage}`
@@ -1045,6 +1089,16 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
     if (['local-files', 'online-sources', 'local-mcp'].includes(category)) {
       return { navigator: 'sources', category, details: null }
     }
+  }
+
+  // Handle skills
+  if (key === 'skills') return { navigator: 'skills', details: null }
+  if (key.startsWith('skills/skill/')) {
+    const skillSlug = key.slice(13)
+    if (skillSlug) {
+      return { navigator: 'skills', details: { type: 'skill', skillSlug } }
+    }
+    return { navigator: 'skills', details: null }
   }
 
   // Handle settings

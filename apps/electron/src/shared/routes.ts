@@ -108,6 +108,12 @@ export const routes = {
       return 'sources' as const
     },
 
+    /** Skills view (skills navigator) */
+    skills: (skillSlug?: string) =>
+      skillSlug
+        ? `skills/skill/${skillSlug}` as const
+        : 'skills' as const,
+
     /** Settings view (settings navigator) */
     settings: (subpage?: 'general' | 'shortcuts' | 'preferences') =>
       subpage && subpage !== 'general'

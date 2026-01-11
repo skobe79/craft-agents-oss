@@ -328,6 +328,8 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
         return sessionManager.updateShare(sessionId)
       case 'revokeShare':
         return sessionManager.revokeShare(sessionId)
+      case 'startOAuth':
+        return sessionManager.startSessionOAuth(sessionId, command.requestId)
       default: {
         const _exhaustive: never = command
         throw new Error(`Unknown session command: ${JSON.stringify(command)}`)
@@ -1188,6 +1190,59 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
       return { success: false, error: errorMessage }
     }
+  })
+
+  // ============================================================
+  // Skills (Workspace-scoped)
+  // ============================================================
+
+  // Get all skills for a workspace
+  ipcMain.handle(IPC_CHANNELS.SKILLS_GET, async (_event, workspaceId: string) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) {
+      ipcLog.error(`SKILLS_GET: Workspace not found: ${workspaceId}`)
+      return []
+    }
+    const { loadWorkspaceSkills } = await import('@craft-agent/shared/skills')
+    return loadWorkspaceSkills(workspace.rootPath)
+  })
+
+  // Delete a skill from a workspace
+  ipcMain.handle(IPC_CHANNELS.SKILLS_DELETE, async (_event, workspaceId: string, skillSlug: string) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    const { deleteSkill } = await import('@craft-agent/shared/skills')
+    deleteSkill(workspace.rootPath, skillSlug)
+    ipcLog.info(`Deleted skill: ${skillSlug}`)
+  })
+
+  // Open skill SKILL.md in editor
+  ipcMain.handle(IPC_CHANNELS.SKILLS_OPEN_EDITOR, async (_event, workspaceId: string, skillSlug: string) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    const { join } = await import('path')
+    const { shell } = await import('electron')
+    const { getWorkspaceSkillsPath } = await import('@craft-agent/shared/workspaces')
+
+    const skillsDir = getWorkspaceSkillsPath(workspace.rootPath)
+    const skillFile = join(skillsDir, skillSlug, 'SKILL.md')
+    await shell.openPath(skillFile)
+  })
+
+  // Open skill folder in Finder/Explorer
+  ipcMain.handle(IPC_CHANNELS.SKILLS_OPEN_FINDER, async (_event, workspaceId: string, skillSlug: string) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    const { join } = await import('path')
+    const { shell } = await import('electron')
+    const { getWorkspaceSkillsPath } = await import('@craft-agent/shared/workspaces')
+
+    const skillsDir = getWorkspaceSkillsPath(workspace.rootPath)
+    const skillDir = join(skillsDir, skillSlug)
+    await shell.showItemInFolder(skillDir)
   })
 
   // ============================================================
