@@ -486,7 +486,7 @@ export class SessionManager {
 
   async initialize(): Promise<void> {
     // Set path to Claude Code executable (cli.js from SDK)
-    // In packaged app: use app.getAppPath() (points to app.asar or app folder)
+    // In packaged app: use app.getAppPath() (points to app folder, ASAR is disabled)
     // In development: use process.cwd()
     const basePath = app.isPackaged ? app.getAppPath() : process.cwd()
 

@@ -206,10 +206,7 @@ fi
 # Remove existing installation if present
 if [ -d "$INSTALL_DIR/$APP_NAME" ]; then
     info "Removing previous installation..."
-    rm -rf "$INSTALL_DIR/$APP_NAME" 2>/dev/null || {
-        warn "Could not remove existing app, trying with sudo..."
-        sudo rm -rf "$INSTALL_DIR/$APP_NAME"
-    }
+    rm -rf "$INSTALL_DIR/$APP_NAME"
 fi
 
 # Mount DMG
@@ -230,12 +227,9 @@ if [ -z "$app_source" ]; then
     error "No .app found in DMG"
 fi
 
-# Copy app to /Applications using ditto (handles macOS bundles better than cp)
+# Copy app to /Applications
 info "Installing to $INSTALL_DIR..."
-if ! ditto "$app_source" "$INSTALL_DIR/$APP_NAME" 2>/dev/null; then
-    warn "Install failed, trying with sudo..."
-    sudo ditto "$app_source" "$INSTALL_DIR/$APP_NAME"
-fi
+cp -R "$app_source" "$INSTALL_DIR/$APP_NAME"
 
 # Unmount DMG
 info "Cleaning up..."
