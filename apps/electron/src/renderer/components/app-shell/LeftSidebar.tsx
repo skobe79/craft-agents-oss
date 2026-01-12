@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react"
 import * as React from "react"
-import { AnimatePresence, motion, type Variants } from "framer-motion"
+import { AnimatePresence, motion, type Variants } from "motion/react"
 import { ChevronRight } from "lucide-react"
 
 import { cn, isHexColor } from "@/lib/utils"
@@ -18,6 +18,8 @@ export interface LinkItem {
   expanded?: boolean
   onToggle?: () => void
   items?: LinkItem[]    // Subitems as data (rendered as nested LeftSidebar)
+  // Tutorial system
+  dataTutorial?: string // data-tutorial attribute for tutorial targeting
 }
 
 interface LeftSidebarProps {
@@ -124,6 +126,7 @@ export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId, i
               <button
                 {...itemProps}
                 onClick={link.onClick}
+                data-tutorial={link.dataTutorial}
                 className={cn(
                   "group flex w-full items-center gap-2 rounded-[6px] py-[5px] text-[13px] select-none outline-none",
                   "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",

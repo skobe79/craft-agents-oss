@@ -1027,6 +1027,7 @@ export function AppShell({
                       expandable: true,
                       expanded: isExpanded('nav:sources'),
                       onToggle: () => toggleExpanded('nav:sources'),
+                      dataTutorial: "sources-nav",
                       items: [
                         {
                           id: "nav:sources:local-files",
@@ -1279,6 +1280,7 @@ export function AppShell({
                       icon={<Plus className="h-4 w-4" />}
                       onClick={handleAddSource}
                       tooltip="Add Source"
+                      data-tutorial="add-source-button"
                     />
                   )}
                 </>

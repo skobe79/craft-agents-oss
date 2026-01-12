@@ -647,6 +647,7 @@ export function FreeFormInput({
           {/* Textarea positioned over sizer */}
           <textarea
             ref={textareaRef}
+            data-tutorial="chat-input"
             className="absolute inset-0 w-full h-full pl-5 pr-4 pt-4 pb-3 bg-transparent outline-none text-sm placeholder:text-muted-foreground resize-none focus-visible:ring-0"
             placeholder={placeholder}
             value={input}

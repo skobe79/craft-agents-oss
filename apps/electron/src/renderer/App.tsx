@@ -21,6 +21,13 @@ import { useNotifications } from '@/hooks/useNotifications'
 import { useSession } from '@/hooks/useSession'
 import { NavigationProvider } from '@/contexts/NavigationContext'
 import { navigate, routes } from './lib/navigate'
+import {
+  TutorialProvider,
+  TutorialOverlay,
+  TutorialPrompt,
+  registerTutorial,
+  sourceCreationTutorial,
+} from '@/tutorial'
 import { initRendererPerf } from './lib/perf'
 import { DEFAULT_MODEL } from '@config/models'
 import {
@@ -35,6 +42,9 @@ import {
   type SessionMeta,
 } from '@/atoms/sessions'
 import { getDefaultStore } from 'jotai'
+
+// Register tutorials at module load
+registerTutorial(sourceCreationTutorial)
 
 type AppState = 'loading' | 'onboarding' | 'reauth' | 'ready'
 
@@ -1164,28 +1174,34 @@ export default function App() {
           onInputChange={handleInputChange}
           isReady={appState === 'ready'}
         >
-          {/* Splash screen overlay - fades out when fully ready */}
-          {showSplash && (
-            <SplashScreen
-              isExiting={splashExiting}
-              onExitComplete={handleSplashExitComplete}
-            />
-          )}
+          <TutorialProvider workspaceId={windowWorkspaceId}>
+            {/* Splash screen overlay - fades out when fully ready */}
+            {showSplash && (
+              <SplashScreen
+                isExiting={splashExiting}
+                onExitComplete={handleSplashExitComplete}
+              />
+            )}
 
-          {/* Main UI - always rendered, splash fades away to reveal it */}
-          <div className="h-full text-foreground">
-            <AppShell
-              contextValue={appShellContextValue}
-              defaultLayout={[20, 32, 48]}
-              menuNewChatTrigger={menuNewChatTrigger}
-              isFocusedMode={isFocusedMode}
-            />
-            <ResetConfirmationDialog
-              open={showResetDialog}
-              onConfirm={executeReset}
-              onCancel={() => setShowResetDialog(false)}
-            />
-          </div>
+            {/* Main UI - always rendered, splash fades away to reveal it */}
+            <div className="h-full text-foreground">
+              <AppShell
+                contextValue={appShellContextValue}
+                defaultLayout={[20, 32, 48]}
+                menuNewChatTrigger={menuNewChatTrigger}
+                isFocusedMode={isFocusedMode}
+              />
+              <ResetConfirmationDialog
+                open={showResetDialog}
+                onConfirm={executeReset}
+                onCancel={() => setShowResetDialog(false)}
+              />
+            </div>
+
+            {/* Tutorial system overlays */}
+            <TutorialOverlay />
+            <TutorialPrompt />
+          </TutorialProvider>
         </NavigationProvider>
       </TooltipProvider>
     </FocusProvider>
