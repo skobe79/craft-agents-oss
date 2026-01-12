@@ -176,29 +176,16 @@ fi
 # Run electron-builder
 npx electron-builder $BUILDER_ARGS
 
-# 8. Find the built DMG for the target architecture
+# 8. Verify the DMG was built
+# electron-builder.yml uses artifactName to output: Craft-Agent-${arch}.dmg
 DMG_NAME="Craft-Agent-${ARCH}.dmg"
+DMG_PATH="$ELECTRON_DIR/release/$DMG_NAME"
 
-# electron-builder names DMGs differently per arch:
-# - arm64: "Craft Agent-X.Y.Z-arm64.dmg"
-# - x64: "Craft Agent-X.Y.Z.dmg" (no arch suffix)
-if [ "$ARCH" = "arm64" ]; then
-    BUILT_DMG=$(find "$ELECTRON_DIR/release" -name "*-arm64.dmg" -type f | head -1)
-else
-    # x64 DMG has no arch suffix, exclude arm64 files
-    BUILT_DMG=$(find "$ELECTRON_DIR/release" -name "*.dmg" -type f ! -name "*-arm64.dmg" ! -name "*.blockmap" | head -1)
-fi
-
-if [ -z "$BUILT_DMG" ]; then
-    echo "ERROR: No DMG found for ${ARCH} in release directory"
+if [ ! -f "$DMG_PATH" ]; then
+    echo "ERROR: Expected DMG not found at $DMG_PATH"
+    echo "Contents of release directory:"
     ls -la "$ELECTRON_DIR/release/"
     exit 1
-fi
-
-# Rename to our standard naming convention if needed
-if [ "$(basename "$BUILT_DMG")" != "$DMG_NAME" ]; then
-    echo "Renaming DMG to $DMG_NAME..."
-    cp "$BUILT_DMG" "$ELECTRON_DIR/release/$DMG_NAME"
 fi
 
 echo ""

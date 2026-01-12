@@ -51,6 +51,8 @@ mac:
   #   teamId: ${APPLE_TEAM_ID}
 
 dmg:
+  # Use predictable naming: Craft-Agent-arm64.dmg, Craft-Agent-x64.dmg
+  artifactName: "Craft-Agent-${arch}.dmg"
   contents:
     - x: 130
       y: 220

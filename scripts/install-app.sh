@@ -184,22 +184,26 @@ fi
 
 success "Checksum verified!"
 
-# Quit the app if it's running
+# Quit the app if it's running (use bundle ID for reliability)
+APP_BUNDLE_ID="com.lukilabs.craft-agent"
 if pgrep -x "Craft Agent" >/dev/null 2>&1; then
     info "Quitting Craft Agent..."
-    osascript -e 'quit app "Craft Agent"' 2>/dev/null || true
-    # Wait for app to quit (max 5 seconds)
-    for i in {1..10}; do
+    osascript -e "tell application id \"$APP_BUNDLE_ID\" to quit" 2>/dev/null || true
+    # Wait for app to quit (max 5 seconds) - POSIX compatible loop
+    i=0
+    while [ $i -lt 10 ]; do
         if ! pgrep -x "Craft Agent" >/dev/null 2>&1; then
             break
         fi
         sleep 0.5
+        i=$((i + 1))
     done
     # Force kill if still running
     if pgrep -x "Craft Agent" >/dev/null 2>&1; then
-        warn "Force quitting Craft Agent..."
+        warn "App didn't quit gracefully. Force quitting (unsaved data may be lost)..."
         pkill -9 -x "Craft Agent" 2>/dev/null || true
-        sleep 1
+        # Wait longer for macOS to release file handles
+        sleep 3
     fi
 fi
 
