@@ -5,7 +5,8 @@
  */
 
 export { default as SettingsNavigator } from './SettingsNavigator'
-export { default as SettingsGeneralPage, meta as SettingsGeneralMeta } from './SettingsGeneralPage'
+export { default as AppSettingsPage, meta as AppSettingsMeta } from './AppSettingsPage'
+export { default as WorkspaceSettingsPage, meta as WorkspaceSettingsMeta } from './WorkspaceSettingsPage'
 export { default as ShortcutsPage, meta as ShortcutsMeta } from './ShortcutsPage'
 export { default as PreferencesPage, meta as PreferencesMeta } from './PreferencesPage'
 

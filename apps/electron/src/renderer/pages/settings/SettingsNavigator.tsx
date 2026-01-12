@@ -2,13 +2,14 @@
  * SettingsNavigator
  *
  * Navigator panel content for settings. Displays a list of settings sections
- * (General, Shortcuts, Preferences) that can be selected to show in the details panel.
+ * (App, Workspace, Shortcuts, Preferences) that can be selected to show in the details panel.
  */
 
 import * as React from 'react'
-import { Settings, Keyboard, User } from 'lucide-react'
+import { Settings, Briefcase, Keyboard, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
+import type { SettingsSubpage } from '../../../shared/types'
 
 export const meta: DetailsPageMeta = {
   navigator: 'settings',
@@ -17,13 +18,13 @@ export const meta: DetailsPageMeta = {
 
 interface SettingsNavigatorProps {
   /** Currently selected settings subpage */
-  selectedSubpage: 'general' | 'shortcuts' | 'preferences'
+  selectedSubpage: SettingsSubpage
   /** Called when a subpage is selected */
-  onSelectSubpage: (subpage: 'general' | 'shortcuts' | 'preferences') => void
+  onSelectSubpage: (subpage: SettingsSubpage) => void
 }
 
 interface SettingsItem {
-  id: 'general' | 'shortcuts' | 'preferences'
+  id: SettingsSubpage
   label: string
   icon: React.ComponentType<{ className?: string }>
   description: string
@@ -31,10 +32,16 @@ interface SettingsItem {
 
 const settingsItems: SettingsItem[] = [
   {
-    id: 'general',
-    label: 'General',
+    id: 'app',
+    label: 'App',
     icon: Settings,
-    description: 'Appearance, billing, workspace settings',
+    description: 'Appearance, notifications, billing',
+  },
+  {
+    id: 'workspace',
+    label: 'Workspace',
+    icon: Briefcase,
+    description: 'Model, permissions, advanced',
   },
   {
     id: 'shortcuts',

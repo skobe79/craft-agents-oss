@@ -50,7 +50,7 @@ import {
 import type { ValidationIssue } from '../config/validators.ts';
 import type { LoadedSource } from '../sources/types.ts';
 
-// Re-export permission mode functions for TUI/Electron usage
+// Re-export permission mode functions for application usage
 export {
   // Permission mode API
   getPermissionMode,
@@ -172,11 +172,11 @@ interface GlobalPendingPermission {
 
 const globalPendingPermissions = new Map<string, GlobalPendingPermission>();
 
-// Handler set by TUI to receive permission requests
+// Handler set by application to receive permission requests
 let globalPermissionHandler: ((request: { requestId: string; toolName: string; command: string; description: string }) => void) | null = null;
 
 /**
- * Set the global permission request handler (called by TUI)
+ * Set the global permission request handler (called by application)
  */
 export function setGlobalPermissionHandler(
   handler: ((request: { requestId: string; toolName: string; command: string; description: string }) => void) | null
@@ -213,7 +213,7 @@ export function requestToolPermission(
 }
 
 /**
- * Resolve a pending global permission request (called by TUI)
+ * Resolve a pending global permission request (called by application)
  */
 export function resolveGlobalPermission(requestId: string, allowed: boolean): void {
   const pending = globalPendingPermissions.get(requestId);
@@ -394,7 +394,7 @@ export class CraftAgent {
     return this.config.workspace.rootPath;
   }
 
-  // Callback for permission requests - set by TUI to receive permission prompts
+  // Callback for permission requests - set by application to receive permission prompts
   public onPermissionRequest: ((request: { requestId: string; toolName: string; command: string; description: string; type?: 'bash' }) => void) | null = null;
 
   // Debug callback for status messages
@@ -403,7 +403,7 @@ export class CraftAgent {
   /** Callback when permission mode changes */
   public onPermissionModeChange: ((mode: PermissionMode) => void) | null = null;
 
-  // Callback when a plan is submitted - set by TUI to display plan message
+  // Callback when a plan is submitted - set by application to display plan message
   public onPlanSubmitted: ((planPath: string) => void) | null = null;
 
   // Callback when authentication is requested (unified auth flow)
@@ -679,7 +679,7 @@ export class CraftAgent {
         });
       });
 
-      // Notify TUI of permission request via callback (not event yield)
+      // Notify application of permission request via callback (not event yield)
       if (this.onPermissionRequest) {
         this.onPermissionRequest({
           requestId,
@@ -1765,7 +1765,7 @@ export class CraftAgent {
         // Unknown error - show raw message
         yield { type: 'error', message: errorMessage };
       }
-      // emit complete even on error so TUI knows we're done
+      // emit complete even on error so application knows we're done
       yield { type: 'complete' };
     } finally {
       this.currentQuery = null;
@@ -2781,7 +2781,7 @@ export class CraftAgent {
 
   /**
    * Set all sources in the workspace (for context injection)
-   * Called by Electron/TUI to provide full source list including disabled sources
+   * Called by Electron to provide full source list including disabled sources
    */
   setAllSources(sources: LoadedSource[]): void {
     this.allSources = sources;

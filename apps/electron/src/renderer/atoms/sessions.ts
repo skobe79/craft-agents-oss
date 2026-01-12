@@ -355,7 +355,14 @@ export const syncSessionsToAtomsAtom = atom(
     // metadata doesn't include messages - the streaming content we're protecting
     const metaMap = new Map<string, SessionMeta>()
     for (const session of sessions) {
-      metaMap.set(session.id, extractSessionMeta(session))
+      const meta = extractSessionMeta(session)
+      // Preserve isProcessing from atom if atom is processing
+      // React state may have stale isProcessing: false during streaming
+      const atomSession = get(sessionAtomFamily(session.id))
+      if (atomSession?.isProcessing) {
+        meta.isProcessing = true
+      }
+      metaMap.set(session.id, meta)
     }
     set(sessionMetaMapAtom, metaMap)
 

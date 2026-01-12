@@ -3,10 +3,12 @@
  *
  * Two-column key-value table with consistent styling.
  * Use for Connection info, metadata display, etc.
+ * Built on shadcn Table primitives.
  */
 
 import * as React from 'react'
 import { cn } from '@/lib/utils'
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 
 export interface Info_TableProps {
   children: React.ReactNode
@@ -35,13 +37,13 @@ function Info_TableRoot({
 }: Info_TableProps) {
   return (
     <div className={cn('py-2', className)}>
-      <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+      <Table className="table-fixed">
         <colgroup>
           <col style={{ width: labelWidth }} />
           <col />
         </colgroup>
-        <tbody>{children}</tbody>
-      </table>
+        <TableBody>{children}</TableBody>
+      </Table>
       {footer}
     </div>
   )
@@ -51,12 +53,12 @@ function Info_TableRow({ label, value, children, className }: Info_TableRowProps
   const content = children ?? value
 
   return (
-    <tr className={cn('border-b border-border/30 last:border-0', className)}>
-      <td className="pl-[22px] pr-4 py-1.5 text-muted-foreground align-top">
+    <TableRow className={cn('border-b border-border/30 last:border-0 hover:bg-transparent', className)}>
+      <TableCell className="pl-[22px] pr-4 py-1.5 text-muted-foreground align-top">
         {label}
-      </td>
-      <td className="pr-4 py-1.5 align-top">{content}</td>
-    </tr>
+      </TableCell>
+      <TableCell className="pr-4 py-1.5 align-top">{content}</TableCell>
+    </TableRow>
   )
 }
 

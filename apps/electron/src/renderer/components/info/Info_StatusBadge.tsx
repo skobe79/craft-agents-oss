@@ -1,38 +1,22 @@
 /**
  * Info_StatusBadge
  *
- * Colored status text indicator for permission states.
+ * Status badge for permission states using Info_Badge.
  */
 
 import * as React from 'react'
-import { cva, type VariantProps } from 'class-variance-authority'
-import { cn } from '@/lib/utils'
+import { Info_Badge, type BadgeColor } from './Info_Badge'
 
-const statusBadgeVariants = cva(
-  'inline-flex items-center gap-1.5 text-xs font-medium',
-  {
-    variants: {
-      status: {
-        allowed: 'text-success',
-        blocked: 'text-destructive',
-        'requires-permission': 'text-info',
-      },
-    },
-    defaultVariants: {
-      status: 'allowed',
-    },
-  }
-)
-
-const defaultLabels: Record<string, string> = {
-  allowed: 'Allowed',
-  blocked: 'Blocked',
-  'requires-permission': 'Requires Permission',
+const statusConfig: Record<string, { label: string; color: BadgeColor }> = {
+  allowed: { label: 'Allowed', color: 'success' },
+  blocked: { label: 'Blocked', color: 'destructive' },
+  'requires-permission': { label: 'Ask', color: 'warning' },
 }
 
 export interface Info_StatusBadgeProps
-  extends React.HTMLAttributes<HTMLSpanElement>,
-    VariantProps<typeof statusBadgeVariants> {
+  extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'children'> {
+  /** Status type */
+  status?: 'allowed' | 'blocked' | 'requires-permission' | null
   /** Override the default label */
   label?: string
 }
@@ -40,17 +24,14 @@ export interface Info_StatusBadgeProps
 export function Info_StatusBadge({
   status,
   label,
-  className,
   ...props
 }: Info_StatusBadgeProps) {
-  const displayLabel = label ?? defaultLabels[status ?? 'allowed']
+  const config = statusConfig[status ?? 'allowed'] ?? statusConfig.allowed
+  const displayLabel = label ?? config.label
 
   return (
-    <span
-      className={cn(statusBadgeVariants({ status }), className)}
-      {...props}
-    >
+    <Info_Badge color={config.color} {...props}>
       {displayLabel}
-    </span>
+    </Info_Badge>
   )
 }

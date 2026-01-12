@@ -20,10 +20,9 @@ import { ensureSessionMessagesLoadedAtom, loadedSessionsAtom, sessionMetaMapAtom
 
 export interface ChatPageProps {
   sessionId: string
-  isFocusedMode?: boolean
 }
 
-const ChatPage = React.memo(function ChatPage({ sessionId, isFocusedMode }: ChatPageProps) {
+const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   // Diagnostic: mark when component runs
   React.useLayoutEffect(() => {
     rendererPerf.markSessionSwitch(sessionId, 'panel.mounted')

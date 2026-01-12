@@ -1,6 +1,6 @@
 # Craft Agent Electron App
 
-A GUI version of Craft Agent built with Electron + React. Provides a multi-threaded chat interface for interacting with Claude via Craft workspaces.
+The primary desktop interface for Craft Agent, built with Electron + React. Provides a multi-session inbox with chat interface for interacting with Claude via Craft workspaces.
 
 ## Quick Start
 

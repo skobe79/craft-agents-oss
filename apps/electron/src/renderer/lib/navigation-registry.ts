@@ -157,12 +157,13 @@ export const NavigationRegistry = {
   settings: {
     displayName: 'Settings',
     detailsPages: {
-      general: PlaceholderComponent, // Will be: SettingsGeneralPage
-      shortcuts: PlaceholderComponent, // Will be: ShortcutsPage
-      preferences: PlaceholderComponent, // Will be: PreferencesPage
+      app: PlaceholderComponent, // AppSettingsPage
+      workspace: PlaceholderComponent, // WorkspaceSettingsPage
+      shortcuts: PlaceholderComponent, // ShortcutsPage
+      preferences: PlaceholderComponent, // PreferencesPage
     },
-    defaultDetails: 'general', // Always has a default
-    getFirstItem: () => 'general',
+    defaultDetails: 'app', // Always has a default
+    getFirstItem: () => 'app',
   },
 } as const satisfies Record<NavigatorType, NavigatorConfig<Record<string, ComponentType<DetailsProps>>>>
 

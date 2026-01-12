@@ -115,8 +115,8 @@ export const routes = {
         : 'skills' as const,
 
     /** Settings view (settings navigator) */
-    settings: (subpage?: 'general' | 'shortcuts' | 'preferences') =>
-      subpage && subpage !== 'general'
+    settings: (subpage?: 'app' | 'workspace' | 'shortcuts' | 'preferences') =>
+      subpage && subpage !== 'app'
         ? `settings/${subpage}` as const
         : 'settings' as const,
   },

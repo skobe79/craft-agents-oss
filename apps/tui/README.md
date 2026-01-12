@@ -1,5 +1,7 @@
 # @craft-agent/tui
 
+> **DEPRECATED:** This TUI app is deprecated. Please use the Electron desktop app (`apps/electron/`) instead.
+
 Terminal User Interface for Craft Agent - an interactive CLI for managing Craft documents with Claude AI.
 
 ## Features

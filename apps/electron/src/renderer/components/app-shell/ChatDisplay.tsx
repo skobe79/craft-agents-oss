@@ -282,6 +282,8 @@ export function ChatDisplay({
   const isStickToBottomRef = React.useRef(true)
   // Skip smooth scroll briefly after session switch (instant scroll already happened)
   const skipSmoothScrollUntilRef = React.useRef(0)
+  // Track pending scroll for session switches that happen while messages are still loading
+  const pendingScrollSessionRef = React.useRef<string | null>(null)
   const internalTextareaRef = React.useRef<HTMLTextAreaElement>(null)
   const textareaRef = externalTextareaRef || internalTextareaRef
 
@@ -380,22 +382,30 @@ export function ChatDisplay({
     const justFinishedLoading = prevMessagesLoadingRef.current && !messagesLoading
     prevMessagesLoadingRef.current = messagesLoading
 
-    // On session switch: reset fade-in state, scroll immediately
+    // Double-rAF scroll: ensures we're past React's commit phase and browser paint
+    // This fixes race conditions where scrollIntoView fires before content is rendered
+    const doInstantScroll = () => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'instant' })
+        })
+      })
+    }
+
+    // On session switch: reset UI state
     if (isSessionSwitch) {
       setShouldFadeIn(false)
       isStickToBottomRef.current = true
       setVisibleTurnCount(TURNS_PER_PAGE)
-      // Skip smooth scrolls for 500ms after session switch
       skipSmoothScrollUntilRef.current = Date.now() + 500
-      // Instant scroll - retry if ref not ready yet (fixes timing issue with back/forward nav)
-      const doInstantScroll = () => {
-        if (messagesEndRef.current) {
-          messagesEndRef.current.scrollIntoView({ behavior: 'instant' })
-        } else {
-          requestAnimationFrame(doInstantScroll)
-        }
+
+      if (!messagesLoading) {
+        // Messages already loaded (revisiting a cached session) - scroll immediately
+        doInstantScroll()
+      } else {
+        // Messages still loading - defer scroll until they're ready
+        pendingScrollSessionRef.current = session?.id ?? null
       }
-      doInstantScroll()
     }
 
     // Messages just finished lazy loading: trigger fade-in animation, scroll immediately
@@ -405,17 +415,16 @@ export function ChatDisplay({
       setFadeInKey(k => k + 1)
       isStickToBottomRef.current = true
       setVisibleTurnCount(TURNS_PER_PAGE)
-      // Skip smooth scrolls for 500ms after lazy load
       skipSmoothScrollUntilRef.current = Date.now() + 500
-      // Instant scroll - retry if ref not ready yet
-      const doInstantScroll = () => {
-        if (messagesEndRef.current) {
-          messagesEndRef.current.scrollIntoView({ behavior: 'instant' })
-        } else {
-          requestAnimationFrame(doInstantScroll)
-        }
-      }
       doInstantScroll()
+      pendingScrollSessionRef.current = null
+    }
+
+    // Handle deferred scroll from session switch that happened while loading
+    // This catches the case where session switch happened but messages weren't loaded yet
+    if (!messagesLoading && pendingScrollSessionRef.current === session?.id) {
+      doInstantScroll()
+      pendingScrollSessionRef.current = null
     }
 
     // Debounced scroll - waits for layout to settle

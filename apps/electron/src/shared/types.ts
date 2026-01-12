@@ -515,8 +515,6 @@ export const IPC_CHANNELS = {
   // Workspace settings (per-workspace configuration)
   WORKSPACE_SETTINGS_GET: 'workspaceSettings:get',
   WORKSPACE_SETTINGS_UPDATE: 'workspaceSettings:update',
-  WORKSPACE_SETTINGS_ENABLE_PORTABLE: 'workspaceSettings:enablePortable',
-  WORKSPACE_SETTINGS_DISABLE_PORTABLE: 'workspaceSettings:disablePortable',
 
   // Theme (cascading: app → workspace)
   THEME_GET_APP: 'theme:getApp',
@@ -800,8 +798,6 @@ export interface ElectronAPI {
   // Workspace Settings (per-workspace configuration)
   getWorkspaceSettings(workspaceId: string): Promise<WorkspaceSettings | null>
   updateWorkspaceSetting<K extends keyof WorkspaceSettings>(workspaceId: string, key: K, value: WorkspaceSettings[K]): Promise<void>
-  enablePortableCredentials(workspaceId: string, password: string): Promise<void>
-  disablePortableCredentials(workspaceId: string, password: string): Promise<void>
 
   // Folder dialog
   openFolderDialog(): Promise<string | null>
@@ -901,11 +897,6 @@ export interface BillingMethodInfo {
 }
 
 /**
- * Credential storage strategy for workspaces
- */
-export type CredentialStrategy = 'local' | 'portable'
-
-/**
  * Per-workspace settings
  */
 export interface WorkspaceSettings {
@@ -913,7 +904,6 @@ export interface WorkspaceSettings {
   model?: string
   permissionMode?: PermissionMode
   workingDirectory?: string
-  credentialStrategy?: CredentialStrategy
   /** Whether local (stdio) MCP servers are enabled */
   localMcpEnabled?: boolean
 }
@@ -949,7 +939,7 @@ export type ChatFilter =
 /**
  * Settings subpage options
  */
-export type SettingsSubpage = 'general' | 'shortcuts' | 'preferences'
+export type SettingsSubpage = 'app' | 'workspace' | 'shortcuts' | 'preferences'
 
 /**
  * Source category options for filtering sources
@@ -1115,10 +1105,10 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
   }
 
   // Handle settings
-  if (key === 'settings') return { navigator: 'settings', subpage: 'general' }
+  if (key === 'settings') return { navigator: 'settings', subpage: 'app' }
   if (key.startsWith('settings:')) {
     const subpage = key.slice(9) as SettingsSubpage
-    if (['general', 'shortcuts', 'preferences'].includes(subpage)) {
+    if (['app', 'workspace', 'shortcuts', 'preferences'].includes(subpage)) {
       return { navigator: 'settings', subpage }
     }
   }

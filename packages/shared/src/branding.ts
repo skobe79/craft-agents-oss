@@ -1,6 +1,6 @@
 /**
  * Centralized branding assets for Craft Agent
- * Used by TUI header and OAuth callback pages
+ * Used by OAuth callback pages
  */
 
 export const CRAFT_LOGO = [

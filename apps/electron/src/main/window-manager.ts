@@ -20,17 +20,20 @@ export interface CreateWindowOptions {
   focused?: boolean
   /** Deep link URL to navigate to after window loads (without ?window= param) */
   initialDeepLink?: string
+  /** Full URL to restore from saved state (preserves route/query params) */
+  restoreUrl?: string
 }
 
 export class WindowManager {
   private windows: Map<number, ManagedWindow> = new Map()  // webContents.id → ManagedWindow
+  private focusedModeWindows: Set<number> = new Set()  // webContents.id of windows in focused mode
 
   /**
    * Create a new window for a workspace
    * @param options - Window creation options
    */
   createWindow(options: CreateWindowOptions): BrowserWindow {
-    const { workspaceId, focused = false, initialDeepLink } = options
+    const { workspaceId, focused = false, initialDeepLink, restoreUrl } = options
 
     // Load platform-specific app icon
     const getIconPath = () => {
@@ -117,17 +120,53 @@ export class WindowManager {
       })
     }
 
-    // Load the renderer with workspace ID as query param
-    const query: Record<string, string> = { workspaceId }
-    if (focused) {
-      query.focused = 'true' // Open in focused mode (no sidebars)
-    }
-
-    if (VITE_DEV_SERVER_URL) {
-      const params = new URLSearchParams(query).toString()
-      window.loadURL(`${VITE_DEV_SERVER_URL}?${params}`)
+    // Load the renderer - use restoreUrl if provided, otherwise build from options
+    if (restoreUrl) {
+      // Restore from saved URL - need to adapt for dev vs prod
+      if (VITE_DEV_SERVER_URL) {
+        // In dev mode, replace the base URL but keep the path and query
+        try {
+          const savedUrl = new URL(restoreUrl)
+          const devUrl = new URL(VITE_DEV_SERVER_URL)
+          // Preserve pathname and search from saved URL, use dev server host
+          devUrl.pathname = savedUrl.pathname
+          devUrl.search = savedUrl.search
+          window.loadURL(devUrl.toString())
+        } catch {
+          // Fallback if URL parsing fails
+          windowLog.warn('Failed to parse restoreUrl, using default:', restoreUrl)
+          const params = new URLSearchParams({ workspaceId, ...(focused && { focused: 'true' }) }).toString()
+          window.loadURL(`${VITE_DEV_SERVER_URL}?${params}`)
+        }
+      } else {
+        // In prod, use file:// URL directly if it's a file URL, otherwise extract query
+        if (restoreUrl.startsWith('file://')) {
+          window.loadURL(restoreUrl)
+        } else {
+          // Extract query params and load file with them
+          try {
+            const savedUrl = new URL(restoreUrl)
+            const query: Record<string, string> = {}
+            savedUrl.searchParams.forEach((value, key) => { query[key] = value })
+            window.loadFile(join(__dirname, 'renderer/index.html'), { query })
+          } catch {
+            window.loadFile(join(__dirname, 'renderer/index.html'), { query: { workspaceId } })
+          }
+        }
+      }
     } else {
-      window.loadFile(join(__dirname, 'renderer/index.html'), { query })
+      // Build URL from options
+      const query: Record<string, string> = { workspaceId }
+      if (focused) {
+        query.focused = 'true' // Open in focused mode (no sidebars)
+      }
+
+      if (VITE_DEV_SERVER_URL) {
+        const params = new URLSearchParams(query).toString()
+        window.loadURL(`${VITE_DEV_SERVER_URL}?${params}`)
+      } else {
+        window.loadFile(join(__dirname, 'renderer/index.html'), { query })
+      }
     }
 
     // If an initial deep link was provided, navigate to it after the window is ready
@@ -156,6 +195,11 @@ export class WindowManager {
     const webContentsId = window.webContents.id
     this.windows.set(webContentsId, { window, workspaceId })
 
+    // Track focused mode state for persistence
+    if (focused) {
+      this.focusedModeWindows.add(webContentsId)
+    }
+
     // Listen for system theme changes and notify this window's renderer
     const themeHandler = () => {
       // Check mainFrame - it becomes null when render frame is disposed
@@ -181,10 +225,11 @@ export class WindowManager {
     window.on('closed', () => {
       nativeTheme.removeListener('updated', themeHandler)
       this.windows.delete(webContentsId)
+      this.focusedModeWindows.delete(webContentsId)
       windowLog.info(`Window closed for workspace ${workspaceId}`)
     })
 
-    windowLog.info(`Created window for workspace ${workspaceId}`)
+    windowLog.info(`Created window for workspace ${workspaceId} (focused: ${focused})`)
     return window
   }
 
@@ -301,15 +346,22 @@ export class WindowManager {
   }
 
   /**
-   * Get window states for persistence (includes bounds)
+   * Get window states for persistence (includes bounds and focused mode)
    * Used by window-state.ts to save/restore windows
    */
   getWindowStates(): SavedWindow[] {
-    return this.getAllWindows().map(managed => ({
-      type: 'main' as const,
-      workspaceId: managed.workspaceId,
-      bounds: managed.window.getBounds(),
-    }))
+    return this.getAllWindows().map(managed => {
+      const webContentsId = managed.window.webContents.id
+      const isFocused = this.focusedModeWindows.has(webContentsId)
+      const url = managed.window.webContents.getURL()
+      return {
+        type: 'main' as const,
+        workspaceId: managed.workspaceId,
+        bounds: managed.window.getBounds(),
+        ...(isFocused && { focused: true }),
+        ...(url && { url }),
+      }
+    })
   }
 
   /**

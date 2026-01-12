@@ -14,13 +14,6 @@
 import type { PermissionMode } from '../agent/mode-manager.ts';
 
 /**
- * Credential storage strategy for workspace-scoped credentials (API keys, bearer tokens)
- * - 'local': Machine-bound encryption (default) - credentials stored in global encrypted file
- * - 'portable': Password-based encryption - credentials stored in workspace folder, syncable
- */
-export type CredentialStrategy = 'local' | 'portable';
-
-/**
  * Local MCP server configuration
  * Controls whether stdio-based (local subprocess) MCP servers can be spawned.
  */
@@ -49,7 +42,6 @@ export interface WorkspaceConfig {
     enabledSourceSlugs?: string[]; // Sources to enable by default
     permissionMode?: PermissionMode; // Default permission mode ('safe', 'ask', 'allow-all')
     workingDirectory?: string;
-    credentialStrategy?: CredentialStrategy; // How to store workspace credentials (default: 'local')
   };
 
   /**

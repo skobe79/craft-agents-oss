@@ -14,6 +14,8 @@ export interface SavedWindow {
   type: 'main'
   workspaceId: string
   bounds: WindowBounds
+  focused?: boolean
+  url?: string  // Full URL to restore (preserves route/query params)
 }
 
 export interface WindowState {

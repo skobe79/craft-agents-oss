@@ -147,10 +147,6 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SETTINGS_GET, workspaceId),
   updateWorkspaceSetting: <K extends string>(workspaceId: string, key: K, value: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SETTINGS_UPDATE, workspaceId, key, value),
-  enablePortableCredentials: (workspaceId: string, password: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SETTINGS_ENABLE_PORTABLE, workspaceId, password),
-  disablePortableCredentials: (workspaceId: string, password: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SETTINGS_DISABLE_PORTABLE, workspaceId, password),
 
   // Folder dialog
   openFolderDialog: () => ipcRenderer.invoke(IPC_CHANNELS.OPEN_FOLDER_DIALOG),

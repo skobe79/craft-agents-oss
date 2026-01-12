@@ -1,12 +1,14 @@
 # CLAUDE.md - TUI Application
 
+> **DEPRECATED:** The TUI app is deprecated. The Electron desktop app (`apps/electron/`) is now the primary interface. This code remains for reference but is no longer actively maintained.
+
 This file provides guidance to Claude Code when working with the TUI (Terminal User Interface) application.
 
 **Important:** Keep this file and `README.md` up-to-date whenever functionality changes. After making changes to this package, update the documentation to reflect the current state.
 
 ## Overview
 
-The TUI app is the primary terminal interface for Craft Agent. It provides an interactive CLI experience similar to Claude Code, with streaming responses, tool visualization, and multi-workspace support.
+The TUI app was the original terminal interface for Craft Agent. It provides an interactive CLI experience similar to Claude Code, with streaming responses, tool visualization, and multi-workspace support. **Note:** This app is deprecated in favor of the Electron desktop app.
 
 **Important:** This app imports business logic from the `@craft-agent/shared` package. Only UI components, hooks, and utilities specific to the terminal interface live here.
 

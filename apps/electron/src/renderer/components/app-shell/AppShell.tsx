@@ -656,7 +656,7 @@ export function AppShell({
   }, [])
 
   // Handler for settings view
-  const handleSettingsClick = useCallback((subpage: SettingsSubpage = 'general') => {
+  const handleSettingsClick = useCallback((subpage: SettingsSubpage = 'app') => {
     navigate(routes.view.settings(subpage))
   }, [])
 
@@ -736,7 +736,7 @@ export function AppShell({
     result.push({ id: 'nav:sources:local-mcp', type: 'nav', action: () => handleSourceCategoryClick('local-mcp') })
 
     // 2.6. Settings nav item
-    result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick('general') })
+    result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick('app') })
 
     return result
   }, [handleAllChatsClick, handleFlaggedClick, handleTodoStateClick, handleSourcesClick, handleSourceCategoryClick, handleSettingsClick])
@@ -1067,7 +1067,7 @@ export function AppShell({
                       title: "Settings",
                       icon: Settings,
                       variant: isSettingsNavigation(navState) ? "default" : "ghost",
-                      onClick: () => handleSettingsClick('general'),
+                      onClick: () => handleSettingsClick('app'),
                     },
                   ]}
                 />

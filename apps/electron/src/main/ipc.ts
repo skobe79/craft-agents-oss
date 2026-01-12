@@ -566,6 +566,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
   // Shell operations - open URL in external browser (or handle craftagents:// internally)
   ipcMain.handle(IPC_CHANNELS.OPEN_URL, async (_event, url: string) => {
+    ipcLog.info('[OPEN_URL] Received request:', url)
     try {
       // Validate URL format
       const parsed = new URL(url)
@@ -573,8 +574,10 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       // Handle craftagents:// URLs internally via deep link handler
       // This ensures ?window= params work correctly for "Open in New Window"
       if (parsed.protocol === 'craftagents:') {
+        ipcLog.info('[OPEN_URL] Handling as deep link')
         const { handleDeepLink } = await import('./deep-link')
-        await handleDeepLink(url, windowManager)
+        const result = await handleDeepLink(url, windowManager)
+        ipcLog.info('[OPEN_URL] Deep link result:', result)
         return
       }
 
@@ -798,18 +801,17 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       model: config?.defaults?.model,
       permissionMode: config?.defaults?.permissionMode,
       workingDirectory: config?.defaults?.workingDirectory,
-      credentialStrategy: config?.defaults?.credentialStrategy || 'local',
       localMcpEnabled: config?.localMcpServers?.enabled ?? true,
     }
   })
 
   // Update a workspace setting
-  // Valid keys: 'name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'credentialStrategy', 'localMcpEnabled'
+  // Valid keys: 'name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'localMcpEnabled'
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_SETTINGS_UPDATE, async (_event, workspaceId: string, key: string, value: unknown) => {
     const workspace = getWorkspaceOrThrow(workspaceId)
 
     // Validate key is a known workspace setting
-    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'credentialStrategy', 'localMcpEnabled']
+    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'localMcpEnabled']
     if (!validKeys.includes(key)) {
       throw new Error(`Invalid workspace setting key: ${key}. Valid keys: ${validKeys.join(', ')}`)
     }
@@ -836,62 +838,6 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     // Save the config
     saveWorkspaceConfig(workspace.rootPath, config)
     ipcLog.info(`Workspace setting updated: ${key} = ${JSON.stringify(value)}`)
-  })
-
-  // Enable portable credentials for a workspace
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_SETTINGS_ENABLE_PORTABLE, async (_event, workspaceId: string, password: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) {
-      throw new Error(`Workspace not found: ${workspaceId}`)
-    }
-
-    const { loadWorkspaceConfig, saveWorkspaceConfig } = await import('@craft-agent/shared/workspaces')
-    const { getCredentialManager } = await import('@craft-agent/shared/credentials')
-
-    const config = loadWorkspaceConfig(workspace.rootPath)
-    if (!config) {
-      throw new Error(`Failed to load workspace config: ${workspaceId}`)
-    }
-
-    // Migrate existing credentials to portable storage
-    const manager = getCredentialManager()
-    const migrated = await manager.migrateToPortable(config.id, workspace.rootPath, password)
-    ipcLog.info(`Migrated ${migrated} credentials to portable storage`)
-
-    // Update the credential strategy
-    config.defaults = config.defaults || {}
-    config.defaults.credentialStrategy = 'portable'
-    saveWorkspaceConfig(workspace.rootPath, config)
-
-    ipcLog.info(`Enabled portable credentials for workspace: ${workspaceId}`)
-  })
-
-  // Disable portable credentials for a workspace (migrate back to local)
-  ipcMain.handle(IPC_CHANNELS.WORKSPACE_SETTINGS_DISABLE_PORTABLE, async (_event, workspaceId: string, password: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) {
-      throw new Error(`Workspace not found: ${workspaceId}`)
-    }
-
-    const { loadWorkspaceConfig, saveWorkspaceConfig } = await import('@craft-agent/shared/workspaces')
-    const { getCredentialManager } = await import('@craft-agent/shared/credentials')
-
-    const config = loadWorkspaceConfig(workspace.rootPath)
-    if (!config) {
-      throw new Error(`Failed to load workspace config: ${workspaceId}`)
-    }
-
-    // Migrate credentials from portable back to local storage
-    const manager = getCredentialManager()
-    const migrated = await manager.migrateFromPortable(workspace.rootPath, password)
-    ipcLog.info(`Migrated ${migrated} credentials from portable to local storage`)
-
-    // Update the credential strategy
-    config.defaults = config.defaults || {}
-    config.defaults.credentialStrategy = 'local'
-    saveWorkspaceConfig(workspace.rootPath, config)
-
-    ipcLog.info(`Disabled portable credentials for workspace: ${workspaceId}`)
   })
 
   // ============================================================

@@ -7,11 +7,15 @@
  * - Settings navigator: Settings, Preferences, or Shortcuts page
  *
  * The NavigationState is the single source of truth for what to display.
+ *
+ * In focused mode (single window), wraps content with StoplightProvider
+ * so PanelHeader components automatically compensate for macOS traffic lights.
  */
 
 import * as React from 'react'
 import { Panel } from './Panel'
 import { useAppShellContext } from '@/context/AppShellContext'
+import { StoplightProvider } from '@/context/StoplightContext'
 import {
   useNavigationState,
   isChatsNavigation,
@@ -19,7 +23,7 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
 } from '@/contexts/NavigationContext'
-import { SettingsPage, PreferencesPage, ShortcutsPage, SourceInfoPage, ChatPage } from '@/pages'
+import { AppSettingsPage, WorkspaceSettingsPage, PreferencesPage, ShortcutsPage, SourceInfoPage, ChatPage } from '@/pages'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 
 export interface MainContentPanelProps {
@@ -36,26 +40,39 @@ export function MainContentPanel({
   const navState = useNavigationState()
   const { activeWorkspaceId } = useAppShellContext()
 
+  // Wrap content with StoplightProvider so PanelHeaders auto-compensate in focused mode
+  const wrapWithStoplight = (content: React.ReactNode) => (
+    <StoplightProvider value={isFocusedMode}>
+      {content}
+    </StoplightProvider>
+  )
+
   // Settings navigator - always has content (subpage determines which page)
   if (isSettingsNavigation(navState)) {
     switch (navState.subpage) {
+      case 'workspace':
+        return wrapWithStoplight(
+          <Panel variant="grow" className={className}>
+            <WorkspaceSettingsPage />
+          </Panel>
+        )
       case 'shortcuts':
-        return (
+        return wrapWithStoplight(
           <Panel variant="grow" className={className}>
             <ShortcutsPage />
           </Panel>
         )
       case 'preferences':
-        return (
+        return wrapWithStoplight(
           <Panel variant="grow" className={className}>
             <PreferencesPage />
           </Panel>
         )
-      case 'general':
+      case 'app':
       default:
-        return (
+        return wrapWithStoplight(
           <Panel variant="grow" className={className}>
-            <SettingsPage />
+            <AppSettingsPage />
           </Panel>
         )
     }
@@ -64,7 +81,7 @@ export function MainContentPanel({
   // Sources navigator - show source info or empty state
   if (isSourcesNavigation(navState)) {
     if (navState.details) {
-      return (
+      return wrapWithStoplight(
         <Panel variant="grow" className={className}>
           <SourceInfoPage
             sourceSlug={navState.details.sourceSlug}
@@ -74,7 +91,7 @@ export function MainContentPanel({
       )
     }
     // No source selected - empty state
-    return (
+    return wrapWithStoplight(
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">No sources configured</p>
@@ -86,7 +103,7 @@ export function MainContentPanel({
   // Skills navigator - show skill info or empty state
   if (isSkillsNavigation(navState)) {
     if (navState.details) {
-      return (
+      return wrapWithStoplight(
         <Panel variant="grow" className={className}>
           <SkillInfoPage
             skillSlug={navState.details.skillSlug}
@@ -96,7 +113,7 @@ export function MainContentPanel({
       )
     }
     // No skill selected - empty state
-    return (
+    return wrapWithStoplight(
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">No skills configured</p>
@@ -108,14 +125,14 @@ export function MainContentPanel({
   // Chats navigator - show chat or empty state
   if (isChatsNavigation(navState)) {
     if (navState.details) {
-      return (
+      return wrapWithStoplight(
         <Panel variant="grow" className={className}>
-          <ChatPage sessionId={navState.details.sessionId} isFocusedMode={isFocusedMode} />
+          <ChatPage sessionId={navState.details.sessionId} />
         </Panel>
       )
     }
     // No session selected - empty state
-    return (
+    return wrapWithStoplight(
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">
@@ -129,7 +146,7 @@ export function MainContentPanel({
   }
 
   // Fallback (should not happen with proper NavigationState)
-  return (
+  return wrapWithStoplight(
     <Panel variant="grow" className={className}>
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <p className="text-sm">Select a conversation to get started</p>

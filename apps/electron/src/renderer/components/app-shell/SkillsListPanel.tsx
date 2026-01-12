@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useState } from 'react'
-import { MoreHorizontal, Trash2, ExternalLink } from 'lucide-react'
+import { MoreHorizontal, Trash2, ExternalLink, SquareArrowOutUpRight } from 'lucide-react'
 import { SkillAvatar } from '@/components/ui/skill-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -143,6 +143,15 @@ function SkillItem({ skill, isSelected, isFirst, workspaceId, onClick, onDelete 
                 <StyledDropdownMenuItem onClick={onClick}>
                   <ExternalLink />
                   View Details
+                </StyledDropdownMenuItem>
+                <StyledDropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    window.electronAPI.openUrl(`craftagents://skills/skill/${skill.slug}?window=focused`)
+                  }}
+                >
+                  <SquareArrowOutUpRight />
+                  Open in New Window
                 </StyledDropdownMenuItem>
                 <StyledDropdownMenuSeparator />
                 <StyledDropdownMenuItem

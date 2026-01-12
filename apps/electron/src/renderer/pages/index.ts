@@ -7,13 +7,11 @@
 export { default as ChatPage } from './ChatPage'
 export { default as SourceInfoPage } from './SourceInfoPage'
 
-// Settings pages (new structure)
+// Settings pages
 export {
   SettingsNavigator,
-  SettingsGeneralPage,
+  AppSettingsPage,
+  WorkspaceSettingsPage,
   ShortcutsPage,
   PreferencesPage,
 } from './settings'
-
-// SettingsPage export (used by MainContentPanel)
-export { default as SettingsPage } from './SettingsPage'

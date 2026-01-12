@@ -92,7 +92,7 @@ Customizable safety rules at two levels (additive merging):
 ### Session-Scoped Tools (`src/agent/session-scoped-tools.ts`)
 Tools available within agent sessions with callback registry:
 
-**Source management:** `source_test`, `source_oauth_trigger`, `source_gmail_oauth_trigger`, `source_credential_prompt`
+**Source management:** `source_test`, `source_oauth_trigger`, `source_google_oauth_trigger`, `source_credential_prompt`
 
 **Utilities:** `SubmitPlan`, `config_validate`
 

@@ -79,6 +79,9 @@ function drawBadgeOnIcon(iconDataUrl: string, count: number): Promise<string> {
  * Uses pre-computed lastFinalMessageId from SessionMeta
  */
 function hasUnreadMessagesFromMeta(meta: SessionMeta): boolean {
+  // Sessions still processing don't have a stable "final" message yet
+  // Their lastFinalMessageId may change as streaming continues
+  if (meta.isProcessing) return false
   // Session has unread if there's a final message and it hasn't been read
   if (!meta.lastFinalMessageId) return false
   return meta.lastFinalMessageId !== meta.lastReadMessageId
@@ -109,6 +112,7 @@ export function useNotifications({
 }: UseNotificationsOptions): UseNotificationsResult {
   const [isWindowFocused, setIsWindowFocused] = useState(true)
   const onNavigateToSessionRef = useRef(onNavigateToSession)
+  const lastBadgeCountRef = useRef<number | null>(null)
 
   // Use session metadata from Jotai atom (lightweight, no messages)
   // This prevents closures from retaining the full messages array
@@ -174,6 +178,14 @@ export function useNotifications({
     const unreadSessions = metas.filter(hasUnreadMessagesFromMeta)
     const totalUnread = unreadSessions.length
 
+    // Skip badge update if any session is processing AND the count hasn't changed
+    // This prevents excessive updates during streaming while still allowing
+    // updates when user switches sessions (which marks as read and decreases count)
+    const hasProcessing = metas.some(m => m.isProcessing)
+    if (hasProcessing && totalUnread === lastBadgeCountRef.current) {
+      return
+    }
+
     // Debug: log sessions with messages vs unread
     const sessionsWithMessages = metas.filter(m => m.lastFinalMessageId !== undefined)
     console.log('[Notifications] Badge update:', {
@@ -183,6 +195,7 @@ export function useNotifications({
     })
 
     // Badge always shows unread count (regardless of focus)
+    lastBadgeCountRef.current = totalUnread
     window.electronAPI.updateBadgeCount(totalUnread)
   }, [sessionMetaMap, enabled])
 

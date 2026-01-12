@@ -5,27 +5,32 @@
  * - Fixed 40px height
  * - Title with optional badge
  * - Optional action buttons
- * - Optional margin compensation for macOS traffic lights
+ * - Automatic padding compensation for macOS traffic lights (via StoplightContext)
  *
  * Usage:
  * ```tsx
  * <PanelHeader
  *   title="Conversations"
  *   actions={<Button>Add</Button>}
- *   compensateForStoplight={!isSidebarVisible}
  * />
  * ```
+ *
+ * The header automatically compensates for macOS traffic lights when rendered
+ * inside a StoplightProvider (e.g., in MainContentPanel during focused mode).
+ * You can also explicitly control this with the `compensateForStoplight` prop.
  */
 
 import * as React from 'react'
 import { motion } from 'motion/react'
 import { cn } from '@/lib/utils'
+import { useCompensateForStoplight } from '@/context/StoplightContext'
 
 // Spring transition for smooth animations (matches sidebar)
 const springTransition = { type: 'spring' as const, stiffness: 300, damping: 30 }
 
-// Margin to compensate for macOS traffic lights (stoplight buttons)
-const STOPLIGHT_MARGIN = 102
+// Padding to compensate for macOS traffic lights (stoplight buttons)
+// Traffic lights positioned at x:18, ~52px wide = 70px + 14px gap
+const STOPLIGHT_PADDING = 84
 
 export interface PanelHeaderProps {
   /** Header title */
@@ -49,10 +54,14 @@ export function PanelHeader({
   title,
   badge,
   actions,
-  compensateForStoplight = false,
+  compensateForStoplight,
   paddingLeft,
   className,
 }: PanelHeaderProps) {
+  // Use context as fallback when prop is not explicitly set
+  const contextCompensate = useCompensateForStoplight()
+  const shouldCompensate = compensateForStoplight ?? contextCompensate
+
   const content = (
     <>
       <div className="flex-1 min-w-0 flex items-center select-none">
@@ -69,17 +78,23 @@ export function PanelHeader({
     </>
   )
 
+  // Base padding (16px = pl-4)
+  const basePadding = 16
+
   const baseClassName = cn(
-    'flex h-[40px] shrink-0 items-center pr-2 min-w-0 gap-3 relative z-50',
-    paddingLeft || 'pl-4',
+    'flex shrink-0 items-center pr-2 min-w-0 gap-3 relative z-50',
+    // Slightly shorter header in focused mode to align with traffic lights
+    shouldCompensate ? 'h-[38px]' : 'h-[40px]',
+    // Only use static paddingLeft class when not animating
+    !shouldCompensate && (paddingLeft || 'pl-4'),
     className
   )
 
-  // Use motion.div for animated stoplight compensation
+  // Use motion.div with animated paddingLeft to shift content while keeping background full-width
   return (
     <motion.div
       initial={false}
-      animate={{ marginLeft: compensateForStoplight ? STOPLIGHT_MARGIN : 0 }}
+      animate={{ paddingLeft: shouldCompensate ? STOPLIGHT_PADDING : basePadding }}
       transition={springTransition}
       className={baseClassName}
     >

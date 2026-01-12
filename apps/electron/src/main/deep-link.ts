@@ -95,7 +95,7 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
 
     // Compound route prefixes
     const COMPOUND_ROUTE_PREFIXES = [
-      'allChats', 'flagged', 'state', 'sources', 'settings'
+      'allChats', 'flagged', 'state', 'sources', 'settings', 'skills'
     ]
 
     // craftagents://allChats/..., craftagents://settings/..., etc. (compound routes)
@@ -228,33 +228,41 @@ export async function handleDeepLink(
 
   // If windowMode is set, create a new window instead of navigating in existing
   if (target.windowMode) {
+    mainLog.info('[DeepLink] windowMode detected:', target.windowMode)
     // Get workspaceId from target or from current window
     let wsId = target.workspaceId
     if (!wsId) {
       const focusedWindow = windowManager.getFocusedWindow()
+      mainLog.info('[DeepLink] focusedWindow:', focusedWindow?.id)
       if (focusedWindow) {
         wsId = windowManager.getWorkspaceForWindow(focusedWindow.webContents.id) ?? undefined
+        mainLog.info('[DeepLink] wsId from focused window:', wsId)
       }
       if (!wsId) {
         const allWindows = windowManager.getAllWindows()
+        mainLog.info('[DeepLink] allWindows count:', allWindows.length)
         if (allWindows.length > 0) {
           wsId = allWindows[0].workspaceId
+          mainLog.info('[DeepLink] wsId from first window:', wsId)
         }
       }
     }
 
     if (!wsId) {
+      mainLog.error('[DeepLink] No workspace available for new window')
       return { success: false, error: 'No workspace available for new window' }
     }
 
     // Build URL without window param for navigation inside the new window
     const navUrl = buildDeepLinkWithoutWindowParam(url)
+    mainLog.info('[DeepLink] Creating new window with navUrl:', navUrl)
 
     const window = windowManager.createWindow({
       workspaceId: wsId,
       focused: target.windowMode === 'focused',
       initialDeepLink: navUrl,
     })
+    mainLog.info('[DeepLink] Window created:', window.webContents.id)
 
     return { success: true, windowId: window.webContents.id }
   }

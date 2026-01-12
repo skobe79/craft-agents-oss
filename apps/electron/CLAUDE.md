@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is the Electron desktop app for Craft Agent - a GUI alternative to the TUI. It provides a multi-threaded chat interface for interacting with Claude via Craft workspaces.
+This is the Electron desktop app for Craft Agent - the primary interface for the application. It provides a multi-session inbox with chat interface for interacting with Claude via Craft workspaces.
 
 **Note:** This app reuses the `@craft-agent/shared` package for core business logic. Dependencies are managed in the root `package.json`.
 
@@ -684,7 +684,7 @@ craftagents://workspace/{workspaceId}/{compoundRoute}
 ### Key Integration Points
 
 **SessionManager** (`main/sessions.ts`):
-- Wraps `CraftAgent` from the parent TUI codebase
+- Wraps `CraftAgent` from `@craft-agent/shared`
 - Sets up SDK path and authentication on initialization
 - Processes `AgentEvent` stream and forwards to renderer
 - Tracks `toolUseId → toolName` mapping (since `tool_result` events only have `toolUseId`)
@@ -698,7 +698,7 @@ craftagents://workspace/{workspaceId}/{compoundRoute}
 
 ## Critical SDK Setup
 
-The Claude Agent SDK requires explicit setup in Electron (unlike TUI where it's implicit):
+The Claude Agent SDK requires explicit setup in the Electron main process:
 
 ### 1. SDK Path (in `sessions.ts`)
 ```typescript
@@ -1237,6 +1237,83 @@ Workspace-level customizable session status configuration:
 **Config location:** `~/.craft-agent/workspaces/{id}/statuses/config.json`
 
 **Integration:** `config/todo-states.tsx` loads dynamic statuses instead of hardcoded values.
+
+## Skills System
+
+Skills are specialized instructions that extend Claude's capabilities. The Electron app provides UI for browsing and managing workspace skills.
+
+**Navigation:** Sidebar → Skills → Select skill to view details
+
+**IPC Channels:**
+
+| Channel | Direction | Purpose |
+|---------|-----------|---------|
+| `skills:get` | renderer → main | Get all skills for workspace |
+| `skills:getFiles` | renderer → main | Get files in skill directory |
+| `skills:delete` | renderer → main | Delete a skill |
+| `skills:openEditor` | renderer → main | Open skill in VS Code |
+| `skills:openFinder` | renderer → main | Open skill folder in Finder |
+| `skills:changed` | main → renderer | Broadcast skill changes |
+
+**SkillInfoPage features:**
+- View skill metadata (name, description, globs, alwaysAllow)
+- Browse skill files with content preview
+- Actions: Open in Editor, Open in Finder, Delete
+
+**Skill storage:** `~/.craft-agent/workspaces/{id}/skills/{slug}/`
+
+## Info Page Components
+
+The `components/info/` directory contains reusable primitives for building Info pages (SourceInfo, SkillInfo, etc.):
+
+**Components:**
+
+| Component | Purpose |
+|-----------|---------|
+| `Info_Page` | Page layout with header, back button, actions |
+| `Info_Section` | Collapsible section with title |
+| `Info_Table` | Simple key-value table |
+| `Info_DataTable` | Complex data table with sorting/filtering |
+| `Info_Alert` | Status alerts (error, warning, info) |
+| `Info_GroupedList` | Grouped list with headers |
+| `Info_StatusBadge` | Status indicator badges |
+| `Info_Markdown` | Markdown content renderer |
+| `PermissionsDataTable` | Pre-built permissions display |
+| `ToolsDataTable` | Pre-built tools display with permissions |
+
+**Usage:**
+```tsx
+import { Info_Page, Info_Section, Info_Table } from '@/components/info'
+
+<Info_Page title="Source" subtitle="github" onBack={() => navigate('sources')}>
+  <Info_Section title="Configuration">
+    <Info_Table rows={[{ label: 'Type', value: 'MCP' }]} />
+  </Info_Section>
+</Info_Page>
+```
+
+## Notifications System
+
+Native OS notifications and dock badge for session activity:
+
+**IPC Channels:**
+
+| Channel | Direction | Purpose |
+|---------|-----------|---------|
+| `notification:show` | renderer → main | Show native notification |
+| `notification:navigate` | main → renderer | Navigate when notification clicked |
+| `notification:getEnabled` | renderer → main | Check if notifications enabled |
+| `notification:setEnabled` | renderer → main | Toggle notifications |
+| `badge:update` | renderer → main | Set dock badge count |
+| `badge:clear` | renderer → main | Clear dock badge |
+| `badge:setIcon` | renderer → main | Set custom badge icon |
+| `badge:draw` | main → renderer | Request badge rendering |
+
+**Features:**
+- Native macOS/Windows notifications
+- Clicking notification navigates to session
+- Dock badge shows unread count
+- User preference to enable/disable
 
 ## Current Limitations
 

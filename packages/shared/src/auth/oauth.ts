@@ -26,7 +26,7 @@ const CLIENT_NAME = 'Craft Agent';
 
 /**
  * Generate a styled OAuth callback page with terminal emulator aesthetic
- * Matches TUI design with Tokyo Night theme
+ * Matches application design with Tokyo Night theme
  */
 function generateOAuthPage(options: {
   title: string;

@@ -22,11 +22,12 @@ import {
   Info_Page,
   Info_Section,
   Info_Table,
-  Info_DataTable,
   Info_Alert,
-  Info_GroupedList,
-  Info_StatusBadge,
   Info_Markdown,
+  PermissionsDataTable,
+  ToolsDataTable,
+  type PermissionRow,
+  type ToolRow,
 } from '@/components/info'
 import type { LoadedSource, McpToolWithPermission } from '../../shared/types'
 import type { PermissionsConfigFile } from '@craft-agent/shared/agent'
@@ -67,6 +68,66 @@ function getSourceUrl(source: LoadedSource): string | null {
   if (type === 'local' && local?.path) return local.path
 
   return null
+}
+
+/**
+ * Convert permissions config to PermissionRow[] for API/local sources
+ */
+function buildApiPermissionsData(config: PermissionsConfigFile): PermissionRow[] {
+  const rows: PermissionRow[] = []
+
+  // Blocked Tools
+  config.blockedTools?.forEach((tool) => {
+    rows.push({ access: 'blocked', type: 'tool', pattern: tool, comment: null })
+  })
+
+  // Allowed Bash Patterns
+  config.allowedBashPatterns?.forEach((item) => {
+    const pattern = typeof item === 'string' ? item : item.pattern
+    const comment = typeof item === 'string' ? null : item.comment
+    rows.push({ access: 'allowed', type: 'bash', pattern, comment })
+  })
+
+  // Allowed API Endpoints
+  config.allowedApiEndpoints?.forEach((item) => {
+    const pattern = `${item.method} ${item.path}`
+    const comment = typeof item === 'object' && 'comment' in item ? item.comment : null
+    rows.push({ access: 'allowed', type: 'api', pattern, comment })
+  })
+
+  return rows
+}
+
+/**
+ * Convert permissions config to PermissionRow[] for MCP sources
+ */
+function buildMcpPermissionsData(config: PermissionsConfigFile): PermissionRow[] {
+  const rows: PermissionRow[] = []
+
+  // Blocked Tools
+  config.blockedTools?.forEach((tool) => {
+    rows.push({ access: 'blocked', type: 'mcp', pattern: tool, comment: null })
+  })
+
+  // Allowed MCP Patterns
+  config.allowedMcpPatterns?.forEach((item) => {
+    const pattern = typeof item === 'string' ? item : item.pattern
+    const comment = typeof item === 'string' ? null : item.comment
+    rows.push({ access: 'allowed', type: 'mcp', pattern, comment })
+  })
+
+  return rows
+}
+
+/**
+ * Convert MCP tools to ToolRow[]
+ */
+function buildToolsData(tools: McpToolWithPermission[]): ToolRow[] {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description || '',
+    permission: tool.allowed ? 'allowed' : 'requires-permission',
+  }))
 }
 
 export default function SourceInfoPage({ sourceSlug, workspaceId, onDelete }: SourceInfoPageProps) {
@@ -195,12 +256,21 @@ export default function SourceInfoPage({ sourceSlug, workspaceId, onDelete }: So
   // Compute source URL
   const sourceUrl = useMemo(() => source ? getSourceUrl(source) : null, [source])
 
-  // Group MCP tools by permission status
-  const groupedTools = useMemo(() => {
-    if (!mcpTools) return null
-    const allowed = mcpTools.filter(t => t.allowed)
-    const requiresPermission = mcpTools.filter(t => !t.allowed)
-    return { allowed, requiresPermission }
+  // Build data for PermissionsDataTable
+  const apiPermissionsData = useMemo(() => {
+    if (!permissionsConfig || source?.config.type === 'mcp') return []
+    return buildApiPermissionsData(permissionsConfig)
+  }, [permissionsConfig, source])
+
+  const mcpPermissionsData = useMemo(() => {
+    if (!permissionsConfig || source?.config.type !== 'mcp') return []
+    return buildMcpPermissionsData(permissionsConfig)
+  }, [permissionsConfig, source])
+
+  // Build data for ToolsDataTable
+  const toolsData = useMemo(() => {
+    if (!mcpTools) return []
+    return buildToolsData(mcpTools)
   }, [mcpTools])
 
   // Handle opening URL (website or folder)
@@ -329,148 +399,27 @@ export default function SourceInfoPage({ sourceSlug, workspaceId, onDelete }: So
           </Info_Section>
 
           {/* Permissions - for API and local sources */}
-          {source.config.type !== 'mcp' && permissionsConfig && (
+          {source.config.type !== 'mcp' && permissionsConfig && apiPermissionsData.length > 0 && (
             <Info_Section title="Permissions">
-              <Info_DataTable>
-                <Info_DataTable.Header>
-                  <Info_DataTable.Column width={100}>Access</Info_DataTable.Column>
-                  <Info_DataTable.Column width={80}>Type</Info_DataTable.Column>
-                  <Info_DataTable.Column>Pattern</Info_DataTable.Column>
-                  <Info_DataTable.Column>Comment</Info_DataTable.Column>
-                </Info_DataTable.Header>
-                <Info_DataTable.Body>
-                  {/* Blocked Tools */}
-                  {permissionsConfig.blockedTools?.map((tool, i) => (
-                    <Info_DataTable.Row key={`blocked-${i}`}>
-                      <Info_DataTable.Cell>
-                        <Info_StatusBadge status="blocked" />
-                      </Info_DataTable.Cell>
-                      <Info_DataTable.Cell muted>Tool</Info_DataTable.Cell>
-                      <Info_DataTable.Cell>
-                        <code className="font-mono text-xs">{tool}</code>
-                      </Info_DataTable.Cell>
-                      <Info_DataTable.Cell muted>-</Info_DataTable.Cell>
-                    </Info_DataTable.Row>
-                  ))}
-
-                  {/* Allowed Bash Patterns */}
-                  {permissionsConfig.allowedBashPatterns?.map((item, i) => {
-                    const pattern = typeof item === 'string' ? item : item.pattern
-                    const comment = typeof item === 'string' ? null : item.comment
-                    return (
-                      <Info_DataTable.Row key={`bash-${i}`}>
-                        <Info_DataTable.Cell>
-                          <Info_StatusBadge status="allowed" />
-                        </Info_DataTable.Cell>
-                        <Info_DataTable.Cell muted>Bash</Info_DataTable.Cell>
-                        <Info_DataTable.Cell>
-                          <code className="font-mono text-xs">{pattern}</code>
-                        </Info_DataTable.Cell>
-                        <Info_DataTable.Cell muted>{comment || '-'}</Info_DataTable.Cell>
-                      </Info_DataTable.Row>
-                    )
-                  })}
-
-                  {/* Allowed API Endpoints */}
-                  {permissionsConfig.allowedApiEndpoints?.map((item, i) => {
-                    const pattern = `${item.method} ${item.path}`
-                    const comment = typeof item === 'object' && 'comment' in item ? item.comment : null
-                    return (
-                      <Info_DataTable.Row key={`api-${i}`}>
-                        <Info_DataTable.Cell>
-                          <Info_StatusBadge status="allowed" />
-                        </Info_DataTable.Cell>
-                        <Info_DataTable.Cell muted>API</Info_DataTable.Cell>
-                        <Info_DataTable.Cell>
-                          <code className="font-mono text-xs">{pattern}</code>
-                        </Info_DataTable.Cell>
-                        <Info_DataTable.Cell muted>{comment || '-'}</Info_DataTable.Cell>
-                      </Info_DataTable.Row>
-                    )
-                  })}
-                </Info_DataTable.Body>
-              </Info_DataTable>
+              <PermissionsDataTable data={apiPermissionsData} />
             </Info_Section>
           )}
 
           {/* Tools - for MCP sources */}
           {source.config.type === 'mcp' && (
             <Info_Section title="Tools">
-              <Info_GroupedList
+              <ToolsDataTable
+                data={toolsData}
                 loading={mcpToolsLoading}
                 error={mcpToolsError ?? undefined}
-                empty={groupedTools && groupedTools.allowed.length === 0 && groupedTools.requiresPermission.length === 0 ? 'No tools available' : undefined}
-              >
-                {groupedTools?.allowed && groupedTools.allowed.length > 0 && (
-                  <Info_GroupedList.Group label="Allowed" variant="success" count={groupedTools.allowed.length}>
-                    {groupedTools.allowed.map((tool) => (
-                      <Info_GroupedList.Item key={tool.name}>
-                        <code className="font-mono text-xs">{tool.name}</code>
-                        {tool.description && (
-                          <p className="text-xs text-foreground/60 mt-0.5">{tool.description}</p>
-                        )}
-                      </Info_GroupedList.Item>
-                    ))}
-                  </Info_GroupedList.Group>
-                )}
-
-                {groupedTools?.requiresPermission && groupedTools.requiresPermission.length > 0 && (
-                  <Info_GroupedList.Group label="Requires Permission" variant="info" count={groupedTools.requiresPermission.length}>
-                    {groupedTools.requiresPermission.map((tool) => (
-                      <Info_GroupedList.Item key={tool.name}>
-                        <code className="font-mono text-xs">{tool.name}</code>
-                        {tool.description && (
-                          <p className="text-xs text-foreground/60 mt-0.5">{tool.description}</p>
-                        )}
-                      </Info_GroupedList.Item>
-                    ))}
-                  </Info_GroupedList.Group>
-                )}
-              </Info_GroupedList>
+              />
             </Info_Section>
           )}
 
           {/* Permissions - for MCP sources */}
-          {source.config.type === 'mcp' && permissionsConfig && (
+          {source.config.type === 'mcp' && permissionsConfig && mcpPermissionsData.length > 0 && (
             <Info_Section title="Permissions">
-              <Info_DataTable>
-                <Info_DataTable.Header>
-                  <Info_DataTable.Column width={100}>Access</Info_DataTable.Column>
-                  <Info_DataTable.Column>Pattern</Info_DataTable.Column>
-                  <Info_DataTable.Column>Comment</Info_DataTable.Column>
-                </Info_DataTable.Header>
-                <Info_DataTable.Body>
-                  {/* Blocked Tools */}
-                  {permissionsConfig.blockedTools?.map((tool, i) => (
-                    <Info_DataTable.Row key={`blocked-${i}`}>
-                      <Info_DataTable.Cell>
-                        <Info_StatusBadge status="blocked" />
-                      </Info_DataTable.Cell>
-                      <Info_DataTable.Cell>
-                        <code className="font-mono text-xs">{tool}</code>
-                      </Info_DataTable.Cell>
-                      <Info_DataTable.Cell muted>-</Info_DataTable.Cell>
-                    </Info_DataTable.Row>
-                  ))}
-
-                  {/* Allowed MCP Patterns */}
-                  {permissionsConfig.allowedMcpPatterns?.map((item, i) => {
-                    const pattern = typeof item === 'string' ? item : item.pattern
-                    const comment = typeof item === 'string' ? null : item.comment
-                    return (
-                      <Info_DataTable.Row key={`mcp-${i}`}>
-                        <Info_DataTable.Cell>
-                          <Info_StatusBadge status="allowed" />
-                        </Info_DataTable.Cell>
-                        <Info_DataTable.Cell>
-                          <code className="font-mono text-xs">{pattern}</code>
-                        </Info_DataTable.Cell>
-                        <Info_DataTable.Cell muted>{comment || '-'}</Info_DataTable.Cell>
-                      </Info_DataTable.Row>
-                    )
-                  })}
-                </Info_DataTable.Body>
-              </Info_DataTable>
+              <PermissionsDataTable data={mcpPermissionsData} hideTypeColumn />
             </Info_Section>
           )}
 

@@ -137,7 +137,7 @@ export function CredentialsStep({
     let description = content.description
     if (status === 'idle') {
       if (hasExistingToken && existingClaudeToken) {
-        // Show preview of detected token (first 20 chars) like TUI does
+        // Show preview of detected token (first 20 chars)
         const tokenPreview = existingClaudeToken.length > 20
           ? `${existingClaudeToken.slice(0, 20)}...`
           : existingClaudeToken

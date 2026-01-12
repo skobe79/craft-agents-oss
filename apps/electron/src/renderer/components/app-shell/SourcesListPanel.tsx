@@ -7,7 +7,7 @@
 
 import * as React from 'react'
 import { useState } from 'react'
-import { MoreHorizontal, Trash2, ExternalLink } from 'lucide-react'
+import { MoreHorizontal, Trash2, ExternalLink, SquareArrowOutUpRight } from 'lucide-react'
 import { SourceAvatar } from '@/components/ui/source-avatar'
 import { deriveConnectionStatus } from '@/components/ui/source-status-indicator'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -260,6 +260,15 @@ function SourceItem({ source, isSelected, isFirst, localMcpEnabled, onClick, onD
                 <StyledDropdownMenuItem onClick={onClick}>
                   <ExternalLink />
                   View Details
+                </StyledDropdownMenuItem>
+                <StyledDropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    window.electronAPI.openUrl(`craftagents://sources/source/${config.slug}?window=focused`)
+                  }}
+                >
+                  <SquareArrowOutUpRight />
+                  Open in New Window
                 </StyledDropdownMenuItem>
                 <StyledDropdownMenuSeparator />
                 <StyledDropdownMenuItem
