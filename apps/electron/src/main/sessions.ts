@@ -507,11 +507,16 @@ export class SessionManager {
       sessionLog.error(error)
       throw new Error(error)
     }
-    sessionLog.info('Setting interceptorPath:', interceptorPath)
-    setInterceptorPath(interceptorPath)
+    // Skip interceptor on Windows development (--preload is bun-specific, not supported by node)
+    if (process.platform !== 'win32' || app.isPackaged) {
+      sessionLog.info('Setting interceptorPath:', interceptorPath)
+      setInterceptorPath(interceptorPath)
+    } else {
+      sessionLog.info('Skipping interceptor on Windows dev (node does not support --preload)')
+    }
 
     // In packaged app: use bundled Bun binary
-    // In development: use system 'bun' command
+    // In development: use system 'bun' command (or 'node' on Windows where bun may crash)
     if (app.isPackaged) {
       // Use platform-specific binary name (bun.exe on Windows, bun on macOS/Linux)
       const bunBinary = process.platform === 'win32' ? 'bun.exe' : 'bun'
@@ -523,6 +528,11 @@ export class SessionManager {
       }
       sessionLog.info('Setting executable:', bunPath)
       setExecutable(bunPath)
+    } else if (process.platform === 'win32') {
+      // On Windows in development, use 'node' instead of 'bun' as bun may crash
+      // due to architecture emulation issues (e.g., x64 bun on ARM64 Windows)
+      sessionLog.info('Using node executable for Windows development')
+      setExecutable('node')
     }
 
     // Set up authentication environment variables (critical for SDK to work)
