@@ -564,6 +564,22 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     return !app.isPackaged
   })
 
+  // Auto-update handlers
+  ipcMain.handle(IPC_CHANNELS.UPDATE_CHECK, async () => {
+    const { checkForUpdates } = await import('./auto-update')
+    return checkForUpdates()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.UPDATE_GET_INFO, async () => {
+    const { getUpdateInfo } = await import('./auto-update')
+    return getUpdateInfo()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.UPDATE_INSTALL, async () => {
+    const { installUpdate } = await import('./auto-update')
+    return installUpdate()
+  })
+
   // Shell operations - open URL in external browser (or handle craftagents:// internally)
   ipcMain.handle(IPC_CHANNELS.OPEN_URL, async (_event, url: string) => {
     ipcLog.info('[OPEN_URL] Received request:', url)
