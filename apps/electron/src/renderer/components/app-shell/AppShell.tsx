@@ -1027,6 +1027,7 @@ export function AppShell({
                     variant="ghost"
                     onClick={() => handleNewChat(true)}
                     className="w-full justify-start gap-2 py-[7px] px-2 text-[13px] font-normal rounded-[6px] shadow-minimal bg-background"
+                    data-tutorial="new-chat-button"
                   >
                     <SquarePenRounded className="h-3.5 w-3.5 shrink-0" />
                     New Chat
@@ -1115,6 +1116,7 @@ export function AppShell({
                       expandable: true,
                       expanded: isExpanded('nav:sources'),
                       onToggle: () => toggleExpanded('nav:sources'),
+                      dataTutorial: "sources-nav",
                       items: [
                         {
                           id: "nav:sources:local-files",
@@ -1131,6 +1133,7 @@ export function AppShell({
                           icon: Globe,
                           variant: isSourcesNavigation(navState) && navState.category === 'online-sources' ? "default" : "ghost",
                           onClick: () => handleSourceCategoryClick('online-sources'),
+                          dataTutorial: "cloud-services-nav",
                         },
                         {
                           id: "nav:sources:local-mcp",
@@ -1363,6 +1366,7 @@ export function AppShell({
                       icon={<Plus className="h-4 w-4" />}
                       onClick={handleAddSource}
                       tooltip="Add Source"
+                      data-tutorial="add-source-button"
                     />
                   )}
                 </>
