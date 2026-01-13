@@ -91,6 +91,16 @@ export interface TutorialDefinition {
 export type TutorialStatus = 'idle' | 'prompting' | 'running' | 'completed' | 'skipped'
 
 /**
+ * Auto-advance timer state (for circular progress indicator)
+ */
+export interface TimerState {
+  /** Duration of the timer in ms */
+  duration: number
+  /** Timestamp when timer started */
+  startedAt: number
+}
+
+/**
  * Runtime state for active tutorial
  */
 export interface TutorialState {
@@ -102,6 +112,8 @@ export interface TutorialState {
   status: TutorialStatus
   /** Bounding rect of target element (for positioning) */
   targetRect: DOMRect | null
+  /** Auto-advance timer state (for progress indicator) */
+  autoAdvanceTimer: TimerState | null
 }
 
 /**

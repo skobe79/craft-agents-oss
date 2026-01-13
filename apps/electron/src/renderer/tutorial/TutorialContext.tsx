@@ -26,6 +26,7 @@ import type {
   TutorialContextValue,
   TutorialStep,
   TutorialDefinition,
+  TimerState,
 } from './types'
 import { getTutorial } from './registry'
 
@@ -47,6 +48,7 @@ const defaultState: TutorialState = {
   currentStepIndex: 0,
   status: 'idle',
   targetRect: null,
+  autoAdvanceTimer: null,
 }
 
 const TutorialContext = createContext<TutorialContextValue | null>(null)
@@ -137,6 +139,7 @@ export function TutorialProvider({
       currentStepIndex: 0,
       status: 'running',
       targetRect: null,
+      autoAdvanceTimer: null,
     })
   }, [])
 
@@ -164,9 +167,10 @@ export function TutorialProvider({
       }))
       currentTutorial.onComplete?.()
       // Transition to completed status to show celebration popup
-      setState((s) => ({ ...s, status: 'completed', targetRect: null }))
+      setState((s) => ({ ...s, status: 'completed', targetRect: null, autoAdvanceTimer: null }))
     } else {
-      setState((s) => ({ ...s, currentStepIndex: nextIndex, targetRect: null }))
+      // Clear timer state when moving to next step
+      setState((s) => ({ ...s, currentStepIndex: nextIndex, targetRect: null, autoAdvanceTimer: null }))
     }
   }, [currentTutorial, state.currentStepIndex, state.activeTutorialId])
 
@@ -192,12 +196,18 @@ export function TutorialProvider({
     if (currentStep.completionEvent !== 'input_match') return
     if (!currentStep.expectedInput) return
 
+    // Capture step ID to prevent race conditions - only complete if still on same step
+    const targetStepId = currentStep.id
+
     // Reset the triggered ref when step changes
     inputMatchTriggeredRef.current = false
     if (inputMatchTimerRef.current) {
       clearTimeout(inputMatchTimerRef.current)
       inputMatchTimerRef.current = null
     }
+
+    // Track the actual element we attached the listener to (for proper cleanup)
+    let activeTarget: HTMLTextAreaElement | HTMLInputElement | null = null
 
     const handleInput = () => {
       if (inputMatchTriggeredRef.current) return
@@ -214,9 +224,20 @@ export function TutorialProvider({
         const delay = currentStep.inputMatchDelay ?? 2000
 
         console.log('[Tutorial] Input matches expected text, advancing in', delay, 'ms')
+        // Set timer state for circular progress indicator
+        setState((s) => ({
+          ...s,
+          autoAdvanceTimer: { duration: delay, startedAt: Date.now() },
+        }))
         inputMatchTimerRef.current = setTimeout(() => {
-          console.log('[Tutorial] Input match delay complete, advancing step')
-          completeStep()
+          // Guard: only advance if still on the same step (prevents race with click handlers)
+          if (currentStep?.id === targetStepId) {
+            console.log('[Tutorial] Input match delay complete, advancing step')
+            setState((s) => ({ ...s, autoAdvanceTimer: null }))
+            completeStep()
+          } else {
+            console.log('[Tutorial] Input match timer fired but step already changed, ignoring')
+          }
         }, delay)
       }
     }
@@ -224,6 +245,7 @@ export function TutorialProvider({
     // Find the target element and add input listener
     const target = document.querySelector(currentStep.target) as HTMLTextAreaElement | HTMLInputElement | null
     if (target) {
+      activeTarget = target
       target.addEventListener('input', handleInput)
       // Also check immediately in case input already has content
       handleInput()
@@ -235,6 +257,7 @@ export function TutorialProvider({
       mutationObserver = new MutationObserver(() => {
         const newTarget = document.querySelector(currentStep.target) as HTMLTextAreaElement | HTMLInputElement | null
         if (newTarget) {
+          activeTarget = newTarget
           newTarget.addEventListener('input', handleInput)
           handleInput()
           mutationObserver?.disconnect()
@@ -248,7 +271,8 @@ export function TutorialProvider({
         clearTimeout(inputMatchTimerRef.current)
         inputMatchTimerRef.current = null
       }
-      target?.removeEventListener('input', handleInput)
+      // Use tracked element for cleanup (handles dynamically-added elements)
+      activeTarget?.removeEventListener('input', handleInput)
       mutationObserver?.disconnect()
     }
   }, [currentStep, state.status, completeStep])
@@ -280,11 +304,19 @@ export function TutorialProvider({
           hasScrolledToTarget = true
           target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
           console.log('[Tutorial] Scrolled target into view:', currentStep.target)
-          // Wait a bit for scroll to complete before getting rect
+          // Wait for scroll to complete before getting rect (400ms + 200ms re-check)
           setTimeout(() => {
             const rect = target.getBoundingClientRect()
             setState((s) => ({ ...s, targetRect: rect }))
-          }, 300)
+            // Schedule another update in case scroll was still in progress
+            setTimeout(() => {
+              const finalRect = target.getBoundingClientRect()
+              if (finalRect.top !== rect.top || finalRect.left !== rect.left) {
+                console.log('[Tutorial] Scroll position updated after re-check')
+                setState((s) => ({ ...s, targetRect: finalRect }))
+              }
+            }, 200)
+          }, 400)
         } else {
           const rect = target.getBoundingClientRect()
           setState((s) => ({ ...s, targetRect: rect }))
@@ -298,10 +330,24 @@ export function TutorialProvider({
             console.log('[Tutorial] Element appeared:', currentStep.target, '- waiting for button click')
           } else {
             const appearDelay = currentStep.appearDelay ?? 1500
-            console.log('[Tutorial] Element appeared:', currentStep.target, '- advancing in', appearDelay, 'ms')
+            const targetSelector = currentStep.target
+            console.log('[Tutorial] Element appeared:', targetSelector, '- advancing in', appearDelay, 'ms')
+            // Set timer state for circular progress indicator
+            setState((s) => ({
+              ...s,
+              autoAdvanceTimer: { duration: appearDelay, startedAt: Date.now() },
+            }))
             setTimeout(() => {
-              console.log('[Tutorial] Element appeared, auto-advancing step')
-              completeStep()
+              // Clear timer state and verify element still exists before advancing
+              setState((s) => ({ ...s, autoAdvanceTimer: null }))
+              const stillExists = document.querySelector(targetSelector)
+              if (stillExists) {
+                console.log('[Tutorial] Element still present, advancing step')
+                completeStep()
+              } else {
+                console.warn('[Tutorial] Element disappeared, advancing anyway:', targetSelector)
+                completeStep() // Still advance to not block tutorial
+              }
             }, appearDelay)
           }
         }
@@ -331,9 +377,29 @@ export function TutorialProvider({
       if (!target) {
         console.log('[Tutorial] Target not found, setting up MutationObserver and polling for:', currentStep.target)
 
+        // For 'appear' steps, wait indefinitely - they depend on external events (permissions, OAuth, etc.)
+        // For other steps (click, etc.), use a timeout as fallback for broken selectors
+        const shouldTimeout = currentStep.completionEvent !== 'appear'
+        const ELEMENT_TIMEOUT = 10000
+        let elementFound = false
+        let elementTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+        if (shouldTimeout) {
+          elementTimeoutId = setTimeout(() => {
+            if (!elementFound) {
+              console.warn('[Tutorial] Element not found after 10s, auto-advancing:', currentStep.target)
+              mutationObserver.disconnect()
+              if (pollInterval) clearInterval(pollInterval)
+              completeStep()
+            }
+          }, ELEMENT_TIMEOUT)
+        }
+
         const mutationObserver = new MutationObserver(() => {
           const newTarget = document.querySelector(currentStep.target)
           if (newTarget) {
+            elementFound = true
+            if (elementTimeoutId) clearTimeout(elementTimeoutId)
             console.log('[Tutorial] MutationObserver found target:', currentStep.target)
             updateTargetRect()
             mutationObserver.disconnect()
@@ -349,6 +415,8 @@ export function TutorialProvider({
         pollInterval = setInterval(() => {
           const newTarget = document.querySelector(currentStep.target)
           if (newTarget) {
+            elementFound = true
+            if (elementTimeoutId) clearTimeout(elementTimeoutId)
             console.log('[Tutorial] Polling found target:', currentStep.target)
             updateTargetRect()
             mutationObserver.disconnect()
@@ -363,6 +431,7 @@ export function TutorialProvider({
             existingObserver?.disconnect()
             mutationObserver.disconnect()
             if (pollInterval) clearInterval(pollInterval)
+            if (elementTimeoutId) clearTimeout(elementTimeoutId)
           },
         } as ResizeObserver
       }
@@ -433,6 +502,7 @@ export function TutorialProvider({
       currentStepIndex: 0,
       status: 'prompting',
       targetRect: null,
+      autoAdvanceTimer: null,
     })
   }, [])
 
@@ -506,7 +576,7 @@ export function TutorialProvider({
  * (e.g., in playground or other isolated contexts)
  */
 const defaultContextValue: TutorialContextValue = {
-  state: { activeTutorialId: null, currentStepIndex: 0, status: 'idle', targetRect: null },
+  state: { activeTutorialId: null, currentStepIndex: 0, status: 'idle', targetRect: null, autoAdvanceTimer: null },
   currentStep: null,
   currentTutorial: null,
   startTutorial: () => {},

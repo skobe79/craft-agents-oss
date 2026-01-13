@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { routes } from '@/lib/navigate'
 import { Spinner } from '@craft-agent/ui'
 import { RenameDialog } from '@/components/ui/rename-dialog'
-import type { PermissionMode } from '../../../shared/types'
+import type { PermissionMode, WorkspaceSettings } from '../../../shared/types'
 import { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/mode-types'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 
@@ -36,18 +36,6 @@ import {
 export const meta: DetailsPageMeta = {
   navigator: 'settings',
   slug: 'workspace',
-}
-
-// ============================================
-// Type for workspace settings (matches IPC interface)
-// ============================================
-
-interface WorkspaceSettings {
-  name?: string
-  model?: string
-  permissionMode?: PermissionMode
-  workingDirectory?: string
-  localMcpEnabled?: boolean
 }
 
 // ============================================

@@ -30,6 +30,76 @@ const springTransition = {
 }
 
 /**
+ * Circular progress indicator for auto-advance timer
+ * Shows a reverse progress (countdown) animation
+ */
+function CircularProgress({
+  duration,
+  startedAt,
+  size = 16,
+}: {
+  duration: number
+  startedAt: number
+  size?: number
+}) {
+  const [progress, setProgress] = useState(0)
+
+  useEffect(() => {
+    const updateProgress = () => {
+      const elapsed = Date.now() - startedAt
+      const newProgress = Math.min(elapsed / duration, 1)
+      setProgress(newProgress)
+
+      if (newProgress < 1) {
+        requestAnimationFrame(updateProgress)
+      }
+    }
+
+    const animationId = requestAnimationFrame(updateProgress)
+    return () => cancelAnimationFrame(animationId)
+  }, [duration, startedAt])
+
+  const strokeWidth = 2
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  // Reverse progress: start full, end empty
+  const strokeDashoffset = circumference * progress
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      className="transform -rotate-90"
+    >
+      {/* Background circle */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        className="text-foreground/10"
+      />
+      {/* Progress circle (countdown) */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={strokeDashoffset}
+        className="text-accent transition-none"
+      />
+    </svg>
+  )
+}
+
+/**
  * Calculate tooltip position styles based on target rect and desired position
  * Ensures tooltip stays within viewport bounds
  */
@@ -585,20 +655,31 @@ export function TutorialOverlay() {
                 >
                   Skip tutorial
                 </button>
-                <div className="flex items-center gap-1.5">
-                  {currentTutorial?.steps.map((_, index) => (
-                    <div
-                      key={index}
-                      className={cn(
-                        'w-1.5 h-1.5 rounded-full transition-colors',
-                        index === state.currentStepIndex
-                          ? 'bg-accent'
-                          : index < state.currentStepIndex
-                            ? 'bg-emerald-500'
-                            : 'bg-foreground/10'
-                      )}
+                <div className="flex items-center gap-2">
+                  {/* Circular countdown timer when auto-advancing */}
+                  {state.autoAdvanceTimer && (
+                    <CircularProgress
+                      duration={state.autoAdvanceTimer.duration}
+                      startedAt={state.autoAdvanceTimer.startedAt}
+                      size={14}
                     />
-                  ))}
+                  )}
+                  {/* Step dots */}
+                  <div className="flex items-center gap-1.5">
+                    {currentTutorial?.steps.map((_, index) => (
+                      <div
+                        key={index}
+                        className={cn(
+                          'w-1.5 h-1.5 rounded-full transition-colors',
+                          index === state.currentStepIndex
+                            ? 'bg-accent'
+                            : index < state.currentStepIndex
+                              ? 'bg-emerald-500'
+                              : 'bg-foreground/10'
+                        )}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
