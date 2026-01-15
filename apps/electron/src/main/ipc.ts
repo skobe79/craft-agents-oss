@@ -130,6 +130,43 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     return session
   })
 
+  // ============================================================
+  // Claude Code Import
+  // ============================================================
+
+  // Discover Claude Code sessions
+  ipcMain.handle(IPC_CHANNELS.IMPORT_DISCOVER_SESSIONS, async () => {
+    const { discoverClaudeCodeSessions } = await import('@craft-agent/shared/sessions')
+    return discoverClaudeCodeSessions()
+  })
+
+  // Import Claude Code sessions
+  ipcMain.handle(IPC_CHANNELS.IMPORT_SESSIONS, async (event, filePaths: string[]) => {
+    const workspaceId = windowManager.getWorkspaceForWindow(event.sender.id)
+    if (!workspaceId) {
+      throw new Error('No workspace for window')
+    }
+    const workspace = getWorkspaceOrThrow(workspaceId)
+    const existingIds = sessionManager.getSessions().map(s => s.id)
+
+    const { importClaudeCodeSessions } = await import('@craft-agent/shared/sessions')
+    const result = importClaudeCodeSessions(filePaths, workspace.rootPath, existingIds)
+
+    // Refresh session list if any imports succeeded
+    if (result.successCount > 0) {
+      sessionManager.reloadSessions()
+    }
+
+    ipcLog.info(`Imported ${result.successCount}/${filePaths.length} Claude Code sessions`)
+    return result
+  })
+
+  // Find a session by its SDK session ID (for Claude Code resume via deep link)
+  ipcMain.handle(IPC_CHANNELS.FIND_SESSION_BY_SDK_ID, async (_event, sdkSessionId: string) => {
+    const sessionId = sessionManager.findSessionBySdkId(sdkSessionId)
+    return sessionId
+  })
+
   // Get workspaces
   ipcMain.handle(IPC_CHANNELS.GET_WORKSPACES, async () => {
     return sessionManager.getWorkspaces()
@@ -143,6 +180,14 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     setActiveWorkspace(workspace.id)
     ipcLog.info(`Created workspace "${name}" at ${rootPath}`)
     return workspace
+  })
+
+  // Check if a workspace slug already exists (for validation before creation)
+  ipcMain.handle(IPC_CHANNELS.CHECK_WORKSPACE_SLUG, async (_event, slug: string) => {
+    const defaultWorkspacesDir = join(homedir(), '.craft-agent', 'workspaces')
+    const workspacePath = join(defaultWorkspacesDir, slug)
+    const exists = existsSync(workspacePath)
+    return { exists, path: workspacePath }
   })
 
   // ============================================================
@@ -564,6 +609,23 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     return !app.isPackaged
   })
 
+  // Auto-update handlers
+  // Manual check from UI - don't auto-download (user might be on metered connection)
+  ipcMain.handle(IPC_CHANNELS.UPDATE_CHECK, async () => {
+    const { checkForUpdates } = await import('./auto-update')
+    return checkForUpdates({ autoDownload: false })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.UPDATE_GET_INFO, async () => {
+    const { getUpdateInfo } = await import('./auto-update')
+    return getUpdateInfo()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.UPDATE_INSTALL, async () => {
+    const { installUpdate } = await import('./auto-update')
+    return installUpdate()
+  })
+
   // Shell operations - open URL in external browser (or handle craftagents:// internally)
   ipcMain.handle(IPC_CHANNELS.OPEN_URL, async (_event, url: string) => {
     ipcLog.info('[OPEN_URL] Received request:', url)
@@ -700,9 +762,6 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       hasCredential = !!(await manager.getApiKey())
     } else if (authType === 'oauth_token') {
       hasCredential = !!(await manager.getClaudeOAuth())
-    } else if (authType === 'craft_credits') {
-      // Craft credits use Craft OAuth which is always present after setup
-      hasCredential = true
     }
 
     return { authType, hasCredential }
@@ -740,7 +799,21 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       if (authType === 'api_key') {
         await manager.setApiKey(credential)
       } else if (authType === 'oauth_token') {
-        await manager.setClaudeOAuth(credential)
+        // Import full credentials including refresh token and expiry from Claude CLI
+        const { getExistingClaudeCredentials } = await import('@craft-agent/shared/auth')
+        const cliCreds = getExistingClaudeCredentials()
+        if (cliCreds) {
+          await manager.setClaudeOAuthCredentials({
+            accessToken: cliCreds.accessToken,
+            refreshToken: cliCreds.refreshToken,
+            expiresAt: cliCreds.expiresAt,
+          })
+          ipcLog.info('Saved Claude OAuth credentials with refresh token')
+        } else {
+          // Fallback to just saving the access token
+          await manager.setClaudeOAuth(credential)
+          ipcLog.info('Saved Claude OAuth access token only')
+        }
       }
     }
 
@@ -774,7 +847,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Open native folder dialog for selecting working directory
   ipcMain.handle(IPC_CHANNELS.OPEN_FOLDER_DIALOG, async () => {
     const result = await dialog.showOpenDialog({
-      properties: ['openDirectory'],
+      properties: ['openDirectory', 'createDirectory'],
       title: 'Select Working Directory',
     })
     return result.canceled ? null : result.filePaths[0]
@@ -802,16 +875,17 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       permissionMode: config?.defaults?.permissionMode,
       workingDirectory: config?.defaults?.workingDirectory,
       localMcpEnabled: config?.localMcpServers?.enabled ?? true,
+      tutorialsEnabled: config?.tutorialsEnabled ?? true,
     }
   })
 
   // Update a workspace setting
-  // Valid keys: 'name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'localMcpEnabled'
+  // Valid keys: 'name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'localMcpEnabled', 'tutorialsEnabled'
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_SETTINGS_UPDATE, async (_event, workspaceId: string, key: string, value: unknown) => {
     const workspace = getWorkspaceOrThrow(workspaceId)
 
     // Validate key is a known workspace setting
-    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'localMcpEnabled']
+    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'workingDirectory', 'localMcpEnabled', 'tutorialsEnabled']
     if (!validKeys.includes(key)) {
       throw new Error(`Invalid workspace setting key: ${key}. Valid keys: ${validKeys.join(', ')}`)
     }
@@ -829,6 +903,9 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       // Store in localMcpServers.enabled (top-level, not in defaults)
       config.localMcpServers = config.localMcpServers || { enabled: true }
       config.localMcpServers.enabled = Boolean(value)
+    } else if (key === 'tutorialsEnabled') {
+      // Store as top-level config property
+      config.tutorialsEnabled = Boolean(value)
     } else {
       // Update the setting in defaults
       config.defaults = config.defaults || {}
@@ -888,6 +965,73 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Get all drafts (for loading on app start)
   ipcMain.handle(IPC_CHANNELS.DRAFTS_GET_ALL, async () => {
     return getAllSessionDrafts()
+  })
+
+  // ============================================================
+  // Session Info Panel (files, notes)
+  // ============================================================
+
+  // Get files in session directory
+  ipcMain.handle(IPC_CHANNELS.GET_SESSION_FILES, async (_event, sessionId: string) => {
+    const sessionPath = sessionManager.getSessionPath(sessionId)
+    if (!sessionPath) return []
+
+    try {
+      const { readdir, stat } = await import('fs/promises')
+      const entries = await readdir(sessionPath, { withFileTypes: true })
+      const files: import('../shared/types').SessionFile[] = []
+
+      for (const entry of entries) {
+        // Skip session.jsonl as it's the internal session storage
+        if (entry.name === 'session.jsonl') continue
+
+        const fullPath = join(sessionPath, entry.name)
+        const stats = entry.isFile() ? await stat(fullPath) : null
+
+        files.push({
+          name: entry.name,
+          path: fullPath,
+          type: entry.isDirectory() ? 'directory' : 'file',
+          size: stats?.size,
+        })
+      }
+
+      return files
+    } catch (error) {
+      ipcLog.error('Failed to get session files:', error)
+      return []
+    }
+  })
+
+  // Get session notes (reads notes.md from session directory)
+  ipcMain.handle(IPC_CHANNELS.GET_SESSION_NOTES, async (_event, sessionId: string) => {
+    const sessionPath = sessionManager.getSessionPath(sessionId)
+    if (!sessionPath) return ''
+
+    try {
+      const notesPath = join(sessionPath, 'notes.md')
+      const content = await readFile(notesPath, 'utf-8')
+      return content
+    } catch {
+      // File doesn't exist yet - return empty string
+      return ''
+    }
+  })
+
+  // Set session notes (writes to notes.md in session directory)
+  ipcMain.handle(IPC_CHANNELS.SET_SESSION_NOTES, async (_event, sessionId: string, content: string) => {
+    const sessionPath = sessionManager.getSessionPath(sessionId)
+    if (!sessionPath) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+
+    try {
+      const notesPath = join(sessionPath, 'notes.md')
+      await writeFile(notesPath, content, 'utf-8')
+    } catch (error) {
+      ipcLog.error('Failed to save session notes:', error)
+      throw error
+    }
   })
 
   // ============================================================
@@ -1160,13 +1304,16 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
   // Get all skills for a workspace
   ipcMain.handle(IPC_CHANNELS.SKILLS_GET, async (_event, workspaceId: string) => {
+    ipcLog.info(`SKILLS_GET: Loading skills for workspace: ${workspaceId}`)
     const workspace = getWorkspaceByNameOrId(workspaceId)
     if (!workspace) {
       ipcLog.error(`SKILLS_GET: Workspace not found: ${workspaceId}`)
       return []
     }
     const { loadWorkspaceSkills } = await import('@craft-agent/shared/skills')
-    return loadWorkspaceSkills(workspace.rootPath)
+    const skills = loadWorkspaceSkills(workspace.rootPath)
+    ipcLog.info(`SKILLS_GET: Loaded ${skills.length} skills from ${workspace.rootPath}`)
+    return skills
   })
 
   // Get files in a skill directory

@@ -19,6 +19,10 @@ export const KEYS = {
   expandedFolders: 'expanded-folders',
   collapsedSidebarItems: 'collapsed-sidebar-items',
 
+  // Right sidebar (chat page)
+  rightSidebarVisible: 'right-sidebar-visible',
+  rightSidebarWidth: 'right-sidebar-width',
+
   // Theme
   theme: 'theme',
 
@@ -30,6 +34,9 @@ export const KEYS = {
 
   // Working directory
   recentWorkingDirs: 'recent-working-dirs',
+
+  // Tutorial system
+  tutorialProgress: 'tutorial-progress',
 } as const
 
 export type StorageKey = typeof KEYS[keyof typeof KEYS]

@@ -41,6 +41,19 @@ export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
 import type { LoadedSkill, SkillMetadata } from '@craft-agent/shared/skills/types';
 export type { LoadedSkill, SkillMetadata };
 
+// Import Claude Code import types
+import type { ClaudeCodeSessionInfo, ImportResult } from '@craft-agent/shared/sessions';
+export type { ClaudeCodeSessionInfo };
+
+/**
+ * Result of importing Claude Code sessions
+ */
+export interface ClaudeCodeImportResult {
+  results: ImportResult[]
+  successCount: number
+  failCount: number
+}
+
 /**
  * File/directory entry in a skill folder
  */
@@ -49,6 +62,16 @@ export interface SkillFile {
   type: 'file' | 'directory'
   size?: number
   children?: SkillFile[]
+}
+
+/**
+ * File/directory entry in a session folder
+ */
+export interface SessionFile {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  size?: number
 }
 
 // Import auth request types for unified auth flow
@@ -268,6 +291,8 @@ export interface Session {
   enabledSourceSlugs?: string[]
   // Working directory for this session (used by agent for bash commands)
   workingDirectory?: string
+  // Session folder path (for "Reset to Session Root" option)
+  sessionFolderPath?: string
   // Shared viewer URL (if shared via viewer)
   sharedUrl?: string
   // Shared session ID in viewer (for revoke)
@@ -329,11 +354,15 @@ export type SessionEvent =
   // Auth request events (unified auth flow)
   | { type: 'auth_request'; sessionId: string; message: CoreMessage; request: SharedAuthRequest }
   | { type: 'auth_completed'; sessionId: string; requestId: string; success: boolean; cancelled?: boolean; error?: string }
+  // Source activation events (for auto-retry on mid-turn activation)
+  | { type: 'source_activated'; sessionId: string; sourceSlug: string; originalMessage: string }
 
 // Options for sendMessage
 export interface SendMessageOptions {
   /** Enable ultrathink mode for extended reasoning */
   ultrathinkEnabled?: boolean
+  /** Skill slugs to activate for this message (from @mentions) */
+  skillSlugs?: string[]
 }
 
 // =============================================================================
@@ -390,6 +419,7 @@ export const IPC_CHANNELS = {
   // Workspace management
   GET_WORKSPACES: 'workspaces:get',
   CREATE_WORKSPACE: 'workspaces:create',
+  CHECK_WORKSPACE_SLUG: 'workspaces:checkSlug',
 
   // Window management
   GET_WINDOW_WORKSPACE: 'window:getWorkspace',
@@ -409,6 +439,11 @@ export const IPC_CHANNELS = {
   STORE_ATTACHMENT: 'file:storeAttachment',
   GENERATE_THUMBNAIL: 'file:generateThumbnail',
 
+  // Session info panel
+  GET_SESSION_FILES: 'sessions:getFiles',
+  GET_SESSION_NOTES: 'sessions:getNotes',
+  SET_SESSION_NOTES: 'sessions:setNotes',
+
   // Theme
   GET_SYSTEM_THEME: 'theme:getSystemPreference',
   SYSTEM_THEME_CHANGED: 'theme:systemChanged',
@@ -417,6 +452,13 @@ export const IPC_CHANNELS = {
   GET_VERSIONS: 'system:versions',
   GET_HOME_DIR: 'system:homeDir',
   IS_DEBUG_MODE: 'system:isDebugMode',
+
+  // Auto-update
+  UPDATE_CHECK: 'update:check',
+  UPDATE_GET_INFO: 'update:getInfo',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_AVAILABLE: 'update:available',  // main → renderer broadcast
+  UPDATE_DOWNLOAD_PROGRESS: 'update:downloadProgress',  // main → renderer broadcast
 
   // Shell operations (open external URLs/files)
   OPEN_URL: 'shell:openUrl',
@@ -429,6 +471,12 @@ export const IPC_CHANNELS = {
   MENU_OPEN_SETTINGS: 'menu:openSettings',
   MENU_KEYBOARD_SHORTCUTS: 'menu:keyboardShortcuts',
   MENU_OPEN_HELP: 'menu:openHelp',
+  MENU_IMPORT_CLAUDE_CODE: 'menu:importClaudeCode',
+
+  // Claude Code import
+  IMPORT_DISCOVER_SESSIONS: 'import:discoverSessions',
+  IMPORT_SESSIONS: 'import:sessions',
+  FIND_SESSION_BY_SDK_ID: 'import:findSessionBySdkId',
 
   // Deep link navigation (main → renderer, for external craftagents:// URLs)
   DEEP_LINK_NAVIGATE: 'deeplink:navigate',
@@ -728,6 +776,7 @@ export interface ElectronAPI {
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>
   createWorkspace(folderPath: string, name: string): Promise<Workspace>
+  checkWorkspaceSlug(slug: string): Promise<{ exists: boolean; path: string }>
 
   // Window management
   getWindowWorkspace(): Promise<string | null>
@@ -756,6 +805,13 @@ export interface ElectronAPI {
   getHomeDir(): Promise<string>
   isDebugMode(): Promise<boolean>
 
+  // Auto-update
+  checkForUpdates(): Promise<UpdateInfo>
+  getUpdateInfo(): Promise<UpdateInfo>
+  installUpdate(): Promise<void>
+  onUpdateAvailable(callback: (info: UpdateInfo) => void): () => void
+  onUpdateDownloadProgress(callback: (progress: number) => void): () => void
+
   // Shell operations
   openUrl(url: string): Promise<void>
   openFile(path: string): Promise<void>
@@ -766,6 +822,13 @@ export interface ElectronAPI {
   onMenuOpenSettings(callback: () => void): () => void
   onMenuKeyboardShortcuts(callback: () => void): () => void
   onMenuOpenHelp(callback: () => void): () => void
+  onMenuImportClaudeCode(callback: () => void): () => void
+
+  // Claude Code import
+  discoverClaudeCodeSessions(): Promise<ClaudeCodeSessionInfo[]>
+  importClaudeCodeSessions(filePaths: string[]): Promise<ClaudeCodeImportResult>
+  /** Find a Craft Agent session ID by its SDK session ID (for Claude Code resume) */
+  findSessionBySdkId(sdkSessionId: string): Promise<string | null>
 
   // Deep link navigation listener (for external craftagents:// URLs)
   onDeepLinkNavigate(callback: (nav: DeepLinkNavigation) => void): () => void
@@ -824,6 +887,11 @@ export interface ElectronAPI {
   setDraft(sessionId: string, text: string): Promise<void>
   deleteDraft(sessionId: string): Promise<void>
   getAllDrafts(): Promise<Record<string, string>>
+
+  // Session Info Panel
+  getSessionFiles(sessionId: string): Promise<SessionFile[]>
+  getSessionNotes(sessionId: string): Promise<string>
+  setSessionNotes(sessionId: string, content: string): Promise<void>
 
   // Sources
   getSources(workspaceId: string): Promise<LoadedSource[]>
@@ -888,6 +956,10 @@ export interface ElectronAPI {
   getWindowFocusState(): Promise<boolean>
   onWindowFocusChange(callback: (isFocused: boolean) => void): () => void
   onNotificationNavigate(callback: (data: { workspaceId: string; sessionId: string }) => void): () => void
+
+  // Theme preferences sync across windows (mode, colorTheme, font)
+  broadcastThemePreferences(preferences: { mode: string; colorTheme: string; font: string }): Promise<void>
+  onThemePreferencesChange(callback: (preferences: { mode: string; colorTheme: string; font: string }) => void): () => void
 }
 
 /**
@@ -908,6 +980,26 @@ export interface BillingMethodInfo {
 }
 
 /**
+ * Auto-update information
+ */
+export interface UpdateInfo {
+  /** Whether an update is available */
+  available: boolean
+  /** Current installed version */
+  currentVersion: string
+  /** Latest available version (null if check failed) */
+  latestVersion: string | null
+  /** Download URL for the update DMG */
+  downloadUrl: string | null
+  /** Download state */
+  downloadState: 'idle' | 'downloading' | 'ready' | 'installing' | 'error'
+  /** Download progress (0-100) */
+  downloadProgress: number
+  /** Error message if download/install failed */
+  error?: string
+}
+
+/**
  * Per-workspace settings
  */
 export interface WorkspaceSettings {
@@ -917,6 +1009,8 @@ export interface WorkspaceSettings {
   workingDirectory?: string
   /** Whether local (stdio) MCP servers are enabled */
   localMcpEnabled?: boolean
+  /** Whether interactive tutorials are enabled */
+  tutorialsEnabled?: boolean
 }
 
 /**
@@ -935,6 +1029,16 @@ export interface DeepLinkNavigation {
 // ============================================
 // Unified Navigation State Types
 // ============================================
+
+/**
+ * Right sidebar panel types
+ * Defines the content displayed in the right sidebar
+ */
+export type RightSidebarPanel =
+  | { type: 'sessionMetadata' }
+  | { type: 'files'; path?: string }
+  | { type: 'history' }
+  | { type: 'none' }
 
 /**
  * Chat filter options - determines which sessions to show
@@ -965,6 +1069,8 @@ export interface ChatsNavigationState {
   filter: ChatFilter
   /** Selected chat details, or null for empty state */
   details: { type: 'chat'; sessionId: string } | null
+  /** Optional right sidebar panel state */
+  rightSidebar?: RightSidebarPanel
 }
 
 /**
@@ -976,6 +1082,8 @@ export interface SourcesNavigationState {
   category?: SourceCategory
   /** Selected source details, or null for empty state */
   details: { type: 'source'; sourceSlug: string } | null
+  /** Optional right sidebar panel state */
+  rightSidebar?: RightSidebarPanel
 }
 
 /**
@@ -985,6 +1093,8 @@ export interface SourcesNavigationState {
 export interface SettingsNavigationState {
   navigator: 'settings'
   subpage: SettingsSubpage
+  /** Optional right sidebar panel state */
+  rightSidebar?: RightSidebarPanel
 }
 
 /**
@@ -994,6 +1104,8 @@ export interface SkillsNavigationState {
   navigator: 'skills'
   /** Selected skill details, or null for empty state */
   details: { type: 'skill'; skillSlug: string } | null
+  /** Optional right sidebar panel state */
+  rightSidebar?: RightSidebarPanel
 }
 
 /**

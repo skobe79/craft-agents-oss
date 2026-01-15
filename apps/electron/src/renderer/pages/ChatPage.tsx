@@ -7,15 +7,15 @@
 
 import * as React from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { AlertCircle, Trash2, Flag, FlagOff, Pencil } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import { ChatDisplay } from '@/components/app-shell/ChatDisplay'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
+import { SessionMenu } from '@/components/app-shell/SessionMenu'
 import { useAppShellContext, usePendingPermission, usePendingCredential, useSessionOptionsFor, useSession as useSessionData } from '@/context/AppShellContext'
 import { rendererPerf } from '@/lib/perf'
-import { HeaderMenu } from '@/components/ui/HeaderMenu'
-import { StyledDropdownMenuItem, StyledDropdownMenuSeparator } from '@/components/ui/styled-dropdown'
 import { routes } from '@/lib/navigate'
 import { ensureSessionMessagesLoadedAtom, loadedSessionsAtom, sessionMetaMapAtom } from '@/atoms/sessions'
+import { useTutorial } from '@/tutorial/TutorialContext'
 
 export interface ChatPageProps {
   sessionId: string
@@ -37,15 +37,21 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     onRespondToPermission,
     onRespondToCredential,
     onMarkSessionRead,
+    onMarkSessionUnread,
     textareaRef,
     getDraft,
     onInputChange,
     enabledSources,
+    skills,
     enabledModes,
+    todoStates,
     onSessionSourcesChange,
     onRenameSession,
     onFlagSession,
+    onUnflagSession,
+    onTodoStateChange,
     onDeleteSession,
+    rightSidebarButton,
   } = useAppShellContext()
 
   // Use the unified session options hook for clean access
@@ -91,6 +97,10 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   // Get pending permission and credential for this session
   const pendingPermission = usePendingPermission(sessionId)
   const pendingCredential = usePendingCredential(sessionId)
+
+  // Tutorial context - check if sending should be disabled for current step
+  const { currentStep } = useTutorial()
+  const tutorialDisablesSend = currentStep?.disableSend ?? false
 
   // Track draft value for this session
   const [inputValue, setInputValue] = React.useState(() => getDraft(sessionId))
@@ -174,6 +184,12 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
   // Get display title for header
   const displayTitle = session?.name || sessionMeta?.name || 'Chat'
   const isFlagged = session?.isFlagged || sessionMeta?.isFlagged || false
+  const sharedUrl = session?.sharedUrl || sessionMeta?.sharedUrl || null
+  const currentTodoState = session?.todoState || sessionMeta?.todoState || 'todo'
+  const hasMessages = !!(session?.messages?.length || sessionMeta?.lastFinalMessageId)
+  const hasUnreadMessages = sessionMeta
+    ? !!(sessionMeta.lastFinalMessageId && sessionMeta.lastFinalMessageId !== sessionMeta.lastReadMessageId)
+    : false
 
   // Session action handlers
   const handleRename = React.useCallback(() => {
@@ -187,28 +203,69 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     onFlagSession(sessionId)
   }, [sessionId, onFlagSession])
 
+  const handleUnflag = React.useCallback(() => {
+    onUnflagSession(sessionId)
+  }, [sessionId, onUnflagSession])
+
+  const handleMarkUnread = React.useCallback(() => {
+    onMarkSessionUnread(sessionId)
+  }, [sessionId, onMarkSessionUnread])
+
+  const handleTodoStateChange = React.useCallback((state: string) => {
+    onTodoStateChange(sessionId, state)
+  }, [sessionId, onTodoStateChange])
+
   const handleDelete = React.useCallback(async () => {
     await onDeleteSession(sessionId)
   }, [sessionId, onDeleteSession])
 
-  // Build header menu for chat sessions
-  const headerMenu = React.useMemo(() => (
-    <HeaderMenu route={routes.view.allChats(sessionId)}>
-      <StyledDropdownMenuItem onClick={handleRename}>
-        <Pencil className="h-3.5 w-3.5" />
-        <span className="flex-1">Rename</span>
-      </StyledDropdownMenuItem>
-      <StyledDropdownMenuItem onClick={handleFlag}>
-        {isFlagged ? <FlagOff className="h-3.5 w-3.5" /> : <Flag className="h-3.5 w-3.5" />}
-        <span className="flex-1">{isFlagged ? 'Unflag' : 'Flag'}</span>
-      </StyledDropdownMenuItem>
-      <StyledDropdownMenuSeparator />
-      <StyledDropdownMenuItem onClick={handleDelete} variant="destructive">
-        <Trash2 className="h-3.5 w-3.5" />
-        <span className="flex-1">Delete</span>
-      </StyledDropdownMenuItem>
-    </HeaderMenu>
-  ), [sessionId, isFlagged, handleRename, handleFlag, handleDelete])
+  const handleOpenInNewWindow = React.useCallback(async () => {
+    const route = routes.view.allChats(sessionId)
+    const separator = route.includes('?') ? '&' : '?'
+    const url = `craftagents://${route}${separator}window=focused`
+    try {
+      await window.electronAPI?.openUrl(url)
+    } catch (error) {
+      console.error('[ChatPage] openUrl failed:', error)
+    }
+  }, [sessionId])
+
+  // Build title menu content for chat sessions using shared SessionMenu
+  const titleMenu = React.useMemo(() => (
+    <SessionMenu
+      sessionId={sessionId}
+      sessionName={displayTitle}
+      isFlagged={isFlagged}
+      sharedUrl={sharedUrl}
+      hasMessages={hasMessages}
+      hasUnreadMessages={hasUnreadMessages}
+      currentTodoState={currentTodoState}
+      todoStates={todoStates ?? []}
+      onRename={handleRename}
+      onFlag={handleFlag}
+      onUnflag={handleUnflag}
+      onMarkUnread={handleMarkUnread}
+      onTodoStateChange={handleTodoStateChange}
+      onOpenInNewWindow={handleOpenInNewWindow}
+      onDelete={handleDelete}
+    />
+  ), [
+    sessionId,
+    displayTitle,
+    isFlagged,
+    sharedUrl,
+    hasMessages,
+    hasUnreadMessages,
+    currentTodoState,
+    todoStates,
+    handleRename,
+    handleFlag,
+    handleUnflag,
+    handleMarkUnread,
+    handleTodoStateChange,
+    handleOpenInNewWindow,
+    handleDelete,
+  ])
 
   // Handle missing session - loading or deleted
   if (!session) {
@@ -230,7 +287,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
       return (
         <div className="h-full flex flex-col">
-          <PanelHeader title={displayTitle} actions={headerMenu} className="bg-surface-below" />
+          <PanelHeader title={displayTitle} titleMenu={titleMenu} rightSidebarButton={rightSidebarButton} className="bg-surface-below" />
           <div className="flex-1 flex flex-col min-h-0">
             <ChatDisplay
               session={skeletonSession}
@@ -252,10 +309,13 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
               inputValue={inputValue}
               onInputChange={handleInputChange}
               sources={enabledSources}
+              skills={skills}
+              workspaceId={activeWorkspaceId || undefined}
               onSourcesChange={(slugs) => onSessionSourcesChange?.(sessionId, slugs)}
               workingDirectory={sessionMeta.workingDirectory}
               onWorkingDirectoryChange={handleWorkingDirectoryChange}
               messagesLoading={true}
+              disableSend={tutorialDisablesSend}
             />
           </div>
         </div>
@@ -265,7 +325,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
     // Session truly doesn't exist
     return (
       <div className="h-full flex flex-col">
-        <PanelHeader title="Chat" className="bg-surface-below" />
+        <PanelHeader title="Chat" rightSidebarButton={rightSidebarButton} className="bg-surface-below" />
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
           <AlertCircle className="h-10 w-10" />
           <p className="text-sm">This session no longer exists</p>
@@ -276,13 +336,13 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
 
   return (
     <div className="h-full flex flex-col">
-      <PanelHeader title={displayTitle} actions={headerMenu} className="bg-surface-below" />
+      <PanelHeader title={displayTitle} titleMenu={titleMenu} rightSidebarButton={rightSidebarButton} className="bg-surface-below" />
       <div className="flex-1 flex flex-col min-h-0">
         <ChatDisplay
           session={session}
-          onSendMessage={(message, attachments) => {
+          onSendMessage={(message, attachments, skillSlugs) => {
             if (session) {
-              onSendMessage(session.id, message, attachments)
+              onSendMessage(session.id, message, attachments, skillSlugs)
             }
           }}
           onOpenFile={handleOpenFile}
@@ -302,10 +362,14 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
           inputValue={inputValue}
           onInputChange={handleInputChange}
           sources={enabledSources}
+          skills={skills}
+          workspaceId={activeWorkspaceId || undefined}
           onSourcesChange={(slugs) => onSessionSourcesChange?.(sessionId, slugs)}
           workingDirectory={workingDirectory}
           onWorkingDirectoryChange={handleWorkingDirectoryChange}
+          sessionFolderPath={session?.sessionFolderPath}
           messagesLoading={!messagesLoaded}
+          disableSend={tutorialDisablesSend}
         />
       </div>
     </div>

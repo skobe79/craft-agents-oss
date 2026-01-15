@@ -24,6 +24,8 @@ const api: ElectronAPI = {
   getWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.GET_WORKSPACES),
   createWorkspace: (folderPath: string, name: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.CREATE_WORKSPACE, folderPath, name),
+  checkWorkspaceSlug: (slug: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHECK_WORKSPACE_SLUG, slug),
 
   // Window management
   getWindowWorkspace: () => ipcRenderer.invoke(IPC_CHANNELS.GET_WINDOW_WORKSPACE),
@@ -74,6 +76,25 @@ const api: ElectronAPI = {
   getHomeDir: () => ipcRenderer.invoke(IPC_CHANNELS.GET_HOME_DIR),
   isDebugMode: () => ipcRenderer.invoke(IPC_CHANNELS.IS_DEBUG_MODE),
 
+  // Auto-update
+  checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
+  getUpdateInfo: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_GET_INFO),
+  installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
+  onUpdateAvailable: (callback: (info: import('../shared/types').UpdateInfo) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: import('../shared/types').UpdateInfo) => {
+      callback(info)
+    }
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_AVAILABLE, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_AVAILABLE, handler)
+  },
+  onUpdateDownloadProgress: (callback: (progress: number) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: number) => {
+      callback(progress)
+    }
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS, handler)
+  },
+
   // Shell operations
   openUrl: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_URL, url),
   openFile: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_FILE, path),
@@ -100,6 +121,16 @@ const api: ElectronAPI = {
     ipcRenderer.on(IPC_CHANNELS.MENU_OPEN_HELP, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_OPEN_HELP, handler)
   },
+  onMenuImportClaudeCode: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.MENU_IMPORT_CLAUDE_CODE, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MENU_IMPORT_CLAUDE_CODE, handler)
+  },
+
+  // Claude Code import
+  discoverClaudeCodeSessions: () => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DISCOVER_SESSIONS),
+  importClaudeCodeSessions: (filePaths: string[]) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_SESSIONS, filePaths),
+  findSessionBySdkId: (sdkSessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.FIND_SESSION_BY_SDK_ID, sdkSessionId),
 
   // Deep link navigation listener (for external craftagents:// URLs)
   onDeepLinkNavigate: (callback: (nav: import('../shared/types').DeepLinkNavigation) => void) => {
@@ -177,6 +208,11 @@ const api: ElectronAPI = {
   setDraft: (sessionId: string, text: string) => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_SET, sessionId, text),
   deleteDraft: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_DELETE, sessionId),
   getAllDrafts: () => ipcRenderer.invoke(IPC_CHANNELS.DRAFTS_GET_ALL),
+
+  // Session Info Panel
+  getSessionFiles: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.GET_SESSION_FILES, sessionId),
+  getSessionNotes: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.GET_SESSION_NOTES, sessionId),
+  setSessionNotes: (sessionId: string, content: string) => ipcRenderer.invoke(IPC_CHANNELS.SET_SESSION_NOTES, sessionId, content),
 
   // Sources
   getSources: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.SOURCES_GET, workspaceId),

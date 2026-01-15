@@ -45,8 +45,9 @@ import {
   getClaudeOAuthToken,
 } from '../config/storage.ts';
 import {
-  loadSourceConfigWithFallback,
-  saveSourceConfigWithContext,
+  loadSourceConfig,
+  saveSourceConfig,
+  getSourcePath,
 } from '../sources/storage.ts';
 import type { FolderSourceConfig, LoadedSource } from '../sources/types.ts';
 import { getSourceCredentialManager } from '../sources/index.ts';
@@ -344,7 +345,7 @@ Brief description of what this plan accomplishes.
  * Create a session-scoped config_validate tool.
  * Validates configuration files and returns structured error reports.
  */
-export function createConfigValidateTool(sessionId: string, workspaceId: string) {
+export function createConfigValidateTool(sessionId: string, workspaceRootPath: string) {
   return tool(
     'config_validate',
     `Validate Craft Agent configuration files.
@@ -385,16 +386,16 @@ Returns structured validation results with errors, warnings, and suggestions.
             break;
           case 'sources':
             if (args.sourceSlug) {
-              result = validateSource(workspaceId, args.sourceSlug);
+              result = validateSource(workspaceRootPath, args.sourceSlug);
             } else {
-              result = validateAllSources(workspaceId);
+              result = validateAllSources(workspaceRootPath);
             }
             break;
           case 'preferences':
             result = validatePreferences();
             break;
           case 'all':
-            result = validateAll(workspaceId);
+            result = validateAll(workspaceRootPath);
             break;
         }
 
@@ -485,17 +486,18 @@ Checks:
  */
 async function testGoogleSource(
   source: FolderSourceConfig,
-  workspaceId: string
+  workspaceRootPath: string
 ): Promise<{ success: boolean; status?: number; error?: string; credentialType?: string }> {
   const credManager = getSourceCredentialManager();
-  const wsId = basename(workspaceId);
+  const workspaceId = basename(workspaceRootPath);
 
   // Build LoadedSource from config for credential manager
   const loadedSource: LoadedSource = {
     config: source,
     guide: null,
     folderPath: '',
-    workspaceId: wsId,
+    workspaceRootPath,
+    workspaceId,
   };
 
   // Check if we have valid credentials using getToken (handles expiry)
@@ -530,11 +532,11 @@ async function testGoogleSource(
  */
 async function testApiSource(
   source: FolderSourceConfig,
-  workspaceId: string
+  workspaceRootPath: string
 ): Promise<{ success: boolean; status?: number; error?: string; credentialType?: string }> {
   // Google APIs (Gmail, Calendar, Drive) - use Google-specific test
   if (source.provider === 'google') {
-    return testGoogleSource(source, workspaceId);
+    return testGoogleSource(source, workspaceRootPath);
   }
 
   if (!source.api?.baseUrl) {
@@ -561,8 +563,7 @@ async function testApiSource(
 
     // Get credentials if needed
     if (requiresAuth) {
-      // Extract workspace ID from root path for credential lookups
-      const wsId = basename(workspaceId);
+      const workspaceId = basename(workspaceRootPath);
 
       if (isApiOAuthProvider(source.provider)) {
         // Use SourceCredentialManager for OAuth providers - handles expiry checking and refresh
@@ -571,7 +572,8 @@ async function testApiSource(
           config: source,
           guide: null,
           folderPath: '',
-          workspaceId: wsId,
+          workspaceRootPath,
+          workspaceId,
         };
 
         // getToken() returns null if expired
@@ -605,7 +607,7 @@ async function testApiSource(
         }
 
         debug(`[testApiSource] Looking up credentials for source=${source.slug}, authType=${source.api.authType}, credType=${credType}`);
-        const cred = await credentialManager.get({ type: credType, workspaceId: wsId, sourceId: source.slug });
+        const cred = await credentialManager.get({ type: credType, workspaceId, sourceId: source.slug });
         if (cred?.value) {
           credValue = cred.value;
           credentialType = credType;
@@ -693,7 +695,7 @@ async function testApiSource(
  * Create a session-scoped source_test tool.
  * Validates config, downloads icons, and tests connections.
  */
-export function createSourceTestTool(sessionId: string, workspaceId: string) {
+export function createSourceTestTool(sessionId: string, workspaceRootPath: string) {
   return tool(
     'source_test',
     `Validate and test a source configuration.
@@ -728,8 +730,8 @@ After creating or editing a source's config.json, run this tool to:
 
       try {
         // Load the source config
-        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug);
-        if (!sourceResult) {
+        const source = loadSourceConfig(workspaceRootPath, args.sourceSlug);
+        if (!source) {
           return {
             content: [{
               type: 'text' as const,
@@ -738,7 +740,6 @@ After creating or editing a source's config.json, run this tool to:
             isError: true,
           };
         }
-        const source = sourceResult.config;
         
         const results: string[] = [];
         let hasErrors = false;
@@ -746,7 +747,7 @@ After creating or editing a source's config.json, run this tool to:
         // ============================================================
         // Step 1: Schema Validation
         // ============================================================
-        const validationResult = validateSource(workspaceId, args.sourceSlug);
+        const validationResult = validateSource(workspaceRootPath, args.sourceSlug);
         if (!validationResult.valid) {
           hasErrors = true;
           results.push('**❌ Schema Validation Failed**\n');
@@ -773,7 +774,7 @@ After creating or editing a source's config.json, run this tool to:
         // Step 2: Icon Handling
         // ============================================================
         const { getSourcePath } = await import('../sources/storage.ts');
-        const sourcePath = getSourcePath(workspaceId, args.sourceSlug);
+        const sourcePath = getSourcePath(workspaceRootPath, args.sourceSlug);
 
         // Check if icon needs to be downloaded
         if (source.iconUrl && !source.iconUrl.startsWith('./')) {
@@ -783,12 +784,12 @@ After creating or editing a source's config.json, run this tool to:
           if (cached) {
             source.iconSourceUrl = source.iconUrl;
             source.iconUrl = cached;
-            saveSourceConfigWithContext(workspaceId, source);
+            saveSourceConfig(workspaceRootPath, source);
             results.push(`**✓ Icon Downloaded** (${cached})`);
           } else {
             // Download failed - clear invalid URL so we can try auto-fetch
             source.iconUrl = undefined;
-            saveSourceConfigWithContext(workspaceId, source);
+            saveSourceConfig(workspaceRootPath, source);
           }
         }
 
@@ -808,7 +809,7 @@ After creating or editing a source's config.json, run this tool to:
               if (cached) {
                 source.iconUrl = cached;
                 source.iconSourceUrl = logoUrl;
-                saveSourceConfigWithContext(workspaceId, source);
+                saveSourceConfig(workspaceRootPath, source);
                 results.push(`**✓ Icon Auto-fetched** (${cached})`);
               } else {
                 results.push('**○ No Icon** (auto-fetch failed)');
@@ -834,18 +835,18 @@ After creating or editing a source's config.json, run this tool to:
               const cached = await cacheIcon(source.iconSourceUrl, sourcePath);
               if (cached) {
                 source.iconUrl = cached;
-                saveSourceConfigWithContext(workspaceId, source);
+                saveSourceConfig(workspaceRootPath, source);
                 results.push(`**✓ Icon Re-downloaded** (${cached})`);
               } else {
                 // Clear invalid iconUrl since file doesn't exist
                 source.iconUrl = undefined;
-                saveSourceConfigWithContext(workspaceId, source);
+                saveSourceConfig(workspaceRootPath, source);
                 results.push('**⚠ Icon Missing** - re-download failed, cleared config');
               }
             } else {
               // No source URL to re-download from
               source.iconUrl = undefined;
-              saveSourceConfigWithContext(workspaceId, source);
+              saveSourceConfig(workspaceRootPath, source);
               results.push('**⚠ Icon Missing** - file not found, cleared config');
             }
           }
@@ -858,7 +859,7 @@ After creating or editing a source's config.json, run this tool to:
 
         // Handle API sources
         if (source.type === 'api') {
-          const result = await testApiSource(source, workspaceId);
+          const result = await testApiSource(source, workspaceRootPath);
 
           // Update the source's status and timestamp
           source.lastTestedAt = Date.now();
@@ -869,7 +870,7 @@ After creating or editing a source's config.json, run this tool to:
             source.connectionStatus = 'failed';
             source.connectionError = result.error;
           }
-          saveSourceConfigWithContext(workspaceId, source);
+          saveSourceConfig(workspaceRootPath, source);
 
           if (result.success) {
             results.push(`**✓ API Connected** (${result.status})`);
@@ -880,13 +881,13 @@ After creating or editing a source's config.json, run this tool to:
             }
 
             // Verify the source has valid credentials for session use
-            // Note: workspaceId for LoadedSource should be just the ID, not the full path
-            const wsId = basename(workspaceId);
+            const workspaceId = basename(workspaceRootPath);
             const loadedSource: LoadedSource = {
               config: source,
               guide: null,
               folderPath: sourcePath,
-              workspaceId: wsId,
+              workspaceRootPath,
+              workspaceId,
             };
             const credManager = getSourceCredentialManager();
             const hasCredentials = await credManager.hasValidCredentials(loadedSource);
@@ -912,13 +913,13 @@ After creating or editing a source's config.json, run this tool to:
             source.lastTestedAt = Date.now();
             source.connectionStatus = 'connected';
             source.connectionError = undefined;
-            saveSourceConfigWithContext(workspaceId, source);
+            saveSourceConfig(workspaceRootPath, source);
             results.push(`**✓ Local Path Exists** (${localPath})`);
           } else {
             hasErrors = true;
             source.connectionStatus = 'failed';
             source.connectionError = 'Path not found';
-            saveSourceConfigWithContext(workspaceId, source);
+            saveSourceConfig(workspaceRootPath, source);
             results.push(`**❌ Local Path Not Found** (${localPath || 'not configured'})`);
           }
         }
@@ -948,7 +949,7 @@ After creating or editing a source's config.json, run this tool to:
                 source.connectionStatus = 'connected';
                 source.connectionError = undefined;
                 source.isAuthenticated = true; // Stdio sources don't need auth
-                saveSourceConfigWithContext(workspaceId, source);
+                saveSourceConfig(workspaceRootPath, source);
 
                 results.push('**✓ Stdio MCP Server Connected**');
                 results.push(`  Command: ${source.mcp.command}`);
@@ -966,7 +967,7 @@ After creating or editing a source's config.json, run this tool to:
                 hasErrors = true;
                 source.connectionStatus = 'failed';
                 source.connectionError = stdioResult.error || 'Unknown error';
-                saveSourceConfigWithContext(workspaceId, source);
+                saveSourceConfig(workspaceRootPath, source);
 
                 results.push('**❌ Stdio MCP Server Failed**');
                 results.push(`  Command: ${source.mcp.command}`);
@@ -994,12 +995,11 @@ After creating or editing a source's config.json, run this tool to:
             let mcpAccessToken: string | undefined;
             if (source.isAuthenticated && source.mcp.authType !== 'none') {
               const credentialManager = getCredentialManager();
-              // Extract workspace ID from root path for credential lookups
-              const wsId = basename(workspaceId);
+              const workspaceId = basename(workspaceRootPath);
               // Try OAuth first, then bearer
               const oauthCred = await credentialManager.get({
                 type: 'source_oauth',
-                workspaceId: wsId,
+                workspaceId,
                 sourceId: args.sourceSlug,
               });
               if (oauthCred?.value) {
@@ -1007,7 +1007,7 @@ After creating or editing a source's config.json, run this tool to:
               } else {
                 const bearerCred = await credentialManager.get({
                   type: 'source_bearer',
-                  workspaceId: wsId,
+                  workspaceId,
                   sourceId: args.sourceSlug,
                 });
                 if (bearerCred?.value) {
@@ -1037,7 +1037,7 @@ After creating or editing a source's config.json, run this tool to:
               if (mcpResult.success) {
                 source.connectionStatus = 'connected';
                 source.connectionError = undefined;
-                saveSourceConfigWithContext(workspaceId, source);
+                saveSourceConfig(workspaceRootPath, source);
 
                 results.push('**✓ MCP Connected**');
                 if (mcpResult.serverInfo) {
@@ -1052,7 +1052,8 @@ After creating or editing a source's config.json, run this tool to:
                   config: source,
                   guide: null,
                   folderPath: sourcePath,
-                  workspaceId,
+                  workspaceRootPath,
+                  workspaceId: basename(workspaceRootPath),
                 };
                 const credManager = getSourceCredentialManager();
                 const hasCredentials = await credManager.hasValidCredentials(loadedSource);
@@ -1064,14 +1065,14 @@ After creating or editing a source's config.json, run this tool to:
                 }
               } else if (mcpResult.errorType === 'needs-auth') {
                 source.connectionStatus = 'needs_auth';
-                saveSourceConfigWithContext(workspaceId, source);
+                saveSourceConfig(workspaceRootPath, source);
                 results.push('**⚠ MCP Needs Authentication**');
                 results.push('Use `source_oauth_trigger` to authenticate.');
               } else {
                 hasErrors = true;
                 source.connectionStatus = 'failed';
                 source.connectionError = getValidationErrorMessage(mcpResult);
-                saveSourceConfigWithContext(workspaceId, source);
+                saveSourceConfig(workspaceRootPath, source);
                 results.push(`**❌ MCP Connection Failed**`);
                 results.push(`  Error: ${getValidationErrorMessage(mcpResult)}`);
 
@@ -1117,6 +1118,39 @@ After creating or editing a source's config.json, run this tool to:
 }
 
 // ============================================================
+// OAuth Helpers
+// ============================================================
+
+/**
+ * Verify that a source has a valid token in the credential store.
+ * The isAuthenticated flag in config.json can be stale if the token was deleted or expired.
+ *
+ * @returns true if a valid token exists, false if re-authentication is needed
+ */
+async function verifySourceHasValidToken(
+  workspaceRootPath: string,
+  source: FolderSourceConfig,
+  sourceSlug: string
+): Promise<boolean> {
+  if (!source.isAuthenticated) {
+    return false;
+  }
+
+  const credManager = getSourceCredentialManager();
+  const workspaceId = basename(workspaceRootPath);
+  const loadedSource: LoadedSource = {
+    config: source,
+    guide: null,
+    folderPath: getSourcePath(workspaceRootPath, sourceSlug),
+    workspaceRootPath,
+    workspaceId,
+  };
+
+  const token = await credManager.getToken(loadedSource);
+  return token !== null;
+}
+
+// ============================================================
 // OAuth Trigger Tool
 // ============================================================
 
@@ -1128,7 +1162,7 @@ After creating or editing a source's config.json, run this tool to:
  * After calling onAuthRequest, the session manager will forceAbort the agent.
  * The OAuth flow runs in the background, and the result comes back as a new message.
  */
-export function createOAuthTriggerTool(sessionId: string, workspaceId: string) {
+export function createOAuthTriggerTool(sessionId: string, workspaceRootPath: string) {
   return tool(
     'source_oauth_trigger',
     `Start OAuth authentication for an MCP source.
@@ -1158,8 +1192,8 @@ A browser window will open for the user to complete authentication.
 
       try {
         // Load the source config
-        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug);
-        if (!sourceResult) {
+        const source = loadSourceConfig(workspaceRootPath, args.sourceSlug);
+        if (!source) {
           return {
             content: [{
               type: 'text' as const,
@@ -1168,7 +1202,6 @@ A browser window will open for the user to complete authentication.
             isError: true,
           };
         }
-        const source = sourceResult.config;
 
         if (source.type !== 'mcp') {
           return {
@@ -1257,7 +1290,7 @@ A browser window will open for the user to complete authentication.
  * After calling onAuthRequest, the session manager will forceAbort the agent.
  * The OAuth flow runs in the background, and the result comes back as a new message.
  */
-export function createGoogleOAuthTriggerTool(sessionId: string, workspaceId: string) {
+export function createGoogleOAuthTriggerTool(sessionId: string, workspaceRootPath: string) {
   return tool(
     'source_google_oauth_trigger',
     `Trigger Google OAuth authentication flow for any Google API source.
@@ -1289,8 +1322,8 @@ After successful authentication, the tokens are stored and the source is marked 
     async (args) => {
       try {
         // Load the source config
-        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug);
-        if (!sourceResult) {
+        const source = loadSourceConfig(workspaceRootPath, args.sourceSlug);
+        if (!source) {
           return {
             content: [{
               type: 'text' as const,
@@ -1299,7 +1332,6 @@ After successful authentication, the tokens are stored and the source is marked 
             isError: true,
           };
         }
-        const source = sourceResult.config;
 
         // Verify this is a Google source
         if (source.provider !== 'google') {
@@ -1315,7 +1347,9 @@ After successful authentication, the tokens are stored and the source is marked 
           };
         }
 
-        if (source.isAuthenticated) {
+        // Check if source has valid credentials (not just isAuthenticated flag)
+        const hasValidToken = await verifySourceHasValidToken(workspaceRootPath, source, args.sourceSlug);
+        if (hasValidToken) {
           return {
             content: [{
               type: 'text' as const,
@@ -1323,6 +1357,9 @@ After successful authentication, the tokens are stored and the source is marked 
             }],
             isError: false,
           };
+        }
+        if (source.isAuthenticated) {
+          debug(`[source_google_oauth_trigger] Source '${args.sourceSlug}' marked as authenticated but no valid token found, triggering re-auth`);
         }
 
         // Determine service from config for new pattern
@@ -1391,7 +1428,7 @@ After successful authentication, the tokens are stored and the source is marked 
  * After calling onAuthRequest, the session manager will forceAbort the agent.
  * The OAuth flow runs in the background, and the result comes back as a new message.
  */
-export function createSlackOAuthTriggerTool(sessionId: string, workspaceId: string) {
+export function createSlackOAuthTriggerTool(sessionId: string, workspaceRootPath: string) {
   return tool(
     'source_slack_oauth_trigger',
     `Trigger Slack OAuth authentication flow for a Slack API source.
@@ -1425,8 +1462,8 @@ After successful authentication, the tokens are stored and the source is marked 
     async (args) => {
       try {
         // Load the source config
-        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug);
-        if (!sourceResult) {
+        const source = loadSourceConfig(workspaceRootPath, args.sourceSlug);
+        if (!source) {
           return {
             content: [{
               type: 'text' as const,
@@ -1435,7 +1472,6 @@ After successful authentication, the tokens are stored and the source is marked 
             isError: true,
           };
         }
-        const source = sourceResult.config;
 
         // Verify this is a Slack source
         if (source.provider !== 'slack') {
@@ -1466,7 +1502,9 @@ After successful authentication, the tokens are stored and the source is marked 
           };
         }
 
-        if (source.isAuthenticated) {
+        // Check if source has valid credentials (not just isAuthenticated flag)
+        const hasValidToken = await verifySourceHasValidToken(workspaceRootPath, source, args.sourceSlug);
+        if (hasValidToken) {
           return {
             content: [{
               type: 'text' as const,
@@ -1474,6 +1512,9 @@ After successful authentication, the tokens are stored and the source is marked 
             }],
             isError: false,
           };
+        }
+        if (source.isAuthenticated) {
+          debug(`[source_slack_oauth_trigger] Source '${args.sourceSlug}' marked as authenticated but no valid token found, triggering re-auth`);
         }
 
         // Determine service from config for new pattern
@@ -1542,7 +1583,7 @@ After successful authentication, the tokens are stored and the source is marked 
  * After calling onAuthRequest, the session manager will forceAbort the agent.
  * The OAuth flow runs in the background, and the result comes back as a new message.
  */
-export function createMicrosoftOAuthTriggerTool(sessionId: string, workspaceId: string) {
+export function createMicrosoftOAuthTriggerTool(sessionId: string, workspaceRootPath: string) {
   return tool(
     'source_microsoft_oauth_trigger',
     `Trigger Microsoft OAuth authentication flow for a Microsoft API source.
@@ -1576,8 +1617,8 @@ After successful authentication, the tokens are stored and the source is marked 
     async (args) => {
       try {
         // Load the source config
-        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug);
-        if (!sourceResult) {
+        const source = loadSourceConfig(workspaceRootPath, args.sourceSlug);
+        if (!source) {
           return {
             content: [{
               type: 'text' as const,
@@ -1586,7 +1627,6 @@ After successful authentication, the tokens are stored and the source is marked 
             isError: true,
           };
         }
-        const source = sourceResult.config;
 
         // Verify this is a Microsoft source
         if (source.provider !== 'microsoft') {
@@ -1602,7 +1642,9 @@ After successful authentication, the tokens are stored and the source is marked 
           };
         }
 
-        if (source.isAuthenticated) {
+        // Check if source has valid credentials (not just isAuthenticated flag)
+        const hasValidToken = await verifySourceHasValidToken(workspaceRootPath, source, args.sourceSlug);
+        if (hasValidToken) {
           return {
             content: [{
               type: 'text' as const,
@@ -1610,6 +1652,9 @@ After successful authentication, the tokens are stored and the source is marked 
             }],
             isError: false,
           };
+        }
+        if (source.isAuthenticated) {
+          debug(`[source_microsoft_oauth_trigger] Source '${args.sourceSlug}' marked as authenticated but no valid token found, triggering re-auth`);
         }
 
         // Determine service from config for new pattern
@@ -1682,7 +1727,7 @@ After successful authentication, the tokens are stored and the source is marked 
  * After calling onAuthRequest, the session manager will forceAbort the agent.
  * The user completes auth in the UI, and the result comes back as a new message.
  */
-export function createCredentialPromptTool(sessionId: string, workspaceId: string) {
+export function createCredentialPromptTool(sessionId: string, workspaceRootPath: string) {
   return tool(
     'source_credential_prompt',
     `Prompt the user to enter credentials for a source.
@@ -1727,8 +1772,8 @@ source_credential_prompt({
 
       try {
         // Load source to get name and validate
-        const sourceResult = loadSourceConfigWithFallback(workspaceId, args.sourceSlug);
-        if (!sourceResult) {
+        const source = loadSourceConfig(workspaceRootPath, args.sourceSlug);
+        if (!source) {
           return {
             content: [{
               type: 'text' as const,
@@ -1737,7 +1782,6 @@ source_credential_prompt({
             isError: true,
           };
         }
-        const source = sourceResult.config;
 
         // Get callbacks
         const callbacks = getSessionScopedToolCallbacks(sessionId);
@@ -1805,14 +1849,13 @@ const sessionScopedToolsCache = new Map<string, ReturnType<typeof createSdkMcpSe
  * Creates and caches the provider if it doesn't exist.
  *
  * @param sessionId - Unique session identifier
- * @param workspaceId - Workspace slug for source-scoped operations
+ * @param workspaceRootPath - Absolute path to workspace folder (e.g., ~/.craft-agent/workspaces/xxx)
  */
-export function getSessionScopedTools(sessionId: string, workspaceId: string): ReturnType<typeof createSdkMcpServer> {
-  // Include workspaceId in cache key
-  const cacheKey = `${sessionId}::${workspaceId}`;
+export function getSessionScopedTools(sessionId: string, workspaceRootPath: string): ReturnType<typeof createSdkMcpServer> {
+  const cacheKey = `${sessionId}::${workspaceRootPath}`;
   let cached = sessionScopedToolsCache.get(cacheKey);
   if (!cached) {
-    // Create session-scoped tools that capture the sessionId and workspaceId in their closures
+    // Create session-scoped tools that capture the sessionId and workspaceRootPath in their closures
     // Note: Source CRUD is done via standard file editing tools (Read/Write/Edit).
     // See ~/.craft-agent/docs/ for config format documentation.
     cached = createSdkMcpServer({
@@ -1821,20 +1864,20 @@ export function getSessionScopedTools(sessionId: string, workspaceId: string): R
       tools: [
         createSubmitPlanTool(sessionId),
         // Config validation tool
-        createConfigValidateTool(sessionId, workspaceId),
+        createConfigValidateTool(sessionId, workspaceRootPath),
         // Skill validation tool
-        createSkillValidateTool(sessionId, workspaceId),
+        createSkillValidateTool(sessionId, workspaceRootPath),
         // Source tools: test + auth only (CRUD via file editing)
-        createSourceTestTool(sessionId, workspaceId),
-        createOAuthTriggerTool(sessionId, workspaceId),
-        createGoogleOAuthTriggerTool(sessionId, workspaceId),
-        createSlackOAuthTriggerTool(sessionId, workspaceId),
-        createMicrosoftOAuthTriggerTool(sessionId, workspaceId),
-        createCredentialPromptTool(sessionId, workspaceId),
+        createSourceTestTool(sessionId, workspaceRootPath),
+        createOAuthTriggerTool(sessionId, workspaceRootPath),
+        createGoogleOAuthTriggerTool(sessionId, workspaceRootPath),
+        createSlackOAuthTriggerTool(sessionId, workspaceRootPath),
+        createMicrosoftOAuthTriggerTool(sessionId, workspaceRootPath),
+        createCredentialPromptTool(sessionId, workspaceRootPath),
       ],
     });
     sessionScopedToolsCache.set(cacheKey, cached);
-    debug(`[SessionScopedTools] Created tools provider for session ${sessionId} in workspace ${workspaceId}`);
+    debug(`[SessionScopedTools] Created tools provider for session ${sessionId} in workspace ${workspaceRootPath}`);
   }
   return cached;
 }
@@ -1844,12 +1887,12 @@ export function getSessionScopedTools(sessionId: string, workspaceId: string): R
  * Removes the cached provider and clears all session state.
  *
  * @param sessionId - Unique session identifier
- * @param workspaceId - Optional workspace slug; if provided, only cleans up that specific workspace's cache
+ * @param workspaceRootPath - Optional workspace root path; if provided, only cleans up that specific workspace's cache
  */
-export function cleanupSessionScopedTools(sessionId: string, workspaceId?: string): void {
-  if (workspaceId) {
+export function cleanupSessionScopedTools(sessionId: string, workspaceRootPath?: string): void {
+  if (workspaceRootPath) {
     // Clean up specific workspace cache
-    const cacheKey = `${sessionId}::${workspaceId}`;
+    const cacheKey = `${sessionId}::${workspaceRootPath}`;
     sessionScopedToolsCache.delete(cacheKey);
   } else {
     // Clean up all workspace caches for this session
@@ -1871,15 +1914,15 @@ export function cleanupSessionScopedTools(sessionId: string, workspaceId?: strin
 /**
  * Get the plans directory for a session
  */
-export function getSessionPlansDir(workspaceId: string, sessionId: string): string {
-  return getSessionPlansPath(workspaceId, sessionId);
+export function getSessionPlansDir(workspaceRootPath: string, sessionId: string): string {
+  return getSessionPlansPath(workspaceRootPath, sessionId);
 }
 
 /**
  * Check if a file path is within the plans directory
  */
-export function isPathInPlansDir(filePath: string, workspaceId: string, sessionId: string): boolean {
-  const plansDir = getSessionPlansPath(workspaceId, sessionId);
+export function isPathInPlansDir(filePath: string, workspaceRootPath: string, sessionId: string): boolean {
+  const plansDir = getSessionPlansPath(workspaceRootPath, sessionId);
   // Normalize paths for comparison
   const normalizedPath = filePath.replace(/\\/g, '/');
   const normalizedPlansDir = plansDir.replace(/\\/g, '/');

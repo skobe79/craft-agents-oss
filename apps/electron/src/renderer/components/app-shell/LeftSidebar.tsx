@@ -18,6 +18,8 @@ export interface LinkItem {
   expanded?: boolean
   onToggle?: () => void
   items?: LinkItem[]    // Subitems as data (rendered as nested LeftSidebar)
+  // Tutorial system
+  dataTutorial?: string // data-tutorial attribute for tutorial targeting
 }
 
 export interface SeparatorItem {
@@ -144,6 +146,7 @@ export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId, i
               <button
                 {...itemProps}
                 onClick={link.onClick}
+                data-tutorial={link.dataTutorial}
                 className={cn(
                   "group flex w-full items-center gap-2 rounded-[6px] py-[5px] text-[13px] select-none outline-none",
                   "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
@@ -195,9 +198,9 @@ export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId, i
                 <AnimatePresence initial={false}>
                   {link.expanded && (
                     <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
+                      initial={{ height: 0, opacity: 0, marginBottom: 0 }}
+                      animate={{ height: 'auto', opacity: 1, marginBottom: 8 }}
+                      exit={{ height: 0, opacity: 0, marginBottom: 0 }}
                       transition={{ duration: 0.2, ease: 'easeInOut' }}
                       className="overflow-hidden"
                     >
@@ -237,19 +240,25 @@ export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId, i
 function renderIcon(link: LinkItem) {
   const isComponent = typeof link.icon === 'function' ||
     (typeof link.icon === 'object' && link.icon !== null && 'render' in link.icon)
+  const defaultColor = "text-foreground/60"
   if (isComponent) {
     const Icon = link.icon as React.ComponentType<{ className?: string; style?: React.CSSProperties }>
     return (
       <Icon
-        className={cn("h-3.5 w-3.5 shrink-0", !isHexColor(link.iconColor) && (link.iconColor || "text-muted-foreground"))}
+        className={cn("h-3.5 w-3.5 shrink-0", !isHexColor(link.iconColor) && (link.iconColor || defaultColor))}
         style={isHexColor(link.iconColor) ? { color: link.iconColor } : undefined}
       />
     )
   }
   // Already a React element or primitive ReactNode
+  // Use [&>svg]:w-full [&>svg]:h-full to size SVG children and [&>div>svg] for wrapped SVGs
   return (
     <span
-      className={cn("h-3.5 w-3.5 shrink-0 flex items-center justify-center", !isHexColor(link.iconColor) && (link.iconColor || "text-muted-foreground"))}
+      className={cn(
+        "h-3.5 w-3.5 shrink-0 flex items-center justify-center",
+        "[&>svg]:w-full [&>svg]:h-full [&>div>svg]:w-full [&>div>svg]:h-full [&>img]:w-full [&>img]:h-full",
+        !isHexColor(link.iconColor) && (link.iconColor || defaultColor)
+      )}
       style={isHexColor(link.iconColor) ? { color: link.iconColor } : undefined}
     >
       {link.icon as React.ReactNode}

@@ -9,6 +9,7 @@
 import * as React from 'react'
 import { createContext, useContext, useCallback } from 'react'
 import { useAtomValue } from 'jotai'
+import type { RichTextInputHandle } from '@/components/ui/rich-text-input'
 import type {
   Session,
   Workspace,
@@ -19,8 +20,10 @@ import type {
   PermissionMode,
   TodoState,
   LoadedSource,
+  LoadedSkill,
   NewChatActionParams,
 } from '../../shared/types'
+import type { TodoState as TodoStateConfig } from '@/config/todo-states'
 import type { SessionOptions, SessionOptionUpdates } from '../hooks/useSessionOptions'
 import { defaultSessionOptions } from '../hooks/useSessionOptions'
 import { sessionAtomFamily } from '../atoms/sessions'
@@ -39,8 +42,12 @@ export interface AppShellContextType {
   getDraft: (sessionId: string) => string
   /** All enabled sources for this workspace - provided by AppShell component */
   enabledSources?: LoadedSource[]
+  /** All skills for this workspace - provided by AppShell component (for @mentions) */
+  skills?: LoadedSkill[]
   /** Enabled permission modes for Shift+Tab cycling */
   enabledModes?: PermissionMode[]
+  /** Dynamic todo states from workspace config (provided by AppShell, defaults to empty) */
+  todoStates?: TodoStateConfig[]
 
   // Unified session options (replaces ultrathinkSessions and sessionModes)
   /** All session-scoped options in one map. Use useSessionOptionsFor() hook for easy access. */
@@ -48,7 +55,7 @@ export interface AppShellContextType {
 
   // Session callbacks
   onCreateSession: (workspaceId: string) => Promise<Session>
-  onSendMessage: (sessionId: string, message: string, attachments?: FileAttachment[]) => void
+  onSendMessage: (sessionId: string, message: string, attachments?: FileAttachment[], skillSlugs?: string[]) => void
   onRenameSession: (sessionId: string, name: string) => void
   onFlagSession: (sessionId: string) => void
   onUnflagSession: (sessionId: string) => void
@@ -99,10 +106,13 @@ export interface AppShellContextType {
   onSessionSourcesChange?: (sessionId: string, sourceSlugs: string[]) => void
 
   // Chat input ref (for focusing)
-  textareaRef?: React.RefObject<HTMLTextAreaElement>
+  textareaRef?: React.RefObject<RichTextInputHandle>
 
   // Open a new chat with optional agent, name, and pre-filled input
   openNewChat?: (params?: NewChatActionParams) => Promise<void>
+
+  // Right sidebar button (for page headers)
+  rightSidebarButton?: React.ReactNode
 }
 
 const AppShellContext = createContext<AppShellContextType | null>(null)

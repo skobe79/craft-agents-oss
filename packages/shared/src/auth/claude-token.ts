@@ -12,11 +12,18 @@ interface ClaudeCredentials {
   };
 }
 
+export interface ClaudeOAuthCredential {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  scopes?: string[];
+}
+
 /**
- * Read Claude OAuth token from system credential store
+ * Read Claude OAuth credentials from system credential store
  * Dispatches to platform-specific implementation
  */
-function readFromKeychain(): string | null {
+function readFromKeychain(): ClaudeOAuthCredential | null {
   if (process.platform === 'darwin') {
     return readFromMacOSKeychain();
   } else if (process.platform === 'win32') {
@@ -28,9 +35,9 @@ function readFromKeychain(): string | null {
 }
 
 /**
- * Read Claude OAuth token from macOS Keychain
+ * Read Claude OAuth credentials from macOS Keychain
  */
-function readFromMacOSKeychain(): string | null {
+function readFromMacOSKeychain(): ClaudeOAuthCredential | null {
   try {
     const result = execSync(
       'security find-generic-password -s "Claude Code-credentials" -w',
@@ -39,7 +46,14 @@ function readFromMacOSKeychain(): string | null {
 
     if (result) {
       const credentials: ClaudeCredentials = JSON.parse(result);
-      return credentials.claudeAiOauth?.accessToken || null;
+      if (credentials.claudeAiOauth) {
+        return {
+          accessToken: credentials.claudeAiOauth.accessToken,
+          refreshToken: credentials.claudeAiOauth.refreshToken,
+          expiresAt: credentials.claudeAiOauth.expiresAt,
+          scopes: credentials.claudeAiOauth.scopes,
+        };
+      }
     }
   } catch {
     // Keychain entry not found or parse error
@@ -48,42 +62,24 @@ function readFromMacOSKeychain(): string | null {
 }
 
 /**
- * Read Claude OAuth token from Windows Credential Manager
- * Uses PowerShell to access the credential store
+ * Read Claude OAuth credentials from Windows Credential Manager
+ * Falls back to credentials file which Claude Code uses on Windows
  */
-function readFromWindowsCredentialManager(): string | null {
+function readFromWindowsCredentialManager(): ClaudeOAuthCredential | null {
   try {
-    // PowerShell script to read from Windows Credential Manager
-    const psScript = `
-      $cred = Get-StoredCredential -Target "Claude Code-credentials" -ErrorAction SilentlyContinue
-      if ($cred) {
-        $cred.GetNetworkCredential().Password
-      } else {
-        # Try using cmdkey approach as fallback
-        $output = cmdkey /list:Claude* 2>&1
-        if ($output -match "Claude Code") {
-          # Need to use CredRead API via .NET
-          Add-Type -AssemblyName System.Security
-          try {
-            $credPtr = [IntPtr]::Zero
-            $result = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-              [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR(
-                (New-Object System.Management.Automation.PSCredential("user",
-                  (ConvertTo-SecureString "dummy" -AsPlainText -Force)
-                ).Password
-              )
-            ))
-          } catch {}
-        }
-      }
-    `;
-
-    // Simpler approach: read from the same credentials file location that Claude Code uses on Windows
+    // Read from the credentials file location that Claude Code uses on Windows
     const credentialsPath = join(homedir(), '.claude', '.credentials.json');
     if (existsSync(credentialsPath)) {
       const content = readFileSync(credentialsPath, 'utf-8');
       const credentials: ClaudeCredentials = JSON.parse(content);
-      return credentials.claudeAiOauth?.accessToken || null;
+      if (credentials.claudeAiOauth) {
+        return {
+          accessToken: credentials.claudeAiOauth.accessToken,
+          refreshToken: credentials.claudeAiOauth.refreshToken,
+          expiresAt: credentials.claudeAiOauth.expiresAt,
+          scopes: credentials.claudeAiOauth.scopes,
+        };
+      }
     }
   } catch {
     // Credential Manager read failed
@@ -92,10 +88,10 @@ function readFromWindowsCredentialManager(): string | null {
 }
 
 /**
- * Read Claude OAuth token from Linux Secret Service (libsecret)
+ * Read Claude OAuth credentials from Linux Secret Service (libsecret)
  * Uses secret-tool CLI which interfaces with GNOME Keyring or KDE Wallet
  */
-function readFromLinuxSecretService(): string | null {
+function readFromLinuxSecretService(): ClaudeOAuthCredential | null {
   try {
     // Try secret-tool (works with GNOME Keyring, KDE Wallet via libsecret)
     const result = execSync(
@@ -105,7 +101,14 @@ function readFromLinuxSecretService(): string | null {
 
     if (result) {
       const credentials: ClaudeCredentials = JSON.parse(result);
-      return credentials.claudeAiOauth?.accessToken || null;
+      if (credentials.claudeAiOauth) {
+        return {
+          accessToken: credentials.claudeAiOauth.accessToken,
+          refreshToken: credentials.claudeAiOauth.refreshToken,
+          expiresAt: credentials.claudeAiOauth.expiresAt,
+          scopes: credentials.claudeAiOauth.scopes,
+        };
+      }
     }
   } catch {
     // secret-tool not available or entry not found
@@ -120,7 +123,14 @@ function readFromLinuxSecretService(): string | null {
 
     if (result) {
       const credentials: ClaudeCredentials = JSON.parse(result);
-      return credentials.claudeAiOauth?.accessToken || null;
+      if (credentials.claudeAiOauth) {
+        return {
+          accessToken: credentials.claudeAiOauth.accessToken,
+          refreshToken: credentials.claudeAiOauth.refreshToken,
+          expiresAt: credentials.claudeAiOauth.expiresAt,
+          scopes: credentials.claudeAiOauth.scopes,
+        };
+      }
     }
   } catch {
     // pass not available or entry not found
@@ -130,16 +140,23 @@ function readFromLinuxSecretService(): string | null {
 }
 
 /**
- * Read Claude OAuth token from credentials file (Linux/fallback)
+ * Read Claude OAuth credentials from credentials file (Linux/fallback)
  */
-function readFromCredentialsFile(): string | null {
+function readFromCredentialsFile(): ClaudeOAuthCredential | null {
   const credentialsPath = join(homedir(), '.claude', '.credentials.json');
 
   try {
     if (existsSync(credentialsPath)) {
       const content = readFileSync(credentialsPath, 'utf-8');
       const credentials: ClaudeCredentials = JSON.parse(content);
-      return credentials.claudeAiOauth?.accessToken || null;
+      if (credentials.claudeAiOauth) {
+        return {
+          accessToken: credentials.claudeAiOauth.accessToken,
+          refreshToken: credentials.claudeAiOauth.refreshToken,
+          expiresAt: credentials.claudeAiOauth.expiresAt,
+          scopes: credentials.claudeAiOauth.scopes,
+        };
+      }
     }
   } catch {
     // File not found or parse error
@@ -148,17 +165,79 @@ function readFromCredentialsFile(): string | null {
 }
 
 /**
- * Get existing Claude OAuth token from keychain or credentials file
+ * Get existing Claude OAuth credentials from keychain or credentials file
  */
-export function getExistingClaudeToken(): string | null {
-  // Try keychain first (macOS)
-  const keychainToken = readFromKeychain();
-  if (keychainToken) {
-    return keychainToken;
+export function getExistingClaudeCredentials(): ClaudeOAuthCredential | null {
+  // Try keychain first (macOS, Windows, Linux)
+  const keychainCreds = readFromKeychain();
+  if (keychainCreds) {
+    return keychainCreds;
   }
 
   // Fall back to credentials file
   return readFromCredentialsFile();
+}
+
+/**
+ * Get existing Claude OAuth token from keychain or credentials file
+ * @deprecated Use getExistingClaudeCredentials() to get full credentials with refresh token
+ */
+export function getExistingClaudeToken(): string | null {
+  const creds = getExistingClaudeCredentials();
+  return creds?.accessToken || null;
+}
+
+/**
+ * Refresh Claude OAuth token using refresh token
+ * Uses the Anthropic API token endpoint
+ */
+export async function refreshClaudeToken(refreshToken: string): Promise<{
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+}> {
+  const params = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: 'claude-desktop',
+  });
+
+  const response = await fetch('https://api.anthropic.com/v1/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to refresh Claude token: ${error}`);
+  }
+
+  const data = await response.json() as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  };
+
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || refreshToken,
+    expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
+  };
+}
+
+/**
+ * Check if a token is expired or will expire soon (within 5 minutes)
+ */
+export function isTokenExpired(expiresAt?: number): boolean {
+  if (!expiresAt) {
+    // If no expiry, assume token is still valid
+    return false;
+  }
+  // Consider expired if less than 5 minutes remaining
+  const bufferMs = 5 * 60 * 1000;
+  return Date.now() + bufferMs >= expiresAt;
 }
 
 /**

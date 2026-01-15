@@ -72,6 +72,31 @@ export function loadSourceConfig(
 }
 
 /**
+ * Mark a source as authenticated and connected.
+ * Updates isAuthenticated, connectionStatus, and clears any connection error.
+ *
+ * @returns true if the source was found and updated, false otherwise
+ */
+export function markSourceAuthenticated(
+  workspaceRootPath: string,
+  sourceSlug: string
+): boolean {
+  const config = loadSourceConfig(workspaceRootPath, sourceSlug);
+  if (!config) {
+    debug(`[markSourceAuthenticated] Source ${sourceSlug} not found`);
+    return false;
+  }
+
+  config.isAuthenticated = true;
+  config.connectionStatus = 'connected';
+  config.connectionError = undefined;
+
+  saveSourceConfig(workspaceRootPath, config);
+  debug(`[markSourceAuthenticated] Marked ${sourceSlug} as authenticated`);
+  return true;
+}
+
+/**
  * Save source config.json
  * @throws Error if config is invalid
  */
@@ -268,6 +293,7 @@ export function loadSource(workspaceRootPath: string, sourceSlug: string): Loade
     config,
     guide: loadSourceGuide(workspaceRootPath, sourceSlug),
     folderPath,
+    workspaceRootPath,
     workspaceId,
   };
 }
@@ -483,41 +509,8 @@ export function sourceExists(workspaceRootPath: string, sourceSlug: string): boo
 // Source Loading/Saving Helpers
 // ============================================================
 
-/**
- * Result of loading a source with context
- */
-export interface SourceWithContext {
-  config: FolderSourceConfig;
-  /** Always false - agent-scoped sources are no longer supported */
-  isAgentScoped: false;
-}
-
-/**
- * Load source config from workspace with context wrapper.
- */
-export function loadSourceConfigWithFallback(
-  workspaceRootPath: string,
-  sourceSlug: string
-): SourceWithContext | null {
-  const config = loadSourceConfig(workspaceRootPath, sourceSlug);
-  if (config) {
-    return {
-      config,
-      isAgentScoped: false,
-    };
-  }
-  return null;
-}
-
-/**
- * Save source config back to workspace with context wrapper.
- */
-export function saveSourceConfigWithContext(
-  workspaceRootPath: string,
-  config: FolderSourceConfig
-): void {
-  saveSourceConfig(workspaceRootPath, config);
-}
+// Note: SourceWithContext and wrapper functions were removed in this PR.
+// Use loadSourceConfig and saveSourceConfig directly instead.
 
 // ============================================================
 // Re-export parseGuideMarkdown for use in other modules

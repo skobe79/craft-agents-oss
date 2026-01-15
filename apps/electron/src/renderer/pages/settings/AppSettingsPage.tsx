@@ -42,6 +42,8 @@ import {
   SettingsMenuSelectRow,
   SettingsMenuSelect,
 } from '@/components/settings'
+import { useUpdateChecker } from '@/hooks/useUpdateChecker'
+import { Badge } from '@/components/ui/badge'
 import type { PresetTheme } from '@config/theme'
 import {
   Dialog,
@@ -282,7 +284,7 @@ export default function AppSettingsPage() {
   const [presetThemes, setPresetThemes] = useState<PresetTheme[]>([])
 
   // Billing state
-  const [authType, setAuthType] = useState<AuthType>('craft_credits')
+  const [authType, setAuthType] = useState<AuthType>('api_key')
   const [expandedMethod, setExpandedMethod] = useState<AuthType | null>(null)
   const [hasCredential, setHasCredential] = useState(false)
   const [isLoadingBilling, setIsLoadingBilling] = useState(true)
@@ -300,6 +302,19 @@ export default function AppSettingsPage() {
 
   // Notifications state
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+
+  // Auto-update state
+  const updateChecker = useUpdateChecker()
+  const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false)
+
+  const handleCheckForUpdates = useCallback(async () => {
+    setIsCheckingForUpdates(true)
+    try {
+      await updateChecker.checkForUpdates()
+    } finally {
+      setIsCheckingForUpdates(false)
+    }
+  }, [updateChecker])
 
   // Load current billing method, notifications setting, and preset themes on mount
   useEffect(() => {
@@ -351,21 +366,10 @@ export default function AppSettingsPage() {
       return
     }
 
-    if (method === 'craft_credits' && window.electronAPI) {
-      try {
-        await window.electronAPI.updateBillingMethod(method)
-        setAuthType(method)
-        setHasCredential(true)
-        setExpandedMethod(null)
-      } catch (error) {
-        console.error('Failed to update billing method:', error)
-      }
-    } else {
-      setExpandedMethod(method)
-      setApiKeyError(undefined)
-      setClaudeOAuthStatus('idle')
-      setClaudeOAuthError(undefined)
-    }
+    setExpandedMethod(method)
+    setApiKeyError(undefined)
+    setClaudeOAuthStatus('idle')
+    setClaudeOAuthError(undefined)
   }, [authType, hasCredential])
 
   // Cancel billing method expansion
@@ -473,10 +477,12 @@ export default function AppSettingsPage() {
                     onValueChange={setColorTheme}
                     options={[
                       { value: 'default', label: 'Default' },
-                      ...presetThemes.map(t => ({
-                        value: t.id,
-                        label: t.theme.name || t.id,
-                      })),
+                      ...presetThemes
+                        .filter(t => t.id !== 'default')
+                        .map(t => ({
+                          value: t.id,
+                          label: t.theme.name || t.id,
+                        })),
                     ]}
                   />
                 </SettingsRow>
@@ -511,20 +517,17 @@ export default function AppSettingsPage() {
                 <SettingsMenuSelectRow
                   label="Payment method"
                   description={
-                    authType === 'craft_credits'
-                      ? 'Included with Craft'
-                      : authType === 'api_key' && hasCredential
-                        ? 'API key configured'
-                        : authType === 'oauth_token' && hasCredential
-                          ? 'Claude connected'
-                          : 'Select a method'
+                    authType === 'api_key' && hasCredential
+                      ? 'API key configured'
+                      : authType === 'oauth_token' && hasCredential
+                        ? 'Claude connected'
+                        : 'Select a method'
                   }
                   value={authType}
                   onValueChange={(v) => handleMethodClick(v as AuthType)}
                   options={[
-                    { value: 'craft_credits', label: 'Craft Credits', description: 'Included with Craft' },
+                    { value: 'oauth_token', label: 'Claude Pro/Max', description: 'Use your Pro or Max subscription' },
                     { value: 'api_key', label: 'API Key', description: 'Pay-as-you-go with your Anthropic key' },
-                    { value: 'oauth_token', label: 'Claude Max', description: 'Use your Pro or Max subscription' },
                   ]}
                 />
               </SettingsCard>
@@ -571,6 +574,51 @@ export default function AppSettingsPage() {
                   />
                 </DialogContent>
               </Dialog>
+            </SettingsSection>
+
+            {/* About */}
+            <SettingsSection title="About">
+              <SettingsCard>
+                <SettingsRow label="Version">
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">
+                      {updateChecker.updateInfo?.currentVersion ?? 'Loading...'}
+                    </span>
+                    {updateChecker.updateAvailable && (
+                      <Badge variant="secondary" className="text-xs">
+                        Update available
+                      </Badge>
+                    )}
+                  </div>
+                </SettingsRow>
+                <SettingsRow label="Check for updates">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCheckForUpdates}
+                    disabled={isCheckingForUpdates}
+                  >
+                    {isCheckingForUpdates ? (
+                      <>
+                        <Spinner className="mr-1.5" />
+                        Checking...
+                      </>
+                    ) : (
+                      'Check Now'
+                    )}
+                  </Button>
+                </SettingsRow>
+                {updateChecker.isReadyToInstall && (
+                  <SettingsRow label="Install update">
+                    <Button
+                      size="sm"
+                      onClick={updateChecker.installUpdate}
+                    >
+                      Restart to Update
+                    </Button>
+                  </SettingsRow>
+                )}
+              </SettingsCard>
             </SettingsSection>
           </div>
         </div>

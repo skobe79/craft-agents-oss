@@ -16,12 +16,20 @@
  *   craftagents://action/{actionName}[/{id}][?params]
  *   craftagents://workspace/{workspaceId}/action/{actionName}[?params]
  *
+ * Actions:
+ *   new-chat                  - Create new chat, optional ?input=text&name=name
+ *   resume-sdk-session/{id}   - Resume Claude Code session by SDK session ID
+ *   delete-session/{id}       - Delete session
+ *   flag-session/{id}         - Flag session
+ *   unflag-session/{id}       - Unflag session
+ *
  * Examples:
  *   craftagents://allChats                               (all chats view)
  *   craftagents://allChats/chat/abc123                   (specific chat)
  *   craftagents://settings/shortcuts                     (shortcuts page)
  *   craftagents://sources/source/github                  (github source info)
  *   craftagents://action/new-chat                        (uses active window)
+ *   craftagents://action/resume-sdk-session/{sdkId}      (resume Claude Code session)
  *   craftagents://workspace/ws123/allChats/chat/abc123   (targets specific workspace)
  */
 
@@ -40,6 +48,8 @@ export interface DeepLinkTarget {
   actionParams?: Record<string, string>
   /** Window mode - if set, opens in a new window instead of navigating in existing */
   windowMode?: 'focused' | 'full'
+  /** Right sidebar param (e.g., 'sessionMetadata', 'files/path/to/file') */
+  rightSidebar?: string
 }
 
 export interface DeepLinkResult {
@@ -71,6 +81,13 @@ function parseWindowMode(parsed: URL): 'focused' | 'full' | undefined {
 }
 
 /**
+ * Parse right sidebar param from URL search params
+ */
+function parseRightSidebar(parsed: URL): string | undefined {
+  return parsed.searchParams.get('sidebar') || undefined
+}
+
+/**
  * Parse a deep link URL into structured target
  */
 export function parseDeepLink(url: string): DeepLinkTarget | null {
@@ -87,6 +104,7 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
     const host = parsed.hostname
     const pathParts = parsed.pathname.split('/').filter(Boolean)
     const windowMode = parseWindowMode(parsed)
+    const rightSidebar = parseRightSidebar(parsed)
 
     // craftagents://auth-callback?... (OAuth callbacks - return null to let existing handler process)
     if (host === 'auth-callback') {
@@ -106,6 +124,7 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
         workspaceId: undefined,
         view: viewRoute,
         windowMode,
+        rightSidebar,
       }
     }
 
@@ -114,7 +133,7 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
       const workspaceId = pathParts[0]
       if (!workspaceId) return null
 
-      const result: DeepLinkTarget = { workspaceId, windowMode }
+      const result: DeepLinkTarget = { workspaceId, windowMode, rightSidebar }
 
       // Check what type of route follows the workspace ID
       const routeType = pathParts[1]
@@ -136,8 +155,8 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
           result.actionParams.id = pathParts[3]
         }
         parsed.searchParams.forEach((value, key) => {
-          // Skip the window param - it's handled separately
-          if (key !== 'window') {
+          // Skip the window and sidebar params - they're handled separately
+          if (key !== 'window' && key !== 'sidebar') {
             result.actionParams![key] = value
           }
         })
@@ -154,6 +173,7 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
         action: pathParts[0],
         actionParams: {},
         windowMode,
+        rightSidebar,
       }
 
       if (pathParts[1]) {
@@ -161,8 +181,8 @@ export function parseDeepLink(url: string): DeepLinkTarget | null {
       }
 
       parsed.searchParams.forEach((value, key) => {
-        // Skip the window param - it's handled separately
-        if (key !== 'window') {
+        // Skip the window and sidebar params - they're handled separately
+        if (key !== 'window' && key !== 'sidebar') {
           result.actionParams![key] = value
         }
       })

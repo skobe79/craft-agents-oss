@@ -15,7 +15,7 @@ import { saveConfig, loadStoredConfig, generateWorkspaceId, type AuthType, type 
 import { getDefaultWorkspacesDir } from '@craft-agent/shared/workspaces'
 import { CraftOAuth, getMcpBaseUrl } from '@craft-agent/shared/auth'
 import { validateMcpConnection } from '@craft-agent/shared/mcp'
-import { getExistingClaudeToken, isClaudeCliInstalled, runClaudeSetupToken } from '@craft-agent/shared/auth'
+import { getExistingClaudeToken, getExistingClaudeCredentials, isClaudeCliInstalled, runClaudeSetupToken } from '@craft-agent/shared/auth'
 import {
   IPC_CHANNELS,
   type CraftOAuthResult,
@@ -246,11 +246,22 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
           await manager.setApiKey(config.credential)
           mainLog.info('[Onboarding:Main] API key saved successfully')
         } else if (config.authType === 'oauth_token') {
-          mainLog.info('[Onboarding:Main] Calling manager.setClaudeOAuth...')
-          await manager.setClaudeOAuth(config.credential)
-          mainLog.info('[Onboarding:Main] Claude OAuth saved successfully')
+          mainLog.info('[Onboarding:Main] Importing full Claude OAuth credentials...')
+          // Import full credentials including refresh token and expiry from Claude CLI
+          const cliCreds = getExistingClaudeCredentials()
+          if (cliCreds) {
+            await manager.setClaudeOAuthCredentials({
+              accessToken: cliCreds.accessToken,
+              refreshToken: cliCreds.refreshToken,
+              expiresAt: cliCreds.expiresAt,
+            })
+            mainLog.info('[Onboarding:Main] Claude OAuth credentials saved with refresh token')
+          } else {
+            // Fallback to just saving the access token
+            await manager.setClaudeOAuth(config.credential)
+            mainLog.info('[Onboarding:Main] Claude OAuth saved (access token only)')
+          }
         }
-        // craft_credits doesn't need additional credentials
       } else {
         mainLog.info('[Onboarding:Main] Skipping credential save', {
           hasCredential: !!config.credential,
@@ -264,7 +275,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
       mainLog.info('[Onboarding:Main] Existing config:', existingConfig ? 'found' : 'not found')
 
       const newConfig: StoredConfig = existingConfig || {
-        authType: config.authType || 'craft_credits', // Default to craft_credits for new configs
+        authType: config.authType || 'api_key',
         workspaces: [],
         activeWorkspaceId: null,
         activeSessionId: null,

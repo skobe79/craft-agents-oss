@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -18,7 +18,7 @@ import { Markdown, CollapsibleMarkdownProvider, StreamingMarkdown, type RenderMo
 import { AnimatedCollapsibleContent } from "@/components/ui/collapsible"
 import { Spinner, parseReadResult, parseBashResult, parseGrepResult, parseGlobResult } from "@craft-agent/ui"
 import { useFocusZone } from "@/hooks/keyboard"
-import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, LoadedSource, FileChange } from "../../../shared/types"
+import type { Session, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, LoadedSource, LoadedSkill, FileChange } from "../../../shared/types"
 import type { PermissionMode } from "@craft-agent/shared/agent/modes"
 import { TurnCard, UserMessageBubble, groupMessagesByTurn, formatTurnAsMarkdown, formatActivityAsMarkdown, type Turn, type AssistantTurn, type UserTurn, type SystemTurn, type OnboardingTurn, type AuthRequestTurn } from "@craft-agent/ui"
 import { MemoizedOnboardingBubble } from "@/components/chat/OnboardingBubble"
@@ -26,21 +26,20 @@ import { MemoizedAuthRequestCard } from "@/components/chat/AuthRequestCard"
 import type { SourceNeedingAuth } from "@craft-agent/shared/sessions"
 import { ActiveOptionBadges } from "./ActiveOptionBadges"
 import { InputContainer, type StructuredInputState, type StructuredResponse, type PermissionResponse } from "./input"
+import type { RichTextInputHandle } from "@/components/ui/rich-text-input"
 import { useBackgroundTasks } from "@/hooks/useBackgroundTasks"
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
-import { SlashCommandMenu, DEFAULT_SLASH_COMMANDS, type SlashCommandId } from "@/components/ui/slash-command-menu"
 import { CHAT_LAYOUT } from "@/config/layout"
 
 interface ChatDisplayProps {
   session: Session | null
-  onSendMessage: (message: string, attachments?: FileAttachment[]) => void
+  onSendMessage: (message: string, attachments?: FileAttachment[], skillSlugs?: string[]) => void
   onOpenFile: (path: string) => void
   onOpenUrl: (url: string) => void
   // Model selection
   currentModel: string
   onModelChange: (model: string) => void
-  /** Ref for the textarea, used for external focus control */
-  textareaRef?: React.RefObject<HTMLTextAreaElement>
+  /** Ref for the input, used for external focus control */
+  textareaRef?: React.RefObject<RichTextInputHandle>
   /** When true, disables input (e.g., when agent needs activation) */
   disabled?: boolean
   /** Pending permission request for this session */
@@ -70,14 +69,24 @@ interface ChatDisplayProps {
   sources?: LoadedSource[]
   /** Callback when source selection changes */
   onSourcesChange?: (slugs: string[]) => void
+  // Skill selection (for @mentions)
+  /** Available skills for @mention autocomplete */
+  skills?: LoadedSkill[]
+  /** Workspace ID for loading skill icons */
+  workspaceId?: string
   // Working directory (per session)
   /** Current working directory for this session */
   workingDirectory?: string
   /** Callback when working directory changes */
   onWorkingDirectoryChange?: (path: string) => void
+  /** Session folder path (for "Reset to Session Root" option) */
+  sessionFolderPath?: string
   // Lazy loading
   /** When true, messages are still loading - show spinner in messages area */
   messagesLoading?: boolean
+  // Tutorial
+  /** Disable send action (for tutorial guidance) */
+  disableSend?: boolean
 }
 
 /**
@@ -259,11 +268,17 @@ export function ChatDisplay({
   // Sources
   sources,
   onSourcesChange,
+  // Skills (for @mentions)
+  skills,
+  workspaceId,
   // Working directory
   workingDirectory,
   onWorkingDirectoryChange,
+  sessionFolderPath,
   // Lazy loading
   messagesLoading = false,
+  // Tutorial
+  disableSend = false,
 }: ChatDisplayProps) {
   // Input is only disabled when explicitly disabled (e.g., agent needs activation)
   // User can type during streaming - submitting will stop the stream and send
@@ -284,7 +299,7 @@ export function ChatDisplay({
   const skipSmoothScrollUntilRef = React.useRef(0)
   // Track pending scroll for session switches that happen while messages are still loading
   const pendingScrollSessionRef = React.useRef<string | null>(null)
-  const internalTextareaRef = React.useRef<HTMLTextAreaElement>(null)
+  const internalTextareaRef = React.useRef<RichTextInputHandle>(null)
   const textareaRef = externalTextareaRef || internalTextareaRef
 
   // Register as focus zone - when zone gains focus, focus the textarea
@@ -456,10 +471,10 @@ export function ChatDisplay({
 
   // Handle message submission from InputContainer
   // Backend handles interruption and queueing if currently processing
-  const handleSubmit = (message: string, attachments?: FileAttachment[]) => {
+  const handleSubmit = (message: string, attachments?: FileAttachment[], skillSlugs?: string[]) => {
     // Force stick-to-bottom when user sends a message
     isStickToBottomRef.current = true
-    onSendMessage(message, attachments)
+    onSendMessage(message, attachments, skillSlugs)
 
     // Immediately scroll to bottom after sending - use requestAnimationFrame
     // to ensure the DOM has updated with the new message
@@ -525,27 +540,19 @@ export function ChatDisplay({
   return (
     <div ref={zoneRef} className="flex h-full flex-col min-w-0" data-focus-zone="chat">
       {session ? (
-        <div className="flex flex-1 flex-col min-h-0 min-w-0 bg-surface-below">
+        <div className="flex flex-1 flex-col min-h-0 min-w-0 relative">
+          {/* Content layer */}
+          <div className="flex flex-1 flex-col min-h-0 min-w-0 relative z-10 bg-surface-below">
           {/* === MESSAGES AREA: Scrollable list of message bubbles === */}
           <div className="relative flex-1 min-h-0">
-            {/* Top fade gradient - absolutely positioned overlay */}
-            <div className="absolute top-0 left-0 right-2 h-8 z-10 bg-gradient-to-b from-surface-below to-transparent pointer-events-none" />
-            <ScrollArea className="h-full min-w-0" viewportRef={scrollViewportRef}>
-            <div className={cn(CHAT_LAYOUT.maxWidth, "mx-auto", CHAT_LAYOUT.containerPadding, CHAT_LAYOUT.messageSpacing, "min-w-0")}>
-              {messagesLoading ? (
-                /* Loading State: Show spinner while messages are being lazy loaded */
-                <div className="flex items-center justify-center h-64">
-                  <Spinner className="text-foreground/30" />
-                </div>
-              ) : session.messages.length === 0 ? (
-                /* Empty State: Welcome message for new sessions */
-                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground px-8">
-                  <p className="text-sm font-medium">
-                    {`Welcome to ${session.workspaceName}`}
-                  </p>
-                  <p className="text-xs mt-1 text-center">Start a conversation by typing a message below.</p>
-                </div>
-              ) : (
+              <ScrollArea className="h-full min-w-0" viewportRef={scrollViewportRef}>
+              <div className={cn(CHAT_LAYOUT.maxWidth, "mx-auto", CHAT_LAYOUT.containerPadding, CHAT_LAYOUT.messageSpacing, "min-w-0")}>
+                {messagesLoading ? (
+                  /* Loading State: Show spinner while messages are being lazy loaded */
+                  <div className="flex items-center justify-center h-64">
+                    <Spinner className="text-foreground/30" />
+                  </div>
+                ) : (
                 /* Turn-based Message Display - memoized to avoid re-grouping on every render */
                 /* Fade in when messages were lazy-loaded (not immediately available) */
                 /* key={fadeInKey} forces remount when messages finish loading, so initial animation plays */
@@ -877,27 +884,30 @@ export function ChatDisplay({
                   })}
                 </motion.div>
               )}
-              {/* Processing Indicator - always visible while processing */}
-              {session.isProcessing && (() => {
-                // Find the last user message timestamp for accurate elapsed time
-                const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
-                return (
-                  <ProcessingIndicator
-                    startTime={lastUserMsg?.timestamp}
-                    statusMessage={session.currentStatus?.message}
-                  />
-                )
-              })()}
-              {/* Scroll Anchor: For auto-scroll to bottom */}
-              <div ref={messagesEndRef} />
-            </div>
-          </ScrollArea>
+                {/* Processing Indicator - always visible while processing */}
+                {session.isProcessing && (() => {
+                  // Find the last user message timestamp for accurate elapsed time
+                  const lastUserMsg = [...session.messages].reverse().find(m => m.role === 'user')
+                  return (
+                    <ProcessingIndicator
+                      startTime={lastUserMsg?.timestamp}
+                      statusMessage={session.currentStatus?.message}
+                    />
+                  )
+                })()}
+                {/* Scroll Anchor: For auto-scroll to bottom */}
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
             {/* Bottom fade gradient - absolutely positioned overlay */}
             <div className="absolute bottom-0 left-0 right-2 h-8 z-10 bg-gradient-to-t from-surface-below to-transparent pointer-events-none" />
           </div>
 
           {/* === INPUT CONTAINER: FreeForm or Structured Input === */}
-          <div className={cn(CHAT_LAYOUT.maxWidth, "mx-auto w-full px-4 pb-4 mt-1")}>
+          <div className={cn(
+            CHAT_LAYOUT.maxWidth,
+            "mx-auto w-full px-4 pb-4 mt-1"
+          )}>
             {/* Active option badges and tasks - positioned above input */}
             <ActiveOptionBadges
               ultrathinkEnabled={ultrathinkEnabled}
@@ -930,10 +940,16 @@ export function ChatDisplay({
               sources={sources}
               enabledSourceSlugs={session.enabledSourceSlugs}
               onSourcesChange={onSourcesChange}
+              skills={skills}
+              workspaceId={workspaceId}
               workingDirectory={workingDirectory}
               onWorkingDirectoryChange={onWorkingDirectoryChange}
+              sessionFolderPath={sessionFolderPath}
               sessionId={session.id}
+              disableSend={disableSend}
+              isEmptySession={session.messages.length === 0}
             />
+          </div>
           </div>
         </div>
       ) : null}

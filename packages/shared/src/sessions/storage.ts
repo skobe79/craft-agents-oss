@@ -152,6 +152,11 @@ export function createSession(
   // Create session directory with all subdirectories (plans, attachments)
   ensureSessionDir(workspaceRootPath, sessionId);
 
+  // Set sdkCwd to initial working directory or session path - this never changes
+  // The SDK stores session transcripts at ~/.claude/projects/{cwd-slugified}/
+  // If workingDirectory changes later, sdkCwd stays the same to preserve session resumption
+  const sdkCwd = options?.workingDirectory ?? getSessionPath(workspaceRootPath, sessionId);
+
   const session: SessionConfig = {
     id: sessionId,
     workspaceRootPath,
@@ -159,6 +164,7 @@ export function createSession(
     createdAt: now,
     lastUsedAt: now,
     workingDirectory: options?.workingDirectory,
+    sdkCwd,
     permissionMode: options?.permissionMode,
     enabledSourceSlugs: options?.enabledSourceSlugs,
   };
@@ -197,6 +203,8 @@ export function getOrCreateSessionById(
       name: existing.name,
       createdAt: existing.createdAt,
       lastUsedAt: existing.lastUsedAt,
+      sdkCwd: existing.sdkCwd,
+      workingDirectory: existing.workingDirectory,
     };
   }
 
@@ -207,9 +215,13 @@ export function getOrCreateSessionById(
   ensureSessionDir(workspaceRootPath, sessionId);
 
   const now = Date.now();
+  // Set sdkCwd to session path - this never changes (ensures SDK can find session transcripts)
+  const sdkCwd = getSessionPath(workspaceRootPath, sessionId);
+
   const session: SessionConfig = {
     id: sessionId,
     workspaceRootPath,
+    sdkCwd,
     createdAt: now,
     lastUsedAt: now,
   };
@@ -273,10 +285,6 @@ export function loadSession(workspaceRootPath: string, sessionId: string): Store
   if (existsSync(jsonlPath)) {
     const session = readSessionJsonl(jsonlPath);
     if (session) {
-      // Expand working directory if set
-      if (session.workingDirectory) {
-        session.workingDirectory = expandPath(session.workingDirectory);
-      }
       end();
       return session;
     }
@@ -338,6 +346,10 @@ function headerToMetadata(header: SessionHeader, workspaceRootPath: string): Ses
     // Count plan files for this session
     const planCount = listPlanFiles(workspaceRootPath, header.id).length;
 
+    // Migration: For sessions created before sdkCwd was added, use workingDirectory as fallback.
+    const workingDir = header.workingDirectory ? expandPath(header.workingDirectory) : undefined;
+    const sdkCwd = header.sdkCwd ? expandPath(header.sdkCwd) : workingDir;
+
     return {
       id: header.id,
       workspaceRootPath,
@@ -352,6 +364,8 @@ function headerToMetadata(header: SessionHeader, workspaceRootPath: string): Ses
       permissionMode: header.permissionMode,
       planCount: planCount > 0 ? planCount : undefined,
       lastMessageRole: header.lastMessageRole,
+      workingDirectory: workingDir,
+      sdkCwd,
     };
   } catch {
     return null;

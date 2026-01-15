@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTheme } from '@/hooks/useTheme'
 import type { ThemeOverrides } from '@config/theme'
-import { useSetAtom, useStore } from 'jotai'
+import { useSetAtom, useStore, useAtomValue } from 'jotai'
 import type { Session, Workspace, SessionEvent, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, SetupNeeds, TodoState, NewChatActionParams } from '../shared/types'
 import type { SessionOptions, SessionOptionUpdates } from './hooks/useSessionOptions'
 import { defaultSessionOptions, mergeSessionOptions } from './hooks/useSessionOptions'
@@ -12,6 +12,7 @@ import { AppShell } from '@/components/app-shell/AppShell'
 import type { AppShellContextType } from '@/context/AppShellContext'
 import { OnboardingWizard, ReauthScreen } from '@/components/onboarding'
 import { ResetConfirmationDialog } from '@/components/ResetConfirmationDialog'
+import { ImportClaudeCodeDialog } from '@/components/import/ImportClaudeCodeDialog'
 import { SplashScreen } from '@/components/SplashScreen'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { FocusProvider } from '@/context/FocusContext'
@@ -19,8 +20,18 @@ import { useGlobalShortcuts } from '@/hooks/keyboard'
 import { useOnboarding } from '@/hooks/useOnboarding'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useSession } from '@/hooks/useSession'
+import { useUpdateChecker } from '@/hooks/useUpdateChecker'
+import { UpdateBanner } from '@/components/update/UpdateBanner'
 import { NavigationProvider } from '@/contexts/NavigationContext'
 import { navigate, routes } from './lib/navigate'
+import {
+  TutorialProvider,
+  TutorialOverlay,
+  TutorialPrompt,
+  TutorialComplete,
+  registerTutorial,
+  sourceCreationTutorial,
+} from '@/tutorial'
 import { initRendererPerf } from './lib/perf'
 import { DEFAULT_MODEL } from '@config/models'
 import {
@@ -34,7 +45,11 @@ import {
   extractSessionMeta,
   type SessionMeta,
 } from '@/atoms/sessions'
+import { sourcesAtom } from '@/atoms/sources'
 import { getDefaultStore } from 'jotai'
+
+// Register tutorials at module load
+registerTutorial(sourceCreationTutorial)
 
 type AppState = 'loading' | 'onboarding' | 'reauth' | 'ready'
 
@@ -180,6 +195,11 @@ export default function App() {
   const [workspaceTheme, setWorkspaceTheme] = useState<ThemeOverrides | null>(null)
   // Reset confirmation dialog
   const [showResetDialog, setShowResetDialog] = useState(false)
+  // Claude Code import dialog
+  const [showImportDialog, setShowImportDialog] = useState(false)
+
+  // Auto-update state
+  const updateChecker = useUpdateChecker()
 
   // Splash screen state - tracks when app is fully ready (all data loaded)
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
@@ -188,6 +208,9 @@ export default function App() {
 
   // Notifications enabled state (from app settings)
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+
+  // Sources for tutorial trigger condition
+  const sources = useAtomValue(sourcesAtom)
 
   // Compute if app is fully ready (all data loaded)
   const isFullyReady = appState === 'ready' && sessionsLoaded
@@ -381,11 +404,9 @@ export default function App() {
   // Subscribe to theme change events (live updates when theme.json files change)
   useEffect(() => {
     const cleanupApp = window.electronAPI.onAppThemeChange((theme) => {
-      console.log('[App] App theme changed')
       setAppTheme(theme)
     })
     const cleanupWorkspace = window.electronAPI.onWorkspaceThemeChange((theme) => {
-      console.log('[App] Workspace theme changed')
       setWorkspaceTheme(theme)
     })
     // Note: Agent theme changes are not yet wired up (would need active agent tracking)
@@ -442,6 +463,17 @@ export default function App() {
               next.set(sessionId, [...existingQueue, effect.request])
               return next
             })
+            break
+          }
+          case 'auto_retry': {
+            // A source was auto-activated, automatically re-send the original message
+            console.log('[App] auto_retry: Source', effect.sourceSlug, 'activated, re-sending message')
+            // Add suffix to indicate the source was activated
+            const messageWithSuffix = `${effect.originalMessage}\n\n[${effect.sourceSlug} activated]`
+            // Use setTimeout to ensure the previous turn has fully completed
+            setTimeout(() => {
+              window.electronAPI.sendMessage(effect.sessionId, messageWithSuffix)
+            }, 100)
             break
           }
         }
@@ -565,12 +597,16 @@ export default function App() {
       // Open help documentation URL
       window.electronAPI.openUrl('https://craft.do/help')
     })
+    const unsubImport = window.electronAPI.onMenuImportClaudeCode(() => {
+      setShowImportDialog(true)
+    })
 
     return () => {
       unsubNewChat()
       unsubSettings()
       unsubShortcuts()
       unsubHelp()
+      unsubImport()
     }
   }, [])
 
@@ -656,7 +692,7 @@ export default function App() {
     window.electronAPI.sessionCommand(sessionId, { type: 'rename', name })
   }, [updateSessionById])
 
-  const handleSendMessage = useCallback(async (sessionId: string, message: string, attachments?: FileAttachment[]) => {
+  const handleSendMessage = useCallback(async (sessionId: string, message: string, attachments?: FileAttachment[], skillSlugs?: string[]) => {
     try {
       // Step 1: Store attachments and get persistent metadata
       let storedAttachments: StoredAttachment[] | undefined
@@ -747,6 +783,7 @@ export default function App() {
       // Step 5: Send to Claude with processed attachments + stored attachments for persistence
       await window.electronAPI.sendMessage(sessionId, message, processedAttachments, storedAttachments, {
         ultrathinkEnabled: isUltrathink,
+        skillSlugs,
       })
 
       // Auto-disable ultrathink after sending (single-shot activation)
@@ -965,6 +1002,20 @@ export default function App() {
     setShowResetDialog(true)
   }, [])
 
+  // Handle Claude Code import completion - refresh sessions and navigate to first imported
+  const handleImportComplete = useCallback(async (sessionIds: string[]) => {
+    if (sessionIds.length === 0) return
+
+    // Reload sessions to get the imported ones
+    const loadedSessions = await window.electronAPI.getSessions()
+    initializeSessions(loadedSessions)
+
+    // Navigate to the first imported session
+    if (sessionIds[0]) {
+      navigate(routes.view.allChats(sessionIds[0]))
+    }
+  }, [initializeSessions])
+
   // Execute reset after user confirms in dialog
   const executeReset = useCallback(async () => {
     try {
@@ -1137,9 +1188,6 @@ export default function App() {
         onCancel={handleOnboardingCancel}
         onContinue={onboarding.handleContinue}
         onBack={onboarding.handleBack}
-        onLogin={onboarding.handleLogin}
-        onOpenLoginManually={onboarding.handleOpenLoginManually}
-        onRetryLogin={onboarding.handleRetryLogin}
         onSelectBillingMethod={onboarding.handleSelectBillingMethod}
         onSubmitCredential={onboarding.handleSubmitCredential}
         onStartOAuth={onboarding.handleStartOAuth}
@@ -1164,28 +1212,51 @@ export default function App() {
           onInputChange={handleInputChange}
           isReady={appState === 'ready'}
         >
-          {/* Splash screen overlay - fades out when fully ready */}
-          {showSplash && (
-            <SplashScreen
-              isExiting={splashExiting}
-              onExitComplete={handleSplashExitComplete}
-            />
-          )}
+          <TutorialProvider workspaceId={windowWorkspaceId} sourcesCount={sources.length}>
+            {/* Splash screen overlay - fades out when fully ready */}
+            {showSplash && (
+              <SplashScreen
+                isExiting={splashExiting}
+                onExitComplete={handleSplashExitComplete}
+              />
+            )}
 
-          {/* Main UI - always rendered, splash fades away to reveal it */}
-          <div className="h-full text-foreground">
-            <AppShell
-              contextValue={appShellContextValue}
-              defaultLayout={[20, 32, 48]}
-              menuNewChatTrigger={menuNewChatTrigger}
-              isFocusedMode={isFocusedMode}
-            />
-            <ResetConfirmationDialog
-              open={showResetDialog}
-              onConfirm={executeReset}
-              onCancel={() => setShowResetDialog(false)}
-            />
-          </div>
+            {/* Main UI - always rendered, splash fades away to reveal it */}
+            <div className="h-full flex flex-col text-foreground">
+              {/* Auto-update banner */}
+              <UpdateBanner
+                updateAvailable={updateChecker.updateAvailable}
+                latestVersion={updateChecker.updateInfo?.latestVersion ?? null}
+                isReadyToInstall={updateChecker.isReadyToInstall}
+                onInstall={updateChecker.installUpdate}
+                onDismiss={updateChecker.dismissUpdate}
+                isDismissed={updateChecker.isDismissed}
+              />
+              <div className="flex-1 min-h-0">
+                <AppShell
+                  contextValue={appShellContextValue}
+                  defaultLayout={[20, 32, 48]}
+                  menuNewChatTrigger={menuNewChatTrigger}
+                  isFocusedMode={isFocusedMode}
+                />
+              </div>
+              <ResetConfirmationDialog
+                open={showResetDialog}
+                onConfirm={executeReset}
+                onCancel={() => setShowResetDialog(false)}
+              />
+              <ImportClaudeCodeDialog
+                open={showImportDialog}
+                onOpenChange={setShowImportDialog}
+                onImportComplete={handleImportComplete}
+              />
+            </div>
+
+            {/* Tutorial system overlays */}
+            <TutorialOverlay />
+            <TutorialPrompt />
+            <TutorialComplete />
+          </TutorialProvider>
         </NavigationProvider>
       </TooltipProvider>
     </FocusProvider>

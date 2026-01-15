@@ -35,9 +35,7 @@ export {
   // Config operations
   loadSourceConfig,
   saveSourceConfig,
-  // Source loading/saving helpers
-  loadSourceConfigWithFallback,
-  saveSourceConfigWithContext,
+  markSourceAuthenticated,
   // Guide operations
   loadSourceGuide,
   saveSourceGuide,
@@ -57,7 +55,6 @@ export {
   // Parsing utilities
   parseGuideMarkdown,
 } from './storage.ts';
-export type { SourceWithContext } from './storage.ts';
 
 // Credential Manager (unified credential operations)
 export {
@@ -76,6 +73,7 @@ export {
   SourceServerBuilder,
   getSourceServerBuilder,
   normalizeMcpUrl,
+  SERVER_BUILD_ERRORS,
 } from './server-builder.ts';
 export type {
   McpServerConfig,

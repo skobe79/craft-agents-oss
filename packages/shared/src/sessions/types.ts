@@ -69,8 +69,10 @@ export interface SessionConfig {
   lastReadMessageId?: string;
   /** Per-session source selection (source slugs) */
   enabledSourceSlugs?: string[];
-  /** Working directory for this session (used by agent for bash commands) */
+  /** Working directory for this session (used by agent for bash commands and context) */
   workingDirectory?: string;
+  /** SDK cwd for session storage - set once at creation, never changes. Ensures SDK can find session transcripts regardless of workingDirectory changes. */
+  sdkCwd?: string;
   /** Shared viewer URL (if shared via viewer) */
   sharedUrl?: string;
   /** Shared session ID in viewer (for revoke) */
@@ -111,8 +113,10 @@ export interface SessionHeader {
   lastReadMessageId?: string;
   /** Per-session source selection (source slugs) */
   enabledSourceSlugs?: string[];
-  /** Working directory for this session (used by agent for bash commands) */
+  /** Working directory for this session (used by agent for bash commands and context) */
   workingDirectory?: string;
+  /** SDK cwd for session storage - set once at creation, never changes */
+  sdkCwd?: string;
   /** Shared viewer URL (if shared via viewer) */
   sharedUrl?: string;
   /** Shared session ID in viewer (for revoke) */
@@ -155,6 +159,8 @@ export interface SessionMetadata {
   sharedId?: string;
   /** Working directory for this session */
   workingDirectory?: string;
+  /** SDK cwd for session storage - set once at creation, never changes */
+  sdkCwd?: string;
   /** Role/type of the last message (for badge display without loading messages) */
   lastMessageRole?: 'user' | 'assistant' | 'plan' | 'tool' | 'error';
 }

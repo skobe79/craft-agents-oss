@@ -4,7 +4,6 @@ import { useAtomValue } from "jotai"
 import { motion, AnimatePresence } from "motion/react"
 import {
   CheckCircle2,
-  Inbox,
   Settings,
   ChevronRight,
   ChevronDown,
@@ -20,15 +19,12 @@ import {
   Trash2,
   DatabaseZap,
   Zap,
+  Inbox,
 } from "lucide-react"
 import { McpIcon } from "../icons/McpIcon"
-import {
-  CircleDashed,
-  CircleProgress,
-  CircleEye,
-  CircleCheckFilled,
-  CircleXFilled,
-} from "../icons/TodoStateIcons"
+import { PanelRightRounded } from "../icons/PanelRightRounded"
+import { PanelLeftRounded } from "../icons/PanelLeftRounded"
+// TodoStateIcons no longer used - icons come from dynamic todoStates
 import { SourceAvatar } from "@/components/ui/source-avatar"
 import { AppMenu } from "../AppMenu"
 import { SquarePenRounded } from "../icons/SquarePenRounded"
@@ -69,7 +65,7 @@ import type { Session, Workspace, FileAttachment, PermissionRequest, TodoState, 
 import { sessionMetaMapAtom, type SessionMeta } from "@/atoms/sessions"
 import { sourcesAtom } from "@/atoms/sources"
 import { skillsAtom } from "@/atoms/skills"
-import { type TodoStateId, getStateColor, statusConfigsToTodoStates } from "@/config/todo-states"
+import { type TodoStateId, statusConfigsToTodoStates } from "@/config/todo-states"
 import { useStatuses } from "@/hooks/useStatuses"
 import * as storage from "@/lib/local-storage"
 import { toast } from "sonner"
@@ -90,6 +86,8 @@ import { SourcesListPanel } from "./SourcesListPanel"
 import { SkillsListPanel } from "./SkillsListPanel"
 import { PanelHeader } from "./PanelHeader"
 import SettingsNavigator from "@/pages/settings/SettingsNavigator"
+import { RightSidebar } from "./RightSidebar"
+import type { RichTextInputHandle } from "@/components/ui/rich-text-input"
 
 /**
  * AppShellProps - Minimal props interface for AppShell component
@@ -166,11 +164,34 @@ export function AppShell({
   const [sessionListWidth, setSessionListWidth] = React.useState(() => {
     return storage.get(storage.KEYS.sessionListWidth, 300)
   })
-  const [isResizing, setIsResizing] = React.useState<'sidebar' | 'session-list' | null>(null)
+
+  // Right sidebar state (min 280, max 480)
+  const [isRightSidebarVisible, setIsRightSidebarVisible] = React.useState(() => {
+    return storage.get(storage.KEYS.rightSidebarVisible, false)
+  })
+  const [rightSidebarWidth, setRightSidebarWidth] = React.useState(() => {
+    return storage.get(storage.KEYS.rightSidebarWidth, 300)
+  })
+  const [skipRightSidebarAnimation, setSkipRightSidebarAnimation] = React.useState(false)
+
+  // Window width tracking for responsive behavior
+  const [windowWidth, setWindowWidth] = React.useState(window.innerWidth)
+
+  // Calculate overlay threshold dynamically based on actual sidebar widths
+  // Formula: 600px (300px right sidebar + 300px center) + leftSidebar + sessionList
+  // This ensures we switch to overlay mode when inline right sidebar would compress content
+  const MIN_INLINE_SPACE = 600 // 300px for right sidebar + 300px for center content
+  const leftSidebarEffectiveWidth = isSidebarVisible ? sidebarWidth : 0
+  const OVERLAY_THRESHOLD = MIN_INLINE_SPACE + leftSidebarEffectiveWidth + sessionListWidth
+  const shouldUseOverlay = windowWidth < OVERLAY_THRESHOLD
+
+  const [isResizing, setIsResizing] = React.useState<'sidebar' | 'session-list' | 'right-sidebar' | null>(null)
   const [sidebarHandleY, setSidebarHandleY] = React.useState<number | null>(null)
   const [sessionListHandleY, setSessionListHandleY] = React.useState<number | null>(null)
+  const [rightSidebarHandleY, setRightSidebarHandleY] = React.useState<number | null>(null)
   const resizeHandleRef = React.useRef<HTMLDivElement>(null)
   const sessionListHandleRef = React.useRef<HTMLDivElement>(null)
+  const rightSidebarHandleRef = React.useRef<HTMLDivElement>(null)
   const [session, setSession] = useSession()
   const { resolvedMode } = useTheme()
   const { canGoBack, canGoForward, goBack, goForward } = useNavigation()
@@ -191,10 +212,29 @@ export function AppShell({
   const [searchActive, setSearchActive] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState('')
 
-  // Reset search when navigation state changes
+  // Reset search only when navigator or filter changes (not when selecting sessions)
+  const navFilterKey = React.useMemo(() => {
+    if (isChatsNavigation(navState)) {
+      const filter = navState.filter
+      return `chats:${filter.kind}:${filter.kind === 'state' ? filter.stateId : ''}`
+    }
+    return navState.navigator
+  }, [navState])
+
   React.useEffect(() => {
     setSearchActive(false)
     setSearchQuery('')
+  }, [navFilterKey])
+
+  // Auto-hide right sidebar when navigating away from chat sessions
+  React.useEffect(() => {
+    // Hide sidebar if not in chat view or no session selected
+    if (!isChatsNavigation(navState) || !navState.details) {
+      setSkipRightSidebarAnimation(true)
+      setIsRightSidebarVisible(false)
+      // Reset skip flag after state update
+      setTimeout(() => setSkipRightSidebarAnimation(false), 0)
+    }
   }, [navState])
 
   // Cmd+F to activate search
@@ -207,6 +247,13 @@ export function AppShell({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Track window width for responsive right sidebar behavior
+  React.useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   // Unified sidebar keyboard navigation state
@@ -288,7 +335,6 @@ export function AppShell({
   // Subscribe to live source updates (when sources are added/removed dynamically)
   React.useEffect(() => {
     const cleanup = window.electronAPI.onSourcesChanged((updatedSources) => {
-      console.log('[Chat] Sources changed, updating sidebar:', updatedSources.length)
       setSources(updatedSources || [])
     })
     return cleanup
@@ -307,7 +353,6 @@ export function AppShell({
   // Subscribe to live skill updates (when skills are added/removed dynamically)
   React.useEffect(() => {
     const cleanup = window.electronAPI.onSkillsChanged?.((updatedSkills) => {
-      console.log('[Chat] Skills changed, updating sidebar:', updatedSkills.length)
       setSkills(updatedSkills || [])
     })
     return cleanup
@@ -372,7 +417,7 @@ export function AppShell({
   const { zoneRef: sidebarRef, isFocused: sidebarFocused } = useFocusZone({ zoneId: 'sidebar' })
 
   // Ref for focusing chat input (passed to ChatDisplay)
-  const chatInputRef = useRef<HTMLTextAreaElement>(null)
+  const chatInputRef = useRef<RichTextInputHandle>(null)
   const focusChatInput = useCallback(() => {
     chatInputRef.current?.focus()
   }, [])
@@ -409,6 +454,23 @@ export function AppShell({
       // History navigation
       { key: '[', cmd: true, action: goBack },
       { key: ']', cmd: true, action: goForward },
+      // ESC to stop processing (like clicking Stop button)
+      { key: 'Escape', action: () => {
+        if (session.selected) {
+          const meta = sessionMetaMap.get(session.selected)
+          if (meta?.isProcessing) {
+            window.electronAPI.cancelProcessing(session.selected, false).catch(err => {
+              console.error('[AppShell] Failed to cancel processing:', err)
+            })
+          }
+        }
+      }, when: () => {
+        // Only active when no dialog is open and session is processing
+        if (document.querySelector('[role="dialog"]')) return false
+        if (!session.selected) return false
+        const meta = sessionMetaMap.get(session.selected)
+        return meta?.isProcessing ?? false
+      }},
     ],
   })
 
@@ -445,7 +507,7 @@ export function AppShell({
     return () => document.removeEventListener('paste', handleGlobalPaste)
   }, [])
 
-  // Resize effect for both sidebar and session list
+  // Resize effect for sidebar, session list, and right sidebar
   React.useEffect(() => {
     if (!isResizing) return
 
@@ -465,6 +527,14 @@ export function AppShell({
           const rect = sessionListHandleRef.current.getBoundingClientRect()
           setSessionListHandleY(e.clientY - rect.top)
         }
+      } else if (isResizing === 'right-sidebar') {
+        // Calculate from right edge
+        const newWidth = Math.min(Math.max(window.innerWidth - e.clientX, 280), 480)
+        setRightSidebarWidth(newWidth)
+        if (rightSidebarHandleRef.current) {
+          const rect = rightSidebarHandleRef.current.getBoundingClientRect()
+          setRightSidebarHandleY(e.clientY - rect.top)
+        }
       }
     }
 
@@ -475,6 +545,9 @@ export function AppShell({
       } else if (isResizing === 'session-list') {
         storage.set(storage.KEYS.sessionListWidth, sessionListWidth)
         setSessionListHandleY(null)
+      } else if (isResizing === 'right-sidebar') {
+        storage.set(storage.KEYS.rightSidebarWidth, rightSidebarWidth)
+        setRightSidebarHandleY(null)
       }
       setIsResizing(null)
     }
@@ -486,7 +559,7 @@ export function AppShell({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isResizing, sidebarWidth, sessionListWidth, isSidebarVisible])
+  }, [isResizing, sidebarWidth, sessionListWidth, rightSidebarWidth, isSidebarVisible])
 
   // Spring transition config - shared between sidebar and header
   // Critical damping (no bounce): damping = 2 * sqrt(stiffness * mass)
@@ -512,21 +585,21 @@ export function AppShell({
   const isMetaDone = (s: SessionMeta) => s.todoState === 'done' || s.todoState === 'cancelled'
   const flaggedCount = workspaceSessionMetas.filter(s => s.isFlagged).length
 
-  // Count sessions by individual todo state
+  // Count sessions by individual todo state (dynamic based on todoStates)
   const todoStateCounts = useMemo(() => {
-    const counts: Record<TodoStateId, number> = {
-      'todo': 0,
-      'in-progress': 0,
-      'needs-review': 0,
-      'done': 0,
-      'cancelled': 0,
+    const counts: Record<TodoStateId, number> = {}
+    // Initialize counts for all dynamic statuses
+    for (const state of todoStates) {
+      counts[state.id] = 0
     }
+    // Count sessions
     for (const s of workspaceSessionMetas) {
       const state = (s.todoState || 'todo') as TodoStateId
-      counts[state]++
+      // Increment count (initialize to 0 if status not in todoStates yet)
+      counts[state] = (counts[state] || 0) + 1
     }
     return counts
-  }, [workspaceSessionMetas])
+  }, [workspaceSessionMetas, todoStates])
 
   // Filter session metadata based on sidebar mode and chat filter
   const filteredSessionMetas = useMemo(() => {
@@ -578,15 +651,52 @@ export function AppShell({
     return onDeleteSession(sessionId, skipConfirmation)
   }, [session.selected, setSession, onDeleteSession])
 
-  // Extend context value with local overrides (textareaRef, wrapped onDeleteSession, sources, enabledModes)
+  // Right sidebar OPEN button (fades out when sidebar is open, hidden in focused mode or non-chat views)
+  const rightSidebarOpenButton = React.useMemo(() => {
+    if (isFocusedMode || !isChatsNavigation(navState) || !navState.details) return null
+
+    return (
+      <motion.div
+        initial={false}
+        animate={{ opacity: isRightSidebarVisible ? 0 : 1 }}
+        transition={{ duration: 0.15 }}
+        style={{ pointerEvents: isRightSidebarVisible ? 'none' : 'auto' }}
+      >
+        <HeaderIconButton
+          icon={<PanelRightRounded className="h-5 w-6" />}
+          onClick={() => setIsRightSidebarVisible(true)}
+          tooltip="Open sidebar"
+        />
+      </motion.div>
+    )
+  }, [isFocusedMode, navState, isRightSidebarVisible])
+
+  // Right sidebar CLOSE button (shown in sidebar header when open)
+  const rightSidebarCloseButton = React.useMemo(() => {
+    if (isFocusedMode || !isRightSidebarVisible) return null
+
+    return (
+      <HeaderIconButton
+        icon={<PanelLeftRounded className="h-5 w-6" />}
+        onClick={() => setIsRightSidebarVisible(false)}
+        tooltip="Close sidebar"
+        className="text-foreground"
+      />
+    )
+  }, [isFocusedMode, isRightSidebarVisible])
+
+  // Extend context value with local overrides (textareaRef, wrapped onDeleteSession, sources, skills, enabledModes, rightSidebarOpenButton, todoStates)
   const appShellContextValue = React.useMemo<AppShellContextType>(() => ({
     ...contextValue,
     onDeleteSession: handleDeleteSession,
     textareaRef: chatInputRef,
     enabledSources: sources,
+    skills,
     enabledModes,
+    todoStates,
     onSessionSourcesChange: handleSessionSourcesChange,
-  }), [contextValue, handleDeleteSession, sources, enabledModes, handleSessionSourcesChange])
+    rightSidebarButton: rightSidebarOpenButton,
+  }), [contextValue, handleDeleteSession, sources, skills, enabledModes, todoStates, handleSessionSourcesChange, rightSidebarOpenButton])
 
   // Persist expanded folders to localStorage
   React.useEffect(() => {
@@ -597,6 +707,11 @@ export function AppShell({
   React.useEffect(() => {
     storage.set(storage.KEYS.sidebarVisible, isSidebarVisible)
   }, [isSidebarVisible])
+
+  // Persist right sidebar visibility to localStorage
+  React.useEffect(() => {
+    storage.set(storage.KEYS.rightSidebarVisible, isRightSidebarVisible)
+  }, [isRightSidebarVisible])
 
   // Persist list filter to localStorage
   React.useEffect(() => {
@@ -722,12 +837,10 @@ export function AppShell({
     result.push({ id: 'nav:allChats', type: 'nav', action: handleAllChatsClick })
     result.push({ id: 'nav:flagged', type: 'nav', action: handleFlaggedClick })
 
-    // 2. Status nav items (todo states)
-    result.push({ id: 'nav:state:todo', type: 'nav', action: () => handleTodoStateClick('todo') })
-    result.push({ id: 'nav:state:in-progress', type: 'nav', action: () => handleTodoStateClick('in-progress') })
-    result.push({ id: 'nav:state:needs-review', type: 'nav', action: () => handleTodoStateClick('needs-review') })
-    result.push({ id: 'nav:state:done', type: 'nav', action: () => handleTodoStateClick('done') })
-    result.push({ id: 'nav:state:cancelled', type: 'nav', action: () => handleTodoStateClick('cancelled') })
+    // 2. Status nav items (dynamic from todoStates)
+    for (const state of todoStates) {
+      result.push({ id: `nav:state:${state.id}`, type: 'nav', action: () => handleTodoStateClick(state.id) })
+    }
 
     // 2.5. Sources nav items (parent and categories)
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
@@ -739,7 +852,7 @@ export function AppShell({
     result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick('app') })
 
     return result
-  }, [handleAllChatsClick, handleFlaggedClick, handleTodoStateClick, handleSourcesClick, handleSourceCategoryClick, handleSettingsClick])
+  }, [handleAllChatsClick, handleFlaggedClick, handleTodoStateClick, todoStates, handleSourcesClick, handleSourceCategoryClick, handleSettingsClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -939,6 +1052,7 @@ export function AppShell({
                     variant="ghost"
                     onClick={() => handleNewChat(true)}
                     className="w-full justify-start gap-2 py-[7px] px-2 text-[13px] font-normal rounded-[6px] shadow-minimal bg-background"
+                    data-tutorial="new-chat-button"
                   >
                     <SquarePenRounded className="h-3.5 w-3.5 shrink-0" />
                     New Chat
@@ -970,51 +1084,16 @@ export function AppShell({
                           variant: chatFilter?.kind === 'flagged' ? "default" : "ghost",
                           onClick: handleFlaggedClick,
                         },
-                        {
-                          id: "nav:state:todo",
-                          title: "Todo",
-                          label: String(todoStateCounts['todo']),
-                          icon: <CircleDashed className="h-3.5 w-3.5" />,
-                          iconColor: "text-muted-foreground",
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'todo' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('todo'),
-                        },
-                        {
-                          id: "nav:state:in-progress",
-                          title: "In Progress",
-                          label: String(todoStateCounts['in-progress']),
-                          icon: <CircleProgress className="h-3.5 w-3.5" />,
-                          iconColor: getStateColor('in-progress', todoStates),
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'in-progress' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('in-progress'),
-                        },
-                        {
-                          id: "nav:state:needs-review",
-                          title: "Needs Review",
-                          label: String(todoStateCounts['needs-review']),
-                          icon: <CircleEye className="h-3.5 w-3.5" />,
-                          iconColor: getStateColor('needs-review', todoStates),
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'needs-review' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('needs-review'),
-                        },
-                        {
-                          id: "nav:state:done",
-                          title: "Done",
-                          label: String(todoStateCounts['done']),
-                          icon: <CircleCheckFilled className="h-3.5 w-3.5" />,
-                          iconColor: "text-accent",
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'done' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('done'),
-                        },
-                        {
-                          id: "nav:state:cancelled",
-                          title: "Cancelled",
-                          label: String(todoStateCounts['cancelled']),
-                          icon: <CircleXFilled className="h-3.5 w-3.5" />,
-                          iconColor: "text-muted-foreground/60",
-                          variant: chatFilter?.kind === 'state' && chatFilter.stateId === 'cancelled' ? "default" : "ghost",
-                          onClick: () => handleTodoStateClick('cancelled'),
-                        },
+                        // Dynamic status items from todoStates
+                        ...todoStates.map(state => ({
+                          id: `nav:state:${state.id}`,
+                          title: state.label,
+                          label: String(todoStateCounts[state.id] || 0),
+                          icon: state.icon,
+                          iconColor: state.color,
+                          variant: (chatFilter?.kind === 'state' && chatFilter.stateId === state.id ? "default" : "ghost") as "default" | "ghost",
+                          onClick: () => handleTodoStateClick(state.id),
+                        })),
                       ],
                     },
                     {
@@ -1027,6 +1106,7 @@ export function AppShell({
                       expandable: true,
                       expanded: isExpanded('nav:sources'),
                       onToggle: () => toggleExpanded('nav:sources'),
+                      dataTutorial: "sources-nav",
                       items: [
                         {
                           id: "nav:sources:local-files",
@@ -1043,6 +1123,7 @@ export function AppShell({
                           icon: Globe,
                           variant: isSourcesNavigation(navState) && navState.category === 'online-sources' ? "default" : "ghost",
                           onClick: () => handleSourceCategoryClick('online-sources'),
+                          dataTutorial: "cloud-services-nav",
                         },
                         {
                           id: "nav:sources:local-mcp",
@@ -1076,27 +1157,15 @@ export function AppShell({
                 {/* Agents section removed */}
               </div>
 
-              {/* Sidebar Bottom Section: WorkspaceSwitcher + Settings */}
-              <div className="mt-auto shrink-0">
-                <div className="flex items-center py-2 px-2 gap-2">
-                  <div className="flex-1 min-w-0">
-                    <WorkspaceSwitcher
-                      isCollapsed={false}
-                      workspaces={workspaces}
-                      activeWorkspaceId={activeWorkspaceId}
-                      onSelect={onSelectWorkspace}
-                      onWorkspaceCreated={() => onRefreshWorkspaces?.()}
-                    />
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 rounded-[4px] hover:bg-foreground/5"
-                    onClick={onOpenSettings}
-                  >
-                    <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-                  </Button>
-                </div>
+              {/* Sidebar Bottom Section: WorkspaceSwitcher */}
+              <div className="mt-auto shrink-0 py-2 px-2">
+                <WorkspaceSwitcher
+                  isCollapsed={false}
+                  workspaces={workspaces}
+                  activeWorkspaceId={activeWorkspaceId}
+                  onSelect={onSelectWorkspace}
+                  onWorkspaceCreated={() => onRefreshWorkspaces?.()}
+                />
               </div>
             </div>
           </div>
@@ -1131,7 +1200,11 @@ export function AppShell({
 
         {/* === MAIN CONTENT (Right) ===
             Flex layout: Session List | Chat Display */}
-        <div className="flex-1 overflow-hidden min-w-0 flex h-full pl-1.5 pr-2 pb-2 pt-[6px] gap-[3px]">
+        <div className={cn(
+          "flex-1 overflow-hidden min-w-0 flex h-full pl-1.5 pb-2 pt-[6px] gap-[3px]",
+          // Reduce right padding when inline sidebar is hidden to compensate for gap before 0-width motion.div
+          !isFocusedMode && !shouldUseOverlay && !isRightSidebarVisible ? "pr-0.75" : "pr-1.5"
+        )}>
           {/* === SESSION LIST PANEL === (hidden in focused mode) */}
           {!isFocusedMode && (
           <div
@@ -1172,81 +1245,30 @@ export function AppShell({
                             </button>
                           )}
                         </div>
-                        <StyledDropdownMenuItem
-                          onClick={(e) => {
-                            e.preventDefault()
-                            setListFilter(prev => {
-                              const next = new Set(prev)
-                              if (next.has('todo')) next.delete('todo')
-                              else next.add('todo')
-                              return next
-                            })
-                          }}
-                        >
-                          <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="flex-1">Todo</span>
-                          <span className="w-3.5 ml-4">{listFilter.has('todo') && <Check className="h-3.5 w-3.5 text-foreground" />}</span>
-                        </StyledDropdownMenuItem>
-                        <StyledDropdownMenuItem
-                          onClick={(e) => {
-                            e.preventDefault()
-                            setListFilter(prev => {
-                              const next = new Set(prev)
-                              if (next.has('in-progress')) next.delete('in-progress')
-                              else next.add('in-progress')
-                              return next
-                            })
-                          }}
-                        >
-                          <CircleProgress className="h-3.5 w-3.5" style={isHexColor(getStateColor('in-progress', todoStates)) ? { color: getStateColor('in-progress', todoStates) } : undefined} />
-                          <span className="flex-1">In Progress</span>
-                          <span className="w-3.5 ml-4">{listFilter.has('in-progress') && <Check className="h-3.5 w-3.5 text-foreground" />}</span>
-                        </StyledDropdownMenuItem>
-                        <StyledDropdownMenuItem
-                          onClick={(e) => {
-                            e.preventDefault()
-                            setListFilter(prev => {
-                              const next = new Set(prev)
-                              if (next.has('needs-review')) next.delete('needs-review')
-                              else next.add('needs-review')
-                              return next
-                            })
-                          }}
-                        >
-                          <CircleEye className="h-3.5 w-3.5" style={isHexColor(getStateColor('needs-review', todoStates)) ? { color: getStateColor('needs-review', todoStates) } : undefined} />
-                          <span className="flex-1">Needs Review</span>
-                          <span className="w-3.5 ml-4">{listFilter.has('needs-review') && <Check className="h-3.5 w-3.5 text-foreground" />}</span>
-                        </StyledDropdownMenuItem>
-                        <StyledDropdownMenuItem
-                          onClick={(e) => {
-                            e.preventDefault()
-                            setListFilter(prev => {
-                              const next = new Set(prev)
-                              if (next.has('done')) next.delete('done')
-                              else next.add('done')
-                              return next
-                            })
-                          }}
-                        >
-                          <CircleCheckFilled className="h-3.5 w-3.5 text-accent" />
-                          <span className="flex-1">Done</span>
-                          <span className="w-3.5 ml-4">{listFilter.has('done') && <Check className="h-3.5 w-3.5 text-foreground" />}</span>
-                        </StyledDropdownMenuItem>
-                        <StyledDropdownMenuItem
-                          onClick={(e) => {
-                            e.preventDefault()
-                            setListFilter(prev => {
-                              const next = new Set(prev)
-                              if (next.has('cancelled')) next.delete('cancelled')
-                              else next.add('cancelled')
-                              return next
-                            })
-                          }}
-                        >
-                          <CircleXFilled className="h-3.5 w-3.5 text-muted-foreground/60" />
-                          <span className="flex-1">Cancelled</span>
-                          <span className="w-3.5 ml-4">{listFilter.has('cancelled') && <Check className="h-3.5 w-3.5 text-foreground" />}</span>
-                        </StyledDropdownMenuItem>
+                        {/* Dynamic status filter items */}
+                        {todoStates.map(state => (
+                          <StyledDropdownMenuItem
+                            key={state.id}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              setListFilter(prev => {
+                                const next = new Set(prev)
+                                if (next.has(state.id)) next.delete(state.id)
+                                else next.add(state.id)
+                                return next
+                              })
+                            }}
+                          >
+                            <span
+                              className="h-3.5 w-3.5 flex items-center justify-center shrink-0 [&>svg]:w-full [&>svg]:h-full [&>img]:w-full [&>img]:h-full"
+                              style={isHexColor(state.color) ? { color: state.color } : undefined}
+                            >
+                              {state.icon}
+                            </span>
+                            <span className="flex-1">{state.label}</span>
+                            <span className="w-3.5 ml-4">{listFilter.has(state.id) && <Check className="h-3.5 w-3.5 text-foreground" />}</span>
+                          </StyledDropdownMenuItem>
+                        ))}
                         <StyledDropdownMenuSeparator />
                         <StyledDropdownMenuItem
                           onClick={() => {
@@ -1283,6 +1305,7 @@ export function AppShell({
                       icon={<Plus className="h-4 w-4" />}
                       onClick={handleAddSource}
                       tooltip="Add Source"
+                      data-tutorial="add-source-button"
                     />
                   )}
                 </>
@@ -1397,10 +1420,101 @@ export function AppShell({
           {/* === MAIN CONTENT PANEL === */}
           <div className={cn(
             "flex-1 overflow-hidden min-w-0 bg-background shadow-middle",
-            isFocusedMode ? "rounded-[14px]" : "rounded-l-[10px] rounded-r-[14px]"
+            isFocusedMode ? "rounded-[14px]" : (isRightSidebarVisible ? "rounded-l-[10px] rounded-r-[10px]" : "rounded-l-[10px] rounded-r-[14px]")
           )}>
             <MainContentPanel isFocusedMode={isFocusedMode} />
           </div>
+
+          {/* Right Sidebar - Inline Mode (≥ 920px) */}
+          {!isFocusedMode && !shouldUseOverlay && (
+            <>
+              {/* Resize Handle */}
+              {isRightSidebarVisible && (
+                <div
+                  ref={rightSidebarHandleRef}
+                  onMouseDown={(e) => { e.preventDefault(); setIsResizing('right-sidebar') }}
+                  onMouseMove={(e) => {
+                    if (rightSidebarHandleRef.current) {
+                      const rect = rightSidebarHandleRef.current.getBoundingClientRect()
+                      setRightSidebarHandleY(e.clientY - rect.top)
+                    }
+                  }}
+                  onMouseLeave={() => { if (isResizing !== 'right-sidebar') setRightSidebarHandleY(null) }}
+                  className="relative w-0 h-full cursor-col-resize flex justify-center shrink-0"
+                >
+                  {/* Touch area */}
+                  <div className="absolute inset-y-0 -left-1.5 -right-1.5 flex justify-center cursor-col-resize">
+                    <div
+                      className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5"
+                      style={getResizeGradientStyle(rightSidebarHandleY)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Inline Sidebar */}
+              <motion.div
+                initial={false}
+                animate={{
+                  width: isRightSidebarVisible ? rightSidebarWidth : 0,
+                }}
+                transition={isResizing === 'right-sidebar' || skipRightSidebarAnimation ? { duration: 0 } : springTransition}
+                className="h-full shrink-0 overflow-hidden"
+              >
+                <motion.div
+                  initial={false}
+                  animate={{
+                    x: isRightSidebarVisible ? 0 : rightSidebarWidth,
+                    opacity: isRightSidebarVisible ? 1 : 0,
+                  }}
+                  transition={isResizing === 'right-sidebar' || skipRightSidebarAnimation ? { duration: 0 } : springTransition}
+                  className="h-full bg-surface-below shadow-middle rounded-l-[10px] rounded-r-[14px]"
+                  style={{ width: rightSidebarWidth }}
+                >
+                  <RightSidebar
+                    panel={{ type: 'sessionMetadata' }}
+                    sessionId={isChatsNavigation(navState) && navState.details ? navState.details.sessionId : undefined}
+                    closeButton={rightSidebarCloseButton}
+                  />
+                </motion.div>
+              </motion.div>
+            </>
+          )}
+
+          {/* Right Sidebar - Overlay Mode (< 920px) */}
+          {!isFocusedMode && shouldUseOverlay && (
+            <AnimatePresence>
+              {isRightSidebarVisible && (
+                <>
+                  {/* Backdrop */}
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={skipRightSidebarAnimation ? { duration: 0 } : { duration: 0.2 }}
+                    className="fixed inset-0 bg-black/25 z-60"
+                    onClick={() => setIsRightSidebarVisible(false)}
+                  />
+                  {/* Drawer panel */}
+                  <motion.div
+                    initial={{ x: 316 }}
+                    animate={{ x: 0 }}
+                    exit={{ x: 316 }}
+                    transition={skipRightSidebarAnimation ? { duration: 0 } : springTransition}
+                    className="fixed inset-y-0 right-0 w-[316px] h-screen z-60 p-1.5"
+                  >
+                    <div className="h-full bg-surface-below overflow-hidden shadow-strong rounded-[12px]">
+                      <RightSidebar
+                        panel={{ type: 'sessionMetadata' }}
+                        sessionId={isChatsNavigation(navState) && navState.details ? navState.details.sessionId : undefined}
+                        closeButton={rightSidebarCloseButton}
+                      />
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          )}
         </div>
       </div>
 

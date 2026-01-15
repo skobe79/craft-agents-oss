@@ -26,6 +26,11 @@ files:
 extraMetadata:
   main: dist/main.cjs
 
+# Extra resources to bundle with the app (outside the app code)
+extraResources:
+  - from: scripts/self-update.sh
+    to: self-update.sh
+
 # Disable ASAR to avoid decompression overhead and click delays
 asar: false
 
@@ -71,6 +76,8 @@ win:
     - target: nsis
       arch:
         - x64
+  # Use predictable naming: Craft-Agent-x64.exe
+  artifactName: "Craft-Agent-${arch}.${ext}"
   # Exclude ripgrep binaries for other platforms
   files:
     - "!node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/arm64-linux"
@@ -95,3 +102,5 @@ linux:
     - target: deb
       arch:
         - x64
+  # Use predictable naming: Craft-Agent-x64.AppImage, Craft-Agent-arm64.AppImage
+  artifactName: "Craft-Agent-${arch}.${ext}"

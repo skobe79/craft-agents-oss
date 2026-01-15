@@ -3,12 +3,14 @@
  *
  * Provides a single source of truth for all authentication state:
  * - Craft OAuth (for accessing Craft API and MCP servers)
- * - Billing configuration (craft_credits, api_key, or oauth_token)
+ * - Billing configuration (api_key or oauth_token)
  * - Workspace/MCP configuration
  */
 
 import { getCredentialManager } from '../credentials/index.ts';
 import { loadStoredConfig, getActiveWorkspace, type AuthType, type Workspace } from '../config/storage.ts';
+import { refreshClaudeToken, isTokenExpired, getExistingClaudeCredentials } from './claude-token.ts';
+import { debug } from '../utils/debug.ts';
 
 // ============================================
 // Types
@@ -58,6 +60,70 @@ export interface SetupNeeds {
 // ============================================
 
 /**
+ * Get and refresh Claude OAuth token if needed
+ * This function:
+ * 1. Checks if we have a token in our credential store
+ * 2. If not, tries to import from Claude CLI keychain
+ * 3. If token is expired and we have a refresh token, refreshes it
+ * 4. Returns the valid access token
+ */
+async function getValidClaudeOAuthToken(): Promise<string | null> {
+  const manager = getCredentialManager();
+
+  // Try to get credentials from our store
+  let creds = await manager.getClaudeOAuthCredentials();
+
+  // If we don't have credentials in our store, try to import from Claude CLI
+  if (!creds) {
+    const cliCreds = getExistingClaudeCredentials();
+    if (cliCreds) {
+      debug('[auth] Importing Claude credentials from CLI keychain');
+      await manager.setClaudeOAuthCredentials({
+        accessToken: cliCreds.accessToken,
+        refreshToken: cliCreds.refreshToken,
+        expiresAt: cliCreds.expiresAt,
+      });
+      creds = cliCreds;
+    }
+  }
+
+  if (!creds) {
+    return null;
+  }
+
+  // Check if token is expired
+  if (isTokenExpired(creds.expiresAt)) {
+    debug('[auth] Claude OAuth token expired, attempting refresh');
+
+    // Try to refresh if we have a refresh token
+    if (creds.refreshToken) {
+      try {
+        const refreshed = await refreshClaudeToken(creds.refreshToken);
+        debug('[auth] Successfully refreshed Claude OAuth token');
+
+        // Store the new credentials
+        await manager.setClaudeOAuthCredentials({
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken,
+          expiresAt: refreshed.expiresAt,
+        });
+
+        return refreshed.accessToken;
+      } catch (error) {
+        debug('[auth] Failed to refresh Claude OAuth token:', error);
+        // Token refresh failed - return null to trigger re-authentication
+        return null;
+      }
+    } else {
+      debug('[auth] No refresh token available, cannot refresh expired token');
+      return null;
+    }
+  }
+
+  return creds.accessToken;
+}
+
+/**
  * Get complete authentication state from all sources (config file + credential store)
  */
 export async function getAuthState(): Promise<AuthState> {
@@ -66,15 +132,12 @@ export async function getAuthState(): Promise<AuthState> {
 
   const craftToken = await manager.getCraftOAuth();
   const apiKey = await manager.getApiKey();
-  const claudeOAuth = await manager.getClaudeOAuth();
+  const claudeOAuth = await getValidClaudeOAuthToken();
   const activeWorkspace = getActiveWorkspace();
 
   // Determine if billing credentials are satisfied based on auth type
   let hasCredentials = false;
-  if (config?.authType === 'craft_credits') {
-    // Craft Credits just needs Craft OAuth (billing handled by Craft)
-    hasCredentials = !!craftToken;
-  } else if (config?.authType === 'api_key') {
+  if (config?.authType === 'api_key') {
     hasCredentials = !!apiKey;
   } else if (config?.authType === 'oauth_token') {
     hasCredentials = !!claudeOAuth;
@@ -102,26 +165,16 @@ export async function getAuthState(): Promise<AuthState> {
  * Derive what setup steps are needed based on current auth state
  */
 export function getSetupNeeds(state: AuthState): SetupNeeds {
-  // Craft OAuth is only required for:
-  // 1. New users (no workspace) who need to select a space during onboarding
-  // 2. Users with craft_credits billing (Craft handles the billing)
-  //
-  // Users with api_key or oauth_token billing do NOT need Craft auth.
+  // Craft OAuth is only required for new users (no workspace) who need to select a space during onboarding
   const needsCraftAuth = !state.craft.hasToken && !state.workspace.hasWorkspace;
 
-  // Reauth is only needed if:
-  // - User has craft_credits billing AND token expired AND has a workspace
-  // Users with api_key or oauth_token should never see the reauth screen.
-  const needsReauth = state.billing.type === 'craft_credits'
-    && !state.craft.hasToken
-    && state.workspace.hasWorkspace;
+  // Reauth is not needed for api_key or oauth_token billing
+  const needsReauth = false;
 
   // Need billing config if no billing type is set
   const needsBillingConfig = state.billing.type === null;
 
   // Need credentials if billing type is set but credentials are missing
-  // Note: For craft_credits, hasCredentials depends on Craft token, so if needsReauth is true,
-  // needsCredentials would also be true. We handle this by checking needsReauth first in the UI.
   const needsCredentials = state.billing.type !== null && !state.billing.hasCredentials;
 
   return {
