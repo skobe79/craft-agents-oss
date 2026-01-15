@@ -1,6 +1,7 @@
 import { Menu, app, shell, BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '../shared/types'
 import type { WindowManager } from './window-manager'
+import { mainLog } from './logger'
 
 // Store reference for rebuilding menu
 let cachedWindowManager: WindowManager | null = null
@@ -91,6 +92,11 @@ export async function rebuildMenu(): Promise<void> {
           }
         },
         { type: 'separator' as const },
+        {
+          label: 'Import Claude Code Sessions...',
+          click: () => sendToRenderer(IPC_CHANNELS.MENU_IMPORT_CLAUDE_CODE)
+        },
+        { type: 'separator' as const },
         isMac ? { role: 'close' as const } : { role: 'quit' as const }
       ]
     },
@@ -153,6 +159,38 @@ export async function rebuildMenu(): Promise<void> {
                 `localStorage.removeItem('craft-tutorial-progress')`
               )
               win.reload()
+            }
+          }
+        },
+        { type: 'separator' as const },
+        {
+          label: 'Check for Updates',
+          click: async () => {
+            const { checkForUpdates } = await import('./auto-update')
+            const info = await checkForUpdates({ autoDownload: false })
+            mainLog.info('[debug-menu] Update check result:', info)
+          }
+        },
+        {
+          label: 'Download Update',
+          click: async () => {
+            const { downloadUpdate } = await import('./auto-update')
+            try {
+              await downloadUpdate()
+              mainLog.info('[debug-menu] Download complete')
+            } catch (err) {
+              mainLog.error('[debug-menu] Download failed:', err)
+            }
+          }
+        },
+        {
+          label: 'Install Update',
+          click: async () => {
+            const { installUpdate } = await import('./auto-update')
+            try {
+              await installUpdate()
+            } catch (err) {
+              mainLog.error('[debug-menu] Install failed:', err)
             }
           }
         }

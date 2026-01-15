@@ -659,8 +659,16 @@ export async function checkForUpdatesOnLaunch(): Promise<UpdateOnLaunchResult> {
 /**
  * Schedule update check after app startup
  * @deprecated Use checkForUpdatesOnLaunch() instead for immediate check
+ *
+ * Skipped in debug mode (dev builds) to allow manual testing via Debug menu.
  */
 export function scheduleUpdateCheck(delayMs = 5000): void {
+  // Skip auto-update in debug mode - use Debug menu to test manually
+  if (!app.isPackaged) {
+    mainLog.info('[auto-update] Skipping auto-update check in debug mode (use Debug menu to test)')
+    return
+  }
+
   mainLog.info(`[auto-update] Scheduling update check in ${delayMs}ms`)
 
   setTimeout(() => {
