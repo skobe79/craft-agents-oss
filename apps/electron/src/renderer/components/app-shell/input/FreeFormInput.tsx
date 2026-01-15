@@ -27,8 +27,8 @@ import {
   type MentionItem,
   type MentionItemType,
 } from '@/components/ui/mention-menu'
-import { ActiveMentionBadges, type ParsedMention } from '@/components/ui/mention-badge'
-import { parseMentions, removeMention } from '@/lib/mentions'
+import { parseMentions } from '@/lib/mentions'
+import { RichTextInput, type RichTextInputHandle } from '@/components/ui/rich-text-input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   DropdownMenu,
@@ -57,8 +57,8 @@ export interface FreeFormInputProps {
   onSubmit: (message: string, attachments?: FileAttachment[], skillSlugs?: string[]) => void
   /** Callback to stop processing. Pass silent=true to skip "Response interrupted" message */
   onStop?: (silent?: boolean) => void
-  /** External ref for the textarea */
-  textareaRef?: React.RefObject<HTMLTextAreaElement>
+  /** External ref for the input */
+  inputRef?: React.RefObject<RichTextInputHandle>
   /** Current model ID */
   currentModel: string
   /** Callback when model changes */
@@ -123,7 +123,7 @@ export function FreeFormInput({
   isProcessing = false,
   onSubmit,
   onStop,
-  textareaRef: externalTextareaRef,
+  inputRef: externalInputRef,
   currentModel,
   onModelChange,
   ultrathinkEnabled = false,
@@ -224,9 +224,9 @@ export function FreeFormInput({
   const sourceFilterInputRef = React.useRef<HTMLInputElement>(null)
   const [sourceDropdownPosition, setSourceDropdownPosition] = React.useState<{ top: number; left: number } | null>(null)
 
-  // Merge refs
-  const internalRef = React.useRef<HTMLTextAreaElement>(null)
-  const textareaRef = externalTextareaRef || internalRef
+  // Merge refs for RichTextInput
+  const internalInputRef = React.useRef<RichTextInputHandle>(null)
+  const richInputRef = externalInputRef || internalInputRef
 
   // Listen for craft:insert-text events (generic mechanism for inserting text into input)
   // Used by components that want to pre-fill the input with text
@@ -235,20 +235,17 @@ export function FreeFormInput({
       const { text } = e.detail
       setInput(text)
       syncToParent(text)
-      // Focus the textarea after inserting
+      // Focus the input after inserting
       setTimeout(() => {
-        textareaRef.current?.focus()
+        richInputRef.current?.focus()
         // Move cursor to end
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = text.length
-          textareaRef.current.selectionEnd = text.length
-        }
+        richInputRef.current?.setSelectionRange(text.length, text.length)
       }, 0)
     }
 
     window.addEventListener('craft:insert-text', handleInsertText as EventListener)
     return () => window.removeEventListener('craft:insert-text', handleInsertText as EventListener)
-  }, [syncToParent, textareaRef])
+  }, [syncToParent, richInputRef])
 
   // Listen for craft:approve-plan events (used by ResponseCard's Accept Plan button)
   // This disables safe mode AND submits the message in one action
@@ -306,13 +303,13 @@ export function FreeFormInput({
         setLoadingCount(prev => prev - 1)
       }
 
-      // Focus the textarea after adding attachments
-      textareaRef.current?.focus()
+      // Focus the input after adding attachments
+      richInputRef.current?.focus()
     }
 
     window.addEventListener('craft:paste-files', handlePasteFiles as unknown as EventListener)
     return () => window.removeEventListener('craft:paste-files', handlePasteFiles as unknown as EventListener)
-  }, [disabled, textareaRef])
+  }, [disabled, richInputRef])
 
   // Build active commands list for slash command menu
   const activeCommands = React.useMemo(() => {
@@ -335,7 +332,7 @@ export function FreeFormInput({
 
   // Inline slash command hook
   const inlineSlash = useInlineSlashCommand({
-    textareaRef: textareaRef as React.RefObject<HTMLTextAreaElement>,
+    inputRef: richInputRef,
     onSelect: handleSlashCommand,
     activeCommands,
   })
@@ -375,7 +372,7 @@ export function FreeFormInput({
 
   // Inline mention hook (unified for skills, sources, and folders)
   const inlineMention = useInlineMention({
-    textareaRef: textareaRef as React.RefObject<HTMLTextAreaElement>,
+    inputRef: richInputRef,
     skills,
     sources,
     recentFolders,
@@ -383,53 +380,7 @@ export function FreeFormInput({
     onSelect: handleMentionSelect,
   })
 
-  // Compute active mentions from input text for badge display
-  const activeMentions = React.useMemo((): ParsedMention[] => {
-    const skillSlugs = skills.map(s => s.slug)
-    const sourceSlugs = sources.map(s => s.config.slug)
-    const parsed = parseMentions(input, skillSlugs, sourceSlugs)
-
-    const mentions: ParsedMention[] = []
-
-    // Add skill mentions
-    for (const slug of parsed.skills) {
-      const skill = skills.find(s => s.slug === slug)
-      if (skill) {
-        mentions.push({
-          id: slug,
-          type: 'skill',
-          label: skill.metadata.name,
-          skill,
-        })
-      }
-    }
-
-    // Add source mentions
-    for (const slug of parsed.sources) {
-      const source = sources.find(s => s.config.slug === slug)
-      if (source) {
-        mentions.push({
-          id: slug,
-          type: 'source',
-          label: source.config.name,
-          source,
-        })
-      }
-    }
-
-    // Add folder mentions
-    for (const path of parsed.folders) {
-      const folderName = path.split('/').pop() || path
-      mentions.push({
-        id: path,
-        type: 'folder',
-        label: folderName,
-        path,
-      })
-    }
-
-    return mentions
-  }, [input, skills, sources])
+  // NOTE: Mentions are now rendered inline in RichTextInput, no separate badge row needed
 
   // Report height changes to parent (for external animation sync)
   React.useLayoutEffect(() => {
@@ -693,7 +644,7 @@ export function FreeFormInput({
 
     // Restore focus after state updates
     requestAnimationFrame(() => {
-      textareaRef.current?.focus()
+      richInputRef.current?.focus()
     })
 
     return true
@@ -760,14 +711,18 @@ export function FreeFormInput({
       submitMessage()
     }
     if (e.key === 'Escape') {
-      textareaRef.current?.blur()
+      richInputRef.current?.blur()
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    let value = e.target.value
-    let cursorPosition = e.target.selectionStart
+  // Handle input changes from RichTextInput
+  const handleInputChange = React.useCallback((value: string) => {
+    setInput(value)
+    syncToParent(value) // Debounced sync to parent for draft persistence
+  }, [syncToParent])
 
+  // Handle input with cursor position (for menu detection)
+  const handleRichInput = React.useCallback((value: string, cursorPosition: number) => {
     // Update inline slash command state
     inlineSlash.handleInputChange(value, cursorPosition)
 
@@ -775,52 +730,48 @@ export function FreeFormInput({
     inlineMention.handleInputChange(value, cursorPosition)
 
     // Auto-capitalize first letter (but not for slash commands or @mentions)
+    let newValue = value
     if (value.length > 0 && value.charAt(0) !== '/' && value.charAt(0) !== '@') {
-      value = value.charAt(0).toUpperCase() + value.slice(1)
+      const capitalizedFirst = value.charAt(0).toUpperCase()
+      if (capitalizedFirst !== value.charAt(0)) {
+        newValue = capitalizedFirst + value.slice(1)
+        setInput(newValue)
+        syncToParent(newValue)
+        return
+      }
     }
 
     // Apply smart typography (-> to →, etc.)
     const typography = applySmartTypography(value, cursorPosition)
-    value = typography.text
-    cursorPosition = typography.cursor
-
-    setInput(value)
-    syncToParent(value) // Debounced sync to parent for draft persistence
-
-    // Restore cursor position after React re-render (if typography changed it)
     if (typography.replaced) {
+      newValue = typography.text
+      setInput(newValue)
+      syncToParent(newValue)
+      // Restore cursor position after React re-render
       requestAnimationFrame(() => {
-        textareaRef.current?.setSelectionRange(cursorPosition, cursorPosition)
+        richInputRef.current?.setSelectionRange(typography.cursor, typography.cursor)
       })
     }
-  }
+  }, [inlineSlash, inlineMention, syncToParent])
 
   // Handle inline slash command selection (removes the /command text)
   const handleInlineSlashSelect = React.useCallback((commandId: SlashCommandId) => {
     const newValue = inlineSlash.handleSelect(commandId)
     setInput(newValue)
     syncToParent(newValue)
-    textareaRef.current?.focus()
-  }, [inlineSlash, syncToParent, textareaRef])
+    richInputRef.current?.focus()
+  }, [inlineSlash, syncToParent])
 
   // Handle inline mention selection (inserts appropriate mention text)
   const handleInlineMentionSelect = React.useCallback((item: MentionItem) => {
     const newValue = inlineMention.handleSelect(item)
     setInput(newValue)
     syncToParent(newValue)
-    // Focus textarea
+    // Focus input
     setTimeout(() => {
-      textareaRef.current?.focus()
+      richInputRef.current?.focus()
     }, 0)
-  }, [inlineMention, syncToParent, textareaRef])
-
-  // Handle removing a mention from the badge row
-  const handleRemoveMention = React.useCallback((id: string, type: MentionItemType) => {
-    const newValue = removeMention(input, type, id)
-    setInput(newValue)
-    syncToParent(newValue)
-    textareaRef.current?.focus()
-  }, [input, syncToParent, textareaRef])
+  }, [inlineMention, syncToParent])
 
   const hasContent = input.trim() || attachments.length > 0
 
@@ -863,13 +814,6 @@ export function FreeFormInput({
           maxWidth={280}
         />
 
-        {/* Active Mention Badges (shown when mentions exist in input) */}
-        <ActiveMentionBadges
-          mentions={activeMentions}
-          workspaceId={workspaceId}
-          onRemove={handleRemoveMention}
-        />
-
         {/* Attachment Preview */}
         <AttachmentPreview
           attachments={attachments}
@@ -878,35 +822,24 @@ export function FreeFormInput({
           loadingCount={loadingCount}
         />
 
-        {/* Textarea with auto-grow via hidden sizer */}
-        <div className="relative min-h-[72px]">
-          {/* Hidden sizer - mirrors content to determine height */}
-          <div
-            className="invisible whitespace-pre-wrap break-words pl-5 pr-4 pt-4 pb-3 text-sm"
-            aria-hidden="true"
-          >
-            {input || placeholder}
-            {/* Extra space for cursor on new line */}
-            {'\n'}
-          </div>
-          {/* Textarea positioned over sizer */}
-          <textarea
-            ref={textareaRef}
-            data-tutorial="chat-input"
-            className="absolute inset-0 w-full h-full pl-5 pr-4 pt-4 pb-3 bg-transparent outline-none text-sm placeholder:text-muted-foreground resize-none focus-visible:ring-0"
-            placeholder={placeholder}
-            value={input}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            onFocus={() => { setIsFocused(true); onFocusChange?.(true) }}
-            onBlur={() => { setIsFocused(false); onFocusChange?.(false) }}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            disabled={disabled}
-            rows={1}
-          />
-        </div>
+        {/* Rich Text Input with inline mention badges */}
+        <RichTextInput
+          ref={richInputRef}
+          value={input}
+          onChange={handleInputChange}
+          onInput={handleRichInput}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onFocus={() => { setIsFocused(true); onFocusChange?.(true) }}
+          onBlur={() => { setIsFocused(false); onFocusChange?.(false) }}
+          placeholder={placeholder}
+          disabled={disabled}
+          skills={skills}
+          sources={sources}
+          workspaceId={workspaceId}
+          className="min-h-[72px] pl-5 pr-4 pt-4 pb-3"
+          data-tutorial="chat-input"
+        />
 
         {/* Bottom Row: Controls */}
         <div className="flex items-center gap-1 px-2 py-2 border-t border-border/50">

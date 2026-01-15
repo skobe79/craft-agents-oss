@@ -26,6 +26,7 @@ import { MemoizedAuthRequestCard } from "@/components/chat/AuthRequestCard"
 import type { SourceNeedingAuth } from "@craft-agent/shared/sessions"
 import { ActiveOptionBadges } from "./ActiveOptionBadges"
 import { InputContainer, type StructuredInputState, type StructuredResponse, type PermissionResponse } from "./input"
+import type { RichTextInputHandle } from "@/components/ui/rich-text-input"
 import { useBackgroundTasks } from "@/hooks/useBackgroundTasks"
 import { CHAT_LAYOUT } from "@/config/layout"
 
@@ -37,8 +38,8 @@ interface ChatDisplayProps {
   // Model selection
   currentModel: string
   onModelChange: (model: string) => void
-  /** Ref for the textarea, used for external focus control */
-  textareaRef?: React.RefObject<HTMLTextAreaElement>
+  /** Ref for the input, used for external focus control */
+  textareaRef?: React.RefObject<RichTextInputHandle>
   /** When true, disables input (e.g., when agent needs activation) */
   disabled?: boolean
   /** Pending permission request for this session */
@@ -298,7 +299,7 @@ export function ChatDisplay({
   const skipSmoothScrollUntilRef = React.useRef(0)
   // Track pending scroll for session switches that happen while messages are still loading
   const pendingScrollSessionRef = React.useRef<string | null>(null)
-  const internalTextareaRef = React.useRef<HTMLTextAreaElement>(null)
+  const internalTextareaRef = React.useRef<RichTextInputHandle>(null)
   const textareaRef = externalTextareaRef || internalTextareaRef
 
   // Register as focus zone - when zone gains focus, focus the textarea

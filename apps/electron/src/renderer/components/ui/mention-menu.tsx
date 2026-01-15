@@ -236,8 +236,16 @@ export function InlineMentionMenu({
 // Hook for managing inline mention state
 // ============================================================================
 
+/** Interface for elements that can be used with useInlineMention */
+export interface MentionInputElement {
+  getBoundingClientRect: () => DOMRect
+  value: string
+  selectionStart: number
+}
+
 export interface UseInlineMentionOptions {
-  textareaRef: React.RefObject<HTMLTextAreaElement>
+  /** Ref to input element (textarea or RichTextInput handle) */
+  inputRef: React.RefObject<MentionInputElement | null>
   skills: LoadedSkill[]
   sources: LoadedSource[]
   recentFolders: string[]
@@ -273,7 +281,7 @@ function getFolderName(path: string): string {
 }
 
 export function useInlineMention({
-  textareaRef,
+  inputRef,
   skills,
   sources,
   recentFolders,
@@ -284,6 +292,8 @@ export function useInlineMention({
   const [filter, setFilter] = React.useState('')
   const [position, setPosition] = React.useState({ x: 0, y: 0 })
   const [atStart, setAtStart] = React.useState(-1)
+  // Store current input state for handleSelect
+  const currentInputRef = React.useRef({ value: '', cursorPosition: 0 })
 
   // Build sections from available data
   const sections = React.useMemo((): MentionSection[] => {
@@ -338,6 +348,9 @@ export function useInlineMention({
   }, [skills, sources, recentFolders, homeDir])
 
   const handleInputChange = React.useCallback((value: string, cursorPosition: number) => {
+    // Store current state for handleSelect
+    currentInputRef.current = { value, cursorPosition }
+
     const textBeforeCursor = value.slice(0, cursorPosition)
     // Match @ at start of text or after whitespace, followed by optional word chars, hyphens, and slashes
     const atMatch = textBeforeCursor.match(/(?:^|\s)@([\w\-/]*)$/)
@@ -350,39 +363,20 @@ export function useInlineMention({
       setAtStart(matchStart)
       setFilter(atMatch[1] || '')
 
-      if (textareaRef.current) {
-        const textarea = textareaRef.current
-        const rect = textarea.getBoundingClientRect()
-        const style = window.getComputedStyle(textarea)
+      if (inputRef.current) {
+        const rect = inputRef.current.getBoundingClientRect()
 
-        // Mirror element to measure cursor position
-        const mirror = document.createElement('div')
-        mirror.style.cssText = `
-          position: absolute;
-          visibility: hidden;
-          white-space: pre-wrap;
-          word-wrap: break-word;
-          font-family: ${style.fontFamily};
-          font-size: ${style.fontSize};
-          line-height: ${style.lineHeight};
-          padding: ${style.padding};
-          width: ${textarea.clientWidth}px;
-          box-sizing: border-box;
-        `
-        mirror.textContent = textBeforeCursor
-        const caret = document.createElement('span')
-        caret.textContent = '|'
-        mirror.appendChild(caret)
+        // For position calculation, use a simplified approach:
+        // Position menu at bottom-left of input, with slight offset for the @ position
+        // A more accurate position would require measuring text, but this works well enough
+        const lineHeight = 20 // Approximate line height
+        const charWidth = 8 // Approximate character width
+        const linesBeforeCursor = textBeforeCursor.split('\n').length - 1
+        const charsOnCurrentLine = textBeforeCursor.split('\n').pop()?.length || 0
 
-        document.body.appendChild(mirror)
-        const caretRect = caret.getBoundingClientRect()
-        const mirrorRect = mirror.getBoundingClientRect()
-        document.body.removeChild(mirror)
-
-        // Position above the current line (menu appears above cursor)
         setPosition({
-          x: rect.left + (caretRect.left - mirrorRect.left),
-          y: rect.top + (caretRect.top - mirrorRect.top),
+          x: rect.left + Math.min(charsOnCurrentLine * charWidth, rect.width - 100),
+          y: rect.top + (linesBeforeCursor + 1) * lineHeight,
         })
       }
 
@@ -392,15 +386,14 @@ export function useInlineMention({
       setFilter('')
       setAtStart(-1)
     }
-  }, [textareaRef, sections])
+  }, [inputRef, sections])
 
   const handleSelect = React.useCallback((item: MentionItem): string => {
     let result = ''
-    if (textareaRef.current && atStart >= 0) {
-      const currentValue = textareaRef.current.value
+    if (atStart >= 0) {
+      const { value: currentValue, cursorPosition } = currentInputRef.current
       const before = currentValue.slice(0, atStart)
-      const cursorPos = textareaRef.current.selectionStart
-      const after = currentValue.slice(cursorPos)
+      const after = currentValue.slice(cursorPosition)
 
       // Build the mention text based on type
       let mentionText: string
@@ -421,7 +414,7 @@ export function useInlineMention({
     setIsOpen(false)
 
     return result
-  }, [onSelect, textareaRef, atStart])
+  }, [onSelect, atStart])
 
   const close = React.useCallback(() => {
     setIsOpen(false)
