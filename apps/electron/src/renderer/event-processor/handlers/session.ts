@@ -270,17 +270,8 @@ export function handleInterrupted(
     })
 
   // Only add the "Response interrupted" message if provided (not a silent redirect)
-  // IMPORTANT: Ensure the info message has the latest timestamp so it appears last
-  // after sorting. Other messages (tools, assistant) may have renderer-side timestamps
-  // from Date.now() that could be later than the main process timestamp on event.message.
-  // Without this fix, interrupted tools would appear AFTER "Response interrupted" as
-  // a separate empty turn with "Starting..." title and "Interrupted" activity.
-  const latestTimestamp = updatedMessages.length > 0
-    ? Math.max(...updatedMessages.map(m => m.timestamp)) + 1
-    : Date.now()
-
   const messages = event.message
-    ? [...updatedMessages, { ...event.message, timestamp: latestTimestamp }]
+    ? [...updatedMessages, event.message]
     : updatedMessages
 
   return {

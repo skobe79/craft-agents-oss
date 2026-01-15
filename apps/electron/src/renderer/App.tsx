@@ -191,9 +191,8 @@ export default function App() {
   // All session-scoped options in one place (ultrathink, permissionMode)
   const [sessionOptions, setSessionOptions] = useState<Map<string, SessionOptions>>(new Map())
 
-  // Theme state (cascading: app → workspace → agent)
+  // Theme state (app-level only)
   const [appTheme, setAppTheme] = useState<ThemeOverrides | null>(null)
-  const [workspaceTheme, setWorkspaceTheme] = useState<ThemeOverrides | null>(null)
   // Reset confirmation dialog
   const [showResetDialog, setShowResetDialog] = useState(false)
 
@@ -228,8 +227,7 @@ export default function App() {
   }, [])
 
   // Apply theme via hook (injects CSS variables)
-  // Pass workspaceId for workspace-scoped preset theme loading
-  useTheme({ workspaceId: windowWorkspaceId, appTheme, workspaceTheme })
+  useTheme({ appTheme })
 
   // Ref for sessionOptions to access current value in event handlers without re-registering
   const sessionOptionsRef = useRef(sessionOptions)
@@ -395,25 +393,13 @@ export default function App() {
     window.electronAPI.getAppTheme().then(setAppTheme)
   }, [appState, initialSessionId, windowWorkspaceId, setSession, initializeSessions])
 
-  // Load workspace theme when window's workspace is set
-  useEffect(() => {
-    if (windowWorkspaceId) {
-      window.electronAPI.getWorkspaceTheme(windowWorkspaceId).then(setWorkspaceTheme)
-    }
-  }, [windowWorkspaceId])
-
-  // Subscribe to theme change events (live updates when theme.json files change)
+  // Subscribe to theme change events (live updates when theme.json changes)
   useEffect(() => {
     const cleanupApp = window.electronAPI.onAppThemeChange((theme) => {
       setAppTheme(theme)
     })
-    const cleanupWorkspace = window.electronAPI.onWorkspaceThemeChange((theme) => {
-      setWorkspaceTheme(theme)
-    })
-    // Note: Agent theme changes are not yet wired up (would need active agent tracking)
     return () => {
       cleanupApp()
-      cleanupWorkspace()
     }
   }, [])
 

@@ -363,10 +363,6 @@ export class SessionManager {
         sessionLog.info(`App theme changed`)
         this.broadcastAppThemeChanged(theme)
       },
-      onWorkspaceThemeChange: (theme) => {
-        sessionLog.info(`Workspace theme changed in ${workspaceRootPath}`)
-        this.broadcastWorkspaceThemeChanged(theme)
-      },
       onSkillsListChange: async (skills) => {
         sessionLog.info(`Skills list changed in ${workspaceRootPath} (${skills.length} skills)`)
         this.broadcastSkillsChanged(skills)
@@ -410,15 +406,6 @@ export class SessionManager {
     if (!this.windowManager) return
     sessionLog.info(`Broadcasting app theme changed`)
     this.windowManager.broadcastToAll(IPC_CHANNELS.THEME_APP_CHANGED, theme)
-  }
-
-  /**
-   * Broadcast workspace theme changed event to all windows
-   */
-  private broadcastWorkspaceThemeChanged(theme: import('@craft-agent/shared/config').ThemeOverrides | null): void {
-    if (!this.windowManager) return
-    sessionLog.info(`Broadcasting workspace theme changed`)
-    this.windowManager.broadcastToAll(IPC_CHANNELS.THEME_WORKSPACE_CHANGED, theme)
   }
 
   /**
@@ -1722,18 +1709,26 @@ export class SessionManager {
     const assistantResponse = lastAssistantMsg?.content ?? ''
     sessionLog.info(`refreshTitle: Calling regenerateSessionTitle...`)
 
+    // Notify renderer that title regeneration has started (for shimmer effect)
+    this.sendEvent({ type: 'title_regenerating', sessionId, isRegenerating: true }, managed.workspace.id)
+
     try {
       const title = await regenerateSessionTitle(userMessages, assistantResponse)
       sessionLog.info(`refreshTitle: regenerateSessionTitle returned: ${title ? `"${title}"` : 'null'}`)
       if (title) {
         managed.name = title
         this.persistSession(managed)
+        // title_generated will also clear isRegeneratingTitle via the event handler
         this.sendEvent({ type: 'title_generated', sessionId, title }, managed.workspace.id)
         sessionLog.info(`Refreshed title for session ${sessionId}: "${title}"`)
         return { success: true, title }
       }
+      // Failed to generate - clear regenerating state
+      this.sendEvent({ type: 'title_regenerating', sessionId, isRegenerating: false }, managed.workspace.id)
       return { success: false, error: 'Failed to generate title' }
     } catch (error) {
+      // Error occurred - clear regenerating state
+      this.sendEvent({ type: 'title_regenerating', sessionId, isRegenerating: false }, managed.workspace.id)
       const message = error instanceof Error ? error.message : 'Unknown error'
       sessionLog.error(`Failed to refresh title for session ${sessionId}:`, error)
       return { success: false, error: message }

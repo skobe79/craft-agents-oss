@@ -514,7 +514,6 @@ export const IPC_CHANNELS = {
   // Settings - Billing
   SETTINGS_GET_BILLING_METHOD: 'settings:getBillingMethod',
   SETTINGS_UPDATE_BILLING_METHOD: 'settings:updateBillingMethod',
-  SETTINGS_GET_CREDITS_URL: 'settings:getCreditsUrl',
 
   // Settings - Model
   SETTINGS_GET_MODEL: 'settings:getModel',
@@ -562,7 +561,6 @@ export const IPC_CHANNELS = {
 
   // Theme management (cascading: app → workspace)
   THEME_APP_CHANGED: 'theme:appChanged',        // Broadcast event
-  THEME_WORKSPACE_CHANGED: 'theme:workspaceChanged',  // Broadcast event
 
   // Generic workspace image loading/saving (for icons, etc.)
   WORKSPACE_READ_IMAGE: 'workspace:readImage',
@@ -579,9 +577,8 @@ export const IPC_CHANNELS = {
   WORKSPACE_SETTINGS_GET: 'workspaceSettings:get',
   WORKSPACE_SETTINGS_UPDATE: 'workspaceSettings:update',
 
-  // Theme (cascading: app → workspace)
+  // Theme (app-level only)
   THEME_GET_APP: 'theme:getApp',
-  THEME_GET_WORKSPACE: 'theme:getWorkspace',
   THEME_GET_PRESETS: 'theme:getPresets',
   THEME_LOAD_PRESET: 'theme:loadPreset',
   THEME_GET_COLOR_THEME: 'theme:getColorTheme',
@@ -866,7 +863,6 @@ export interface ElectronAPI {
   // Settings - Billing
   getBillingMethod(): Promise<BillingMethodInfo>
   updateBillingMethod(authType: AuthType, credential?: string): Promise<void>
-  getCreditsUrl(): Promise<string | null>
 
   // Settings - Model (global default)
   getModel(): Promise<string | null>
@@ -935,18 +931,16 @@ export interface ElectronAPI {
   readWorkspaceImage(workspaceId: string, relativePath: string): Promise<string>
   writeWorkspaceImage(workspaceId: string, relativePath: string, base64: string, mimeType: string): Promise<void>
 
-  // Theme (cascading: app → workspace)
+  // Theme (app-level only)
   getAppTheme(): Promise<import('@config/theme').ThemeOverrides | null>
-  getWorkspaceTheme(workspaceId: string): Promise<import('@config/theme').ThemeOverrides | null>
-  // Preset themes (workspace-scoped)
-  loadPresetThemes(workspaceId: string): Promise<import('@config/theme').PresetTheme[]>
-  loadPresetTheme(workspaceId: string, themeId: string): Promise<import('@config/theme').PresetTheme | null>
+  // Preset themes (app-level)
+  loadPresetThemes(): Promise<import('@config/theme').PresetTheme[]>
+  loadPresetTheme(themeId: string): Promise<import('@config/theme').PresetTheme | null>
   getColorTheme(): Promise<string>
   setColorTheme(themeId: string): Promise<void>
 
   // Theme change listeners (live updates when theme.json files change)
   onAppThemeChange(callback: (theme: import('@config/theme').ThemeOverrides | null) => void): () => void
-  onWorkspaceThemeChange(callback: (theme: import('@config/theme').ThemeOverrides | null) => void): () => void
 
   // Logo URL resolution (uses Node.js filesystem cache for provider domains)
   getLogoUrl(serviceUrl: string, provider?: string): Promise<string | null>

@@ -1,6 +1,6 @@
 /**
  * Session title generator utility.
- * Uses Claude Agent SDK query() for all auth types (API Key, Craft Credits, Claude OAuth).
+ * Uses Claude Agent SDK query() for all auth types (API Key, Claude OAuth).
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';

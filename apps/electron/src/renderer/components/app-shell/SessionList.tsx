@@ -282,9 +282,12 @@ function SessionItem({
           <div className="w-4 h-5 shrink-0" />
           {/* Content column */}
           <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-            {/* Title - up to 2 lines */}
+            {/* Title - up to 2 lines, with shimmer during regeneration */}
             <div className="flex items-start gap-2 w-full pr-6 min-w-0">
-              <div className="font-medium font-sans line-clamp-2 min-w-0 -mb-[2px]">
+              <div className={cn(
+                "font-medium font-sans line-clamp-2 min-w-0 -mb-[2px]",
+                item.isRegeneratingTitle && "animate-shimmer-text"
+              )}>
                 {searchQuery ? highlightMatch(getSessionTitle(item), searchQuery) : getSessionTitle(item)}
               </div>
             </div>
@@ -310,12 +313,11 @@ function SessionItem({
                 <span
                   className={cn(
                     "shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded",
+                    // Mode-specific styling using CSS variables (theme-aware)
+                    permissionMode === 'safe' && "bg-foreground/10 text-foreground/60",
+                    permissionMode === 'ask' && "bg-info/10 text-info",
                     permissionMode === 'allow-all' && "bg-accent/10 text-accent"
                   )}
-                  style={permissionMode === 'allow-all' ? undefined : {
-                    backgroundColor: `${PERMISSION_MODE_CONFIG[permissionMode].colors.primary}1A`, // 10% opacity
-                    color: PERMISSION_MODE_CONFIG[permissionMode].colors.muted,
-                  }}
                 >
                   {PERMISSION_MODE_CONFIG[permissionMode].shortName}
                 </span>
@@ -445,11 +447,12 @@ function SessionItem({
 }
 
 /**
- * DateHeader - Sticky section header showing date label (Today, Yesterday, Dec 19, etc.)
+ * DateHeader - Simple date group header rendered inline with content.
+ * No sticky behavior - just scrolls with the list.
  */
 function DateHeader({ label }: { label: string }) {
   return (
-    <div className="sticky top-0 z-20 bg-background px-4 mr-2 py-2">
+    <div className="px-4 py-2">
       <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
         {label}
       </span>
@@ -530,7 +533,6 @@ export function SessionList({
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null)
   const [renameName, setRenameName] = useState("")
   const [displayLimit, setDisplayLimit] = useState(INITIAL_DISPLAY_LIMIT)
-  const scrollRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
 
@@ -758,10 +760,11 @@ export function SessionList({
 
   return (
     <>
-      <ScrollArea className="h-screen select-none" ref={scrollRef}>
-        {/* Search input - shown when search is active */}
+      {/* ScrollArea with mask-fade-top-short - shorter fade to avoid header overlap */}
+      <ScrollArea className="h-screen select-none mask-fade-top-short">
+        {/* Search input - sticky at top */}
         {searchActive && (
-          <div className="sticky top-0 z-20 bg-background px-2 py-2 border-b border-border/50">
+          <div className="sticky top-0 z-sticky px-2 py-2 border-b border-border/50">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <input
@@ -804,7 +807,7 @@ export function SessionList({
           )}
           {dateGroups.map((group) => (
             <div key={group.date.toISOString()}>
-              {/* Date header */}
+              {/* Date header - scrolls with content */}
               <DateHeader label={group.label} />
               {/* Sessions in this date group */}
               {group.sessions.map((item, indexInGroup) => {

@@ -20,8 +20,6 @@ export interface SlashCommand {
   description: string
   icon: React.ReactNode
   shortcut?: string
-  /** Hex color for active state (derived from config) */
-  color?: string
 }
 
 /** Folder item for the slash menu */
@@ -86,7 +84,6 @@ const permissionModeCommands: SlashCommand[] = PERMISSION_MODE_ORDER.map(mode =>
     label: config.displayName,
     description: config.description,
     icon: <PermissionModeIcon mode={mode} className={MENU_ICON_SIZE} />,
-    color: config.colors.primary,
   }
 })
 
@@ -95,7 +92,6 @@ const ultrathinkCommand: SlashCommand = {
   label: 'Ultrathink',
   description: 'Extended reasoning for complex problems',
   icon: <Brain className={MENU_ICON_SIZE} />,
-  color: '#d946ef', // fuchsia-500
 }
 
 export const DEFAULT_SLASH_COMMANDS: SlashCommand[] = [

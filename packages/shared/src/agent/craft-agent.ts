@@ -1680,7 +1680,6 @@ export class CraftAgent {
         const isBillingError =
           errorMsg.includes('402') ||
           errorMsg.includes('payment required') ||
-          errorMsg.includes('insufficient credits') ||
           errorMsg.includes('billing');
 
         if (isBillingError) {
@@ -1735,7 +1734,7 @@ export class CraftAgent {
                 { key: 'w', label: 'Open workspace menu', command: '/workspace' },
                 { key: 'r', label: 'Retry', action: 'retry' as const },
               ]
-            : diagnostics.code === 'invalid_credentials' || diagnostics.code === 'insufficient_credits'
+            : diagnostics.code === 'invalid_credentials' || diagnostics.code === 'billing_error'
             ? [
                 { key: 's', label: 'Update credentials', command: '/settings', action: 'settings' as const },
               ]
@@ -1755,7 +1754,7 @@ export class CraftAgent {
                 ? [...(diagnostics.details || []), `SDK stderr: ${stderrContext}`]
                 : diagnostics.details,
               actions,
-              canRetry: diagnostics.code !== 'insufficient_credits' && diagnostics.code !== 'invalid_credentials',
+              canRetry: diagnostics.code !== 'billing_error' && diagnostics.code !== 'invalid_credentials',
               retryDelayMs: 1000,
               originalError: stderrContext || rawErrorMsg,
             },
@@ -2206,12 +2205,12 @@ export class CraftAgent {
         retryDelayMs: 1000,
       },
       'billing_error': {
-        code: 'insufficient_credits',
+        code: 'billing_error',
         title: 'Billing Error',
-        message: 'Your account has insufficient credits or has billing issues.',
-        details: ['Check your Anthropic account billing status', 'Ensure you have available credits'],
+        message: 'Your account has a billing issue.',
+        details: ['Check your Anthropic account billing status'],
         actions: [
-          { key: 'c', label: 'Check credits', action: 'credits' },
+          { key: 's', label: 'Update credentials', action: 'settings' },
         ],
         canRetry: false,
       },

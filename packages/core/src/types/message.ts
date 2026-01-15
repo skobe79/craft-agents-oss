@@ -271,18 +271,16 @@ export interface RecoveryAction {
   key: string;
   /** Description of the action */
   label: string;
-  /** Slash command to execute (e.g., '/credits') */
+  /** Slash command to execute (e.g., '/settings') */
   command?: string;
   /** Custom action type for special handling */
-  action?: 'retry' | 'settings' | 'credits' | 'reauth';
+  action?: 'retry' | 'settings' | 'reauth';
 }
 
 /**
  * Error codes for typed errors - must match AgentError.code in shared/agent/errors.ts
  */
 export type ErrorCode =
-  | 'insufficient_credits'
-  | 'credits_exhausted'
   | 'invalid_api_key'
   | 'invalid_credentials'
   | 'expired_oauth_token'
@@ -293,6 +291,7 @@ export type ErrorCode =
   | 'network_error'
   | 'mcp_auth_required'
   | 'mcp_unreachable'
+  | 'billing_error'
   | 'unknown_error';
 
 /**
@@ -311,7 +310,7 @@ export interface TypedError {
   canRetry: boolean;
   /** Retry delay in ms (if canRetry is true) */
   retryDelayMs?: number;
-  /** Diagnostic check results for debugging (e.g., "✓ Credits: 150") */
+  /** Diagnostic check results for debugging */
   details?: string[];
   /** Original error message for debugging */
   originalError?: string;

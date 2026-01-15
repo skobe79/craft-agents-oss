@@ -65,7 +65,7 @@ function Info_PageRoot({
   // Loading state
   if (loading) {
     return (
-      <div className={cn('h-full flex flex-col bg-surface-below', className)}>
+      <div className={cn('h-full flex flex-col', className)}>
         {header}
         <div className="flex-1 flex items-center justify-center">
           <Spinner className="text-lg text-muted-foreground" />
@@ -77,7 +77,7 @@ function Info_PageRoot({
   // Error state
   if (error) {
     return (
-      <div className={cn('h-full flex flex-col bg-surface-below', className)}>
+      <div className={cn('h-full flex flex-col', className)}>
         {header}
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground p-4">
           <AlertCircle className="h-10 w-10 text-destructive" />
@@ -91,7 +91,7 @@ function Info_PageRoot({
   // Empty state
   if (empty) {
     return (
-      <div className={cn('h-full flex flex-col bg-surface-below', className)}>
+      <div className={cn('h-full flex flex-col', className)}>
         {header}
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
           <p className="text-sm">{empty}</p>
@@ -102,7 +102,7 @@ function Info_PageRoot({
 
   // Normal content
   return (
-    <div className={cn('h-full flex flex-col bg-surface-below', className)}>
+    <div className={cn('h-full flex flex-col', className)}>
       {header}
       {otherChildren}
     </div>
@@ -110,7 +110,7 @@ function Info_PageRoot({
 }
 
 function Info_PageHeader({ className, ...props }: Info_PageHeaderProps) {
-  return <PanelHeader className={cn('bg-surface-below', className)} {...props} />
+  return <PanelHeader className={className} {...props} />
 }
 
 function Info_PageHero({ avatar, title, tagline, className }: Info_PageHeroProps) {

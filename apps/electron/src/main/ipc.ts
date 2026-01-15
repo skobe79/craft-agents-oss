@@ -11,7 +11,6 @@ import { UnifiedPreviewWindowManager } from './unified-preview-window'
 import { registerOnboardingHandlers } from './onboarding'
 import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AuthType, type BillingMethodInfo, type SendMessageOptions, type PreviewData } from '../shared/types'
 import { readFileAttachment, perf, validateImageForClaudeAPI, IMAGE_LIMITS } from '@craft-agent/shared/utils'
-import { getAiCreditTopUpUrl } from '@craft-agent/shared/auth'
 import { getAuthType, setAuthType, getPreferencesPath, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getDefaultPermissionMode, setDefaultPermissionMode, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, type Workspace } from '@craft-agent/shared/config'
 import { getSessionAttachmentsPath } from '@craft-agent/shared/sessions'
 import { loadWorkspaceSources, getSourcesBySlugs, type LoadedSource } from '@craft-agent/shared/sources'
@@ -791,16 +790,6 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     }
 
     return { authType, hasCredential }
-  })
-
-  // Get credits URL (for top-up)
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET_CREDITS_URL, async (): Promise<string | null> => {
-    try {
-      return await getAiCreditTopUpUrl()
-    } catch (error) {
-      ipcLog.error('Failed to get credits URL:', error)
-      return null
-    }
   })
 
   // Update billing method and credential
@@ -1595,7 +1584,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   registerOnboardingHandlers(sessionManager)
 
   // ============================================================
-  // Theme (cascading: app → workspace → agent)
+  // Theme (app-level only)
   // ============================================================
 
   ipcMain.handle(IPC_CHANNELS.THEME_GET_APP, async () => {
@@ -1603,34 +1592,17 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     return loadAppTheme()
   })
 
-  ipcMain.handle(IPC_CHANNELS.THEME_GET_WORKSPACE, async (_event, workspaceId: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) {
-      return null
-    }
-    const { loadWorkspaceTheme } = await import('@craft-agent/shared/config/storage')
-    return loadWorkspaceTheme(workspace.rootPath)
-  })
-
-  // Preset themes (workspace-scoped)
-  ipcMain.handle(IPC_CHANNELS.THEME_GET_PRESETS, async (_event, workspaceId: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) {
-      return []
-    }
+  // Preset themes (app-level)
+  ipcMain.handle(IPC_CHANNELS.THEME_GET_PRESETS, async () => {
     const { loadPresetThemes } = await import('@craft-agent/shared/config/storage')
     // Pass bundled themes path from Electron resources (dist/resources/themes)
     const bundledThemesDir = join(__dirname, 'resources/themes')
-    return loadPresetThemes(workspace.rootPath, bundledThemesDir)
+    return loadPresetThemes(bundledThemesDir)
   })
 
-  ipcMain.handle(IPC_CHANNELS.THEME_LOAD_PRESET, async (_event, workspaceId: string, themeId: string) => {
-    const workspace = getWorkspaceByNameOrId(workspaceId)
-    if (!workspace) {
-      return null
-    }
+  ipcMain.handle(IPC_CHANNELS.THEME_LOAD_PRESET, async (_event, themeId: string) => {
     const { loadPresetTheme } = await import('@craft-agent/shared/config/storage')
-    return loadPresetTheme(workspace.rootPath, themeId)
+    return loadPresetTheme(themeId)
   })
 
   ipcMain.handle(IPC_CHANNELS.THEME_GET_COLOR_THEME, async () => {
