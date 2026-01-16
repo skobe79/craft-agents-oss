@@ -512,7 +512,10 @@ export class SessionManager {
     if (app.isPackaged) {
       // Use platform-specific binary name (bun.exe on Windows, bun on macOS/Linux)
       const bunBinary = process.platform === 'win32' ? 'bun.exe' : 'bun'
-      const bunPath = join(basePath, 'vendor', 'bun', bunBinary)
+      // On Windows, bun.exe is in extraResources (process.resourcesPath) to avoid EBUSY errors.
+      // On macOS/Linux, bun is in the app files (basePath). See electron-builder.yml for details.
+      const bunBasePath = process.platform === 'win32' ? process.resourcesPath : basePath
+      const bunPath = join(bunBasePath, 'vendor', 'bun', bunBinary)
       if (!existsSync(bunPath)) {
         const error = `Bundled Bun runtime not found at ${bunPath}. The app package may be corrupted.`
         sessionLog.error(error)
@@ -2994,39 +2997,6 @@ To view this task's output:
 
       // Note: working_directory_changed is user-initiated only (via updateWorkingDirectory),
       // the agent no longer has a change_working_directory tool
-    }
-  }
-
-  /**
-   * @deprecated No longer used. Skills are now handled by the Agent SDK's Skill tool.
-   * Build skill context from @mentioned skill slugs
-   * Returns XML-formatted skill instructions to prepend to the message
-   */
-  private async buildSkillContext(workspaceRoot: string, skillSlugs: string[]): Promise<string | null> {
-    try {
-      const { loadWorkspaceSkills } = await import('@craft-agent/shared/skills')
-      const allSkills = loadWorkspaceSkills(workspaceRoot)
-      const activated = allSkills.filter(s => skillSlugs.includes(s.slug))
-
-      if (activated.length === 0) {
-        sessionLog.warn(`No skills found for slugs: ${skillSlugs.join(', ')}`)
-        return null
-      }
-
-      const skillBlocks = activated.map(skill => {
-        return `<skill name="${skill.metadata.name}" slug="${skill.slug}">
-${skill.content}
-</skill>`
-      })
-
-      return `<activated-skills>
-The user has activated the following skills for this request. Follow their instructions:
-
-${skillBlocks.join('\n\n')}
-</activated-skills>`
-    } catch (error) {
-      sessionLog.error('Failed to build skill context:', error)
-      return null
     }
   }
 

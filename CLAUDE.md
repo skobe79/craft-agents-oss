@@ -32,42 +32,75 @@ bun run typecheck:all        # Type check all packages
 
 ## Releasing
 
-### Electron Desktop App (macOS)
+### Electron Desktop App (Multi-Platform)
 
-**Via GitHub Actions:**
+**Via GitHub Actions (recommended):**
 1. Go to Actions → "Build and Upload" → Run workflow
-2. Check "Build and upload Electron desktop app (macOS DMG)"
+2. Check/uncheck platforms to build (macOS, Windows, Linux - all enabled by default)
 3. Optionally check "upload to /latest" and "upload install.sh"
-4. Builds both arm64 and x64 DMG files
+4. Builds run in parallel across selected platforms/architectures
+
+**Supported platforms:**
+
+| Platform | Architecture | Output | Runner |
+|----------|--------------|--------|--------|
+| macOS | arm64 | `.dmg` | `macos-14` |
+| macOS | x64 | `.dmg` | `macos-13` |
+| Windows | x64 | `.exe` | `windows-latest` |
+| Linux | x64 | `.AppImage` | `ubuntu-latest` |
+| Linux | arm64 | `.AppImage` | `ubuntu-24.04-arm64` |
 
 **Local build:**
 ```bash
-# Build DMG only
+# macOS
 bash apps/electron/scripts/build-dmg.sh arm64
+bash apps/electron/scripts/build-dmg.sh x64
 
-# Build and upload to S3
+# Windows (from PowerShell)
+powershell -ExecutionPolicy Bypass -File apps/electron/scripts/build-win.ps1
+
+# Linux
+bash apps/electron/scripts/build-linux.sh x64
+bash apps/electron/scripts/build-linux.sh arm64
+
+# Build and upload to S3 (any platform)
 bash apps/electron/scripts/build-dmg.sh arm64 --upload --latest --script
-
-# Show all options
-bash apps/electron/scripts/build-dmg.sh --help
 ```
 
 **Build script options:**
-- `arm64` or `x64` - Target architecture (default: arm64)
-- `--upload` - Upload DMG to S3 after building
+- `arm64` or `x64` - Target architecture (default varies by platform)
+- `--upload` - Upload installer to S3 after building
 - `--latest` - Also update `electron/latest` (requires --upload)
-- `--script` - Also upload `install-app.sh` (requires --upload)
+- `--script` - Also upload install scripts (requires --upload)
 
 **Environment variables for build:**
-- `APPLE_SIGNING_IDENTITY` - Code signing identity (optional)
-- `APPLE_ID` - Apple ID for notarization (optional)
-- `APPLE_TEAM_ID` - Apple Team ID (optional)
-- `APPLE_APP_SPECIFIC_PASSWORD` - App-specific password (optional)
+- `APPLE_SIGNING_IDENTITY` - Code signing identity (macOS, optional)
+- `APPLE_ID` - Apple ID for notarization (macOS, optional)
+- `APPLE_TEAM_ID` - Apple Team ID (macOS, optional)
+- `APPLE_APP_SPECIFIC_PASSWORD` - App-specific password (macOS, optional)
 - `S3_VERSIONS_BUCKET_ENDPOINT` - S3 endpoint (for --upload)
 - `S3_VERSIONS_BUCKET_ACCESS_KEY_ID` - S3 access key (for --upload)
 - `S3_VERSIONS_BUCKET_SECRET_ACCESS_KEY` - S3 secret key (for --upload)
 
-**Install:** `curl -fsSL https://agents.craft.do/install-app.sh | bash`
+**S3 structure after build:**
+```
+agents-craft-do/
+├── electron/
+│   ├── {version}/
+│   │   ├── Craft-Agent-arm64.dmg      # macOS Apple Silicon
+│   │   ├── Craft-Agent-x64.dmg        # macOS Intel
+│   │   ├── Craft-Agent-x64.exe        # Windows
+│   │   ├── Craft-Agent-x64.AppImage   # Linux x64
+│   │   ├── Craft-Agent-arm64.AppImage # Linux ARM64
+│   │   └── manifest.json
+│   ├── latest
+│   ├── install-app.sh
+│   └── install-app.ps1
+```
+
+**Install:**
+- **macOS:** `curl -fsSL https://agents.craft.do/install-app.sh | bash`
+- **Windows:** `irm https://agents.craft.do/install-app.ps1 | iex`
 
 ### Version Sync
 
