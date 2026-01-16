@@ -13,7 +13,8 @@ const isLatest = process.argv.includes('--latest');
 const uploadScript = process.argv.includes('--script');
 const scriptDir = import.meta.dir;
 const repoRoot = dirname(scriptDir);
-const installAppScriptPath = join(repoRoot, 'scripts', 'install-app.sh');
+const installAppShPath = join(repoRoot, 'scripts', 'install-app.sh');
+const installAppPs1Path = join(repoRoot, 'scripts', 'install-app.ps1');
 const electronReleaseDir = join(repoRoot, 'apps', 'electron', 'release');
 
 // Get version from package.json
@@ -25,7 +26,7 @@ if (isLatest) {
   console.log('Will also update electron/latest');
 }
 if (uploadScript) {
-  console.log('Will also upload install-app.sh');
+  console.log('Will also upload install scripts (install-app.sh, install-app.ps1)');
 }
 console.log('');
 
@@ -201,18 +202,31 @@ async function uploadElectronBuilds(version: string) {
     console.log('  ✓ electron/latest');
   }
 
-  // Upload install-app.sh if --script is set
+  // Upload install scripts if --script is set
   if (uploadScript) {
+    // macOS/Linux bash script
     console.log('Uploading install-app.sh...');
-    const content = readFileSync(installAppScriptPath);
+    const shContent = readFileSync(installAppShPath);
     await s3.send(new PutObjectCommand({
       Bucket: BUCKET,
       Key: 'install-app.sh',
-      Body: content,
+      Body: shContent,
       ContentType: 'text/x-shellscript',
       CacheControl: 'no-cache, no-store, must-revalidate',
     }));
-    console.log(`  ✓ install-app.sh (${(content.length / 1024).toFixed(2)} KB)`);
+    console.log(`  ✓ install-app.sh (${(shContent.length / 1024).toFixed(2)} KB)`);
+
+    // Windows PowerShell script
+    console.log('Uploading install-app.ps1...');
+    const ps1Content = readFileSync(installAppPs1Path);
+    await s3.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: 'install-app.ps1',
+      Body: ps1Content,
+      ContentType: 'text/plain',
+      CacheControl: 'no-cache, no-store, must-revalidate',
+    }));
+    console.log(`  ✓ install-app.ps1 (${(ps1Content.length / 1024).toFixed(2)} KB)`);
   }
 
   console.log('Upload complete!');

@@ -69,7 +69,7 @@ bash apps/electron/scripts/build-dmg.sh arm64 --upload --latest --script
 - `arm64` or `x64` - Target architecture (default varies by platform)
 - `--upload` - Upload installer to S3 after building
 - `--latest` - Also update `electron/latest` (requires --upload)
-- `--script` - Also upload `install-app.sh` (requires --upload)
+- `--script` - Also upload install scripts (requires --upload)
 
 **Environment variables for build:**
 - `APPLE_SIGNING_IDENTITY` - Code signing identity (macOS, optional)
@@ -92,10 +92,13 @@ agents-craft-do/
 │   │   ├── Craft-Agent-arm64.AppImage # Linux ARM64
 │   │   └── manifest.json
 │   ├── latest
-│   └── install-app.sh
+│   ├── install-app.sh
+│   └── install-app.ps1
 ```
 
-**Install (macOS):** `curl -fsSL https://agents.craft.do/install-app.sh | bash`
+**Install:**
+- **macOS:** `curl -fsSL https://agents.craft.do/install-app.sh | bash`
+- **Windows:** `irm https://agents.craft.do/install-app.ps1 | iex`
 
 ### Version Sync
 
