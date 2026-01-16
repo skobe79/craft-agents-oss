@@ -101,10 +101,11 @@ try {
 }
 
 # 3. Download Bun binary for Windows
-Write-Host "Downloading Bun $BunVersion for Windows x64..."
+# Use baseline build - works on all x64 CPUs (no AVX2 requirement)
+Write-Host "Downloading Bun $BunVersion for Windows x64 (baseline)..."
 New-Item -ItemType Directory -Force -Path "$ElectronDir\vendor\bun" | Out-Null
 
-$BunDownload = "bun-windows-x64"
+$BunDownload = "bun-windows-x64-baseline"
 $TempDir = Join-Path $env:TEMP "bun-download-$(Get-Random)"
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 
