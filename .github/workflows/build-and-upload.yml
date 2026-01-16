@@ -81,7 +81,7 @@ jobs:
           # Windows x64
           if [ "${{ inputs.build_windows }}" = "true" ]; then
             if [ "$FIRST" = true ]; then FIRST=false; else MATRIX+=','; fi
-            MATRIX+='{"os":"windows-latest","platform":"win32","arch":"x64","script":"build-win.ps1","ext":"exe"}'
+            MATRIX+='{"os":"windows-2019","platform":"win32","arch":"x64","script":"build-win.ps1","ext":"exe"}'
           fi
 
           # Linux x64
