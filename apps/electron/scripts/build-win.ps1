@@ -224,7 +224,18 @@ while (-not $success -and $retryCount -lt $maxRetries) {
         $retryCount++
         if ($retryCount -gt 1) {
             Write-Host "Retry attempt $retryCount of $maxRetries..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 10
+
+            # Clean up release directory between retries to avoid locked file issues
+            $releaseDir = "$ElectronDir\release"
+            if (Test-Path $releaseDir) {
+                Write-Host "  Cleaning release directory..."
+                Remove-Item -Recurse -Force $releaseDir -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 5
+            }
+
+            # Wait longer for any file locks to be released
+            Write-Host "  Waiting for file locks to release..."
+            Start-Sleep -Seconds 15
         }
         npx electron-builder --win --x64
         if ($LASTEXITCODE -eq 0) {
