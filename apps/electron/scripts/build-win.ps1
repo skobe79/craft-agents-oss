@@ -55,6 +55,18 @@ try {
 }
 Write-Host ""
 
+# 0. Kill any lingering processes that might lock files
+Write-Host "Killing any lingering node/npm processes..."
+$processesToKill = @('node', 'npm', 'electron', 'electron-builder')
+foreach ($procName in $processesToKill) {
+    Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "  Killing $($_.ProcessName) (PID: $($_.Id))..." -ForegroundColor Yellow
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+# Give processes time to fully terminate
+Start-Sleep -Seconds 2
+
 # 1. Clean previous build artifacts (with retry for locked files)
 Write-Host "Cleaning previous builds..."
 $foldersToClean = @(
@@ -339,13 +351,50 @@ while ($retryCount -lt $maxRetries) {
 [System.GC]::Collect()
 [System.GC]::WaitForPendingFinalizers()
 
+# Run electron-builder with retry logic for EBUSY errors
 Push-Location $ElectronDir
-npx electron-builder --win --x64
-if ($LASTEXITCODE -ne 0) {
-    Pop-Location
-    throw "electron-builder failed with exit code $LASTEXITCODE"
+$maxBuilderRetries = 3
+$builderRetry = 0
+$builderSuccess = $false
+
+while (-not $builderSuccess -and $builderRetry -lt $maxBuilderRetries) {
+    $builderRetry++
+    Write-Host "  electron-builder attempt $builderRetry of $maxBuilderRetries..." -ForegroundColor Cyan
+
+    # Clean release directory before each attempt to avoid stale files
+    if (Test-Path "$ElectronDir\release") {
+        Write-Host "  Cleaning release directory before attempt..."
+        Remove-Item -Recurse -Force "$ElectronDir\release" -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
+
+    npx electron-builder --win --x64 2>&1 | Tee-Object -Variable builderOutput
+
+    if ($LASTEXITCODE -eq 0) {
+        $builderSuccess = $true
+        Write-Host "  electron-builder succeeded on attempt $builderRetry" -ForegroundColor Green
+    } else {
+        Write-Host "  electron-builder failed with exit code $LASTEXITCODE" -ForegroundColor Yellow
+
+        if ($builderRetry -lt $maxBuilderRetries) {
+            Write-Host "  Waiting 10 seconds before retry..." -ForegroundColor Yellow
+
+            # Kill any processes that might be holding file locks
+            Get-Process -Name 'node', 'npm' -ErrorAction SilentlyContinue | ForEach-Object {
+                Write-Host "    Killing $($_.ProcessName) (PID: $($_.Id))..." -ForegroundColor Yellow
+                Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            }
+
+            Start-Sleep -Seconds 10
+        }
+    }
 }
+
 Pop-Location
+
+if (-not $builderSuccess) {
+    throw "electron-builder failed after $maxBuilderRetries attempts"
+}
 
 # 8. Verify the installer was built
 $InstallerPath = Get-ChildItem -Path "$ElectronDir\release" -Filter "*.exe" | Select-Object -First 1
