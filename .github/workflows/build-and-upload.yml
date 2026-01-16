@@ -33,6 +33,11 @@ on:
         required: false
         type: boolean
         default: true
+      forceRebuild:
+        description: 'Force rebuild even if artifact already exists in S3'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -105,20 +110,57 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Check if artifact already exists in S3 (skip build if it does)
+      - name: Check if artifact exists
+        id: check-artifact
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT_NAME="Craft-Agent-${{ matrix.arch }}.${{ matrix.ext }}"
+          ARTIFACT_URL="https://agents.craft.do/electron/${VERSION}/${ARTIFACT_NAME}"
+
+          echo "Checking for existing artifact: $ARTIFACT_URL"
+
+          # Check if artifact exists (HEAD request)
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --head "$ARTIFACT_URL" || echo "000")
+
+          if [ "$HTTP_STATUS" = "200" ] && [ "${{ inputs.forceRebuild }}" != "true" ]; then
+            echo "Artifact already exists in S3, skipping build"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Artifact not found or force rebuild requested, will build"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download existing artifact
+        if: steps.check-artifact.outputs.skip == 'true'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT_NAME="Craft-Agent-${{ matrix.arch }}.${{ matrix.ext }}"
+          ARTIFACT_URL="https://agents.craft.do/electron/${VERSION}/${ARTIFACT_NAME}"
+
+          mkdir -p apps/electron/release
+          echo "Downloading existing artifact from S3..."
+          curl -fsSL "$ARTIFACT_URL" -o "apps/electron/release/${ARTIFACT_NAME}"
+          echo "Downloaded: apps/electron/release/${ARTIFACT_NAME}"
+          ls -la apps/electron/release/
+
       - name: Setup Bun
+        if: steps.check-artifact.outputs.skip != 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Install dependencies
+        if: steps.check-artifact.outputs.skip != 'true'
         run: bun install
 
       - name: Sync versions
+        if: steps.check-artifact.outputs.skip != 'true'
         run: bun run scripts/sync-version.ts
 
       # macOS code signing certificate
       - name: Import Code Signing Certificate
-        if: matrix.platform == 'darwin' && env.APPLE_CERTIFICATE_BASE64 != ''
+        if: steps.check-artifact.outputs.skip != 'true' && matrix.platform == 'darwin' && env.APPLE_CERTIFICATE_BASE64 != ''
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -150,7 +192,7 @@ jobs:
 
       # macOS builds
       - name: Build Electron app (macOS)
-        if: matrix.platform == 'darwin'
+        if: steps.check-artifact.outputs.skip != 'true' && matrix.platform == 'darwin'
         run: bash apps/electron/scripts/build-dmg.sh ${{ matrix.arch }}
         env:
           # OAuth credentials (baked into build)
@@ -168,7 +210,7 @@ jobs:
 
       # Windows builds
       - name: Build Electron app (Windows)
-        if: matrix.platform == 'win32'
+        if: steps.check-artifact.outputs.skip != 'true' && matrix.platform == 'win32'
         run: powershell -ExecutionPolicy Bypass -File apps/electron/scripts/build-win.ps1
         env:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
@@ -180,7 +222,7 @@ jobs:
 
       # Linux builds
       - name: Build Electron app (Linux)
-        if: matrix.platform == 'linux'
+        if: steps.check-artifact.outputs.skip != 'true' && matrix.platform == 'linux'
         run: bash apps/electron/scripts/build-linux.sh ${{ matrix.arch }}
         env:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
