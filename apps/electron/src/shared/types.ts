@@ -114,6 +114,15 @@ export interface ShareResult {
   error?: string
 }
 
+/**
+ * Result of refreshing/regenerating a session title
+ */
+export interface RefreshTitleResult {
+  success: boolean
+  title?: string
+  error?: string
+}
+
 
 // Re-export permission types from core, extended with sessionId for multi-session context
 export type { PermissionRequest as BasePermissionRequest } from '@craft-agent/core/types';
@@ -263,6 +272,8 @@ export interface Session {
   model?: string
   // Role/type of the last message (for badge display without loading messages)
   lastMessageRole?: 'user' | 'assistant' | 'plan' | 'tool' | 'error'
+  // Whether title is currently being regenerated (for shimmer effect)
+  isRegeneratingTitle?: boolean
   // Current status for ProcessingIndicator (e.g., compacting)
   currentStatus?: {
     message: string
@@ -304,7 +315,8 @@ export type SessionEvent =
   | { type: 'interrupted'; sessionId: string; message?: Message }
   | { type: 'status'; sessionId: string; message: string; statusType?: 'compacting' }
   | { type: 'info'; sessionId: string; message: string; statusType?: 'compaction_complete'; level?: 'info' | 'warning' | 'error' | 'success' }
-  | { type: 'title_generated'; sessionId: string; title: string; preview?: string }
+  | { type: 'title_generated'; sessionId: string; title: string }
+  | { type: 'title_regenerating'; sessionId: string; isRegenerating: boolean }
   | { type: 'working_directory_changed'; sessionId: string; workingDirectory: string }
   | { type: 'permission_request'; sessionId: string; request: PermissionRequest }
   | { type: 'credential_request'; sessionId: string; request: CredentialRequest }
@@ -333,6 +345,8 @@ export type SessionEvent =
   | { type: 'auth_completed'; sessionId: string; requestId: string; success: boolean; cancelled?: boolean; error?: string }
   // Source activation events (for auto-retry on mid-turn activation)
   | { type: 'source_activated'; sessionId: string; sourceSlug: string; originalMessage: string }
+  // Real-time usage update during processing (for context display)
+  | { type: 'usage_update'; sessionId: string; tokenUsage: { inputTokens: number; contextWindow?: number } }
 
 // Options for sendMessage
 export interface SendMessageOptions {
@@ -340,6 +354,8 @@ export interface SendMessageOptions {
   ultrathinkEnabled?: boolean
   /** Skill slugs to activate for this message (from @mentions) */
   skillSlugs?: string[]
+  /** Content badges for inline display (sources, skills with embedded icons) */
+  badges?: import('@craft-agent/core').ContentBadge[]
 }
 
 // =============================================================================
@@ -365,6 +381,7 @@ export type SessionCommand =
   | { type: 'updateShare' }
   | { type: 'revokeShare' }
   | { type: 'startOAuth'; requestId: string }
+  | { type: 'refreshTitle' }
 
 /**
  * Parameters for opening a new chat session
@@ -516,7 +533,6 @@ export const IPC_CHANNELS = {
 
   // Theme management (cascading: app → workspace)
   THEME_APP_CHANGED: 'theme:appChanged',        // Broadcast event
-  THEME_WORKSPACE_CHANGED: 'theme:workspaceChanged',  // Broadcast event
 
   // Generic workspace image loading/saving (for icons, etc.)
   WORKSPACE_READ_IMAGE: 'workspace:readImage',
@@ -533,9 +549,8 @@ export const IPC_CHANNELS = {
   WORKSPACE_SETTINGS_GET: 'workspaceSettings:get',
   WORKSPACE_SETTINGS_UPDATE: 'workspaceSettings:update',
 
-  // Theme (cascading: app → workspace)
+  // Theme (app-level only)
   THEME_GET_APP: 'theme:getApp',
-  THEME_GET_WORKSPACE: 'theme:getWorkspace',
   THEME_GET_PRESETS: 'theme:getPresets',
   THEME_LOAD_PRESET: 'theme:loadPreset',
   THEME_GET_COLOR_THEME: 'theme:getColorTheme',
@@ -740,7 +755,7 @@ export interface ElectronAPI {
   respondToCredential(sessionId: string, requestId: string, response: CredentialResponse): Promise<boolean>
 
   // Consolidated session command handler
-  sessionCommand(sessionId: string, command: SessionCommand): Promise<void | ShareResult>
+  sessionCommand(sessionId: string, command: SessionCommand): Promise<void | ShareResult | RefreshTitleResult>
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>
@@ -886,18 +901,16 @@ export interface ElectronAPI {
   readWorkspaceImage(workspaceId: string, relativePath: string): Promise<string>
   writeWorkspaceImage(workspaceId: string, relativePath: string, base64: string, mimeType: string): Promise<void>
 
-  // Theme (cascading: app → workspace)
+  // Theme (app-level only)
   getAppTheme(): Promise<import('@config/theme').ThemeOverrides | null>
-  getWorkspaceTheme(workspaceId: string): Promise<import('@config/theme').ThemeOverrides | null>
-  // Preset themes (workspace-scoped)
-  loadPresetThemes(workspaceId: string): Promise<import('@config/theme').PresetTheme[]>
-  loadPresetTheme(workspaceId: string, themeId: string): Promise<import('@config/theme').PresetTheme | null>
+  // Preset themes (app-level)
+  loadPresetThemes(): Promise<import('@config/theme').PresetTheme[]>
+  loadPresetTheme(themeId: string): Promise<import('@config/theme').PresetTheme | null>
   getColorTheme(): Promise<string>
   setColorTheme(themeId: string): Promise<void>
 
   // Theme change listeners (live updates when theme.json files change)
   onAppThemeChange(callback: (theme: import('@config/theme').ThemeOverrides | null) => void): () => void
-  onWorkspaceThemeChange(callback: (theme: import('@config/theme').ThemeOverrides | null) => void): () => void
 
   // Logo URL resolution (uses Node.js filesystem cache for provider domains)
   getLogoUrl(serviceUrl: string, provider?: string): Promise<string | null>
@@ -1019,11 +1032,6 @@ export type ChatFilter =
 export type SettingsSubpage = 'app' | 'workspace' | 'shortcuts' | 'preferences'
 
 /**
- * Source category options for filtering sources
- */
-export type SourceCategory = 'local-files' | 'online-sources' | 'local-mcp'
-
-/**
  * Chats navigation state - shows SessionList in navigator
  */
 export interface ChatsNavigationState {
@@ -1040,8 +1048,6 @@ export interface ChatsNavigationState {
  */
 export interface SourcesNavigationState {
   navigator: 'sources'
-  /** Optional category filter */
-  category?: SourceCategory
   /** Selected source details, or null for empty state */
   details: { type: 'source'; sourceSlug: string } | null
   /** Optional right sidebar panel state */
@@ -1074,7 +1080,7 @@ export interface SkillsNavigationState {
  * Unified navigation state - single source of truth for all 3 panels
  *
  * From this state we can derive:
- * - LeftSidebar: which item is highlighted (from navigator + filter/category/subpage)
+ * - LeftSidebar: which item is highlighted (from navigator + filter/subpage)
  * - NavigatorPanel: which list/content to show (from navigator)
  * - MainContentPanel: what details to display (from details or subpage)
  */
@@ -1126,11 +1132,10 @@ export const DEFAULT_NAVIGATION_STATE: NavigationState = {
  */
 export const getNavigationStateKey = (state: NavigationState): string => {
   if (state.navigator === 'sources') {
-    const base = state.category ? `sources:${state.category}` : 'sources'
     if (state.details) {
-      return `${base}/source/${state.details.sourceSlug}`
+      return `sources/source/${state.details.sourceSlug}`
     }
-    return base
+    return 'sources'
   }
   if (state.navigator === 'skills') {
     if (state.details) {
@@ -1159,24 +1164,12 @@ export const getNavigationStateKey = (state: NavigationState): string => {
 export const parseNavigationStateKey = (key: string): NavigationState | null => {
   // Handle sources
   if (key === 'sources') return { navigator: 'sources', details: null }
-  if (key.startsWith('sources:')) {
-    const rest = key.slice(8)
-    // Check for source details
-    if (rest.includes('/source/')) {
-      const [categoryPart, , sourceSlug] = rest.split('/')
-      const category = categoryPart as SourceCategory
-      if (!['local-files', 'online-sources', 'local-mcp'].includes(category)) {
-        return { navigator: 'sources', details: null }
-      }
-      if (sourceSlug) {
-        return { navigator: 'sources', category, details: { type: 'source', sourceSlug } }
-      }
-      return { navigator: 'sources', category, details: null }
+  if (key.startsWith('sources/source/')) {
+    const sourceSlug = key.slice(15)
+    if (sourceSlug) {
+      return { navigator: 'sources', details: { type: 'source', sourceSlug } }
     }
-    const category = rest as SourceCategory
-    if (['local-files', 'online-sources', 'local-mcp'].includes(category)) {
-      return { navigator: 'sources', category, details: null }
-    }
+    return { navigator: 'sources', details: null }
   }
 
   // Handle skills

@@ -35,8 +35,7 @@ import { debug } from '@craft-agent/shared/utils';
 ```
 src/
 ├── agent/              # CraftAgent, session-scoped-tools, mode-manager, mode-types, permissions-config
-├── auth/               # OAuth, balance, craft-token, claude-token, state
-├── clients/            # External API clients (Craft API)
+├── auth/               # OAuth, craft-token, claude-token, state
 ├── config/             # Storage, preferences, models, theme, watcher
 ├── credentials/        # Secure credential storage (AES-256-GCM)
 ├── headless/           # Non-interactive execution mode
