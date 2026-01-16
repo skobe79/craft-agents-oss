@@ -2940,39 +2940,6 @@ To view this task's output:
     }
   }
 
-  /**
-   * @deprecated No longer used. Skills are now handled by the Agent SDK's Skill tool.
-   * Build skill context from @mentioned skill slugs
-   * Returns XML-formatted skill instructions to prepend to the message
-   */
-  private async buildSkillContext(workspaceRoot: string, skillSlugs: string[]): Promise<string | null> {
-    try {
-      const { loadWorkspaceSkills } = await import('@craft-agent/shared/skills')
-      const allSkills = loadWorkspaceSkills(workspaceRoot)
-      const activated = allSkills.filter(s => skillSlugs.includes(s.slug))
-
-      if (activated.length === 0) {
-        sessionLog.warn(`No skills found for slugs: ${skillSlugs.join(', ')}`)
-        return null
-      }
-
-      const skillBlocks = activated.map(skill => {
-        return `<skill name="${skill.metadata.name}" slug="${skill.slug}">
-${skill.content}
-</skill>`
-      })
-
-      return `<activated-skills>
-The user has activated the following skills for this request. Follow their instructions:
-
-${skillBlocks.join('\n\n')}
-</activated-skills>`
-    } catch (error) {
-      sessionLog.error('Failed to build skill context:', error)
-      return null
-    }
-  }
-
   private sendEvent(event: SessionEvent, workspaceId?: string): void {
     if (!this.windowManager) {
       sessionLog.warn('Cannot send event - no window manager')
