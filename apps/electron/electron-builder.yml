@@ -1,6 +1,6 @@
 appId: com.lukilabs.craft-agent
 productName: Craft Agent
-copyright: Copyright © 2025 Luki Labs
+copyright: Copyright © 2025 Craft Docs Ltd.
 
 electronVersion: "39.2.7"
 
@@ -85,29 +85,44 @@ win:
         - x64
   # Use predictable naming: Craft-Agent-x64.exe
   artifactName: "Craft-Agent-${arch}.${ext}"
-  # Exclude ripgrep binaries for other platforms
+  # Disable code signing (causes EBUSY file locking issues in CI)
+  # Re-enable when we have a proper Windows code signing certificate
+  signAndEditExecutable: false
   files:
+    # Exclude ripgrep binaries for other platforms
     - "!node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/arm64-linux"
     - "!node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/x64-linux"
     - "!node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/arm64-darwin"
     - "!node_modules/@anthropic-ai/claude-agent-sdk/vendor/ripgrep/x64-darwin"
+    # WORKAROUND: Exclude bun from regular files on Windows.
+    # electron-builder's npm node module collector causes EBUSY errors when copying
+    # bun.exe because it scans/locks files while simultaneously trying to copy them.
+    # Moving bun to extraResources avoids this by copying it before the collector runs.
+    # See: https://github.com/electron-userland/electron-builder/issues/8250
+    - "!vendor/bun/**/*"
+  # Copy bun.exe as extraResource to avoid EBUSY file locking (see comment above)
+  extraResources:
+    - from: vendor/bun/bun.exe
+      to: vendor/bun/bun.exe
 
 nsis:
   oneClick: false
+  # Force per-user install to %LOCALAPPDATA%\Programs\ (not Program Files).
+  # Bun subprocess cannot read/write files in Program Files due to Windows permissions.
+  # allowElevation: false removes the "all users" vs "only me" selection screen.
   perMachine: false
-  allowToChangeInstallationDirectory: true
+  allowElevation: false
+  allowToChangeInstallationDirectory: false
   deleteAppDataOnUninstall: true
 
 linux:
   icon: resources/icon.png
   category: Utility
+  maintainer: "Craft Docs Ltd. <support@craft.do>"
   target:
     - target: AppImage
       arch:
         - x64
         - arm64
-    - target: deb
-      arch:
-        - x64
   # Use predictable naming: Craft-Agent-x64.AppImage, Craft-Agent-arm64.AppImage
   artifactName: "Craft-Agent-${arch}.${ext}"

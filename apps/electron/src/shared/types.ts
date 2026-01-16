@@ -192,32 +192,6 @@ export interface Plan {
 // ============================================
 
 /**
- * Craft space from user's profile
- */
-export interface CraftSpace {
-  id: string
-  name: string
-  teamId?: string | null
-  iconUrl?: string | null
-}
-
-/**
- * Craft OAuth result with profile info
- */
-export interface CraftOAuthResult {
-  success: boolean
-  error?: string
-  token?: string
-  profile?: {
-    userId: string
-    firstName: string
-    lastName: string
-    spaces: CraftSpace[]
-    teams: Array<{ id: string; name: string; isPrivate: boolean; role: string; tier?: string | null }>
-  }
-}
-
-/**
  * Result of saving onboarding configuration
  */
 export interface OnboardingSaveResult {
@@ -523,8 +497,6 @@ export const IPC_CHANNELS = {
 
   // Onboarding
   ONBOARDING_GET_AUTH_STATE: 'onboarding:getAuthState',
-  ONBOARDING_START_CRAFT_OAUTH: 'onboarding:startCraftOAuth',
-  ONBOARDING_GET_CRAFT_PROFILE: 'onboarding:getCraftProfile',
   ONBOARDING_VALIDATE_MCP: 'onboarding:validateMcp',
   ONBOARDING_START_MCP_OAUTH: 'onboarding:startMcpOAuth',
   ONBOARDING_SAVE_CONFIG: 'onboarding:saveConfig',
@@ -716,8 +688,6 @@ export interface ElectronAPI {
   // Onboarding
   getAuthState(): Promise<AuthState>
   getSetupNeeds(): Promise<SetupNeeds>
-  startCraftOAuth(): Promise<CraftOAuthResult>
-  getCraftProfile(): Promise<CraftOAuthResult>  // Get profile using existing stored token
   startWorkspaceMcpOAuth(mcpUrl: string): Promise<OAuthResult & { accessToken?: string; clientId?: string }>
   saveOnboardingConfig(config: {
     authType?: AuthType  // Optional - if not provided, preserves existing auth type (for add workspace)
