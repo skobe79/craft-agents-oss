@@ -138,8 +138,8 @@ bun run sync-secrets   # Syncs .env.1password → .env
 Or manually create `.env`:
 
 ```bash
+# Google OAuth uses PKCE - only client_id is needed (no secret)
 GOOGLE_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
 SLACK_OAUTH_CLIENT_ID=your-slack-client-id
 SLACK_OAUTH_CLIENT_SECRET=your-slack-client-secret
 ```
