@@ -284,7 +284,11 @@ if [ "$OS_TYPE" = "darwin" ]; then
 else
     # Linux installation
     appimage_path="$installer_path"
-    install_path="$INSTALL_DIR/$APP_NAME"
+
+    # New paths
+    APP_DIR="$HOME/.craft-agent/app"
+    WRAPPER_PATH="$INSTALL_DIR/craft-agents"
+    APPIMAGE_INSTALL_PATH="$APP_DIR/Craft-Agent-x64.AppImage"
 
     # Kill the app if it's running
     if pgrep -f "Craft-Agent.*AppImage" >/dev/null 2>&1; then
@@ -293,40 +297,79 @@ else
         sleep 2
     fi
 
-    # Remove existing installation if present
-    if [ -f "$install_path" ]; then
-        info "Removing previous installation..."
-        rm -f "$install_path"
+    # Create directories
+    mkdir -p "$APP_DIR"
+    mkdir -p "$INSTALL_DIR"
+
+    # Remove existing AppImage
+    [ -f "$APPIMAGE_INSTALL_PATH" ] && rm -f "$APPIMAGE_INSTALL_PATH"
+
+    # Install AppImage
+    info "Installing AppImage to $APP_DIR..."
+    mv "$appimage_path" "$APPIMAGE_INSTALL_PATH"
+    chmod +x "$APPIMAGE_INSTALL_PATH"
+
+    # Create wrapper script
+    info "Creating launcher at $WRAPPER_PATH..."
+    cat > "$WRAPPER_PATH" << 'WRAPPER_EOF'
+#!/bin/bash
+# Craft Agent launcher - handles Linux-specific AppImage issues
+
+APPIMAGE_PATH="$HOME/.craft-agent/app/Craft-Agent-x64.AppImage"
+ELECTRON_CACHE="$HOME/.config/@craft-agent"
+ELECTRON_CACHE_ALT="$HOME/.cache/@craft-agent"
+
+# Verify AppImage exists
+if [ ! -f "$APPIMAGE_PATH" ]; then
+    echo "Error: Craft Agent not found at $APPIMAGE_PATH"
+    echo "Reinstall: curl -fsSL https://agents.craft.do/install-app.sh | bash"
+    exit 1
+fi
+
+# Ensure DISPLAY is set (required for X11)
+if [ -z "$DISPLAY" ]; then
+    export DISPLAY=:0.0
+fi
+
+# Clear stale cache referencing AppImage mount paths
+# AppImage creates a new /tmp/.mount_Craft-XXXX each launch, so any cached path is stale
+for cache_dir in "$ELECTRON_CACHE" "$ELECTRON_CACHE_ALT"; do
+    if [ -d "$cache_dir" ] && grep -rq '/tmp/\.mount_Craft' "$cache_dir" 2>/dev/null; then
+        rm -rf "$cache_dir"
     fi
+done
 
-    # Move AppImage to install directory
-    info "Installing to $INSTALL_DIR..."
-    mv "$appimage_path" "$install_path"
+# Set APPIMAGE for auto-update
+export APPIMAGE="$APPIMAGE_PATH"
 
-    # Make executable
-    chmod +x "$install_path"
+# Launch with --no-sandbox (AppImage extracts to /tmp, losing SUID on chrome-sandbox)
+exec "$APPIMAGE_PATH" --no-sandbox "$@"
+WRAPPER_EOF
+
+    chmod +x "$WRAPPER_PATH"
+
+    # Migrate old installation
+    OLD_APPIMAGE="$INSTALL_DIR/Craft-Agent-x64.AppImage"
+    [ -f "$OLD_APPIMAGE" ] && rm -f "$OLD_APPIMAGE"
 
     echo ""
     echo "─────────────────────────────────────────────────────────────────────────"
     echo ""
     success "Installation complete!"
     echo ""
-    printf "%b\n" "  Craft Agent has been installed to ${BOLD}$install_path${NC}"
+    printf "%b\n" "  AppImage: ${BOLD}$APPIMAGE_INSTALL_PATH${NC}"
+    printf "%b\n" "  Launcher: ${BOLD}$WRAPPER_PATH${NC}"
     echo ""
-    printf "%b\n" "  You can launch it by running:"
-    printf "%b\n" "    ${BOLD}$install_path${NC}"
+    printf "%b\n" "  Run with: ${BOLD}craft-agents${NC}"
     echo ""
-    printf "%b\n" "  To add to your PATH, run:"
+    printf "%b\n" "  Add to PATH if needed:"
     printf "%b\n" "    ${BOLD}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc${NC}"
     echo ""
 
-    # Check if FUSE is available (required for AppImage)
+    # FUSE check
     if ! command -v fusermount >/dev/null 2>&1; then
-        echo ""
-        warn "FUSE is required to run AppImage files but was not detected."
-        printf "%b\n" "  Install it with:"
-        printf "%b\n" "    ${BOLD}sudo apt install fuse libfuse2${NC}  (Debian/Ubuntu)"
-        printf "%b\n" "    ${BOLD}sudo dnf install fuse fuse-libs${NC}  (Fedora)"
-        echo ""
+        warn "FUSE required but not detected."
+        printf "%b\n" "  Install: ${BOLD}sudo apt install fuse libfuse2${NC} (Debian/Ubuntu)"
+        printf "%b\n" "           ${BOLD}sudo dnf install fuse fuse-libs${NC} (Fedora)"
     fi
 fi

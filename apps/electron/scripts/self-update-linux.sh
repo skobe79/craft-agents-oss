@@ -33,6 +33,14 @@ show_notification() {
     fi
 }
 
+clear_stale_cache() {
+    local cache_dir="$HOME/.config/@craft-agent/electron"
+    if [ -d "$cache_dir" ]; then
+        log "Clearing Electron cache to prevent stale mount issues..."
+        rm -rf "$cache_dir"
+    fi
+}
+
 error_with_rollback() {
     log "ERROR: $1"
 
@@ -42,8 +50,12 @@ error_with_rollback() {
         if mv "$BACKUP_PATH" "$CURRENT_APPIMAGE" 2>/dev/null; then
             log "Rollback successful - old version restored"
             chmod +x "$CURRENT_APPIMAGE" 2>/dev/null || true
-            # Try to launch the restored app
-            nohup "$CURRENT_APPIMAGE" > /dev/null 2>&1 &
+            # Try to launch the restored app via wrapper if available
+            if [ -x "$HOME/.local/bin/craft-agents" ]; then
+                nohup "$HOME/.local/bin/craft-agents" > /dev/null 2>&1 &
+            else
+                nohup "$CURRENT_APPIMAGE" --no-sandbox > /dev/null 2>&1 &
+            fi
         else
             log "Rollback failed - manual intervention required"
             log "Backup at: $BACKUP_PATH"
@@ -132,12 +144,21 @@ chmod +x "$CURRENT_APPIMAGE" 2>/dev/null || true
 
 log "Installation complete. Launching app..."
 
+# Clear Electron cache to prevent stale mount path references
+clear_stale_cache
+
 # Wait a moment
 sleep 1
 
-# Launch the updated app and capture PID
-log "Launching updated AppImage..."
-nohup "$CURRENT_APPIMAGE" > /dev/null 2>&1 &
+# Launch via wrapper if available, otherwise direct with --no-sandbox
+if [ -x "$HOME/.local/bin/craft-agents" ]; then
+    log "Using wrapper script for launch"
+    nohup "$HOME/.local/bin/craft-agents" > /dev/null 2>&1 &
+else
+    log "Launching AppImage directly with --no-sandbox"
+    export APPIMAGE="$CURRENT_APPIMAGE"
+    nohup "$CURRENT_APPIMAGE" --no-sandbox > /dev/null 2>&1 &
+fi
 APP_PID=$!
 log "Launched with PID: $APP_PID"
 
