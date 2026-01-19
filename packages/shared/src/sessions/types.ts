@@ -84,6 +84,17 @@ export interface SessionConfig {
   model?: string;
   /** Thinking level for this session ('off', 'think', 'max') */
   thinkingLevel?: ThinkingLevel;
+  /**
+   * Pending plan execution state - tracks "Accept & Compact" flow.
+   * When set, indicates a plan needs to be executed after compaction completes.
+   * Cleared on: successful execution, new user message, or manual clear.
+   */
+  pendingPlanExecution?: {
+    /** Path to the plan file to execute */
+    planPath: string;
+    /** Whether we're still waiting for compaction to complete */
+    awaitingCompaction: boolean;
+  };
 }
 
 /**
@@ -132,6 +143,17 @@ export interface SessionHeader {
   model?: string;
   /** Thinking level for this session ('off', 'think', 'max') */
   thinkingLevel?: ThinkingLevel;
+  /**
+   * Pending plan execution state - tracks "Accept & Compact" flow.
+   * When set, indicates a plan needs to be executed after compaction completes.
+   * Cleared on: successful execution, new user message, or manual clear.
+   */
+  pendingPlanExecution?: {
+    /** Path to the plan file to execute */
+    planPath: string;
+    /** Whether we're still waiting for compaction to complete */
+    awaitingCompaction: boolean;
+  };
   // Pre-computed fields for fast list loading
   /** Number of messages in session */
   messageCount: number;

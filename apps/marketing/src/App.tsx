@@ -1,54 +1,57 @@
 import { Markdown } from '@craft-agent/ui/markdown'
-import { CardBeamAnimation } from './components/CardBeamAnimation'
+import { Dithering } from '@paper-design/shaders-react'
+import desktopScreenshot from './assets/desktop/screenshot.jpg'
+import agentsLogo from './assets/agents_logo.svg'
 
 const article = `
-# Craft Agent
+Craft Agents is a tool we built so we can work effectively with agents. It enables intuitive multitasking, no-fluff connection to any API or Service, and a more document (vs code) centric workflow - in a beautiful and fluid UI.
 
-Craft Agent is an AI-powered desktop application that helps you work seamlessly across your data sources. Built on Claude, it connects your documents, code repositories, APIs, and tools into a unified conversational interface where you can search, analyze, and create without switching contexts.
+It leans on Claude Code through the [Claude Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) - follow what we found great, and improves areas where we've desired improvements.
 
-## Connect Everything
+It's built with [Agent Native](https://every.to/guides/agent-native) software principles in mind, and is highly customisable out of the box. One of the first of its kind.
 
-Whether it's your Craft documents, GitHub repositories, Linear issues, Obsidian notes, or custom REST APIs—Craft Agent brings them all together. Configure MCP servers or connect directly to services with OAuth, and let AI traverse your entire knowledge graph to find answers and complete tasks.
+Craft Agents is open source under the Apache 2.0 license - so you are free to remix, change **anything.** And that's actually possible. We ourselves are building Craft Agents with Craft Agents only - no code editors - so really, any customisation is just a prompt away.
 
-## Work Naturally
-
-Instead of learning different interfaces for each tool, just describe what you need. Craft Agent understands context, maintains conversation history, and can execute multi-step workflows that span multiple data sources. It's like having a research assistant who knows where everything is.
-
-## Built for macOS
-
-A native desktop experience with multi-session inbox management, keyboard-first navigation, and seamless integration with your existing workflow. Install with a single command and start connecting your world.
-
-\`\`\`bash
-curl -fsSL https://agents.craft.do/install-app.sh | bash
-\`\`\`
+We built Craft Agents because we wanted a better, more opinionated (and preferably non-CLI way) of working with the most powerful agents in the world. We'll continue to improve it, based on our experiences and intuition.
 `
 
 export default function App() {
   return (
-    <main className="relative min-h-screen bg-foreground-2 flex flex-col items-center">
-      {/* Hero section with card beam animation */}
-      <section className="relative w-full pt-16 pb-8">
-        {/* Craft Agent logo */}
-        <div className="flex justify-center mb-8">
-          <svg className="w-[72px] h-[72px]" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <g transform="translate(107, 101)" fill="#9570BE">
-              <polygon points="46.4162423 305 46.4160764 247.039024 0 247.039062 0 61.9609375 46.4160764 61.9600509 46.4162423 4 270 4 270 106.8625 157.110868 106.862192 157.110868 202.136883 270 202.1375 270 305" />
-            </g>
-          </svg>
-        </div>
+    <div className="relative min-h-screen bg-foreground-2">
+      {/* Dithering shader background */}
+      <div className="fixed inset-0 pointer-events-none">
+        <Dithering
+          colorBack="#00000000"
+          colorFront="#d1c6e13d"
+          shape="swirl"
+          type="8x8"
+          size={2.0}
+          speed={0.4}
+          scale={1.0}
+          rotation={0}
+          offsetX={0}
+          offsetY={0}
+          style={{ width: '100%', height: '100%' }}
+        />
+      </div>
 
-        {/* Card beam animation */}
-        <CardBeamAnimation />
-      </section>
+      <main className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 pt-[48px] pb-[128px]">
+        {/* Craft Agents logo */}
+        <img src={agentsLogo} alt="Craft Agents" className="w-[224px] mb-12" />
 
-      {/* Content section */}
-      <section className="w-full max-w-2xl px-6 py-12">
-        <div className="text-[14px]">
+        {/* Hero screenshot */}
+        <img
+          src={desktopScreenshot}
+          alt="Craft Agents interface"
+          className="max-w-4xl w-full mb-12 rounded-[12px] shadow-hero"
+        />
+
+        <div className="bg-background rounded-[20px] shadow-strong max-w-2xl w-full p-8 pt-8 md:p-12 md:pt-10 text-[13px] [&_p]:leading-snug [&_p]:my-4">
           <Markdown>
             {article}
           </Markdown>
         </div>
-      </section>
-    </main>
+      </main>
+    </div>
   )
 }

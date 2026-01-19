@@ -46,6 +46,11 @@ export {
   flagSession,
   unflagSession,
   setSessionTodoState,
+  // Pending plan execution (Accept & Compact flow)
+  setPendingPlanExecution,
+  markCompactionComplete,
+  clearPendingPlanExecution,
+  getPendingPlanExecution,
   // Session filtering
   listFlaggedSessions,
   listCompletedSessions,

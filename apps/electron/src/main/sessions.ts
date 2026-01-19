@@ -25,6 +25,10 @@ import {
   unflagSession as unflagStoredSession,
   setSessionTodoState as setStoredSessionTodoState,
   updateSessionMetadata,
+  setPendingPlanExecution as setStoredPendingPlanExecution,
+  markCompactionComplete as markStoredCompactionComplete,
+  clearPendingPlanExecution as clearStoredPendingPlanExecution,
+  getPendingPlanExecution as getStoredPendingPlanExecution,
   getSessionAttachmentsPath,
   getSessionPath as getSessionStoragePath,
   sessionPersistenceQueue,
@@ -1493,6 +1497,59 @@ export class SessionManager {
   }
 
   // ============================================
+  // Pending Plan Execution (Accept & Compact)
+  // ============================================
+
+  /**
+   * Set pending plan execution state.
+   * Called when user clicks "Accept & Compact" to persist the plan path
+   * so execution can resume after compaction (even if page reloads).
+   */
+  setPendingPlanExecution(sessionId: string, planPath: string): void {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      setStoredPendingPlanExecution(managed.workspace.rootPath, sessionId, planPath)
+      sessionLog.info(`Session ${sessionId}: set pending plan execution for ${planPath}`)
+    }
+  }
+
+  /**
+   * Mark compaction as complete for pending plan execution.
+   * Called when compaction_complete event fires - allows reload recovery
+   * to know that compaction finished and plan can be executed.
+   */
+  markCompactionComplete(sessionId: string): void {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      markStoredCompactionComplete(managed.workspace.rootPath, sessionId)
+      sessionLog.info(`Session ${sessionId}: compaction marked complete for pending plan`)
+    }
+  }
+
+  /**
+   * Clear pending plan execution state.
+   * Called after plan execution is triggered, on new user message,
+   * or when the pending execution is no longer relevant.
+   */
+  clearPendingPlanExecution(sessionId: string): void {
+    const managed = this.sessions.get(sessionId)
+    if (managed) {
+      clearStoredPendingPlanExecution(managed.workspace.rootPath, sessionId)
+      sessionLog.info(`Session ${sessionId}: cleared pending plan execution`)
+    }
+  }
+
+  /**
+   * Get pending plan execution state for a session.
+   * Used on reload/init to check if we need to resume plan execution.
+   */
+  getPendingPlanExecution(sessionId: string): { planPath: string; awaitingCompaction: boolean } | null {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) return null
+    return getStoredPendingPlanExecution(managed.workspace.rootPath, sessionId)
+  }
+
+  // ============================================
   // Session Sharing
   // ============================================
 
@@ -1960,6 +2017,11 @@ export class SessionManager {
     if (!managed) {
       throw new Error(`Session ${sessionId} not found`)
     }
+
+    // Clear any pending plan execution state when a new user message is sent.
+    // This acts as a safety valve - if the user moves on, we don't want to
+    // auto-execute an old plan later.
+    clearStoredPendingPlanExecution(managed.workspace.rootPath, sessionId)
 
     // Ensure messages are loaded before we try to add new ones
     await this.ensureMessagesLoaded(managed)
@@ -2881,6 +2943,13 @@ To view this task's output:
             statusType: 'compaction_complete',
           }
           managed.messages.push(compactionMessage)
+
+          // Mark compaction complete in the session state.
+          // This is done here (backend) rather than in the renderer so it's
+          // not affected by CMD+R during compaction. The frontend reload
+          // recovery will see awaitingCompaction=false and trigger execution.
+          markStoredCompactionComplete(managed.workspace.rootPath, sessionId)
+          sessionLog.info(`Session ${sessionId}: compaction complete, marked pending plan ready`)
         }
 
         this.sendEvent({

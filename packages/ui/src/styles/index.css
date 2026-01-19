@@ -311,6 +311,31 @@ html[data-font="inter"] {
       rgba(0, 0, 0, 0.06) 0px 6px 6px -3px;
   }
 
+  .shadow-medium {
+    box-shadow:
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+      rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+      rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px,
+      rgba(0, 0, 0, 0.06) 0px 6px 6px -3px,
+      rgba(0, 0, 0, 0.04) 0px 12px 12px -6px;
+  }
+
+  /* Hero shadow - medium base with larger soft layers for floating effect */
+  .shadow-hero {
+    box-shadow:
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+      rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+      rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+      rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px,
+      rgba(0, 0, 0, 0.06) 0px 6px 6px -3px,
+      rgba(0, 0, 0, 0.04) 0px 12px 12px -6px,
+      rgba(0, 0, 0, 0.03) 0px 24px 32px -12px,
+      rgba(0, 0, 0, 0.02) 0px 48px 64px -24px;
+  }
+
   /* Tinted shadow using CSS variable - use with style={{ '--shadow-color': 'r, g, b' }} */
   .shadow-tinted {
     --shadow-color: 0, 0, 0;

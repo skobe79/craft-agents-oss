@@ -519,6 +519,74 @@ export function setSessionTodoState(
 }
 
 // ============================================================
+// Pending Plan Execution (Accept & Compact flow)
+// ============================================================
+
+/**
+ * Set pending plan execution state.
+ * Called when user clicks "Accept & Compact" - stores the plan path
+ * so it can be executed after compaction, even if the page reloads.
+ */
+export function setPendingPlanExecution(
+  workspaceRootPath: string,
+  sessionId: string,
+  planPath: string
+): void {
+  const session = loadSession(workspaceRootPath, sessionId);
+  if (!session) return;
+
+  session.pendingPlanExecution = {
+    planPath,
+    awaitingCompaction: true,
+  };
+  saveSession(session);
+}
+
+/**
+ * Mark compaction as complete for pending plan execution.
+ * Called when compaction_complete event fires - sets awaitingCompaction to false
+ * so reload recovery knows compaction finished and can trigger execution.
+ */
+export function markCompactionComplete(
+  workspaceRootPath: string,
+  sessionId: string
+): void {
+  const session = loadSession(workspaceRootPath, sessionId);
+  if (!session?.pendingPlanExecution) return;
+
+  session.pendingPlanExecution.awaitingCompaction = false;
+  saveSession(session);
+}
+
+/**
+ * Clear pending plan execution state.
+ * Called after plan execution is sent, on new user message, or when
+ * the pending execution is no longer relevant.
+ */
+export function clearPendingPlanExecution(
+  workspaceRootPath: string,
+  sessionId: string
+): void {
+  const session = loadSession(workspaceRootPath, sessionId);
+  if (!session) return;
+
+  delete session.pendingPlanExecution;
+  saveSession(session);
+}
+
+/**
+ * Get pending plan execution state for a session.
+ * Used on reload to check if we need to resume plan execution.
+ */
+export function getPendingPlanExecution(
+  workspaceRootPath: string,
+  sessionId: string
+): { planPath: string; awaitingCompaction: boolean } | null {
+  const session = loadSession(workspaceRootPath, sessionId);
+  return session?.pendingPlanExecution ?? null;
+}
+
+// ============================================================
 // Session Filtering
 // ============================================================
 

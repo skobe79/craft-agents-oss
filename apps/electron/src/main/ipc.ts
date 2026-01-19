@@ -368,11 +368,26 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       case 'refreshTitle':
         ipcLog.info(`IPC: refreshTitle received for session ${sessionId}`)
         return sessionManager.refreshTitle(sessionId)
+      // Pending plan execution (Accept & Compact flow)
+      case 'setPendingPlanExecution':
+        return sessionManager.setPendingPlanExecution(sessionId, command.planPath)
+      case 'markCompactionComplete':
+        return sessionManager.markCompactionComplete(sessionId)
+      case 'clearPendingPlanExecution':
+        return sessionManager.clearPendingPlanExecution(sessionId)
       default: {
         const _exhaustive: never = command
         throw new Error(`Unknown session command: ${JSON.stringify(command)}`)
       }
     }
+  })
+
+  // Get pending plan execution state (for reload recovery)
+  ipcMain.handle(IPC_CHANNELS.GET_PENDING_PLAN_EXECUTION, async (
+    _event,
+    sessionId: string
+  ) => {
+    return sessionManager.getPendingPlanExecution(sessionId)
   })
 
   // Read a file (with path validation to prevent traversal attacks)

@@ -408,6 +408,10 @@ export type SessionCommand =
   | { type: 'revokeShare' }
   | { type: 'startOAuth'; requestId: string }
   | { type: 'refreshTitle' }
+  // Pending plan execution (Accept & Compact flow)
+  | { type: 'setPendingPlanExecution'; planPath: string }
+  | { type: 'markCompactionComplete' }
+  | { type: 'clearPendingPlanExecution' }
 
 /**
  * Parameters for opening a new chat session
@@ -435,6 +439,9 @@ export const IPC_CHANNELS = {
 
   // Consolidated session command
   SESSION_COMMAND: 'sessions:command',
+
+  // Pending plan execution (for reload recovery)
+  GET_PENDING_PLAN_EXECUTION: 'sessions:getPendingPlanExecution',
 
   // Workspace management
   GET_WORKSPACES: 'workspaces:get',
@@ -628,6 +635,9 @@ export interface ElectronAPI {
 
   // Consolidated session command handler
   sessionCommand(sessionId: string, command: SessionCommand): Promise<void | ShareResult | RefreshTitleResult>
+
+  // Pending plan execution (for reload recovery)
+  getPendingPlanExecution(sessionId: string): Promise<{ planPath: string; awaitingCompaction: boolean } | null>
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>

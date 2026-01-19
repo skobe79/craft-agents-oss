@@ -20,6 +20,10 @@ const api: ElectronAPI = {
   sessionCommand: (sessionId: string, command: import('../shared/types').SessionCommand) =>
     ipcRenderer.invoke(IPC_CHANNELS.SESSION_COMMAND, sessionId, command),
 
+  // Pending plan execution (for reload recovery)
+  getPendingPlanExecution: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_PENDING_PLAN_EXECUTION, sessionId),
+
   // Workspace management
   getWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.GET_WORKSPACES),
   createWorkspace: (folderPath: string, name: string) =>

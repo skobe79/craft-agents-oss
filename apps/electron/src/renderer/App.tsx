@@ -484,6 +484,8 @@ export default function App() {
 
       // Dispatch window event when compaction completes
       // This allows FreeFormInput to sequence the plan execution message after compaction
+      // Note: markCompactionComplete is called on the backend (sessions.ts) to ensure
+      // it happens even if CMD+R occurs during compaction
       if (event.type === 'info' && event.statusType === 'compaction_complete') {
         window.dispatchEvent(new CustomEvent('craft:compaction-complete', {
           detail: { sessionId }

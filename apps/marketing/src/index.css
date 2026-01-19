@@ -44,3 +44,12 @@
 .markdown-content > :last-child {
   margin-bottom: 0;
 }
+
+.markdown-content a {
+  color: oklch(0.5 0.15 293);
+  text-decoration: none;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}

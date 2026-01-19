@@ -330,9 +330,10 @@ export function FreeFormInput({
   }, [sessionId, permissionMode, onPermissionModeChange, onSubmit])
 
   // Listen for craft:approve-plan-with-compact events (Accept & Compact option)
-  // This compacts the conversation first, then executes the plan
+  // This compacts the conversation first, then executes the plan.
+  // The pending state is persisted to survive page reloads (CMD+R).
   React.useEffect(() => {
-    const handleApprovePlanWithCompact = (e: CustomEvent<{ sessionId?: string; planPath?: string }>) => {
+    const handleApprovePlanWithCompact = async (e: CustomEvent<{ sessionId?: string; planPath?: string }>) => {
       // Only handle if this event is for our session
       if (e.detail?.sessionId && e.detail.sessionId !== sessionId) {
         return
@@ -345,19 +346,28 @@ export function FreeFormInput({
         onPermissionModeChange?.('allow-all')
       }
 
+      // Persist the pending plan execution state BEFORE sending /compact.
+      // This allows reload recovery if CMD+R happens during compaction.
+      if (planPath && sessionId) {
+        await window.electronAPI.sessionCommand(sessionId, {
+          type: 'setPendingPlanExecution',
+          planPath,
+        })
+      }
+
       // Send /compact to trigger compaction
       onSubmit('/compact', undefined)
 
-      // Set up a one-time listener for compaction complete
-      // After compaction, Claude loses context so we need to tell it which plan to read
-      const handleCompactionComplete = (compactEvent: CustomEvent<{ sessionId?: string }>) => {
+      // Set up a one-time listener for compaction complete.
+      // This handles the normal case (no reload during compaction).
+      const handleCompactionComplete = async (compactEvent: CustomEvent<{ sessionId?: string }>) => {
         // Only handle if this is for our session
         if (compactEvent.detail?.sessionId !== sessionId) {
           return
         }
 
         // Remove the listener (one-time use)
-        window.removeEventListener('craft:compaction-complete', handleCompactionComplete as EventListener)
+        window.removeEventListener('craft:compaction-complete', handleCompactionComplete as unknown as EventListener)
 
         // Send the execution message with explicit plan path
         // After compaction, Claude doesn't automatically remember the plan file
@@ -366,14 +376,65 @@ export function FreeFormInput({
         } else {
           onSubmit('Plan approved, please execute.', undefined)
         }
+
+        // Clear the pending state since we just sent the execution message
+        if (sessionId) {
+          await window.electronAPI.sessionCommand(sessionId, {
+            type: 'clearPendingPlanExecution',
+          })
+        }
       }
 
-      window.addEventListener('craft:compaction-complete', handleCompactionComplete as EventListener)
+      window.addEventListener('craft:compaction-complete', handleCompactionComplete as unknown as EventListener)
     }
 
-    window.addEventListener('craft:approve-plan-with-compact', handleApprovePlanWithCompact as EventListener)
-    return () => window.removeEventListener('craft:approve-plan-with-compact', handleApprovePlanWithCompact as EventListener)
+    window.addEventListener('craft:approve-plan-with-compact', handleApprovePlanWithCompact as unknown as EventListener)
+    return () => window.removeEventListener('craft:approve-plan-with-compact', handleApprovePlanWithCompact as unknown as EventListener)
   }, [sessionId, permissionMode, onPermissionModeChange, onSubmit])
+
+  // Reload recovery: Check for pending plan execution on mount.
+  // If the page reloaded after compaction completed (awaitingCompaction = false),
+  // we need to send the plan execution message that was interrupted by the reload.
+  // Also listen for compaction-complete in case CMD+R happened during compaction.
+  React.useEffect(() => {
+    if (!sessionId) return
+
+    let hasExecuted = false
+
+    const executePendingPlan = async () => {
+      if (hasExecuted) return
+
+      const pending = await window.electronAPI.getPendingPlanExecution(sessionId)
+      if (!pending || pending.awaitingCompaction) return
+
+      // Compaction completed but we never sent the execution message (page reloaded).
+      // Send it now and clear the pending state.
+      hasExecuted = true
+      console.log('[FreeFormInput] Resuming pending plan execution after reload:', pending.planPath)
+      onSubmit(`Read the plan at ${pending.planPath} and execute it.`, undefined)
+
+      await window.electronAPI.sessionCommand(sessionId, {
+        type: 'clearPendingPlanExecution',
+      })
+    }
+
+    // Check immediately on mount (handles case where compaction already completed)
+    executePendingPlan()
+
+    // Also listen for compaction-complete in case CMD+R happened during compaction.
+    // When compaction finishes after reload, this listener will trigger execution.
+    const handleCompactionComplete = async (e: CustomEvent<{ sessionId: string }>) => {
+      if (e.detail?.sessionId !== sessionId) return
+      // Small delay to ensure markCompactionComplete has been called
+      await new Promise(resolve => setTimeout(resolve, 100))
+      executePendingPlan()
+    }
+
+    window.addEventListener('craft:compaction-complete', handleCompactionComplete as unknown as EventListener)
+    return () => {
+      window.removeEventListener('craft:compaction-complete', handleCompactionComplete as unknown as EventListener)
+    }
+  }, [sessionId, onSubmit])
 
   // Listen for craft:focus-input events (restore focus after popover/dropdown closes)
   React.useEffect(() => {
