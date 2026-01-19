@@ -109,6 +109,27 @@ function flattenItems(sections: MentionSection[]): MentionItem[] {
   return sections.flatMap(section => section.items)
 }
 
+/**
+ * Check if the @ character at the given position is a valid mention trigger.
+ * Valid triggers are:
+ * - @ at the start of input (position 0)
+ * - @ preceded by whitespace (space, tab, newline)
+ *
+ * Invalid triggers (returns false):
+ * - @ in the middle of a word (e.g., "test@example.com")
+ * - @ preceded by any non-whitespace character
+ *
+ * @param textBeforeCursor - The text from start of input to cursor position
+ * @param atPosition - The position of the @ character in textBeforeCursor
+ * @returns true if this @ should trigger the mention menu
+ */
+export function isValidMentionTrigger(textBeforeCursor: string, atPosition: number): boolean {
+  if (atPosition < 0) return false
+  if (atPosition === 0) return true
+  const charBefore = textBeforeCursor[atPosition - 1]
+  return charBefore !== undefined && /\s/.test(charBefore)
+}
+
 // ============================================================================
 // InlineMentionMenu Component
 // ============================================================================
@@ -368,21 +389,13 @@ export function useInlineMention({
     // Only show menu if we have at least one section with items
     const hasItems = sections.some(s => s.items.length > 0)
 
-    if (atMatch && hasItems) {
-      const matchStart = textBeforeCursor.lastIndexOf('@')
+    // Check if this is a valid @ mention trigger:
+    // - Must have @ match and items to show
+    // - @ must be at start of input OR preceded by whitespace (not mid-word like emails)
+    const matchStart = atMatch ? textBeforeCursor.lastIndexOf('@') : -1
+    const isValidTrigger = atMatch && hasItems && isValidMentionTrigger(textBeforeCursor, matchStart)
 
-      // Only trigger menu if @ is at start or preceded by whitespace
-      // This prevents triggering on email addresses like test@example.com
-      const charBefore = matchStart > 0 ? textBeforeCursor[matchStart - 1] : null
-      const isValidTrigger = matchStart === 0 || (charBefore && /\s/.test(charBefore))
-
-      if (!isValidTrigger) {
-        setIsOpen(false)
-        setFilter('')
-        setAtStart(-1)
-        return
-      }
-
+    if (isValidTrigger) {
       setAtStart(matchStart)
       // Filter by the content after @
       setFilter(atMatch[1] || '')
