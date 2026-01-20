@@ -11,6 +11,7 @@
 import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
+import * as semver from 'semver';
 import { isDebugEnabled } from '../utils/debug.ts';
 import { getAppVersion } from '../version/app-version.ts';
 
@@ -23,7 +24,7 @@ const SOURCE_GUIDES_DIR = join(DOCS_DIR, 'source-guides');
 let sourceGuidesInitialized = false;
 
 // ============================================================
-// Version Helpers (duplicated from index.ts to avoid circular dependency)
+// Version Helpers
 // ============================================================
 
 /**
@@ -33,25 +34,6 @@ let sourceGuidesInitialized = false;
 function extractVersion(content: string): string | null {
   const match = content.match(/^<!--\s*version:\s*([^\s]+)\s*-->/);
   return match?.[1] ?? null;
-}
-
-/**
- * Compare semver versions. Returns:
- *  1 if a > b
- *  0 if a == b
- * -1 if a < b
- */
-function compareVersions(a: string, b: string): number {
-  const partsA = a.split('.').map(Number);
-  const partsB = b.split('.').map(Number);
-
-  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-    const numA = partsA[i] || 0;
-    const numB = partsB[i] || 0;
-    if (numA > numB) return 1;
-    if (numA < numB) return -1;
-  }
-  return 0;
 }
 
 // ============================================================
@@ -343,7 +325,7 @@ export function initializeSourceGuides(): void {
       const existingContent = readFileSync(guidePath, 'utf-8');
       const installedVersion = extractVersion(existingContent);
 
-      if (!installedVersion || compareVersions(appVersion, installedVersion) > 0) {
+      if (!installedVersion || semver.gt(appVersion, installedVersion)) {
         // No version or bundled is newer - update
         writeFileSync(guidePath, versionedContent, 'utf-8');
         console.log(`[source-guides] Updated ${filename} (v${installedVersion || 'none'} → v${appVersion})`);
