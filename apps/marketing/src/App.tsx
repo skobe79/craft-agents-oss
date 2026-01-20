@@ -1,8 +1,85 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
 import { Markdown } from '@craft-agent/ui/markdown'
 import { Dithering } from '@paper-design/shaders-react'
-import desktopScreenshot from './assets/desktop/screenshot.jpg'
+import { useHasHardwareGPU } from './hooks/useHasHardwareGPU'
+import desktopScreenshot from './assets/desktop/agent-screenshot.webp'
+import desktopScreenshot2x from './assets/desktop/agent-screenshot@2x.webp'
+import multitaskingScreenshot from './assets/desktop/Multitasking.webp'
+import multitaskingScreenshot2x from './assets/desktop/Multitasking@2x.webp'
+import planScreenshot from './assets/desktop/plan.webp'
+import planScreenshot2x from './assets/desktop/plan@2x.webp'
 import agentsLogo from './assets/agents_logo.svg'
+
+// Integration icons - locally served
+import iconCraft from './assets/icons/craft.svg'
+import iconNotion from './assets/icons/notion.svg'
+import iconObsidian from './assets/icons/obsidian.svg'
+import iconGmail from './assets/icons/gmail.svg'
+import iconGithub from './assets/icons/github.svg'
+import iconGitlab from './assets/icons/gitlab.svg'
+import iconFigma from './assets/icons/figma.svg'
+import iconDropbox from './assets/icons/dropbox.svg'
+import iconGoogledrive from './assets/icons/googledrive.svg'
+import iconAirtable from './assets/icons/airtable.svg'
+import iconTrello from './assets/icons/trello.svg'
+import iconAsana from './assets/icons/asana.svg'
+import iconDiscord from './assets/icons/discord.svg'
+import iconStripe from './assets/icons/stripe.svg'
+import iconZendesk from './assets/icons/zendesk.svg'
+import iconHubspot from './assets/icons/hubspot.svg'
+import iconSentry from './assets/icons/sentry.svg'
+import iconShopify from './assets/icons/shopify.svg'
+import iconMongodb from './assets/icons/mongodb.svg'
+import iconRedis from './assets/icons/redis.svg'
+import iconPostgresql from './assets/icons/postgresql.svg'
+import iconSupabase from './assets/icons/supabase.svg'
+import iconVercel from './assets/icons/vercel.svg'
+import iconGooglecloud from './assets/icons/googlecloud.svg'
+import iconLinear from './assets/icons/linear.svg'
+import iconJira from './assets/icons/jira.svg'
+import iconZoom from './assets/icons/zoom.svg'
+import iconApple from './assets/icons/apple.svg'
+import iconTodoist from './assets/icons/todoist.svg'
+import iconEvernote from './assets/icons/evernote.svg'
+import iconClickup from './assets/icons/clickup.svg'
+import iconX from './assets/icons/x.svg'
+import iconAnthropic from './assets/icons/anthropic.svg'
+
+const integrationIcons = [
+  { name: 'Craft', src: iconCraft },
+  { name: 'Notion', src: iconNotion },
+  { name: 'Obsidian', src: iconObsidian },
+  { name: 'Gmail', src: iconGmail },
+  { name: 'GitHub', src: iconGithub },
+  { name: 'GitLab', src: iconGitlab },
+  { name: 'Figma', src: iconFigma },
+  { name: 'Dropbox', src: iconDropbox },
+  { name: 'Google Drive', src: iconGoogledrive },
+  { name: 'Airtable', src: iconAirtable },
+  { name: 'Trello', src: iconTrello },
+  { name: 'Asana', src: iconAsana },
+  { name: 'Discord', src: iconDiscord },
+  { name: 'Stripe', src: iconStripe },
+  { name: 'Zendesk', src: iconZendesk },
+  { name: 'HubSpot', src: iconHubspot },
+  { name: 'Sentry', src: iconSentry },
+  { name: 'Shopify', src: iconShopify },
+  { name: 'MongoDB', src: iconMongodb },
+  { name: 'Redis', src: iconRedis },
+  { name: 'PostgreSQL', src: iconPostgresql },
+  { name: 'Supabase', src: iconSupabase },
+  { name: 'Vercel', src: iconVercel },
+  { name: 'Google Cloud', src: iconGooglecloud },
+  { name: 'Linear', src: iconLinear },
+  { name: 'Jira', src: iconJira },
+  { name: 'Zoom', src: iconZoom },
+  { name: 'Apple', src: iconApple },
+  { name: 'Todoist', src: iconTodoist },
+  { name: 'Evernote', src: iconEvernote },
+  { name: 'ClickUp', src: iconClickup },
+  { name: 'X', src: iconX },
+  { name: 'Anthropic', src: iconAnthropic },
+]
 
 const article = `
 Craft Agents is a tool we built so we can work effectively with agents. It enables intuitive multitasking, no-fluff connection to any API or Service, and a more document (vs code) centric workflow - in a beautiful and fluid UI.
@@ -59,6 +136,7 @@ const downloads = [
 export default function App() {
   const [downloadOpen, setDownloadOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const hasHardwareGPU = useHasHardwareGPU()
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -78,29 +156,41 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen bg-foreground-2">
-      {/* Dithering shader background */}
-      <div className="fixed inset-0 pointer-events-none">
-        <Dithering
-          colorBack="#00000000"
-          colorFront="#d1c6e13d"
-          shape="swirl"
-          type="8x8"
-          size={2.0}
-          speed={0.4}
-          scale={1.0}
-          rotation={0}
-          offsetX={0}
-          offsetY={0}
-          style={{ width: '100%', height: '100%' }}
-        />
-      </div>
+      {/* Dithering shader background - disabled on software-rendered GPUs for performance */}
+      {hasHardwareGPU && (
+        <div className="fixed inset-0 pointer-events-none">
+          <Dithering
+            colorBack="#00000000"
+            colorFront="#d1c6e13d"
+            shape="swirl"
+            type="8x8"
+            size={2.0}
+            speed={0.4}
+            scale={1.0}
+            rotation={0}
+            offsetX={0}
+            offsetY={0}
+            style={{ width: '100%', height: '100%' }}
+          />
+        </div>
+      )}
 
       <main className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 pt-[60px] pb-[128px]">
         {/* Craft Agents logo */}
         <img src={agentsLogo} alt="Craft Agents" className="w-[224px] mb-[48px]" />
 
+        {/* Hero header */}
+        <div className="text-center max-w-xl py-2 mb-12">
+          <h1 className="text-3xl font-extrabold leading-tight mb-4">
+            Work with most powerful agents in the world, with the UX they deserve
+          </h1>
+          <p className="text-[18px] text-foreground/70 leading-relaxed">
+            Connect any API, MCP server, or local filesystem. Multitask naturally. Build your next-gen workflow with agents.
+          </p>
+        </div>
+
         {/* Action buttons */}
-        <div className="flex gap-3 max-w-xl w-full mb-[52px]">
+        <div className="flex gap-3 max-w-xl w-full mb-[60px]">
           {/* Download dropdown */}
           <div ref={dropdownRef} className="relative flex-1">
             <button
@@ -145,14 +235,121 @@ export default function App() {
         {/* Hero screenshot */}
         <img
           src={desktopScreenshot}
+          srcSet={`${desktopScreenshot} 1x, ${desktopScreenshot2x} 2x`}
           alt="Craft Agents interface"
-          className="max-w-4xl w-full mb-12 rounded-[12px] shadow-hero"
+          className="max-w-6xl w-full mb-12 rounded-[12px] shadow-hero"
         />
 
-        <div className="bg-background rounded-[20px] shadow-strong max-w-2xl w-full p-8 pt-8 md:p-12 md:pt-10 text-[13px] [&_p]:leading-snug [&_p]:my-4">
+        <div className="bg-background rounded-[20px] shadow-strong max-w-3xl w-full p-8 pt-8 md:p-12 md:pt-10 text-[13px] [&_p]:leading-snug [&_p]:my-4">
           <Markdown onUrlClick={handleUrlClick}>
             {article}
           </Markdown>
+        </div>
+
+        {/* Connect section */}
+        <div className="text-left max-w-4xl w-full py-8 mt-16">
+          <h2 className="text-2xl font-extrabold leading-tight mb-4">
+            Connect to any API, MCP or local source
+          </h2>
+          <p className="text-[18px] text-foreground/70 leading-relaxed">
+            Your agents need information to be useful. Craft Agents lets you connect to anything: REST APIs, MCP servers, or your local filesystem. All in one place.
+          </p>
+          {/* Icon cloud - shows exactly 2 full rows, hides overflow on resize */}
+          <div className="flex flex-wrap gap-6 mt-8 opacity-50 max-h-[88px] overflow-hidden">
+            {integrationIcons.map((icon) => (
+              <img
+                key={icon.name}
+                src={icon.src}
+                alt={icon.name}
+                className="w-8 h-8"
+                title={icon.name}
+              />
+            ))}
+          </div>
+          {/* Integration cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+            <div className="bg-background rounded-[12px] shadow-minimal p-6">
+              <h3 className="font-semibold mb-2">Setup in seconds</h3>
+              <p className="text-[14px] text-foreground/70">Just tell the agent "connect to Linear". It fetches credentials, reads docs, and configures everything automatically.</p>
+            </div>
+            <div className="bg-background rounded-[12px] shadow-minimal p-6">
+              <h3 className="font-semibold mb-2">Private APIs welcome</h3>
+              <p className="text-[14px] text-foreground/70">No MCP required. Enrich your workflows with internal company data, private endpoints, and custom services.</p>
+            </div>
+            <div className="bg-background rounded-[12px] shadow-minimal p-6">
+              <h3 className="font-semibold mb-2">Apps on your device</h3>
+              <p className="text-[14px] text-foreground/70">Integrate Apple Notes, Obsidian vaults, local databases, and files directly into your agent workflows.</p>
+            </div>
+            <div className="bg-background rounded-[12px] shadow-minimal p-6">
+              <h3 className="font-semibold mb-2">Full control</h3>
+              <p className="text-[14px] text-foreground/70">Set fine-grained permissions per source. Define exactly what each connection can read, write, or execute.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Multitasking section */}
+        <div className="text-left max-w-4xl w-full py-8 mt-8">
+          <h2 className="text-2xl font-extrabold leading-tight mb-4">
+            Multitasking, without the learning curve
+          </h2>
+          <p className="text-[18px] text-foreground/70 leading-relaxed">
+            The UX feels like email and task managers. Working with agents shouldn't feel different. Organize, prioritize, and switch contexts naturally.
+          </p>
+          {/* Image + description side by side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+            <img
+              src={multitaskingScreenshot}
+              srcSet={`${multitaskingScreenshot} 1x, ${multitaskingScreenshot2x} 2x`}
+              alt="Multitasking interface"
+              className="w-full rounded-[12px] shadow-strong aspect-square md:aspect-auto object-cover object-top"
+            />
+            <div className="bg-background rounded-[12px] shadow-minimal p-6 pl-[26px] flex flex-col">
+              <h3 className="font-semibold mb-[10px]">Work like you already do</h3>
+              <p className="text-[14px] text-foreground/70 mb-4">
+                Track what's done and what still needs work. Set up custom states that fit your workflow. Organize agent conversations just like messages in your inbox.
+              </p>
+              <h3 className="font-semibold mt-1 mb-[10px]">Switch without losing focus</h3>
+              <p className="text-[14px] text-foreground/70 mb-4">
+                Jump between tasks freely. Each session keeps its full history. Pause one, start another, and return exactly where you left off.
+              </p>
+              <h3 className="font-semibold mt-1 mb-[10px]">Runs in the background</h3>
+              <p className="text-[14px] text-foreground/70">
+                Start long-running tasks and let them work while you focus on something else. Get notified when they're done.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Explore, Plan, Execute section */}
+        <div className="text-left max-w-4xl w-full py-8 mt-8">
+          <h2 className="text-2xl font-extrabold leading-tight mb-4">
+            Explore, plan, refine, delegate
+          </h2>
+          <p className="text-[18px] text-foreground/70 leading-relaxed">
+            To get the most out of agents, you need to trust them with execution and focus on the bigger picture. Align on the goal, refine the approach together, then step back and let them work. Review the results when they're done. It's the same dynamic that makes great teams effective: clear direction, autonomy in execution, and accountability at the end.
+          </p>
+        </div>
+
+        {/* Full-width hero image for Explore/Plan section */}
+        <img
+          src={planScreenshot}
+          srcSet={`${planScreenshot} 1x, ${planScreenshot2x} 2x`}
+          alt="Explore and plan workflow"
+          className="max-w-4xl w-full rounded-[12px] shadow-hero"
+        />
+
+        {/* Explore/Auto mode cards */}
+        <div className="max-w-4xl w-full py-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-background rounded-[12px] shadow-minimal p-6">
+              <h3 className="font-semibold mb-2">Explore mode</h3>
+              <p className="text-[14px] text-foreground/70">Read-only by default. Let the agent research, analyze, and draft a plan. Review proposals before any changes happen. Iterate until you're aligned.</p>
+            </div>
+            <div className="bg-background rounded-[12px] shadow-minimal p-6">
+              <h3 className="font-semibold mb-2">Auto mode</h3>
+              <p className="text-[14px] text-foreground/70">Once aligned, switch to auto. The agent executes without interruption. Review the results when done, just like reviewing delivered work from a teammate.</p>
+            </div>
+          </div>
         </div>
       </main>
 
