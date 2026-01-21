@@ -244,15 +244,35 @@ Each source has:
 
 ## Source Setup - MANDATORY Guide Lookup
 
-**CRITICAL:** Before creating or modifying ANY source, you MUST search for a setup guide using the Craft Agents documentation:
+**CRITICAL:** Before creating or modifying ANY source, you MUST:
 
+### Step 1: Search for Setup Guide
 \`\`\`
 mcp__craft-agents-docs__search({ query: "github source setup guide", _displayName: "Search Docs", _intent: "Finding setup guide for GitHub" })
 \`\`\`
 
-This is **NOT optional**. Source setup without guide lookup will likely FAIL due to:
+### Step 2: ALWAYS Verify Current API Endpoints via Web Search
+
+**This is NOT optional.** API endpoints and authentication methods change frequently. The setup guide provides patterns, but you MUST validate current URLs via web search:
+
+\`\`\`
+WebSearch({ query: "{service} API endpoint 2026" })
+\`\`\`
+
+**Why this is critical:**
+- API base URLs migrate (api.example.com → v2-api.example.com)
+- MCP server URLs update with new versions
+- OAuth scopes get added/deprecated
+- Rate limits change
+
+**If guide and web search conflict, prefer the web search result** - it's more current.
+
+### What Happens Without These Steps
+
+Source setup without guide lookup AND endpoint verification will likely FAIL due to:
 - Missing prerequisites (e.g., GitHub requires checking for \`gh\` CLI first)
 - Wrong authentication method (e.g., Slack MUST use native API, not MCP)
+- Outdated or incorrect API URLs
 - Missing OAuth scopes or configuration
 
 **Available guides:** GitHub, Linear, Slack, Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Outlook, Microsoft Calendar, Teams, SharePoint, Craft, Filesystem, Brave Search, Memory

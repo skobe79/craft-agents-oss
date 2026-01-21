@@ -499,18 +499,9 @@ export async function createSource(
     }
   }
 
-  // Create guide.md - use bundled guide if available, otherwise skeleton
-  const { getSourceGuide } = await import('../docs/source-guides.ts');
-  const bundledGuide = getSourceGuide(config);
-
-  let guideContent: string;
-  if (bundledGuide) {
-    // Use bundled knowledge section as starting point
-    guideContent = `# ${input.name}\n\n${bundledGuide.knowledge}`;
-    debug(`[createSource] Using bundled guide for ${slug}`);
-  } else {
-    // Fallback to skeleton
-    guideContent = `# ${input.name}
+  // Create guide.md with skeleton template
+  // (bundled guides removed - agent should search craft-agents-docs MCP for service-specific guidance)
+  const guideContent = `# ${input.name}
 
 ## Guidelines
 
@@ -520,7 +511,6 @@ export async function createSource(
 
 (Add context about this source)
 `;
-  }
   saveSourceGuide(workspaceRootPath, slug, { raw: guideContent });
 
   return config;

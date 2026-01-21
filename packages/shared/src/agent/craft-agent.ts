@@ -2050,20 +2050,15 @@ export class CraftAgent {
 
     let output = `<sources>\n${parts.join('\n')}\n</sources>`;
 
-    // Import guide knowledge utility
-    const { getSourceKnowledge } = require('../docs/source-guides.ts');
-
-    // PRIORITY 1: Inject issue context for sources needing attention (auth failed, etc.)
+    // Inject issue context for sources needing attention (auth failed, etc.)
     // These are ALWAYS shown, regardless of "seen" status, to ensure agent can troubleshoot
     for (const s of sourcesNeedingAttention) {
-      const knowledge = getSourceKnowledge(s.config);
       const status = s.config.connectionStatus;
       output += `\n\n<source_issue source="${s.config.slug}" status="${status}">`;
       output += `\nThis source needs attention:`;
       if (s.config.connectionError) {
         output += `\nError: ${s.config.connectionError}`;
       }
-      output += `\n\nGuide:\n${knowledge || 'No guide available'}`;
 
       // Provide appropriate fix instructions based on auth type
       const authTool = this.getAuthToolName(s);
@@ -2071,22 +2066,9 @@ export class CraftAgent {
         output += `\n\nTo fix: Re-authenticate using ${authTool}.`;
       } else {
         // No-auth sources - suggest checking config/connectivity
-        output += `\n\nTo fix: This source does not require authentication. Check the server URL, network connectivity, or source configuration.`;
+        output += `\n\nTo fix: Check the server URL, network connectivity, or source configuration. Use WebSearch to verify the current API endpoint is correct.`;
       }
       output += `\n</source_issue>`;
-    }
-
-    // PRIORITY 2: Inject service knowledge for new active sources (from bundled guides)
-    // Only inject for sources not yet seen this session AND not already shown above
-    const sourcesNeedingAttentionSlugs = new Set(sourcesNeedingAttention.map(s => s.config.slug));
-    for (const s of unseenSources) {
-      // Only inject for active sources that aren't already shown in source_issue blocks
-      if (this.intendedActiveSlugs.has(s.config.slug) && !sourcesNeedingAttentionSlugs.has(s.config.slug)) {
-        const knowledge = getSourceKnowledge(s.config);
-        if (knowledge) {
-          output += `\n\n<source_context source="${s.config.slug}">\n${knowledge}\n</source_context>`;
-        }
-      }
     }
 
     return output;

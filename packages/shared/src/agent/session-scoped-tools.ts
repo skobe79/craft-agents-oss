@@ -694,12 +694,27 @@ async function testApiSource(
       return {
         success: false,
         status: response.status,
-        error: `HTTP ${response.status} - Authentication failed. Check your credentials.`,
+        error: `HTTP ${response.status} - Authentication failed. Check your credentials. If credentials are correct, use WebSearch to verify the API endpoint URL is current.`,
         credentialType,
       };
     }
 
-    return { success: false, status: response.status, error: `HTTP ${response.status}`, credentialType };
+    // 404 often indicates wrong endpoint URL - suggest web search for current endpoint
+    if (response.status === 404) {
+      return {
+        success: false,
+        status: response.status,
+        error: `HTTP 404 - Endpoint not found. The URL may be incorrect or outdated. Use WebSearch to find the current API endpoint.`,
+        credentialType,
+      };
+    }
+
+    return {
+      success: false,
+      status: response.status,
+      error: `HTTP ${response.status}. If unexpected, use WebSearch to verify the API URL is correct.`,
+      credentialType
+    };
   } catch (error) {
     return {
       success: false,
@@ -887,6 +902,13 @@ After creating or editing a source's config.json, run this tool to:
             results.push(`**❌ API Connection Failed**`);
             results.push(`  URL: ${source.api?.baseUrl}`);
             results.push(`  Error: ${result.error}`);
+
+            // Add domain validation hint for common errors
+            if (result.status === 401 || result.status === 403 || result.status === 404) {
+              results.push('');
+              results.push('💡 **Tip:** API endpoints change frequently. Use `WebSearch` to verify the current URL:');
+              results.push(`   WebSearch({ query: "${source.provider || source.name} API endpoint" })`);
+            }
           }
         }
 

@@ -10,9 +10,8 @@
 import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
-import { isDebugEnabled, debug } from '../utils/debug.ts';
+import { isDebugEnabled } from '../utils/debug.ts';
 import { getAppVersion } from '../version/app-version.ts';
-import { initializeSourceGuides } from './source-guides.ts';
 
 const CONFIG_DIR = join(homedir(), '.craft-agent');
 const DOCS_DIR = join(CONFIG_DIR, 'docs');
@@ -143,9 +142,6 @@ export function initializeDocs(): void {
       console.log(`[docs] Recreated ${filename} (v${appVersion})`);
     }
   }
-
-  // Also initialize source guides
-  initializeSourceGuides();
 }
 
 // ============================================================
@@ -160,34 +156,21 @@ This guide explains how to configure sources (MCP servers, APIs, local filesyste
 
 When a user wants to add a new source, follow this conversational setup process to create a tailored, well-documented integration.
 
-### 0. Check for Specialized Source Guide (REQUIRED FIRST STEP)
+### 0. Search for Specialized Source Guide (REQUIRED FIRST STEP)
 
-**Before doing anything else**, check if a specialized guide exists for this service:
+**Before doing anything else**, search for a specialized guide using the craft-agents-docs MCP:
 
 \`\`\`
-~/.craft-agent/docs/source-guides/
-├── github.com.md      # GitHub - CRITICAL: check for gh CLI first!
-├── gmail.com.md       # Gmail
-├── google-calendar.md # Google Calendar
-├── google-drive.md    # Google Drive
-├── google-docs.md     # Google Docs
-├── google-sheets.md   # Google Sheets
-├── slack.com.md       # Slack - use native API, not MCP
-├── linear.app.md      # Linear
-├── craft.do.md        # Craft
-├── outlook.com.md     # Outlook
-├── microsoft-calendar.md
-├── teams.microsoft.com.md
-├── sharepoint.com.md
-├── filesystem.md      # Local filesystem MCP
-├── brave-search.md    # Brave Search
-└── memory.md          # Memory/Knowledge Graph
+mcp__craft-agents-docs__search({ query: "{service} source setup guide" })
 \`\`\`
+
+**Available guides:** GitHub, Linear, Slack, Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Outlook, Microsoft Calendar, Teams, SharePoint, Craft, Filesystem, Brave Search, Memory
 
 **If a guide exists for the service:**
-1. **Read the entire guide file** using the Read tool
+1. **Read the guide content** carefully
 2. **Pay special attention to the "Setup Hints" section** - it contains critical instructions
 3. **Follow any CRITICAL/MANDATORY instructions** before proceeding (e.g., GitHub requires checking for \`gh\` CLI first)
+4. **ALWAYS verify current API endpoints via WebSearch** - URLs change frequently
 
 **Why this matters:** Some services have important prerequisites or gotchas that MUST be checked before creating a source. Skipping this step can lead to failed setups or redundant configurations.
 
@@ -1700,7 +1683,7 @@ const BUNDLED_DOCS: Record<string, string> = {
 
 export { BUNDLED_DOCS };
 
-// Re-export source guides utilities
+// Re-export source guides utilities (parsing only - bundled guides removed)
 export {
   parseSourceGuide,
   getSourceGuide,
@@ -1708,8 +1691,6 @@ export {
   getSourceKnowledge,
   extractDomainFromSource,
   extractDomainFromUrl,
-  getSourceGuidesDir,
-  BUNDLED_SOURCE_GUIDES,
   type ParsedSourceGuide,
   type SourceGuideFrontmatter,
 } from './source-guides.ts';
