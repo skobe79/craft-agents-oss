@@ -1,0 +1,224 @@
+---
+title: "Connecting MCP Servers"
+description: "Add MCP server connections as sources"
+---
+
+<Tip>
+**Just ask your agent.** The easiest way to connect MCP servers is to tell your agent what you need:
+- "Connect to the Exa search MCP server"
+- "Add my local filesystem to this workspace"
+- "Set up the SQLite MCP server for my database"
+
+The agent handles configuration and authentication automatically.
+</Tip>
+
+This guide shows you how to connect MCP servers as sources, giving your agents access to external tools and services.
+
+## Source Configuration Schema
+
+MCP servers are configured using a standardized source configuration:
+
+```json
+{
+  "type": "mcp",
+  "name": "Server Name",
+  "tagline": "Description of the server",
+  "icon": "https://example.com/icon.png",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp-server.example.com",
+    "authType": "oauth"
+  }
+}
+```
+
+## Remote Servers (HTTP/SSE)
+
+For MCP servers accessible over the network, use HTTP transport:
+
+```json
+{
+  "type": "mcp",
+  "name": "Exa Search",
+  "tagline": "Neural search and content extraction",
+  "icon": "https://exa.ai/favicon.ico",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp.exa.ai",
+    "authType": "bearer"
+  }
+}
+```
+
+HTTP transport automatically supports both Streamable HTTP and Server-Sent Events (SSE) protocols based on what the server provides.
+
+## Local Servers (Stdio)
+
+For MCP servers that run locally on your machine, use stdio transport:
+
+```json
+{
+  "type": "mcp",
+  "name": "File System",
+  "tagline": "Access local file system",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/projects"]
+  }
+}
+```
+
+### Common Local Server Patterns
+
+**NPX packages:**
+```json
+{
+  "type": "mcp",
+  "name": "SQLite",
+  "tagline": "Query SQLite databases",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-sqlite", "/path/to/database.db"]
+  }
+}
+```
+
+**Node.js scripts:**
+```json
+{
+  "type": "mcp",
+  "name": "Custom Server",
+  "tagline": "Custom MCP server",
+  "mcp": {
+    "transport": "stdio",
+    "command": "node",
+    "args": ["/path/to/my-mcp-server.js"]
+  }
+}
+```
+
+**Python scripts:**
+```json
+{
+  "type": "mcp",
+  "name": "Python MCP",
+  "tagline": "Python-based MCP server",
+  "mcp": {
+    "transport": "stdio",
+    "command": "python",
+    "args": ["/path/to/mcp_server.py"]
+  }
+}
+```
+
+**Binary executables:**
+```json
+{
+  "type": "mcp",
+  "name": "Binary Server",
+  "tagline": "Compiled MCP server",
+  "mcp": {
+    "transport": "stdio",
+    "command": "/usr/local/bin/my-mcp-server"
+  }
+}
+```
+
+## Multiple Servers
+
+You can configure multiple MCP sources in your workspace. Each source becomes available with its tools prefixed by the source name:
+
+```
+Using exa_search to find articles...
+Using github_list_issues to get open issues...
+```
+
+## Server Discovery
+
+When you connect an MCP source, Craft Agents:
+
+1. Connects to the server using the configured transport
+2. Queries available tools from the server
+3. Makes tools available with prefixed names (e.g., `exa_search`, `github_list_repos`)
+
+View connected tools with:
+
+```
+> /tools -v
+```
+
+## Refreshing Connections
+
+If a server's tools change or you need to reconnect:
+
+```
+> /source reload <source-name>
+```
+
+This re-establishes the MCP connection and refreshes available tools.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server not connecting">
+    - Verify the URL is correct and accessible (for HTTP transport)
+    - Check if the command exists and is in PATH (for stdio transport)
+    - Check if the server requires authentication
+    - Ensure your network allows the connection
+    - Try accessing the URL directly in a browser (for HTTP)
+  </Accordion>
+
+  <Accordion title="Tools not appearing">
+    - Run `/source reload <name>` to refresh the connection
+    - Check `/tools -v` to see what's available
+    - Verify the configuration syntax is correct
+    - Check server logs for errors
+  </Accordion>
+
+  <Accordion title="Authentication errors">
+    - Confirm your API key or token is correct
+    - Check if the key has the required permissions
+    - Some servers need specific scopes - check their documentation
+    - Verify the `authType` matches what the server expects
+  </Accordion>
+
+  <Accordion title="Stdio server not starting">
+    - Verify the command exists: `which npx` or `which node`
+    - Check the arguments are correct
+    - Try running the command manually in terminal to see errors
+    - Ensure required dependencies are installed
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use descriptive names">
+    Choose source names that describe their purpose: `web-search`, `github-repo`, `company-wiki` rather than `server1`, `server2`.
+  </Accordion>
+
+  <Accordion title="Add helpful taglines">
+    Include a tagline that explains what the server does - this helps when browsing available sources.
+  </Accordion>
+
+  <Accordion title="Include icons when available">
+    Set `icon` to make sources visually identifiable in the UI. You can use a URL, an emoji, or place an `icon.svg` or `icon.png` file in the source folder.
+  </Accordion>
+
+  <Accordion title="Limit sources per workspace">
+    Connect only the sources your workspace needs. Too many tools can increase response latency and confuse the model about which to use.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card
+  title="Configure authentication"
+  icon="key"
+  href="/sources/mcp-servers/authentication"
+  horizontal
+>
+  Learn about OAuth, bearer tokens, and public authentication for MCP servers.
+</Card>

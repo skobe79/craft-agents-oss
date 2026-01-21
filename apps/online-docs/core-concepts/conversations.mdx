@@ -3,7 +3,97 @@ title: "Conversations"
 description: "How conversation history and sessions work"
 ---
 
-Craft Agents maintains conversation history so you can have natural, contextual discussions about your documents and tasks.
+Craft Agents organizes your conversations like an email inbox, making it easy to manage multiple ongoing tasks and return to previous work.
+
+## Multi-Conversation Inbox
+
+Think of Craft Agents as an email client for AI conversations. Each conversation is a separate thread that you can:
+
+- Start, pause, and resume at any time
+- Organize by status (Todo, In Progress, Needs Review, Done, etc.)
+- Search and filter to find past work
+- Archive or delete when no longer needed
+
+```
+┌─────────────────────────────────────┐
+│ Inbox                               │
+├─────────────────────────────────────┤
+│ ● 250121-swift-falcon    Todo       │
+│   Refactoring auth module           │
+│                                     │
+│ ○ 250120-gentle-river    In Progress│
+│   Review PR #234                    │
+│                                     │
+│ ✓ 250119-bright-mountain Done       │
+│   Fix login bug                     │
+└─────────────────────────────────────┘
+```
+
+## Session ID Format
+
+Each conversation has a unique session ID in the format:
+
+```
+YYMMDD-adjective-noun
+```
+
+For example:
+- `250121-swift-falcon` - Created January 21, 2025
+- `250115-gentle-river` - Created January 15, 2025
+- `250108-bright-mountain` - Created January 8, 2025
+
+This format makes sessions easy to identify by date while remaining human-readable and memorable.
+
+## Conversation Storage
+
+Conversations are stored as JSONL (JSON Lines) files on your local machine at `~/.craft-agent/workspaces/{id}/sessions/{session-id}/session.jsonl`.
+
+The file format is:
+- **Line 1**: Session header with metadata (id, timestamps, status, token usage)
+- **Lines 2+**: Messages (one per line)
+
+```jsonl
+{"id":"260121-swift-falcon","createdAt":1737451800000,"todoState":"todo",...}
+{"id":"msg_1","type":"human","content":"Find my project planning document","timestamp":1737451800000}
+{"id":"msg_2","type":"assistant","content":"Found \"Project Planning Q4\"...","timestamp":1737451802000}
+```
+
+This format provides:
+- **Fast list loading** - Only the first line is read for inbox display
+- **Efficient streaming** - Messages can be appended without rewriting the file
+- **Easy parsing** - Each line is independent and can be processed separately
+
+## Status-Based Organization
+
+Conversations can be organized by status to track your workflow:
+
+| Status | Category | Description |
+|--------|----------|-------------|
+| **Todo** | Open | Conversations waiting to be addressed |
+| **In Progress** | Open | Conversations you're actively working on |
+| **Needs Review** | Open | Requires review before completion |
+| **Done** | Closed | Completed conversations |
+| **Cancelled** | Closed | Conversations that are no longer needed |
+
+**Open** statuses appear in your inbox; **Closed** statuses are archived. You can [customize statuses](/statuses/overview) to match your workflow—add custom statuses like "Blocked" or "Waiting" to fit your process.
+
+## Conversation Continuity
+
+When you return to a conversation, Craft Agents restores the full context:
+
+- All previous messages are available
+- The agent remembers what you discussed
+- You can continue exactly where you left off
+- Referenced documents and files are still accessible
+
+```
+> Resuming session 250121-swift-falcon...
+
+Last message: "I've identified the auth module dependencies"
+
+> Great, let's start refactoring
+Continuing from where we left off. I'll begin with the AuthProvider component...
+```
 
 ## How Conversations Work
 
@@ -27,53 +117,37 @@ Added 3 tasks to the Timeline section:
 3. Assign owners
 ```
 
-## Session Continuity
+## Starting New Conversations
 
-Conversations persist across sessions within the same workspace. When you close and reopen Craft Agents:
+To start a fresh conversation, click the **New Session** button in the sidebar or use the keyboard shortcut. This creates a new session with a fresh ID while preserving your previous conversations in the inbox.
 
-- Your previous conversation context is available
-- You can continue where you left off
-- The agent remembers recent document references
+## Using Skills in Conversations
 
-## Clearing Conversations
-
-To start fresh with a clean slate:
-
-```
-> /clear
-```
-
-This clears the conversation history for the current workspace. Your documents, configurations, and sub-agents are not affected.
-
-## Context with Sub-Agents
-
-Sub-agents share the same conversation history as the main assistant. When you activate a sub-agent, it continues in the same session with access to everything discussed previously:
+Skills are specialized capabilities you can invoke using bracket syntax. When you mention a skill, it activates with full access to your conversation history:
 
 ```
 > Find my project planning document
 Found "Project Planning Q4" - here's an overview...
 
-> @research Find background research on our Q4 goals
-Switched to Research agent.
-[Research agent can reference the project planning document from the previous exchange]
-
-> @main
-Switched back to main assistant.
-[Main assistant remembers both the original document search and the research results]
+> [skill:research] Find background research on our Q4 goals
+Activating research skill...
+[The skill can reference the project planning document from the previous exchange]
 ```
 
 This means:
-- Sub-agents can reference documents and context from earlier in the conversation
-- Switching between agents preserves the full conversation flow
-- You can ask one agent to build on work done by another
+- Skills can reference documents and context from earlier in the conversation
+- The full conversation history is preserved when using skills
+- You can chain skills together, each building on previous work
+
+Learn more about creating and using skills in the [Skills documentation](/skills/overview).
 
 ## Long Conversations
 
-For extended work sessions, Craft Agents automatically manages conversation length:
+For extended work sessions, Craft Agents automatically manages context:
 
-- Recent context is prioritized
-- Older messages are summarized to preserve key information
-- The agent maintains awareness of the overall conversation arc
+- **Large tool results** (over 15,000 tokens) are automatically summarized to save context space
+- The Claude Agent SDK handles context window management transparently
+- Recent context is always available for reference
 
 You don't need to manage this manually - the system handles it transparently.
 
@@ -104,17 +178,8 @@ Switching workspaces switches to that workspace's conversation context.
     If the agent misunderstands, just clarify: "no, I meant the other project" or "the one from last week".
   </Accordion>
 
-  <Accordion title="Clear when switching topics">
-    If you're starting completely unrelated work and want a fresh start, use `/clear` to reset context.
+  <Accordion title="Use statuses to stay organized">
+    Mark conversations as Todo, Needs Review, or Done to keep track of your work across multiple threads.
   </Accordion>
 </AccordionGroup>
 
-## Viewing Conversation State
-
-To see information about your current session:
-
-```
-> /debug
-```
-
-This shows session details including conversation length and workspace context.

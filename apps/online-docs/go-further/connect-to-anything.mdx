@@ -1,6 +1,6 @@
 ---
 title: "Connect to Anything"
-description: "Integrate services without MCP servers using API aggregators"
+description: "Use API aggregators to connect 10,000+ services—just ask the agent to set it up"
 ---
 
 Some services you want to connect to don't have public MCP servers, and getting API access isn't straightforward. This guide shows you how to connect to virtually any service using API aggregators.
@@ -17,15 +17,15 @@ Services like Google (Gmail, Calendar, Drive) and Microsoft (Outlook, Teams, One
 
 This is complex to set up and maintain - especially for personal automation.
 
-<Note>
-Better native support for OAuth-based services in Craft Agents may be coming in the future. For now, API aggregators are the recommended approach.
-</Note>
-
 ## The Solution: API Aggregators
 
 API aggregators handle all the OAuth complexity for you. They've already registered OAuth clients with thousands of services, so you just sign in with your account and get instant API access.
 
-Even better - several aggregators now offer **MCP servers** that you can connect directly to your Craft Agents.
+Even better - several aggregators now offer **MCP servers** that you can connect directly to Craft Agent.
+
+<Tip>
+**Just ask!** You can say "Help me connect Zapier" or "Set up Composio for my workspace" and the agent will guide you through the entire process.
+</Tip>
 
 ## Aggregator Options
 
@@ -33,13 +33,15 @@ Even better - several aggregators now offer **MCP servers** that you can connect
 
 [Zapier MCP](https://zapier.com/mcp) connects your agents to 8,000+ apps with 30,000+ actions.
 
-**What you get:** A hosted MCP server URL that works with Craft Agents!
+**What you get:** A hosted MCP server URL that works with Craft Agent.
 
-**Setup:**
+> **Quick setup:** Say *"Help me connect Zapier"* and the agent will walk you through it.
+
+<Accordion title="Manual setup steps">
 
 <Steps>
   <Step title="Create a Zapier account">
-    Sign up at [zapier.com](https://zapier.com) if you don't have an account. Free tier available.
+    Sign up at [zapier.com](https://zapier.com) if you don't have an account.
   </Step>
   <Step title="Go to the MCP page">
     Visit [zapier.com/mcp](https://zapier.com/mcp) and click "Start building".
@@ -65,7 +67,7 @@ Even better - several aggregators now offer **MCP servers** that you can connect
   </Step>
 </Steps>
 
-**Pricing:** Included in all Zapier plans (including free). Each MCP tool call uses 2 tasks from your quota.
+</Accordion>
 
 ---
 
@@ -75,7 +77,9 @@ Even better - several aggregators now offer **MCP servers** that you can connect
 
 **What you get:** Individual MCP servers per service, or a universal MCP server for all your connected apps.
 
-**Setup:**
+> **Quick setup:** Say *"Set up Composio for my workspace"* and the agent will handle it.
+
+<Accordion title="Manual setup steps">
 
 <Steps>
   <Step title="Create a Composio account">
@@ -102,6 +106,8 @@ Even better - several aggregators now offer **MCP servers** that you can connect
   </Step>
 </Steps>
 
+</Accordion>
+
 **Key feature:** Rube is a universal MCP server with just 7 tools that can communicate with any connected app on demand.
 
 ---
@@ -112,7 +118,9 @@ Even better - several aggregators now offer **MCP servers** that you can connect
 
 **What you get:** An MCP server URL with your token embedded, exposing your scenarios as callable tools.
 
-**Setup:**
+> **Quick setup:** Say *"Connect Make to my workspace"* and the agent will guide you.
+
+<Accordion title="Manual setup steps">
 
 <Steps>
   <Step title="Create a Make account">
@@ -144,6 +152,8 @@ Even better - several aggregators now offer **MCP servers** that you can connect
   </Step>
 </Steps>
 
+</Accordion>
+
 **Key feature:** Your Make scenarios become callable tools - the AI discovers what inputs they need and what outputs they produce.
 
 ---
@@ -154,11 +164,13 @@ Even better - several aggregators now offer **MCP servers** that you can connect
 
 **What you get:** Hosted MCP servers for each connected service, with secure credential isolation.
 
-**Setup:**
+> **Quick setup:** Say *"Help me set up Pipedream"* and the agent will walk you through it.
+
+<Accordion title="Manual setup steps">
 
 <Steps>
   <Step title="Create a Pipedream account">
-    Sign up at [pipedream.com](https://pipedream.com). Free for personal use.
+    Sign up at [pipedream.com](https://pipedream.com).
   </Step>
   <Step title="Visit the MCP page">
     Go to [mcp.pipedream.com](https://mcp.pipedream.com) to access your MCP servers.
@@ -182,6 +194,8 @@ Even better - several aggregators now offer **MCP servers** that you can connect
   </Step>
 </Steps>
 
+</Accordion>
+
 **Key feature:** 10,000+ pre-built tools across 2,500+ APIs, all with managed authentication.
 
 ---
@@ -192,7 +206,6 @@ Even better - several aggregators now offer **MCP servers** that you can connect
 |---------|--------|----------|------|-----------|
 | Apps | 8,000+ | 250+ | 1,500+ | 2,500+ |
 | MCP Server | Cloud-hosted | Cloud-hosted | Cloud-hosted | Cloud-hosted |
-| Free tier | Yes (limited) | Yes | Yes (limited) | Yes |
 | Best for | Broadest app coverage | Developer-focused | Visual workflow builders | API-first users |
 
 ## Example: Gmail + Google Calendar Agent
@@ -234,7 +247,7 @@ You are a personal assistant that helps manage email and calendar.
   </Accordion>
 
   <Accordion title="Check rate limits">
-    Each aggregator has usage limits on their free tier. Monitor your usage if running agents frequently.
+    Each aggregator has usage limits. Monitor your usage if running agents frequently.
   </Accordion>
 
   <Accordion title="Test connections first">

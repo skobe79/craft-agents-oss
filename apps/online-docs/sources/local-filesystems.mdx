@@ -1,0 +1,222 @@
+---
+title: "Local Filesystems"
+description: "Give your agents access to files and folders on your machine"
+---
+
+The filesystem MCP server lets Claude read and write files on your local machine. This is useful for working with project directories, notes, data files, or any content stored locally.
+
+## How It Works
+
+Local filesystem access uses the [MCP filesystem server](https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem) running via stdio transport. Instead of connecting to a remote URL, Craft Agents spawns a local process that communicates directly with Claude.
+
+## Configuration
+
+Create a source with `type: "mcp"` and `transport: "stdio"`:
+
+```json
+{
+  "type": "mcp",
+  "name": "My Files",
+  "slug": "my-files",
+  "enabled": true,
+  "provider": "filesystem",
+  "tagline": "Local filesystem access",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/directory"],
+    "authType": "none"
+  }
+}
+```
+
+### Configuration Fields
+
+| Field | Description |
+|-------|-------------|
+| `transport` | Must be `"stdio"` for local servers |
+| `command` | The executable to run (`npx`, `node`, `python`, etc.) |
+| `args` | Command arguments, including the directory path |
+| `authType` | Usually `"none"` for local servers |
+
+### Directory Path
+
+The last argument specifies which directory Claude can access:
+
+```json
+"args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Projects"]
+```
+
+<Warning>
+Claude will have read/write access to everything in this directory. Choose your paths carefully and consider using Explore mode permissions to limit write operations.
+</Warning>
+
+## Example Configurations
+
+### Single Project Directory
+
+```json
+{
+  "type": "mcp",
+  "name": "My Project",
+  "slug": "my-project",
+  "enabled": true,
+  "provider": "filesystem",
+  "tagline": "Access to project files",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Projects/my-app"],
+    "authType": "none"
+  }
+}
+```
+
+### Notes and Documents
+
+```json
+{
+  "type": "mcp",
+  "name": "Notes",
+  "slug": "notes",
+  "enabled": true,
+  "provider": "filesystem",
+  "tagline": "Personal notes and documents",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Documents/Notes"],
+    "authType": "none"
+  }
+}
+```
+
+### Multiple Directories
+
+To access multiple directories, create separate sources for each:
+
+```json
+// Source 1: projects
+{
+  "name": "Projects",
+  "slug": "projects",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Projects"],
+    "authType": "none"
+  }
+}
+
+// Source 2: documents
+{
+  "name": "Documents",
+  "slug": "documents",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Documents"],
+    "authType": "none"
+  }
+}
+```
+
+## Prerequisites
+
+### Local MCP Must Be Enabled
+
+Stdio-based MCP servers require the "Local MCP" option to be enabled in your workspace settings. This is a security feature that prevents arbitrary local commands from running without your consent.
+
+To enable:
+1. Open workspace settings
+2. Enable "Allow Local MCP Servers"
+
+### Node.js Required
+
+The filesystem server runs via `npx`, which requires Node.js to be installed. The server package is downloaded automatically on first use.
+
+## Environment Variable Isolation
+
+For security, Craft Agents does not pass your shell environment variables to stdio MCP processes. This prevents accidental exposure of sensitive variables like API keys or credentials.
+
+If your MCP server needs specific environment variables, define them explicitly in the config:
+
+```json
+{
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"],
+    "env": {
+      "SPECIFIC_VAR": "value"
+    },
+    "authType": "none"
+  }
+}
+```
+
+## Available Tools
+
+The filesystem MCP server provides these tools to Claude:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read the contents of a file |
+| `read_multiple_files` | Read several files at once |
+| `write_file` | Create or overwrite a file |
+| `edit_file` | Make targeted edits to a file |
+| `create_directory` | Create a new directory |
+| `list_directory` | List files and folders |
+| `move_file` | Move or rename a file |
+| `search_files` | Search for files by pattern |
+| `get_file_info` | Get file metadata |
+| `list_allowed_directories` | Show accessible paths |
+
+## Explore Mode Permissions
+
+To use filesystem sources in Explore mode (read-only), create a `permissions.json`:
+
+```json
+{
+  "allowedMcpPatterns": [
+    { "pattern": "read", "comment": "Read file contents" },
+    { "pattern": "list", "comment": "List directories" },
+    { "pattern": "search", "comment": "Search for files" },
+    { "pattern": "get_file_info", "comment": "Get file metadata" }
+  ]
+}
+```
+
+This allows Claude to browse and read files while blocking write, edit, move, and delete operations.
+
+## Troubleshooting
+
+### "Local MCP not enabled"
+
+Enable "Allow Local MCP Servers" in your workspace settings.
+
+### "Command not found: npx"
+
+Install Node.js from [nodejs.org](https://nodejs.org) or via your package manager.
+
+### "Permission denied"
+
+Ensure you have read/write permissions on the target directory.
+
+### Server Not Starting
+
+Check that the directory path exists and is accessible:
+
+```bash
+ls -la /path/to/directory
+```
+
+## Security Considerations
+
+<Note>
+Local filesystem sources have direct access to your files. Consider these best practices:
+
+- **Scope narrowly**: Point to specific project directories, not your entire home folder
+- **Use Explore mode**: Set up read-only permissions for browsing
+- **Review guide.md**: Document what files Claude should and shouldn't modify
+</Note>

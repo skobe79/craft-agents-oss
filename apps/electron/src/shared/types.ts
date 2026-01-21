@@ -722,7 +722,6 @@ export interface ElectronAPI {
     authType?: AuthType  // Optional - if not provided, preserves existing auth type (for add workspace)
     workspace?: { name: string; iconUrl?: string; mcpUrl?: string }  // Optional - if not provided, only updates billing
     credential?: string  // API key or OAuth token based on authType
-    mcpCredentials?: { accessToken: string; clientId?: string }  // MCP OAuth credentials
   }): Promise<OnboardingSaveResult>
   // Claude OAuth
   getExistingClaudeToken(): Promise<string | null>

@@ -1,90 +1,123 @@
 ---
 title: "Quickstart"
-description: "Configure Craft Agents and start your first conversation"
+description: "From launch to your first task in 5 minutes"
 ---
 
-When you run `craft` for the first time, you'll be guided through a setup wizard that configures your authentication and workspace connection.
+When you launch Craft Agents for the first time, a setup wizard configures authentication and billing. Then you're ready to work.
 
-## Run the Craft Agents app
-
-Start `craft` on the command line / terminal:
-
-```bash
-craft
-```
-
-## Setup Steps
-
-The wizard walks you through these configuration steps:
+## Setup Wizard
 
 <Steps>
-  <Step title="Sign in to Craft">
-    A browser window opens for you to sign in to your Craft account. After authenticating, you're automatically redirected back to the terminal.
+  <Step title="Sign in to Craft (optional)">
+    Connect your Craft account to access your documents. A browser window opens for authentication.
+
+    Skip this if you only want to use Craft Agents with other sources like GitHub, local files, or APIs.
   </Step>
 
   <Step title="Choose your Craft space">
-    Select which Craft space to connect from your available spaces. Craft Agents will automatically create a connection to access your documents.
-
-    <Note>
-    If your space already has MCP connections configured, you'll be asked to select one or create a new one.
-    </Note>
+    If you signed in, select which Craft space to connect. This becomes your first source—the agent can read and write documents in that space.
   </Step>
 
   <Step title="Set up billing">
-    Choose how to pay for Claude AI usage:
+    Choose how to pay for Claude usage:
 
-    | Option | Description |
-    |--------|-------------|
-    | **Craft Credits** | Use your Craft subscription's AI credits - simplest option |
-    | **Anthropic API Key** | Use your own key from [console.anthropic.com](https://console.anthropic.com) |
-    | **Claude Pro/Max** | Use your existing Claude subscription |
-
-    <Accordion title="Using Craft Credits">
-    Craft Credits are the easiest way to get started - no additional setup required. You can purchase credits directly through the app and they'll be used for all your AI interactions.
-    </Accordion>
-
-    <Accordion title="Using an Anthropic API key">
-    If you have the `ANTHROPIC_API_KEY` environment variable configured, Craft Agent will detect and use it automatically.
-
-    Otherwise, paste your API key when prompted:
-
-    ```
-    Enter your Anthropic API key: sk-ant-api03-...
-    ```
-
-    Your key is stored securely in an encrypted file at `~/.craft-agent/credentials.enc`.
-    </Accordion>
-
-    <Accordion title="Using Claude Pro/Max subscription">
-    If you have a Claude Pro or Max subscription, select this option to sign in with your Claude account. A browser window opens for authentication.
-    </Accordion>
-  </Step>
-
-  <Step title="Ready to go!">
-    Once setup completes, you'll see the chat interface with:
-
-    - A prompt where you can type messages or commands
-    - A status bar showing your connection, billing method, model, and workspace
-
-    Type a message to start chatting, or `/help` to see available commands.
+    | Option | Best For |
+    |--------|----------|
+    | **Craft Credits** | Easiest. Buy credits in-app, no external accounts needed. |
+    | **Anthropic API Key** | Direct billing. Get a key from [console.anthropic.com](https://console.anthropic.com). |
+    | **Claude Pro/Max** | Use your existing Claude subscription. |
 
     <Tip>
-    Once you're comfortable with the basics, try creating custom agents—just write instructions in a Craft document and it becomes a working agent.
+    **Not sure which to pick?** Start with Craft Credits—you can switch later. If you already have an Anthropic API key or Claude subscription, use that.
     </Tip>
+  </Step>
+
+  <Step title="Done">
+    You'll see the main interface: inbox on the left, prompt at the bottom, and a status bar showing your current mode and model.
   </Step>
 </Steps>
 
-<Note>
-To reconfigure everything from scratch, run `craft` and type `/logout`. This removes all settings and credentials.
-</Note>
+## The Workflow: Explore → Ask → Execute
+
+Craft Agents has three permission modes. The recommended workflow:
+
+<CardGroup cols={3}>
+  <Card title="1. Explore" icon="magnifying-glass">
+    Start here. The agent reads, searches, and analyzes but cannot make changes. Research safely.
+  </Card>
+
+  <Card title="2. Ask to Edit" icon="hand">
+    Ready for changes? Switch here. The agent proposes actions and waits for your approval.
+  </Card>
+
+  <Card title="3. Execute" icon="bolt">
+    Once aligned, switch here. The agent works autonomously. Review results when done.
+  </Card>
+</CardGroup>
+
+Press **SHIFT+TAB** to cycle through modes. The status bar shows your current mode.
+
+<Tip>
+**The pattern:** Explore until you understand the problem. Ask to Edit while refining the approach. Execute once you trust the plan.
+</Tip>
+
+## Try This Now
+
+Type something to start your first conversation:
+
+```
+What can you help me with?
+```
+
+Or try a specific task:
+
+```
+Summarize the last 3 files I modified in this folder
+```
+
+```
+Search my Craft documents for anything about project planning
+```
+
+If you connected a Craft space, the agent can already access your documents. Add more sources (GitHub, Linear, local files) from Settings or by asking the agent:
+
+```
+Connect my GitHub account
+```
+
+## The Interface
+
+**Inbox** — Your conversations, organized like email. Each maintains its own context. Start new ones with **CMD/CTRL+N**.
+
+**Sources** — Connections to external data (Craft spaces, GitHub, APIs, local files). Manage in Settings or type `/sources`.
+
+**Status bar** — Shows permission mode, model, and workspace. Click to change settings.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| **SHIFT+TAB** | Cycle permission modes |
+| **CMD/CTRL+N** | New conversation |
+| **CMD/CTRL+K** | Command palette |
+| **/** | Show slash commands |
+| **ESC** | Cancel current request |
 
 ## Next Steps
 
-<Card
-  title="Start your first conversation"
-  icon="message"
-  href="/getting-started/first-conversation"
-  horizontal
->
-  Learn what you can ask and how to interact with your documents.
-</Card>
+<CardGroup cols={2}>
+  <Card
+    title="Your first conversation"
+    icon="message"
+    href="/getting-started/first-conversation"
+  >
+    Detailed walkthrough of interacting with the agent.
+  </Card>
+  <Card
+    title="Add sources"
+    icon="plug"
+    href="/sources/overview"
+  >
+    Connect GitHub, Linear, local files, and more.
+  </Card>
+</CardGroup>

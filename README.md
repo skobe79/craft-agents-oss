@@ -203,6 +203,10 @@ craftagents://action/new-chat             # Create new chat
 | Build | esbuild (main) + Vite (renderer) |
 | Credentials | AES-256-GCM encrypted file storage |
 
+## Open Source
+
+The public open-source repository is available at [github.com/lukilabs/craft-agents-oss](https://github.com/lukilabs/craft-agents-oss).
+
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.

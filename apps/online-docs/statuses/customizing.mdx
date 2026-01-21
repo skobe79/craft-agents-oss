@@ -1,0 +1,252 @@
+---
+title: "Customizing Statuses"
+description: "Add custom statuses and modify existing ones"
+---
+
+<Tip>
+**Just ask your agent.** The easiest way to customize statuses is to describe what you need:
+- "Add a Blocked status with a red color"
+- "Create a Waiting status for conversations on hold"
+- "Add an In Review status between In Progress and Done"
+
+The agent handles the configuration automatically.
+</Tip>
+
+You can also customize statuses manually by editing the workspace's status configuration file.
+
+## Configuration File
+
+Status configuration is stored at:
+
+```
+~/.craft-agent/workspaces/{workspace-id}/statuses/config.json
+```
+
+## Config Schema
+
+The configuration file has the following structure:
+
+```json
+{
+  "version": 1,
+  "statuses": [
+    {
+      "id": "todo",
+      "label": "Todo",
+      "category": "open",
+      "isFixed": true,
+      "isDefault": false,
+      "order": 0
+    }
+  ],
+  "defaultStatusId": "todo"
+}
+```
+
+## Status Properties
+
+Each status object supports these properties:
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `id` | string | Yes | Unique identifier (lowercase, hyphens only) |
+| `label` | string | Yes | Display name shown in the UI |
+| `category` | `"open"` \| `"closed"` | Yes | Determines inbox vs archive placement |
+| `isFixed` | boolean | Yes | If true, cannot be deleted or have label changed |
+| `isDefault` | boolean | Yes | If true, cannot be deleted but can be modified |
+| `order` | number | Yes | Display order (lower numbers appear first) |
+| `color` | string | No | Hex color (e.g., `"#EF4444"`) or Tailwind class |
+| `icon` | string | No | Emoji (e.g., `"🔥"`) or URL to icon file |
+
+<Note>
+When `color` is omitted, the design system default is used. When `icon` is omitted, the app looks for an auto-discovered file at `statuses/icons/{id}.{ext}` (supports `.svg`, `.png`, `.jpg`, `.jpeg`).
+</Note>
+
+## Adding Custom Statuses
+
+To add a custom status like "Blocked" or "Waiting", add a new object to the `statuses` array:
+
+```json
+{
+  "id": "blocked",
+  "label": "Blocked",
+  "color": "#EF4444",
+  "icon": "🚫",
+  "category": "open",
+  "isFixed": false,
+  "isDefault": false,
+  "order": 3
+}
+```
+
+Make sure to adjust the `order` values of other statuses if needed to position your new status correctly.
+
+### Example: Adding Multiple Custom Statuses
+
+```json
+{
+  "version": 1,
+  "statuses": [
+    {
+      "id": "backlog",
+      "label": "Backlog",
+      "category": "open",
+      "isFixed": false,
+      "isDefault": true,
+      "order": 0
+    },
+    {
+      "id": "todo",
+      "label": "Todo",
+      "category": "open",
+      "isFixed": true,
+      "isDefault": false,
+      "order": 1
+    },
+    {
+      "id": "in-progress",
+      "label": "In Progress",
+      "icon": "🔄",
+      "category": "open",
+      "isFixed": false,
+      "isDefault": false,
+      "order": 2
+    },
+    {
+      "id": "blocked",
+      "label": "Blocked",
+      "color": "#EF4444",
+      "icon": "🚫",
+      "category": "open",
+      "isFixed": false,
+      "isDefault": false,
+      "order": 3
+    },
+    {
+      "id": "waiting",
+      "label": "Waiting",
+      "icon": "⏳",
+      "category": "open",
+      "isFixed": false,
+      "isDefault": false,
+      "order": 4
+    },
+    {
+      "id": "needs-review",
+      "label": "Needs Review",
+      "category": "open",
+      "isFixed": false,
+      "isDefault": true,
+      "order": 5
+    },
+    {
+      "id": "done",
+      "label": "Done",
+      "category": "closed",
+      "isFixed": true,
+      "isDefault": false,
+      "order": 6
+    },
+    {
+      "id": "cancelled",
+      "label": "Cancelled",
+      "category": "closed",
+      "isFixed": true,
+      "isDefault": false,
+      "order": 7
+    }
+  ],
+  "defaultStatusId": "todo"
+}
+```
+
+## Customizing Icons
+
+Icons can be configured in several ways:
+
+<AccordionGroup>
+  <Accordion title="File-based icons (recommended)">
+    Place an SVG file in the `statuses/icons/` directory named after the status ID:
+    ```
+    statuses/icons/blocked.svg
+    statuses/icons/waiting.svg
+    ```
+    These are auto-discovered - no config needed.
+  </Accordion>
+
+  <Accordion title="Emoji icons">
+    Set the `icon` property to an emoji:
+    ```json
+    "icon": "🔥"
+    ```
+    Quick and easy, works everywhere.
+  </Accordion>
+
+  <Accordion title="URL icons">
+    Provide a URL to an icon file:
+    ```json
+    "icon": "https://example.com/icon.svg"
+    ```
+    The icon is automatically downloaded and cached locally.
+  </Accordion>
+</AccordionGroup>
+
+### SVG Icon Guidelines
+
+When creating custom SVG icons:
+
+- Size: 24x24 pixels
+- Use `currentColor` for stroke/fill to support theming
+- stroke-width: 2
+- stroke-linecap: round
+- stroke-linejoin: round
+
+## Changing Colors
+
+Set the `color` property to customize a status's appearance:
+
+```json
+{
+  "id": "blocked",
+  "label": "Blocked",
+  "color": "#EF4444",
+  ...
+}
+```
+
+You can use:
+- Hex colors: `"#EF4444"`, `"#22C55E"`
+- Tailwind classes: `"text-red-500"`, `"text-green-500"`
+
+## Fixed Statuses
+
+The following statuses cannot be deleted or renamed:
+
+| ID | Why It's Fixed |
+|----|----------------|
+| `todo` | Default status for new conversations |
+| `done` | Required closed state for completed work |
+| `cancelled` | Required closed state for abandoned work |
+
+You can still customize their `color` and `icon` properties.
+
+## Validation
+
+<Warning>
+Always validate your configuration after making changes.
+</Warning>
+
+After editing the config file, validate it to catch errors before they cause issues:
+
+```
+config_validate({ target: "statuses" })
+```
+
+The validator checks:
+- Required fixed statuses exist (`todo`, `done`, `cancelled`)
+- No duplicate status IDs
+- `defaultStatusId` references an existing status
+- At least one status in each category (open and closed)
+- Icon files exist when referenced
+
+Invalid configurations fall back to defaults at runtime, but validation helps catch issues early.

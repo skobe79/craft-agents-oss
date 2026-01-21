@@ -9,10 +9,10 @@
   },
   "fonts": {
     "heading": {
-      "family": "Inter"
+      "family": "-apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif"
     },
     "body": {
-      "family": "JetBrains Mono"
+      "family": "-apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif"
     }
   },
   "favicon": "/favicon.svg",
@@ -25,61 +25,58 @@
             "group": "Getting Started",
             "pages": [
               "getting-started/introduction",
-              "getting-started/installation",
-              "getting-started/quickstart",
-              "getting-started/first-conversation"
+              "getting-started/installation"
             ]
           },
           {
             "group": "Core Concepts",
             "pages": [
-              "core-concepts/workspaces",
-              "core-concepts/craft-capabilities",
               "core-concepts/conversations",
               "core-concepts/permissions"
             ]
           },
           {
-            "group": "Sub-Agents",
+            "group": "Sources",
             "pages": [
-              "sub-agents/overview",
-              "sub-agents/creating-agents"
-            ]
-          },
-          {
-            "group": "Integrations",
-            "pages": [
-              "integrations/overview",
+              "sources/overview",
               {
                 "group": "MCP Servers",
                 "pages": [
-                  "integrations/mcp-servers/overview",
-                  "integrations/mcp-servers/connecting-servers",
-                  "integrations/mcp-servers/authentication"
+                  "sources/mcp-servers/overview",
+                  "sources/mcp-servers/connecting-servers",
+                  "sources/mcp-servers/authentication"
                 ]
               },
               {
                 "group": "APIs",
                 "pages": [
-                  "integrations/apis/overview",
-                  "integrations/apis/curl-examples"
+                  "sources/apis/overview",
+                  "sources/apis/curl-examples"
                 ]
-              }
+              },
+              "sources/local-filesystems"
             ]
           },
           {
-            "group": "Automation",
+            "group": "Skills",
             "pages": [
-              "automation/headless-mode",
-              "automation/scripts"
+              "skills/overview"
+            ]
+          },
+          {
+            "group": "Statuses",
+            "pages": [
+              "statuses/overview",
+              "statuses/customizing"
             ]
           },
           {
             "group": "Go Further",
             "pages": [
+              "go-further/workspaces",
+              "go-further/themes",
               "go-further/connect-to-anything",
-              "go-further/background-jobs",
-              "go-further/chat-from-anywhere"
+              "go-further/deeplinks"
             ]
           }
         ]
@@ -87,13 +84,6 @@
       {
         "tab": "Reference",
         "groups": [
-          {
-            "group": "CLI Reference",
-            "pages": [
-              "reference/cli/commands",
-              "reference/cli/flags"
-            ]
-          },
           {
             "group": "Configuration",
             "pages": [
@@ -114,8 +104,8 @@
   "navbar": {
     "links": [
       {
-        "label": "Support",
-        "href": "mailto:support@craft.do"
+        "label": "GitHub",
+        "href": "https://github.com/lukilabs/craft-agents-oss"
       }
     ]
   },

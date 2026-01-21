@@ -1,0 +1,120 @@
+---
+title: "Workspaces"
+description: "Organize your configurations with multiple workspaces"
+---
+
+Workspaces let you maintain separate configurations for different contexts - personal projects, work, client projects, or different environments. Each workspace has its own sources, skills, statuses, and session history.
+
+## Understanding Workspaces
+
+A workspace is a self-contained configuration unit stored at:
+
+```
+~/.craft-agent/workspaces/{workspace-id}/
+```
+
+Each workspace contains:
+
+| Component | Description |
+|-----------|-------------|
+| **Sources** | MCP servers, APIs, and local filesystems connected to this workspace |
+| **Skills** | Custom slash commands and capabilities |
+| **Statuses** | Workflow states for organizing sessions |
+| **Sessions** | Chat history specific to this workspace |
+
+## Adding a Workspace
+
+During initial setup, you create your first workspace automatically. To add more:
+
+1. Click the workspace dropdown in the sidebar (shows your current workspace name)
+2. Select **Add Workspace...**
+3. Enter a name for the new workspace
+4. The workspace is created with default settings
+
+## Switching Workspaces
+
+To switch between workspaces:
+
+1. Click the workspace dropdown in the sidebar
+2. Select the workspace you want to switch to
+
+The sidebar shows your current workspace name. Switching workspaces loads that workspace's sources, skills, statuses, and sessions.
+
+## Workspace-Specific Configuration
+
+Each workspace maintains its own:
+
+| Data | Description |
+|------|-------------|
+| **Sources** | MCP servers, APIs, and local filesystems |
+| **Skills** | Custom slash commands defined in `skills/` |
+| **Statuses** | Workflow states defined in `statuses/config.json` |
+| **Sessions** | Chat history stored in `sessions/` |
+| **Permissions** | Optional Explore mode rules in `permissions.json` |
+
+## Directory Structure
+
+```
+~/.craft-agent/
+  workspaces/
+    {workspace-id}/
+      config.json           # Workspace configuration
+      .claude-plugin/       # Plugin configuration (Claude Code SDK compatibility)
+        settings.json       # Plugin settings
+        instructions.md     # Custom instructions
+      sources/
+        {source-slug}/
+          config.json       # Source configuration
+          guide.md          # Usage documentation
+      skills/
+        {skill-slug}/
+          SKILL.md          # Skill definition
+      statuses/
+        config.json         # Status definitions
+        icons/              # Custom status icons
+          todo.svg
+          done.svg
+      sessions/
+        {session-id}/
+          session.jsonl     # Conversation in JSONL format
+          attachments/      # Uploaded files
+          plans/            # Implementation plans
+      permissions.json      # Optional Explore mode rules
+      icon.png              # Optional workspace icon (png/jpg/svg)
+```
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Personal vs Work separation">
+    Keep your personal projects separate from work. Each workspace has its own sources, skills, and session history - no mixing of contexts.
+  </Accordion>
+
+  <Accordion title="Client projects">
+    Consultants and freelancers can set up separate workspaces for each client, with dedicated sources and custom skills per project.
+  </Accordion>
+
+  <Accordion title="Development environments">
+    Maintain separate workspaces for development, staging, and production - each with appropriate API endpoints and permissions.
+  </Accordion>
+
+  <Accordion title="Team collaboration">
+    Share workspace configurations with team members by copying the workspace directory structure.
+  </Accordion>
+</AccordionGroup>
+
+## Tips
+
+<AccordionGroup>
+  <Accordion title="Name workspaces clearly">
+    Use descriptive names that make it easy to identify the context at a glance.
+  </Accordion>
+
+  <Accordion title="Start with one workspace">
+    Get comfortable with the basics before adding multiple workspaces. You can always add more later.
+  </Accordion>
+
+  <Accordion title="Customize Explore mode">
+    Add a `permissions.json` file to allow additional operations in Explore mode. See [Permissions](/core-concepts/permissions) for details.
+  </Accordion>
+</AccordionGroup>

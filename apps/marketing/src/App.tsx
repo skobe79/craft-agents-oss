@@ -1,5 +1,6 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
 import { Markdown } from '@craft-agent/ui/markdown'
+import { Header } from './components/Header'
 import { Dithering } from '@paper-design/shaders-react'
 import { useHasHardwareGPU } from './hooks/useHasHardwareGPU'
 import desktopScreenshot from './assets/desktop/agent-screenshot.webp'
@@ -162,6 +163,8 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen bg-foreground-2">
+      <Header />
+
       {/* Dithering shader background - disabled on software-rendered GPUs for performance */}
       {hasHardwareGPU && (
         <div className="fixed inset-0 pointer-events-none">
@@ -181,7 +184,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 pt-[60px] pb-[128px]">
+      <main className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 pt-[80px] pb-[128px]">
         {/* Craft Agents logo */}
         <img src={agentsLogo} alt="Craft Agents" className="w-[224px] mb-[48px]" />
 

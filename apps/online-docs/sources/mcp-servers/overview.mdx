@@ -1,0 +1,137 @@
+---
+title: "Overview"
+description: "Connect your agents to services via MCP"
+---
+
+Connect your agents to the services you use every day—GitHub, search engines, databases, internal tools, and more. MCP (Model Context Protocol) is the standard that makes this possible, and many services now offer MCP support out of the box.
+
+## What Can You Connect?
+
+When you connect an MCP server to a source, your agent gains access to that service's capabilities. Connect GitHub and your agent can check PR status, summarize issues, and update your Craft docs automatically. Connect a database and it can query your data directly. Connect Slack and it can post updates to your team.
+
+Each connection adds new tools the agent can use naturally in conversation—no code required.
+
+## Why Use MCP Servers?
+
+- <h4>Connect Your Stack</h4>GitHub, Slack, databases, search engines, internal tools—if it has MCP support, your agent can use it.
+- <h4>Build Real Workflows</h4>Chain services together: pull data from one, process it, push to another.
+- <h4>Standardized & Secure</h4>MCP provides consistent integration patterns with scoped credentials per source.
+- <h4>Growing Ecosystem</h4>More services add MCP support regularly—check the [MCP Server Registry](https://github.com/modelcontextprotocol/servers).
+
+## Source Configuration
+
+MCP servers are configured as sources with a specific schema:
+
+```json
+{
+  "type": "mcp",
+  "name": "Server Name",
+  "tagline": "Description of the server",
+  "icon": "https://example.com/icon.png",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp-server.example.com",
+    "authType": "oauth"
+  }
+}
+```
+
+### Configuration Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type` | Yes | Must be `"mcp"` for MCP servers |
+| `name` | Yes | Display name for the server |
+| `tagline` | No | Short description of the server's purpose |
+| `icon` | No | Icon URL, emoji, or local file (auto-discovered: `icon.svg`, `icon.png`) |
+| `mcp.transport` | No | Transport type: `"http"` (default) for remote servers, `"stdio"` for local servers |
+| `mcp.url` | Yes (HTTP) | Full URL to the MCP server endpoint (for HTTP transport) |
+| `mcp.command` | Yes (stdio) | Command to run the local server (for stdio transport) |
+| `mcp.args` | No (stdio) | Arguments for the command (for stdio transport) |
+| `mcp.authType` | Yes (HTTP) | Authentication type: `"oauth"`, `"bearer"`, or `"none"` |
+
+## Transport Types
+
+### HTTP/SSE Transport (Remote Servers)
+
+For remote MCP servers accessible over the network:
+
+```json
+{
+  "type": "mcp",
+  "name": "Exa Search",
+  "tagline": "Neural search for the web",
+  "icon": "https://exa.ai/icon.png",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp.exa.ai",
+    "authType": "bearer"
+  }
+}
+```
+
+HTTP transport supports both Streamable HTTP and Server-Sent Events (SSE) protocols automatically.
+
+### Stdio Transport (Local Servers)
+
+For local MCP servers that run as processes on your machine:
+
+```json
+{
+  "type": "mcp",
+  "name": "File System",
+  "tagline": "Access local files",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/directory"]
+  }
+}
+```
+
+Common local server patterns:
+
+| Pattern | Example Command |
+|---------|-----------------|
+| npx package | `"command": "npx", "args": ["-y", "package-name"]` |
+| Node script | `"command": "node", "args": ["/path/to/server.js"]` |
+| Python script | `"command": "python", "args": ["/path/to/server.py"]` |
+| Binary | `"command": "/usr/local/bin/mcp-server"` |
+
+## Finding MCP Servers
+
+Many services provide MCP servers. Some places to find them:
+
+- [MCP Server Registry](https://github.com/modelcontextprotocol/servers) - Official list of available servers
+- Service documentation - Many APIs now offer MCP endpoints
+- Self-hosted - Run your own MCP servers for internal tools
+
+<Note>
+**Need Google, Microsoft, or Slack?** Craft Agents has built-in OAuth support for these services. Just ask your agent to "connect Google Calendar" or "add Slack" and it will walk you through the OAuth flow—no external aggregators needed.
+</Note>
+
+## Security Considerations
+
+When connecting MCP servers to your sources:
+
+- **Sources and credentials are scoped** - Each workspace has its own sources and stored credentials. Sources are not shared across workspaces unless configured.
+- **Credentials are encrypted** - Stored securely in `~/.craft-agent/credentials.enc`
+
+## Next Steps
+
+<Columns cols={2}>
+  <Card
+    title="Connect a server"
+    icon="link"
+    href="/sources/mcp-servers/connecting-servers"
+  >
+    Step-by-step guide to adding MCP servers as sources.
+  </Card>
+  <Card
+    title="Authentication"
+    icon="key"
+    href="/sources/mcp-servers/authentication"
+  >
+    Configure OAuth, bearer tokens, and API keys.
+  </Card>
+</Columns>

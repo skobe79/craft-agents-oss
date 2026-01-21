@@ -1,68 +1,102 @@
 ---
 title: "Introduction"
-description: "A terminal agent for your Craft documents and connected services"
+description: "Claude's coding capabilities, extended for your entire digital workflow"
 ---
 
-Craft Agents is a terminal-based AI agent that connects your Craft workspace with the outside world. At its simplest, it lets you search, read, and reorganize your documents and folders using natural language. But it also opens up an entirely new way to use Craft—by creating custom agents that execute complex workflows tailored to your specific needs.
+Craft Agents brings Claude's coding capabilities to your entire digital workflow—not just code. Built on the same foundation as Claude Code (the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk)), it extends the model's reasoning power to work across all your tools: GitHub, Linear, Slack, Craft documents, local files, and any API you can connect.
 
-The key? Your Craft documents become the instructions. Write what you want an agent to do in a document, and it becomes a working agent. No code required, no complex setup—just your words defining how the agent should behave. This makes building powerful, personalized workflows and automations more accessible than ever.
+## What Makes Craft Agents Different
 
-## What You Can Do
+### Connect to anything
 
-- <h4>Work with your documents</h4>Search across your workspace, read and summarize content, reorganize folders, and manage your documents—all through conversation.
-- <h4>Create and edit content</h4>Add new documents, update existing blocks, manage collections, and keep your workspace organized.
-- <h4>Build custom agents</h4>Turn any Craft document into a specialized agent with its own instructions, behaviors, and external integrations.
-- <h4>Connect your stack</h4>Give agents access to GitHub, Slack, Linear, databases, or any service with an API—and orchestrate workflows across them.
-- <h4>Automate complex workflows</h4>Chain actions together, pull data from one service and push to another, and build automations that work exactly the way you need them to.
+**Sources** give the agent access to your tools—MCP servers, REST APIs, or local files:
 
-## How It Works
+| Source Type | Examples | What You Can Do |
+|-------------|----------|-----------------|
+| MCP servers | GitHub, Linear, Craft | Full integration with issue tracking, docs, repos |
+| REST APIs | Any service with an API | Query and mutate data from internal tools |
+| Local files | Obsidian vaults, code repos | Work with files on your machine |
 
-Craft Agents uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to connect to your Craft workspace. This gives the AI assistant direct access to your documents while keeping your data secure - everything runs locally on your machine.
+A single conversation might pull issues from Linear, reference code from GitHub, check Slack threads, and summarize everything in a Craft document.
 
-<Frame>
-  <img src="/images/architecture.svg" alt="Craft Agents architecture diagram" />
-</Frame>
+### Familiar interface
 
-The agent uses Claude (Anthropic's AI) to understand your requests and determine which actions to take. You choose the model - Opus for complex tasks, Sonnet for balanced performance, or Haiku for quick queries.
+The inbox works like email or a task manager. Each conversation has a status, persists between sessions, and can be organized however you want. Review agent plans before execution, just like reviewing work from a colleague.
 
-## Key Features
+### Multitask naturally
 
-### Multi-Workspace Support
+Start a task, pause it, start another. Jump between conversations with full history preserved. Run long tasks in the background while you work on something else.
 
-Connect to multiple Craft workspaces and switch between them seamlessly. Each workspace maintains its own conversation history and configuration.
+### Explore, then execute
 
-### Sub-Agents
+Start in **Explore mode**—read-only by default. Let the agent research, analyze, and draft a plan. Review proposals before any changes happen. Once aligned, switch to **Execute** and let it work autonomously.
 
-Create specialized agents stored as documents in your Craft workspace. Each sub-agent can have:
+### Sessions become documentation
 
-- Custom instructions defining its behavior and expertise
-- Connections to any service in your stack—GitHub, Slack, databases, search engines, internal tools
-- Works with MCP servers or any REST API (just paste the docs)
+Every conversation captures decisions, trade-offs, and implementation details. Share sessions with your team. Attach them to Linear issues, GitHub PRs, or Confluence pages so others understand not just what changed, but why.
 
-### Local Machine Integration
+### Fully customizable
 
-Craft Agents runs on your machine and can interact with your local environment:
+Themes, skills, statuses, permissions—everything is a config file the agent can edit. Modify behavior through conversation, not complex settings UIs.
 
-- Read and write local files (with your permission)
-- Execute code and shell commands
-- Search the web for up-to-date information
-- Generate outputs in any format you need
+| What | How It Works | Customization Level |
+|------|--------------|---------------------|
+| **[Skills](/skills/overview)** | YAML frontmatter + markdown | Workspace-level slash commands with globs and tool whitelists |
+| **[Themes](/go-further/themes)** | 6-color semantic system | App or workspace, with dark mode and scenic backgrounds |
+| **[Statuses](/statuses/overview)** | Config for workflow states | Custom labels, colors, icons, inbox/archive categories |
+| **[Permissions](/core-concepts/permissions)** | Layered rules | App → workspace → source cascade |
 
-This means you can build workflows that combine your Craft documents, local files, and external data - all from natural language commands.
+## Craft Agents vs Claude Code
 
-### Security First
+Craft Agents and Claude Code share the same foundation—the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk)—but serve different purposes:
 
-- Dangerous commands (like `rm`, `sudo`, file modifications) require explicit approval
-- Credentials are encrypted locally using AES-256-GCM
-- Your data never leaves your machine except to communicate with the AI model
+| Aspect | Claude Code | Craft Agents |
+|--------|-------------|--------------|
+| **Interface** | Terminal CLI | Desktop app with inbox |
+| **Data sources** | MCP servers | MCP + REST APIs + local files |
+| **Session org** | Continue with `-c` flag | Inbox with custom workflow statuses |
+| **Config scope** | Per-project `.claude/` | Multi-workspace with full isolation |
+| **Permissions** | Fixed mode behaviors | [Customizable rules](/core-concepts/permissions) per workspace/source |
+
+**What's the same:** Claude model, core tools (Read, Write, Edit, Bash, Glob, Grep), MCP support, skills format, and thinking budget control.
+
+## Key Concepts
+
+**[Sources](/sources/overview)** connect Craft Agents to external data—GitHub repos, Linear projects, Craft spaces, or your local filesystem. Each source gives the agent new capabilities.
+
+**[Workspaces](/go-further/workspaces)** are isolated environments with their own sources, skills, and sessions. Use different workspaces for different projects or contexts.
+
+**[Permission modes](/core-concepts/permissions)** control what the agent can do. Cycle through them with **SHIFT+TAB**:
+
+| Mode | Behavior |
+|------|----------|
+| **Explore** | Read-only. Research and analyze without risk. |
+| **Ask to Edit** | Prompts before changes. Review each action. |
+| **Execute** | Full autonomy. The agent works uninterrupted. |
+
+**[Sessions](/core-concepts/conversations)** are persistent conversations organized like an inbox. Start multiple tasks, switch between them, and pick up where you left off.
+
+**[Skills](/skills/overview)** are custom instructions that define specialized agent behaviors—like a code review workflow or a content generation template. Same format as Claude Code skills.
+
+## Open Source
+
+Craft Agents is open source under Apache 2.0. The codebase lives at [github.com/lukilabs/craft-agents-oss](https://github.com/lukilabs/craft-agents-oss). Fork it, extend it, make it yours.
 
 ## Next Steps
 
-<Card
-  title="Install Craft Agents"
-  icon="download"
-  href="/getting-started/installation"
-  horizontal
->
-  Get up and running in under 5 minutes.
-</Card>
+<CardGroup cols={2}>
+  <Card
+    title="Install Craft Agents"
+    icon="download"
+    href="/getting-started/installation"
+  >
+    Desktop app for macOS, Windows, and Linux.
+  </Card>
+  <Card
+    title="Add Sources"
+    icon="plug"
+    href="/sources/overview"
+  >
+    Connect GitHub, Linear, APIs, and local files.
+  </Card>
+</CardGroup>

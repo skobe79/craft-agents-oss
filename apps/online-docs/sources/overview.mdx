@@ -1,0 +1,158 @@
+---
+title: "Overview"
+description: "Connect your agents to external data through MCP servers, REST APIs, and local filesystems"
+---
+
+Sources are the data connections that power your agents. They let Claude access external services, APIs, and files to complete tasks that require real-world data.
+
+<Tip>
+**Just ask your agent.** The easiest way to add sources is to tell your agent what you need:
+- "Connect my GitHub account"
+- "Add Slack to this workspace"
+- "Set up access to my Obsidian vault"
+
+The agent handles configuration, authentication, and validation automatically.
+</Tip>
+
+## What Are Sources?
+
+A source is any external data connection your agent can use:
+- **MCP servers** - Standardized AI tool integrations
+- **REST APIs** - Any service with HTTP endpoints
+- **Local filesystems** - Files and folders on your machine
+
+Each source gives Claude tools it can call during conversations. When you ask Claude to "check my GitHub issues" or "search the web," it's using sources behind the scenes.
+
+## Source Types
+
+<CardGroup cols={3}>
+  <Card title="MCP Servers" icon="plug" href="/sources/mcp-servers/overview">
+    Model Context Protocol servers provide rich, pre-built tool integrations. Many services offer official MCP support.
+
+    **Examples:** Linear, GitHub, Brave Search
+  </Card>
+  <Card title="REST APIs" icon="code" href="/sources/apis/overview">
+    Connect to any service with an API. Provide documentation and Claude can make authenticated requests.
+
+    **Examples:** Exa Search, custom backends
+  </Card>
+  <Card title="Local Filesystems" icon="folder" href="/sources/local-filesystems">
+    Access files and folders on your machine through the filesystem MCP server.
+
+    **Examples:** Project directories, notes, data files
+  </Card>
+</CardGroup>
+
+## How Sources Work
+
+Each source lives in a folder at:
+```
+~/.craft-agent/workspaces/{workspace-id}/sources/{source-slug}/
+```
+
+A source folder contains:
+- **`config.json`** - Connection settings, authentication type, status (required)
+- **`guide.md`** - Instructions for Claude on how to use this source (optional)
+- **`permissions.json`** - Custom rules for Explore mode (optional)
+- **`icon.*`** - Visual icon for the source (optional)
+
+### config.json
+
+The configuration file defines how to connect to the source:
+
+```json
+{
+  "type": "mcp",
+  "name": "Linear",
+  "slug": "linear",
+  "enabled": true,
+  "provider": "linear",
+  "mcp": {
+    "url": "https://mcp.linear.app",
+    "authType": "oauth"
+  },
+  "isAuthenticated": true,
+  "connectionStatus": "connected"
+}
+```
+
+Key fields:
+- **`type`** - Source type: `mcp`, `api`, or `local`
+- **`enabled`** - Whether the source is active
+- **`provider`** - Service identifier (e.g., `"linear"`, `"github"`, `"custom"`)
+- **`isAuthenticated`** - Whether credentials are stored
+- **`connectionStatus`** - Current state: `connected`, `needs_auth`, `failed`, `untested`, or `local_disabled`
+
+### guide.md
+
+The guide file helps Claude understand how to use the source effectively:
+
+```markdown
+# Linear
+
+Issue and project tracking for the iOS team.
+
+## Scope
+
+Access to the "Craft iOS" project and related issues.
+
+## Guidelines
+
+- Search issues before creating duplicates
+- Use labels consistently with team conventions
+- Check sprint assignments before moving issues
+```
+
+<Tip>
+A well-written guide.md makes your agent significantly more effective. Include specific project names, team conventions, and common workflows.
+</Tip>
+
+## Activation and Deactivation
+
+Sources can be enabled or disabled without removing them:
+
+1. **In the UI**: Toggle the source on/off in the workspace settings
+2. **In config.json**: Set `"enabled": false`
+
+Disabled sources remain configured but won't be available to Claude during conversations.
+
+## Source Lifecycle
+
+1. **Setup** - Create source folder and config.json
+2. **Authentication** - Store credentials (OAuth, API key, etc.)
+3. **Testing** - Validate connection works
+4. **Active use** - Source available in conversations
+5. **Deactivation** - Disable when not needed
+
+## Explore Mode Permissions
+
+By default, sources work in Explore mode with read-only access. Create a `permissions.json` to define which operations are safe:
+
+```json
+{
+  "allowedMcpPatterns": [
+    { "pattern": "list", "comment": "All list operations" },
+    { "pattern": "get", "comment": "All read operations" },
+    { "pattern": "search", "comment": "All search operations" }
+  ]
+}
+```
+
+Patterns are automatically scoped to the source, so `list` becomes `mcp__linear__.*list` internally.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MCP Servers" icon="plug" href="/sources/mcp-servers/overview">
+    Connect to services with MCP support
+  </Card>
+  <Card title="REST APIs" icon="code" href="/sources/apis/overview">
+    Connect to any service with an API
+  </Card>
+  <Card title="Local Filesystems" icon="folder" href="/sources/local-filesystems">
+    Access files on your machine
+  </Card>
+  <Card title="Authentication" icon="key" href="/sources/mcp-servers/authentication">
+    Set up secure credentials
+  </Card>
+</CardGroup>

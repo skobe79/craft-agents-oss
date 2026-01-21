@@ -17,9 +17,14 @@ The preferences file stores personal settings that customize how the agent inter
 {
   "name": "Alex",
   "timezone": "America/New_York",
-  "location": "New York, USA",
+  "location": {
+    "city": "New York",
+    "region": "New York",
+    "country": "USA"
+  },
   "language": "English",
-  "notes": "I prefer concise responses"
+  "notes": "I prefer concise responses",
+  "updatedAt": 1737451800000
 }
 ```
 
@@ -58,13 +63,25 @@ Used for:
 
 ### location
 
-Your general location.
+Your location, stored as a nested object with `city`, `region`, and `country` fields:
 
 ```json
-"location": "New York, USA"
+"location": {
+  "city": "New York",
+  "region": "New York",
+  "country": "USA"
+}
 ```
 
-Used for location-aware responses like weather, local events, or time-sensitive information.
+The location fields are used for location-aware responses like weather, local events, or time-sensitive information.
+
+### updatedAt
+
+Timestamp (in milliseconds) of when preferences were last updated. This is set automatically.
+
+```json
+"updatedAt": 1737451800000
+```
 
 ### language
 
@@ -123,7 +140,11 @@ This context makes responses more relevant and personalized.
 {
   "name": "Jordan",
   "timezone": "Europe/Berlin",
-  "location": "Berlin, Germany",
+  "location": {
+    "city": "Berlin",
+    "region": "Berlin",
+    "country": "Germany"
+  },
   "language": "English",
   "notes": "Software engineer. Prefer code examples over descriptions. Use metric units."
 }

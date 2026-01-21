@@ -41,19 +41,8 @@ main li {
   margin-top: 0 !important;
 }
 
-/* Table of contents */
-#table-of-contents > button {
-  font-family: Inter, sans-serif !important;
-}
-
-/* H3 in content should be mono */
-#content h3 {
-  font-family: 'JetBrains Mono', monospace !important;
-}
-
-/* H4 in content should be mono and bold */
+/* H4 in content should be bold */
 #content h4 {
-  font-family: 'JetBrains Mono', monospace !important;
   font-weight: 700 !important;
 }
 
@@ -69,7 +58,6 @@ main li {
 }
 
 #table-of-contents a {
-  font-family: 'JetBrains Mono', monospace !important;
   font-size: 0.825rem !important;
   padding-top: 0.15rem !important;
   padding-bottom: 0.15rem !important;

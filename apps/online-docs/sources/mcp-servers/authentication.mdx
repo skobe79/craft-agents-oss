@@ -1,0 +1,255 @@
+---
+title: "MCP Authentication"
+description: "Configure authentication for MCP server connections"
+---
+
+MCP servers often require authentication to access their tools. Craft Agents supports several authentication methods to securely connect to protected servers.
+
+## Authentication Types
+
+The `authType` field in your MCP source configuration determines how authentication is handled:
+
+| Type | Use Case | How It Works |
+|------|----------|--------------|
+| **oauth** | Interactive login, user-scoped access | Opens browser for authorization |
+| **bearer** | Static tokens, API keys | Prompts for token entry |
+| **none** | No authentication needed | No configuration required |
+
+## OAuth Authentication
+
+For servers that support OAuth, set `authType` to `"oauth"`:
+
+```json
+{
+  "type": "mcp",
+  "name": "GitHub",
+  "tagline": "GitHub repository access",
+  "icon": "https://github.com/favicon.ico",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp.github.com",
+    "authType": "oauth"
+  }
+}
+```
+
+When you first use this source:
+
+1. Craft Agents detects OAuth authentication is required
+2. A browser window opens for you to authorize access
+3. After approval, you're redirected back to the application
+4. The OAuth token is stored securely for future use
+
+### Token Refresh
+
+OAuth tokens are automatically refreshed when they expire. If a refresh fails, you'll be prompted to re-authenticate.
+
+## Bearer Token Authentication
+
+For servers that use static API keys or bearer tokens, set `authType` to `"bearer"`:
+
+```json
+{
+  "type": "mcp",
+  "name": "Exa Search",
+  "tagline": "Neural search for the web",
+  "icon": "https://exa.ai/favicon.ico",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp.exa.ai",
+    "authType": "bearer"
+  }
+}
+```
+
+When you first use this source, you'll be prompted for your API key:
+
+```
+The "Exa Search" source needs credentials.
+Enter bearer token: ****************************
+
+Stored securely
+```
+
+Credentials are stored encrypted locally in `~/.craft-agent/credentials.enc`, not in your configuration files.
+
+## Public Servers
+
+For servers that don't require authentication, set `authType` to `"none"`:
+
+```json
+{
+  "type": "mcp",
+  "name": "Public Tools",
+  "tagline": "Publicly available tools",
+  "mcp": {
+    "transport": "http",
+    "url": "https://public.example.com/mcp",
+    "authType": "none"
+  }
+}
+```
+
+No additional configuration needed.
+
+## Local Servers (Stdio)
+
+Local servers using stdio transport typically don't require network authentication:
+
+```json
+{
+  "type": "mcp",
+  "name": "File System",
+  "tagline": "Local file access",
+  "mcp": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+  }
+}
+```
+
+If a local server requires credentials (e.g., database passwords), it typically reads them from environment variables or config files rather than through the MCP authentication flow.
+
+## Credential Management
+
+### Viewing Stored Credentials
+
+You can't view the actual credential values, but you can see what's stored:
+
+```
+> /debug
+```
+
+Shows credential scopes like:
+```
+Credentials:
+  source_oauth::workspace-id::github
+  source_bearer::workspace-id::exa
+```
+
+### Removing Credentials
+
+To clear credentials for a specific source:
+
+```
+> /source logout <source-name>
+```
+
+Or use `/logout` to clear all credentials.
+
+### Credential Scoping
+
+Credentials are scoped hierarchically using a 3-part key format:
+
+```
+source_{authType}::{workspace_id}::{source_slug}
+```
+
+This means:
+- Different workspaces have separate credentials
+- Removing a source removes its credentials
+- Credentials don't leak between workspaces
+
+## Example: Multiple Auth Types
+
+A workspace with sources using different authentication methods:
+
+```json
+[
+  {
+    "type": "mcp",
+    "name": "GitHub",
+    "tagline": "Repository and issue management",
+    "mcp": {
+      "transport": "http",
+      "url": "https://mcp.github.com",
+      "authType": "oauth"
+    }
+  },
+  {
+    "type": "mcp",
+    "name": "Exa Search",
+    "tagline": "Neural web search",
+    "mcp": {
+      "transport": "http",
+      "url": "https://mcp.exa.ai",
+      "authType": "bearer"
+    }
+  },
+  {
+    "type": "mcp",
+    "name": "File System",
+    "tagline": "Local file access",
+    "mcp": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/projects"]
+    }
+  },
+  {
+    "type": "mcp",
+    "name": "Public API",
+    "tagline": "Public data access",
+    "mcp": {
+      "transport": "http",
+      "url": "https://public-api.example.com/mcp",
+      "authType": "none"
+    }
+  }
+]
+```
+
+- **GitHub** - OAuth, opens browser for login
+- **Exa Search** - Bearer, prompts for API key
+- **File System** - Stdio, no network auth needed
+- **Public API** - `none`, no auth required
+
+## Troubleshooting Authentication
+
+<AccordionGroup>
+  <Accordion title="OAuth window doesn't open">
+    - Check your default browser is working
+    - Ensure GUI access is available from the terminal
+    - Firewall may be blocking the local callback server
+  </Accordion>
+
+  <Accordion title="Token rejected by server">
+    - Verify the token has required permissions/scopes
+    - Check if the token has expired
+    - Confirm the server URL is correct
+    - Ensure `authType` matches what the server expects
+  </Accordion>
+
+  <Accordion title="Re-authenticate after it was working">
+    - Token may have been revoked
+    - Credentials file may have been corrupted
+    - Try `/source logout <name>` and authenticate again
+  </Accordion>
+
+  <Accordion title="Wrong account authenticated">
+    - Clear credentials with `/source logout <name>`
+    - Re-authenticate with the correct account
+    - Check you're logged into the right account in your browser
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Prefer OAuth over bearer tokens">
+    OAuth tokens can be scoped, revoked, and rotated. Static tokens are harder to manage securely.
+  </Accordion>
+
+  <Accordion title="Use prompted token entry">
+    Let Craft Agents prompt for tokens rather than storing them in configuration files.
+  </Accordion>
+
+  <Accordion title="Limit token scopes">
+    When creating API keys or authorizing OAuth, grant only the permissions the source needs.
+  </Accordion>
+
+  <Accordion title="Rotate credentials periodically">
+    For sensitive services, periodically clear and re-enter credentials to ensure they're current.
+  </Accordion>
+</AccordionGroup>

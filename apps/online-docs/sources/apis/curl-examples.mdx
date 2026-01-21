@@ -1,0 +1,300 @@
+---
+title: "Practical Examples"
+description: "Real-world API source configurations and usage patterns"
+---
+
+This guide provides practical examples of configuring API sources for popular services and common patterns.
+
+## Configuration Examples
+
+### GitHub API
+
+```json
+{
+  "type": "api",
+  "name": "GitHub",
+  "tagline": "Access GitHub repositories, issues, and pull requests",
+  "icon": "https://github.githubassets.com/favicons/favicon.svg",
+  "api": {
+    "baseUrl": "https://api.github.com",
+    "testEndpoint": "/user",
+    "authType": "bearer"
+  }
+}
+```
+
+Example requests the agent can make:
+
+```bash
+# List repositories
+GET /user/repos
+
+# Create an issue
+POST /repos/{owner}/{repo}/issues
+{"title": "Bug report", "body": "Description"}
+
+# Get pull request
+GET /repos/{owner}/{repo}/pulls/{pull_number}
+```
+
+### OpenAI API
+
+```json
+{
+  "type": "api",
+  "name": "OpenAI",
+  "tagline": "Generate text and embeddings with GPT models",
+  "icon": "https://openai.com/favicon.ico",
+  "api": {
+    "baseUrl": "https://api.openai.com/v1",
+    "testEndpoint": "/models",
+    "authType": "bearer"
+  }
+}
+```
+
+### Stripe API
+
+```json
+{
+  "type": "api",
+  "name": "Stripe",
+  "tagline": "Manage payments, customers, and subscriptions",
+  "icon": "https://stripe.com/favicon.ico",
+  "api": {
+    "baseUrl": "https://api.stripe.com/v1",
+    "testEndpoint": "/customers?limit=1",
+    "authType": "bearer"
+  }
+}
+```
+
+### SendGrid API
+
+```json
+{
+  "type": "api",
+  "name": "SendGrid",
+  "tagline": "Send transactional and marketing emails",
+  "icon": "https://sendgrid.com/favicon.ico",
+  "api": {
+    "baseUrl": "https://api.sendgrid.com/v3",
+    "testEndpoint": "/user/profile",
+    "authType": "bearer"
+  }
+}
+```
+
+### Twilio API
+
+```json
+{
+  "type": "api",
+  "name": "Twilio",
+  "tagline": "Send SMS and make voice calls",
+  "icon": "https://www.twilio.com/favicon.ico",
+  "api": {
+    "baseUrl": "https://api.twilio.com/2010-04-01",
+    "testEndpoint": "/Accounts/{AccountSid}.json",
+    "authType": "basic"
+  }
+}
+```
+
+<Note>
+Twilio uses Basic authentication with your Account SID as username and Auth Token as password.
+</Note>
+
+## Authentication Patterns
+
+### Bearer Token (Most Common)
+
+Used by most modern APIs:
+
+```json
+{
+  "api": {
+    "baseUrl": "https://api.example.com",
+    "authType": "bearer"
+  }
+}
+```
+
+Services using bearer tokens:
+- GitHub
+- OpenAI
+- Stripe
+- SendGrid
+- Slack
+
+### Custom Header
+
+Some APIs use custom header names:
+
+```json
+{
+  "api": {
+    "baseUrl": "https://api.exa.ai",
+    "authType": "header",
+    "headerName": "x-api-key"
+  }
+}
+```
+
+Services using custom headers:
+- Exa (x-api-key)
+- Anthropic (x-api-key)
+- AWS services (various)
+
+### Query Parameter
+
+Legacy APIs often use query parameter auth:
+
+```json
+{
+  "api": {
+    "baseUrl": "https://api.weatherapi.com/v1",
+    "authType": "query",
+    "queryParam": "key"
+  }
+}
+```
+
+This appends `?key={your_api_key}` to requests.
+
+### Basic Authentication
+
+For APIs requiring username/password:
+
+```json
+{
+  "api": {
+    "baseUrl": "https://api.twilio.com",
+    "authType": "basic"
+  }
+}
+```
+
+You will be prompted for both username and password.
+
+## Common Patterns
+
+### APIs with Versioned Base URLs
+
+Include the version in the base URL:
+
+```json
+{
+  "api": {
+    "baseUrl": "https://api.example.com/v1"
+  }
+}
+```
+
+### APIs with Tenant-Specific URLs
+
+For multi-tenant APIs:
+
+```json
+{
+  "api": {
+    "baseUrl": "https://your-tenant.api.example.com"
+  }
+}
+```
+
+### Self-Hosted APIs
+
+For internal or self-hosted services:
+
+```json
+{
+  "api": {
+    "baseUrl": "https://internal-api.yourcompany.com",
+    "testEndpoint": "/health"
+  }
+}
+```
+
+## Choosing a Test Endpoint
+
+Select an endpoint that:
+- Requires authentication (validates credentials)
+- Returns quickly (lightweight response)
+- Is always available (not rate-limited)
+
+| Pattern | Example | Notes |
+|---------|---------|-------|
+| User/account info | `/user`, `/me`, `/account` | Validates auth, returns user data |
+| Health check | `/health`, `/ping`, `/status` | May not require auth |
+| List with limit | `/items?limit=1` | Validates auth with minimal data |
+
+<Tip>
+Avoid using endpoints that modify data as test endpoints. Stick to GET requests that only read information.
+</Tip>
+
+## Working with API Sources
+
+Once configured, your agent can make requests to any endpoint under the base URL.
+
+### Request Format
+
+The agent uses the HTTP tool to make requests:
+
+```
+Make a GET request to /users/123
+```
+
+```
+POST to /messages with body: {"text": "Hello", "channel": "general"}
+```
+
+### Headers and Body
+
+The agent can specify:
+- HTTP method (GET, POST, PUT, DELETE, PATCH)
+- Path (relative to base URL)
+- Query parameters
+- Request body (JSON)
+- Additional headers
+
+Authentication headers are added automatically.
+
+### Response Handling
+
+API responses are processed intelligently:
+- **JSON responses** are parsed and presented clearly
+- **Large responses** may be summarized
+- **Errors** are reported with status codes and messages
+- **Rate limits** are surfaced to help debug issues
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection test fails">
+    - Verify the base URL is correct and accessible
+    - Check if the test endpoint exists and is spelled correctly
+    - Ensure credentials are valid and have necessary permissions
+    - Some APIs require specific headers - check documentation
+  </Accordion>
+
+  <Accordion title="Authentication not working">
+    - Confirm you are using the correct auth type
+    - For bearer tokens, ensure the token has not expired
+    - For basic auth, verify username and password are correct
+    - Check if the API requires additional headers
+  </Accordion>
+
+  <Accordion title="Requests return errors">
+    - Check the API documentation for required parameters
+    - Verify the endpoint path is correct
+    - Ensure request body format matches expectations
+    - Look for rate limiting or quota issues
+  </Accordion>
+
+  <Accordion title="Wrong auth header">
+    - Use `headerName` to specify custom header names for `header` auth type
+    - Use `queryParam` to specify the query parameter name for `query` auth type
+    - Use `authScheme` to customize the bearer prefix (default: "Bearer")
+  </Accordion>
+</AccordionGroup>

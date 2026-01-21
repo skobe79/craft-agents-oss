@@ -1,81 +1,168 @@
 ---
 title: "Installation"
-description: "Install Craft Agents on your machine"
+description: "Install the Craft Agents desktop app on macOS, Windows, or Linux"
 ---
 
-## Prerequisites
+Craft Agents is a native desktop application. It runs locally on your machine, stores credentials encrypted on disk, and connects to external services only when you configure sources.
 
-Before installing Craft Agents, you'll need:
+## System Requirements
 
-<Steps>
-  <Step title="Supported system">
-    Craft Agents runs on **macOS** and **Linux** (x86_64 or ARM64).
+| Platform | Architectures | Notes |
+|----------|---------------|-------|
+| **macOS** | Intel, Apple Silicon | macOS 11+ |
+| **Windows** | x64 | Windows 10+ |
+| **Linux** | x64 | AppImage format, requires FUSE |
+
+## Manual Install (Recommended)
+
+<Tabs>
+  <Tab title="macOS">
+    **Apple Silicon (M1/M2/M3/M4):**
+    ```
+    https://agents.craft.do/electron/latest/Craft-Agent-arm64.dmg
+    ```
+
+    **Intel:**
+    ```
+    https://agents.craft.do/electron/latest/Craft-Agent-x64.dmg
+    ```
+
+    1. Download the `.dmg` for your architecture
+    2. Open the DMG and drag **Craft Agent** to Applications
+    3. Launch from Applications or Spotlight (`CMD+Space`, type "Craft Agent")
+  </Tab>
+
+  <Tab title="Windows">
+    **Download:**
+    ```
+    https://agents.craft.do/electron/latest/Craft-Agent-x64.exe
+    ```
+
+    1. Download and run the installer
+    2. Follow the installation prompts (installs to `%LOCALAPPDATA%\Programs\Craft Agent`)
+    3. Launch from Start menu or desktop shortcut
+  </Tab>
+
+  <Tab title="Linux">
+    **Download:**
+    ```
+    https://agents.craft.do/electron/latest/Craft-Agent-x64.AppImage
+    ```
+
+    1. Download the AppImage
+    2. Make it executable: `chmod +x Craft-Agent-x64.AppImage`
+    3. Run: `./Craft-Agent-x64.AppImage`
 
     <Note>
-    Windows installation currently requires the use of WSL (Windows Subsystem for Linux), Git bash or similar bash scripting support.
+    **FUSE required.** Install with:
+    - Debian/Ubuntu: `sudo apt install fuse libfuse2`
+    - Fedora: `sudo dnf install fuse fuse-libs`
     </Note>
-  </Step>
-  <Step title="Craft account">
-    You'll need a [Craft](https://www.craft.do) account to connect to your documents.
+  </Tab>
+</Tabs>
+
+## Script Install
+
+For automated installation with checksum verification:
+
+<Tabs>
+  <Tab title="macOS / Linux">
+    ```bash
+    curl -fsSL https://agents.craft.do/install-app.sh | bash
+    ```
+
+    This downloads, verifies, and installs Craft Agents automatically.
+  </Tab>
+
+  <Tab title="Windows">
+    ```powershell
+    irm https://agents.craft.do/install-app.ps1 | iex
+    ```
+
+    Run in PowerShell. Downloads, verifies checksum, and runs the installer.
+  </Tab>
+</Tabs>
+
+## Build from Source
+
+Craft Agents is open source. To build from source:
+
+### Prerequisites
+
+- [Bun](https://bun.sh) — runtime and package manager
+- [Node.js](https://nodejs.org) 18+ — required for electron-builder
+- Git
+
+### Clone and Build
+
+```bash
+# Clone the repository
+git clone https://github.com/lukilabs/craft-agents-oss.git
+cd craft-agents-oss
+
+# Install dependencies
+bun install
+
+# Development mode (hot reload)
+bun run electron:dev
+
+# Production build (build and run)
+bun run electron:start
+```
+
+### Build Installers
+
+<Tabs>
+  <Tab title="macOS">
+    ```bash
+    # Apple Silicon
+    bash apps/electron/scripts/build-dmg.sh arm64
+
+    # Intel
+    bash apps/electron/scripts/build-dmg.sh x64
+    ```
+
+    Output: `apps/electron/release/Craft-Agent-{arch}.dmg`
 
     <Note>
-    Advanced users can also connect using a direct Craft MCP workflow link instead of signing in.
+    Code signing and notarization require Apple Developer credentials. Set `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` environment variables. Without these, the build will be unsigned.
     </Note>
-  </Step>
-</Steps>
+  </Tab>
 
-## Install Craft Agents
+  <Tab title="Windows">
+    ```powershell
+    powershell -ExecutionPolicy Bypass -File apps/electron/scripts/build-win.ps1
+    ```
 
-Run the installer script:
+    Output: `apps/electron/release/Craft-Agent-x64.exe`
+  </Tab>
 
-```bash
-curl -fsSL https://agents.craft.do/install.sh | bash
-```
+  <Tab title="Linux">
+    ```bash
+    bash apps/electron/scripts/build-linux.sh x64
+    ```
 
-This downloads and installs the `craft` command to `~/.local/bin`.
+    Output: `apps/electron/release/Craft-Agent-x64.AppImage`
+  </Tab>
+</Tabs>
 
-<Accordion title="Manual PATH setup">
-If `~/.local/bin` is not in your PATH, add it to your shell configuration:
+## Launch
 
-```bash
-# For bash (~/.bashrc or ~/.bash_profile)
-export PATH="$HOME/.local/bin:$PATH"
+After installation:
 
-# For zsh (~/.zshrc)
-export PATH="$HOME/.local/bin:$PATH"
-```
+- **macOS** — Applications folder or Spotlight (`CMD+Space`, type "Craft Agent")
+- **Windows** — Start menu, desktop shortcut, or `craft-agents` in terminal
+- **Linux** — Run `craft-agents` from terminal (if installed via script) or run the AppImage directly
 
-Then restart your terminal or run `source ~/.zshrc` (or `~/.bashrc`).
-</Accordion>
-
-## Verify Installation
-
-Test that everything is working:
-
-```bash
-craft --help
-```
-
-You should see the available options and flags:
-
-```
-Usage: craft [options] [prompt]
-
-Options:
-  --model, -m          Choose model (opus, sonnet, haiku)
-  --agent, -a          Activate an agent
-  --workspace, -w      Select workspace
-  --debug              Enable debug logging
-  --help               Show this help
-```
+First launch opens the setup wizard.
 
 ## Next Steps
 
 <Card
-  title="Run the setup wizard"
-  icon="wand-magic-sparkles"
-  href="/getting-started/quickstart"
+  title="Add Sources"
+  icon="plug"
+  href="/sources/overview"
   horizontal
 >
-  Configure your API key, workspace, and preferences.
+  Connect GitHub, Linear, APIs, and local files to extend what the agent can access.
 </Card>

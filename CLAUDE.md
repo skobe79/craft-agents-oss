@@ -2,6 +2,8 @@
 
 Craft Agent is a Claude Code-like interface for managing Craft documents using the Claude Agent SDK and Craft MCP servers. The primary interface is the **Electron desktop app** with multi-session inbox management.
 
+**Public OSS repo:** [github.com/lukilabs/craft-agents-oss](https://github.com/lukilabs/craft-agents-oss)
+
 **Keep docs up-to-date:** `packages/shared/` → this file | `apps/electron/` → `apps/electron/CLAUDE.md`
 
 ## Monorepo Structure

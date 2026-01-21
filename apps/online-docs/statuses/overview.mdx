@@ -1,0 +1,71 @@
+---
+title: "Statuses"
+description: "Organize conversations into workflow states"
+---
+
+Statuses help you organize conversations into workflow states. Every conversation has a status that indicates where it is in your workflow - from initial ideas to completed tasks.
+
+## How Statuses Work
+
+Statuses are organized into two categories:
+
+| Category | Description | Appears In |
+|----------|-------------|------------|
+| **Open** | Active conversations that need attention | Inbox / Active list |
+| **Closed** | Completed or cancelled conversations | Archive |
+
+When you create a new conversation, it's assigned the default status (typically "Todo"). As you work through conversations, you can move them through different statuses until they're complete.
+
+## Default Statuses
+
+Craft Agents ships with five default statuses:
+
+| Status | Category | Description |
+|--------|----------|-------------|
+| **Backlog** | Open | Ideas and tasks for later |
+| **Todo** | Open | Ready to work on |
+| **Needs Review** | Open | Awaiting review or feedback |
+| **Done** | Closed | Successfully completed |
+| **Cancelled** | Closed | No longer needed |
+
+## Status Types
+
+Statuses have different levels of editability, controlled by `isFixed` and `isDefault` flags in the configuration:
+
+<AccordionGroup>
+  <Accordion title="Fixed statuses (isFixed: true)">
+    Cannot be deleted or renamed. These are essential workflow states: `todo`, `done`, and `cancelled`. You can still change their color and icon. Fixed statuses have `isFixed: true` in the config.
+  </Accordion>
+
+  <Accordion title="Default statuses (isDefault: true)">
+    Ship with the app and can be modified (color, icon, label) but not deleted. `backlog` and `needs-review` are default statuses with `isDefault: true`.
+  </Accordion>
+
+  <Accordion title="Custom statuses">
+    Statuses you create (neither `isFixed` nor `isDefault`). Fully editable and can be deleted when no longer needed.
+  </Accordion>
+</AccordionGroup>
+
+## Workspace-Level Configuration
+
+Statuses are configured per workspace. Each workspace can have its own set of custom statuses tailored to that workspace's workflow.
+
+Configuration is stored at:
+
+```
+~/.craft-agent/workspaces/{workspace-id}/statuses/config.json
+```
+
+Icons for statuses are stored in:
+
+```
+~/.craft-agent/workspaces/{workspace-id}/statuses/icons/
+```
+
+## Changing a Conversation's Status
+
+You can change a conversation's status at any time using the status menu or keyboard shortcuts. Moving a conversation to a closed status (Done or Cancelled) archives it, while moving it to an open status keeps it in your inbox.
+
+<Note>
+Moving conversations between open statuses doesn't affect their content or history - only their organizational state changes.
+</Note>

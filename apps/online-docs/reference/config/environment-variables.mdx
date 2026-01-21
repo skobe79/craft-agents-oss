@@ -3,22 +3,13 @@ title: "Environment Variables"
 description: "Configure Craft Agents through environment variables"
 ---
 
-Environment variables provide credentials for automation and server deployment scenarios.
+Environment variables provide configuration and credentials for automation and server deployment scenarios.
 
 ## Supported Variables
 
-### CRAFT_ANTHROPIC_API_KEY
+### ANTHROPIC_API_KEY / CRAFT_ANTHROPIC_API_KEY
 
-Provide an Anthropic API key without storing it locally. This takes precedence over the standard variable.
-
-```bash
-export CRAFT_ANTHROPIC_API_KEY="sk-ant-api03-..."
-craft -p "Check my tasks"
-```
-
-### ANTHROPIC_API_KEY
-
-Standard Anthropic API key variable. Used as fallback if `CRAFT_ANTHROPIC_API_KEY` is not set.
+Provide an Anthropic API key without storing it locally. Both names are supported; `CRAFT_ANTHROPIC_API_KEY` takes precedence if both are set.
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
@@ -27,20 +18,59 @@ craft -p "Check my tasks"
 
 ### CRAFT_CLAUDE_OAUTH_TOKEN
 
-Provide a Claude OAuth token directly for Claude Pro/Max authentication.
+Provide a Claude OAuth token (for Claude Max subscriptions) without storing it locally.
 
 ```bash
-export CRAFT_CLAUDE_OAUTH_TOKEN="token..."
+export CRAFT_CLAUDE_OAUTH_TOKEN="your-oauth-token"
 ```
+
+### CRAFT_CONFIG_DIR
+
+Override the default configuration directory. By default, Craft Agents stores configuration in `~/.craft-agent/`.
+
+```bash
+export CRAFT_CONFIG_DIR="/custom/path/to/config"
+```
+
+This affects the location of:
+- `config.json`
+- `preferences.json`
+- `credentials.enc`
+- Workspace configurations
+
+### CRAFT_LOCAL_MCP_ENABLED
+
+Enable or disable local MCP server support (stdio subprocess servers).
+
+```bash
+export CRAFT_LOCAL_MCP_ENABLED="false"
+```
+
+| Value | Behavior |
+|-------|----------|
+| `true` | Enable local MCP servers (default) |
+| `false` | Disable local MCP servers |
+
+This can also be configured per-workspace in the workspace settings.
 
 ## Precedence
 
 For API credentials, the lookup order is:
 
-1. `CRAFT_ANTHROPIC_API_KEY` environment variable
-2. `ANTHROPIC_API_KEY` environment variable
+1. `CRAFT_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY` environment variable
+2. `CRAFT_CLAUDE_OAUTH_TOKEN` environment variable (for OAuth)
 3. Stored credential in `~/.craft-agent/credentials.enc`
 4. Interactive prompt (if running interactively)
+
+For configuration directory:
+
+1. `CRAFT_CONFIG_DIR` environment variable
+2. Default `~/.craft-agent/`
+
+For model selection:
+
+1. `model` field in `config.json`
+2. System default (Claude Sonnet)
 
 ## Usage Examples
 
@@ -48,7 +78,7 @@ For API credentials, the lookup order is:
 
 ```bash
 #!/bin/bash
-export CRAFT_ANTHROPIC_API_KEY="${SECRETS_ANTHROPIC_KEY}"
+export ANTHROPIC_API_KEY="${SECRETS_ANTHROPIC_KEY}"
 
 craft -w "Work" -p "Generate release notes from recent commits"
 ```
@@ -56,7 +86,8 @@ craft -w "Work" -p "Generate release notes from recent commits"
 ### Docker Container
 
 ```dockerfile
-ENV CRAFT_ANTHROPIC_API_KEY=${CRAFT_ANTHROPIC_API_KEY}
+ENV ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+ENV CRAFT_CONFIG_DIR=/app/config
 
 CMD ["craft", "-w", "default", "-p", "..."]
 ```
@@ -66,7 +97,14 @@ CMD ["craft", "-w", "default", "-p", "..."]
 Use a different API key for one command:
 
 ```bash
-CRAFT_ANTHROPIC_API_KEY="sk-ant-different-key" craft -p "Quick check"
+ANTHROPIC_API_KEY="sk-ant-different-key" craft -p "Quick check"
+```
+
+### Custom Configuration Directory
+
+```bash
+export CRAFT_CONFIG_DIR="/home/user/.config/craft-agent"
+craft -p "Using custom config location"
 ```
 
 ## Security Notes
@@ -79,10 +117,10 @@ Secure alternatives:
 
 ```bash
 # Read from file
-export CRAFT_ANTHROPIC_API_KEY=$(cat ~/.secrets/anthropic-key)
+export ANTHROPIC_API_KEY=$(cat ~/.secrets/anthropic-key)
 
 # Read from secret manager
-export CRAFT_ANTHROPIC_API_KEY=$(aws secretsmanager get-secret-value --secret-id anthropic-key --query SecretString --output text)
+export ANTHROPIC_API_KEY=$(aws secretsmanager get-secret-value --secret-id anthropic-key --query SecretString --output text)
 
 # Use .env file (not committed to git)
 source .env && craft -p "..."
