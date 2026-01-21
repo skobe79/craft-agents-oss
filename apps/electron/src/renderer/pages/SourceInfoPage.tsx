@@ -8,6 +8,7 @@
 import * as React from 'react'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { AlertCircle } from 'lucide-react'
+import { HelpPopover } from '@/components/ui/HelpPopover'
 import { EditPopover, EditButton, getEditConfig } from '@/components/ui/EditPopover'
 import { SourceAvatar } from '@/components/ui/source-avatar'
 import { SourceMenu } from '@/components/app-shell/SourceMenu'
@@ -394,6 +395,7 @@ export default function SourceInfoPage({ sourceSlug, workspaceId, onDelete }: So
             onDelete={handleDelete}
           />
         }
+        actions={<HelpPopover feature="sources" />}
       />
 
       {source && (

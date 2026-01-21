@@ -9,6 +9,7 @@
 import * as React from 'react'
 import { useEffect, useState, useCallback } from 'react'
 import { Check, X, Minus } from 'lucide-react'
+import { HelpPopover } from '@/components/ui/HelpPopover'
 import { EditPopover, EditButton, getEditConfig } from '@/components/ui/EditPopover'
 import { toast } from 'sonner'
 import { SkillMenu } from '@/components/app-shell/SkillMenu'
@@ -153,6 +154,7 @@ export default function SkillInfoPage({ skillSlug, workspaceId }: SkillInfoPageP
             onDelete={handleDelete}
           />
         }
+        actions={<HelpPopover feature="skills" />}
       />
 
       {skill && (
