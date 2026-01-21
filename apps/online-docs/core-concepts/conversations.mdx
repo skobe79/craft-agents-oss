@@ -14,20 +14,12 @@ Think of Craft Agents as an email client for AI conversations. Each conversation
 - Search and filter to find past work
 - Archive or delete when no longer needed
 
-```
-┌─────────────────────────────────────┐
-│ Inbox                               │
-├─────────────────────────────────────┤
-│ ● 250121-swift-falcon    Todo       │
-│   Refactoring auth module           │
-│                                     │
-│ ○ 250120-gentle-river    In Progress│
-│   Review PR #234                    │
-│                                     │
-│ ✓ 250119-bright-mountain Done       │
-│   Fix login bug                     │
-└─────────────────────────────────────┘
-```
+<img
+  src="/images/inbox.webp"
+  srcSet="/images/inbox@2x.webp 2x"
+  alt="Multi-conversation inbox showing sessions with different statuses"
+  style={{ borderRadius: '8px', maxWidth: '100%' }}
+/>
 
 ## Session ID Format
 
@@ -37,10 +29,12 @@ Each conversation has a unique session ID in the format:
 YYMMDD-adjective-noun
 ```
 
+Where `YY` is the 2-digit year (e.g., `25` for 2025, `26` for 2026).
+
 For example:
-- `250121-swift-falcon` - Created January 21, 2025
-- `250115-gentle-river` - Created January 15, 2025
-- `250108-bright-mountain` - Created January 8, 2025
+- `260121-swift-falcon` - Created January 21, 2026
+- `260115-gentle-river` - Created January 15, 2026
+- `260108-bright-mountain` - Created January 8, 2026
 
 This format makes sessions easy to identify by date while remaining human-readable and memorable.
 
@@ -49,14 +43,30 @@ This format makes sessions easy to identify by date while remaining human-readab
 Conversations are stored as JSONL (JSON Lines) files on your local machine at `~/.craft-agent/workspaces/{id}/sessions/{session-id}/session.jsonl`.
 
 The file format is:
-- **Line 1**: Session header with metadata (id, timestamps, status, token usage)
+- **Line 1**: Session header with metadata
 - **Lines 2+**: Messages (one per line)
 
 ```jsonl
-{"id":"260121-swift-falcon","createdAt":1737451800000,"todoState":"todo",...}
+{"id":"260121-swift-falcon","workspaceRootPath":"~/.craft-agent/workspaces/ws-abc123","createdAt":1737451800000,"lastUsedAt":1737451900000,"todoState":"todo","permissionMode":"ask"}
 {"id":"msg_1","type":"human","content":"Find my project planning document","timestamp":1737451800000}
 {"id":"msg_2","type":"assistant","content":"Found \"Project Planning Q4\"...","timestamp":1737451802000}
 ```
+
+**Session header fields:**
+
+| Field | Description |
+|-------|-------------|
+| `id` | Session ID (YYMMDD-adjective-noun) |
+| `workspaceRootPath` | Path to workspace (portable format) |
+| `createdAt` | Creation timestamp (ms) |
+| `lastUsedAt` | Last activity timestamp (ms) |
+| `todoState` | Status ID (e.g., "todo", "done") |
+| `permissionMode` | Current mode: "safe", "ask", "allow-all" |
+| `name` | Optional user-defined name |
+| `isFlagged` | Whether session is flagged |
+| `model` | Model override for this session |
+| `workingDirectory` | Working directory for bash commands |
+| `enabledSourceSlugs` | Array of active source slugs |
 
 This format provides:
 - **Fast list loading** - Only the first line is read for inbox display
@@ -119,7 +129,7 @@ Added 3 tasks to the Timeline section:
 
 ## Starting New Conversations
 
-To start a fresh conversation, click the **New Session** button in the sidebar or use the keyboard shortcut. This creates a new session with a fresh ID while preserving your previous conversations in the inbox.
+To start a fresh conversation, click the **New Chat** button in the sidebar or use the keyboard shortcut. This creates a new chat with a fresh ID while preserving your previous conversations in the inbox.
 
 ## Using Skills in Conversations
 

@@ -36,8 +36,11 @@ API sources are configured with a JSON file:
   "tagline": "Description of the API",
   "icon": "https://example.com/icon.png",
   "api": {
-    "baseUrl": "https://api.example.com",
-    "testEndpoint": "/health",
+    "baseUrl": "https://api.example.com/",
+    "testEndpoint": {
+      "method": "GET",
+      "path": "health"
+    },
     "authType": "bearer"
   }
 }
@@ -52,7 +55,7 @@ API sources are configured with a JSON file:
 | `tagline` | No | Short description |
 | `icon` | No | Icon URL, emoji, or local file (auto-discovered: `icon.svg`, `icon.png`) |
 | `api.baseUrl` | Yes | Base URL for all API requests |
-| `api.testEndpoint` | No | Endpoint used to verify connection (string like `/health` or object with `method`, `path`, `body`, `headers`) |
+| `api.testEndpoint` | No | Object to verify connection: `{ method: "GET" \| "POST", path: "endpoint", body?: {}, headers?: {} }` |
 | `api.authType` | Yes | Authentication type (see below) |
 | `api.headerName` | No | Custom header name for `header` auth type |
 | `api.queryParam` | No | Query parameter name for `query` auth type |

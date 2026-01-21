@@ -1,9 +1,9 @@
 ---
 title: "Skills"
-description: "Custom commands that extend Craft Agents"
+description: "Extend what Craft Agents can do"
 ---
 
-Skills are custom commands that give Craft Agents specialized instructions for specific tasks. Mention `@commit` to get well-formatted commit messages, `@review` to analyze code changes, or create your own for any workflow you repeat.
+Skills extend what Craft Agents can do. Create a `SKILL.md` file with instructions, and Craft Agents adds it to its toolkit—using it automatically when relevant, or when you `@mention` it directly.
 
 Skills follow the [Agent Skills](https://agentskills.io) open standard, making them compatible with Claude Code and other tools that support the spec.
 
@@ -24,7 +24,7 @@ Skills are folders in your workspace containing a `SKILL.md` file:
 ```
 ~/.craft-agent/workspaces/{id}/skills/{slug}/
 ├── SKILL.md      # Required: YAML frontmatter + instructions
-└── icon.svg      # Optional: Custom icon (svg, png, jpg, jpeg)
+└── icon.png      # Auto-generated: cached icon from URL (if specified)
 ```
 
 ### SKILL.md Format
@@ -33,6 +33,12 @@ Skills are folders in your workspace containing a `SKILL.md` file:
 ---
 name: Commit
 description: Create well-formatted git commit messages
+icon: 🔧
+globs:
+  - "**/.git/**"
+alwaysAllow:
+  - Bash(git status)
+  - Bash(git diff)
 ---
 
 When creating commits:
@@ -42,6 +48,16 @@ When creating commits:
 ```
 
 The frontmatter tells Craft Agents when to use the skill. The body contains instructions the agent follows when invoked.
+
+### Frontmatter Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Display name for the skill |
+| `description` | Yes | Brief description shown in skill list |
+| `icon` | No | Emoji (e.g., `🔧`) or URL. Relative paths are not supported. |
+| `globs` | No | File patterns that auto-trigger this skill (e.g., `["**/*.test.ts"]`) |
+| `alwaysAllow` | No | Tools to auto-allow when skill is active (e.g., `["Bash(npm test)"]`) |
 
 <Info>
 For the full SKILL.md schema including advanced fields like `allowed-tools`, `context`, and `agent`, see the [Claude Code skills documentation](https://code.claude.com/docs/en/skills).

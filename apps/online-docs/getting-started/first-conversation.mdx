@@ -129,21 +129,6 @@ Execute shell commands when needed:
 
 For potentially dangerous commands, you'll see a permission prompt asking you to approve the action. See [Permissions](/core-concepts/permissions) for details.
 
-## Slash Commands
-
-Use slash commands for quick actions:
-
-| Command | What it does |
-|---------|--------------|
-| `/help` | Show all available commands |
-| `/tools` | List available MCP tools |
-| `/model` | Change AI model |
-| `/clear` | Clear conversation history |
-| `/agent` | Manage sub-agents |
-| `/workspace` | Switch workspaces |
-
-Type `/help` to see the full list.
-
 ## Tips for Better Results
 
 <AccordionGroup>
@@ -168,9 +153,10 @@ Type `/help` to see the full list.
 
 | Shortcut | Action |
 |----------|--------|
-| `↑` / `↓` | Navigate command history |
-| `Ctrl+C` | Cancel current operation or exit |
-| `Tab` | Auto-complete agent names (`@wo...`) |
+| `SHIFT+TAB` | Cycle permission modes (Explore → Ask → Execute) |
+| `↑` / `↓` | Navigate message history |
+| `ESC` | Cancel current request |
+| `Tab` | Auto-complete mentions (`@skill`, `@source`) |
 
 ## Next Steps
 
@@ -180,7 +166,7 @@ Type `/help` to see the full list.
     icon="sparkles"
     href="/skills/overview"
   >
-    Create custom slash commands to extend Craft Agents for your workflows.
+    Extend Craft Agents with reusable instructions for your workflows.
   </Card>
   <Card
     title="Connect to anything"

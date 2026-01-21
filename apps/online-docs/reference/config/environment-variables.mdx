@@ -48,10 +48,66 @@ export CRAFT_LOCAL_MCP_ENABLED="false"
 
 | Value | Behavior |
 |-------|----------|
-| `true` | Enable local MCP servers (default) |
-| `false` | Disable local MCP servers |
+| `"true"` | Enable local MCP servers (default when not set) |
+| Any other value | Disable local MCP servers |
+
+<Note>
+This variable requires the exact lowercase string `"true"` to enable. Values like `"True"`, `"TRUE"`, `"yes"`, or `"1"` will be treated as disabled.
+</Note>
 
 This can also be configured per-workspace in the workspace settings.
+
+### CRAFT_DEBUG
+
+Enable debug logging for troubleshooting. When set, additional diagnostic information is written to the log file.
+
+```bash
+export CRAFT_DEBUG="true"
+```
+
+## Development Variables
+
+These variables are primarily used for development and multi-instance scenarios.
+
+### CRAFT_VITE_PORT
+
+Override the Vite dev server port. Automatically set when running from numbered instance folders.
+
+```bash
+export CRAFT_VITE_PORT="5173"
+```
+
+### CRAFT_APP_NAME
+
+Override the application display name. Useful for distinguishing multiple instances.
+
+```bash
+export CRAFT_APP_NAME="Craft Agents [Dev]"
+```
+
+### CRAFT_INSTANCE_NUMBER
+
+Instance identifier for multi-instance support. When set, adds a badge to the dock icon.
+
+```bash
+export CRAFT_INSTANCE_NUMBER="1"
+```
+
+### CRAFT_DEEPLINK_SCHEME
+
+Custom deep link URL scheme. Default is `craftagents`.
+
+```bash
+export CRAFT_DEEPLINK_SCHEME="craftagents1"
+```
+
+### VITE_DEV_SERVER_URL
+
+URL of the Vite development server. Used internally during development.
+
+```bash
+export VITE_DEV_SERVER_URL="http://localhost:5173"
+```
 
 ## Precedence
 

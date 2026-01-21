@@ -18,7 +18,7 @@ Each workspace contains:
 | Component | Description |
 |-----------|-------------|
 | **Sources** | MCP servers, APIs, and local filesystems connected to this workspace |
-| **Skills** | Custom slash commands and capabilities |
+| **Skills** | Reusable instructions invoked with `@mention` |
 | **Statuses** | Workflow states for organizing sessions |
 | **Sessions** | Chat history specific to this workspace |
 
@@ -47,7 +47,7 @@ Each workspace maintains its own:
 | Data | Description |
 |------|-------------|
 | **Sources** | MCP servers, APIs, and local filesystems |
-| **Skills** | Custom slash commands defined in `skills/` |
+| **Skills** | Reusable instructions defined in `skills/` |
 | **Statuses** | Workflow states defined in `statuses/config.json` |
 | **Sessions** | Chat history stored in `sessions/` |
 | **Permissions** | Optional Explore mode rules in `permissions.json` |
@@ -59,9 +59,8 @@ Each workspace maintains its own:
   workspaces/
     {workspace-id}/
       config.json           # Workspace configuration
-      .claude-plugin/       # Plugin configuration (Claude Code SDK compatibility)
-        settings.json       # Plugin settings
-        instructions.md     # Custom instructions
+      .claude-plugin/       # Plugin manifest (Claude Code SDK compatibility)
+        plugin.json         # Plugin manifest with skills and agents
       sources/
         {source-slug}/
           config.json       # Source configuration

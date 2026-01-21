@@ -3,11 +3,11 @@ title: "Local Filesystems"
 description: "Give your agents access to files and folders on your machine"
 ---
 
-The filesystem MCP server lets Claude read and write files on your local machine. This is useful for working with project directories, notes, data files, or any content stored locally.
+The filesystem MCP server lets your agent read and write files on your local machine. This is useful for working with project directories, notes, data files, or any content stored locally.
 
 ## How It Works
 
-Local filesystem access uses the [MCP filesystem server](https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem) running via stdio transport. Instead of connecting to a remote URL, Craft Agents spawns a local process that communicates directly with Claude.
+Local filesystem access uses the [MCP filesystem server](https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem) running via stdio transport. Instead of connecting to a remote URL, Craft Agents spawns a local process that communicates with the model.
 
 ## Configuration
 
@@ -41,14 +41,14 @@ Create a source with `type: "mcp"` and `transport: "stdio"`:
 
 ### Directory Path
 
-The last argument specifies which directory Claude can access:
+The last argument specifies which directory your agent can access:
 
 ```json
 "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/Projects"]
 ```
 
 <Warning>
-Claude will have read/write access to everything in this directory. Choose your paths carefully and consider using Explore mode permissions to limit write operations.
+Your agent will have read/write access to everything in this directory. Choose your paths carefully and consider using Explore mode permissions to limit write operations.
 </Warning>
 
 ## Example Configurations
@@ -157,7 +157,7 @@ If your MCP server needs specific environment variables, define them explicitly 
 
 ## Available Tools
 
-The filesystem MCP server provides these tools to Claude:
+The filesystem MCP server provides these tools to your agent:
 
 | Tool | Description |
 |------|-------------|
@@ -187,7 +187,7 @@ To use filesystem sources in Explore mode (read-only), create a `permissions.jso
 }
 ```
 
-This allows Claude to browse and read files while blocking write, edit, move, and delete operations.
+This allows your agent to browse and read files while blocking write, edit, move, and delete operations.
 
 ## Troubleshooting
 
@@ -218,5 +218,5 @@ Local filesystem sources have direct access to your files. Consider these best p
 
 - **Scope narrowly**: Point to specific project directories, not your entire home folder
 - **Use Explore mode**: Set up read-only permissions for browsing
-- **Review guide.md**: Document what files Claude should and shouldn't modify
+- **Review guide.md**: Document what files your agent should and shouldn't modify
 </Note>

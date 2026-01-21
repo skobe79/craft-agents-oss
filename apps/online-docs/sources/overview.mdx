@@ -3,7 +3,11 @@ title: "Overview"
 description: "Connect your agents to external data through MCP servers, REST APIs, and local filesystems"
 ---
 
-Sources are the data connections that power your agents. They let Claude access external services, APIs, and files to complete tasks that require real-world data.
+Sources are the data connections that power your agents. They let your agent access external services, APIs, and files to complete tasks that require real-world data.
+
+<Note>
+**Working on local files?** For direct filesystem access in a single directory, use the [Working Directory](/core-concepts/working-directory) instead. It provides built-in tools like `Read`, `Write`, and `Bash` without MCP configuration. Sources are best for external services or accessing multiple file locations.
+</Note>
 
 <Tip>
 **Just ask your agent.** The easiest way to add sources is to tell your agent what you need:
@@ -21,7 +25,7 @@ A source is any external data connection your agent can use:
 - **REST APIs** - Any service with HTTP endpoints
 - **Local filesystems** - Files and folders on your machine
 
-Each source gives Claude tools it can call during conversations. When you ask Claude to "check my GitHub issues" or "search the web," it's using sources behind the scenes.
+Each source gives your agent tools it can call during conversations. When you ask your agent to "check my GitHub issues" or "search the web," it's using sources behind the scenes.
 
 ## Source Types
 
@@ -32,7 +36,7 @@ Each source gives Claude tools it can call during conversations. When you ask Cl
     **Examples:** Linear, GitHub, Brave Search
   </Card>
   <Card title="REST APIs" icon="code" href="/sources/apis/overview">
-    Connect to any service with an API. Provide documentation and Claude can make authenticated requests.
+    Connect to any service with an API. Provide documentation and your agent can make authenticated requests.
 
     **Examples:** Exa Search, custom backends
   </Card>
@@ -52,7 +56,7 @@ Each source lives in a folder at:
 
 A source folder contains:
 - **`config.json`** - Connection settings, authentication type, status (required)
-- **`guide.md`** - Instructions for Claude on how to use this source (optional)
+- **`guide.md`** - Instructions for your agent on how to use this source (optional)
 - **`permissions.json`** - Custom rules for Explore mode (optional)
 - **`icon.*`** - Visual icon for the source (optional)
 
@@ -85,7 +89,7 @@ Key fields:
 
 ### guide.md
 
-The guide file helps Claude understand how to use the source effectively:
+The guide file helps your agent understand how to use the source effectively:
 
 ```markdown
 # Linear
@@ -114,7 +118,7 @@ Sources can be enabled or disabled without removing them:
 1. **In the UI**: Toggle the source on/off in the workspace settings
 2. **In config.json**: Set `"enabled": false`
 
-Disabled sources remain configured but won't be available to Claude during conversations.
+Disabled sources remain configured but won't be available to your agent during conversations.
 
 ## Source Lifecycle
 

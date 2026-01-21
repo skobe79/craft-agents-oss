@@ -130,13 +130,12 @@ Credentials:
 
 ### Removing Credentials
 
-To clear credentials for a specific source:
+To clear credentials for a specific source, delete its entry from the credentials file or remove the source entirely from Settings > Sources.
 
+To clear all credentials:
+```bash
+rm ~/.craft-agent/credentials.enc
 ```
-> /source logout <source-name>
-```
-
-Or use `/logout` to clear all credentials.
 
 ### Credential Scoping
 
@@ -224,12 +223,12 @@ A workspace with sources using different authentication methods:
   <Accordion title="Re-authenticate after it was working">
     - Token may have been revoked
     - Credentials file may have been corrupted
-    - Try `/source logout <name>` and authenticate again
+    - Remove the source in Settings and re-add it to authenticate again
   </Accordion>
 
   <Accordion title="Wrong account authenticated">
-    - Clear credentials with `/source logout <name>`
-    - Re-authenticate with the correct account
+    - Remove the source in Settings > Sources
+    - Re-add the source and authenticate with the correct account
     - Check you're logged into the right account in your browser
   </Accordion>
 </AccordionGroup>

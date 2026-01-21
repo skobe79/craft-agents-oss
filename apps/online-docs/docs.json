@@ -32,6 +32,7 @@
             "group": "Core Concepts",
             "pages": [
               "core-concepts/conversations",
+              "core-concepts/working-directory",
               "core-concepts/permissions"
             ]
           },

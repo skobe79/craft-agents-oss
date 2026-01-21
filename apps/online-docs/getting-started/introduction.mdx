@@ -3,9 +3,13 @@ title: "Introduction"
 description: "Claude's coding capabilities, extended for your entire digital workflow"
 ---
 
-Craft Agents brings Claude's coding capabilities to your entire digital workflow—not just code. Built on the same foundation as Claude Code (the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk)), it extends the model's reasoning power to work across all your tools: GitHub, Linear, Slack, Craft documents, local files, and any API you can connect.
+Craft Agents brings Claude's coding capabilities to your entire digital workflow. It massively improves both coding and non-coding workflows via enhanced UI, review, and auto execution. Built on the same foundation as Claude Code (the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk)), it extends the model's reasoning power to work across all your tools: GitHub, Linear, Slack, Craft documents, local files, and any API you can connect.
 
 ## What Makes Craft Agents Different
+
+### Familiar interface
+
+The inbox works like a combination of email and task manager. Each conversation has a status, persists between sessions, and can be organized however you want. **Review agent plans before execution** in document-like interface, just like reviewing work from a colleague.
 
 ### Connect to anything
 
@@ -19,13 +23,11 @@ Craft Agents brings Claude's coding capabilities to your entire digital workflow
 
 A single conversation might pull issues from Linear, reference code from GitHub, check Slack threads, and summarize everything in a Craft document.
 
-### Familiar interface
 
-The inbox works like email or a task manager. Each conversation has a status, persists between sessions, and can be organized however you want. Review agent plans before execution, just like reviewing work from a colleague.
 
 ### Multitask naturally
 
-Start a task, pause it, start another. Jump between conversations with full history preserved. Run long tasks in the background while you work on something else.
+Start multiple tasks. Jump between conversations with full history preserved. Run long tasks in the background while you work on something else.
 
 ### Explore, then execute
 
@@ -41,7 +43,7 @@ Themes, skills, statuses, permissions—everything is a config file the agent ca
 
 | What | How It Works | Customization Level |
 |------|--------------|---------------------|
-| **[Skills](/skills/overview)** | YAML frontmatter + markdown | Workspace-level slash commands with globs and tool whitelists |
+| **[Skills](/skills/overview)** | YAML frontmatter + markdown | Reusable instructions invoked with `@mention` |
 | **[Themes](/go-further/themes)** | 6-color semantic system | App or workspace, with dark mode and scenic backgrounds |
 | **[Statuses](/statuses/overview)** | Config for workflow states | Custom labels, colors, icons, inbox/archive categories |
 | **[Permissions](/core-concepts/permissions)** | Layered rules | App → workspace → source cascade |
@@ -52,7 +54,7 @@ Craft Agents and Claude Code share the same foundation—the [Claude Agent SDK](
 
 | Aspect | Claude Code | Craft Agents |
 |--------|-------------|--------------|
-| **Interface** | Terminal CLI | Desktop app with inbox |
+| **Interface** | Terminal CLI | Easy to use desktop app |
 | **Data sources** | MCP servers | MCP + REST APIs + local files |
 | **Session org** | Continue with `-c` flag | Inbox with custom workflow statuses |
 | **Config scope** | Per-project `.claude/` | Multi-workspace with full isolation |

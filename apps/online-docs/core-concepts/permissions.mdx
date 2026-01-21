@@ -41,20 +41,6 @@ Explore mode is a read-only safe mode for research and investigation. The agent 
 - MCP tool mutations (create, update, delete operations)
 - API mutations (POST, PUT, DELETE requests)
 
-```
-┌─────────────────────────────────────┐
-│ Mode: Explore                       │
-│ Press SHIFT+TAB to change mode      │
-├─────────────────────────────────────┤
-│ > Analyze the authentication flow   │
-│                                     │
-│ I'll examine the codebase...        │
-│ [Read, Grep, Glob operations run]   │
-│                                     │
-│ Found 3 auth-related files...       │
-└─────────────────────────────────────┘
-```
-
 Use Explore mode when you want the agent to research and analyze without any risk of unintended changes.
 
 ### Ask to Edit Mode (Default)
@@ -88,20 +74,6 @@ Execute mode gives the agent full autonomous execution capabilities. Operations 
 Execute mode bypasses permission prompts. Only use this when you fully trust the operations being performed, such as in controlled automation scenarios.
 </Warning>
 
-```
-┌─────────────────────────────────────┐
-│ Mode: Execute                       │
-│ Press SHIFT+TAB to change mode      │
-├─────────────────────────────────────┤
-│ > Refactor all auth components      │
-│                                     │
-│ Refactoring auth components...      │
-│ [All operations run automatically]  │
-│                                     │
-│ Updated 12 files.                   │
-└─────────────────────────────────────┘
-```
-
 ## Switching Modes
 
 Press **SHIFT+TAB** to cycle through permission modes:
@@ -117,7 +89,8 @@ The current mode is always displayed in the interface so you know what level of 
 Dangerous commands are a subset of non-safe commands that require extra caution. The key difference from regular commands:
 
 - **Regular commands**: Can be auto-allowed with "always allow" for the session
-- **Dangerous commands**: Must be approved individually every time (no "always allow" option)
+- **Dangerous commands**: Must be approved individually every time ("always allow" is silently ignored)
+- **curl/wget special case**: "Always allow" whitelists the domain, not the command
 
 In Execute mode, all commands including dangerous ones run automatically.
 
@@ -274,6 +247,7 @@ Source-level patterns are auto-scoped. In a source's `permissions.json`, write `
 ```json
 { "method": "POST", "path": "/api/comments", "comment": "Create comments" }
 ```
+Method must be one of: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`. Path is a regex pattern.
 
 **`allowedWritePaths`** - Glob patterns for file paths the agent can write to in Explore mode:
 ```json
@@ -331,6 +305,10 @@ newlines, carriage returns
 ```
 
 For compound commands where all parts are safe (like `git status && git log`), the system validates each part separately using AST parsing.
+
+<Note>
+Even safe commands become blocked when combined with shell constructs. For example, `ls | grep foo` is blocked in Explore mode because the pipe could be used to chain to dangerous commands. Run safe commands separately without pipes or redirects.
+</Note>
 
 ## API and MCP Credentials
 

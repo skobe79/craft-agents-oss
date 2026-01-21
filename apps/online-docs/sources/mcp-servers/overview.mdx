@@ -44,11 +44,11 @@ MCP servers are configured as sources with a specific schema:
 | `name` | Yes | Display name for the server |
 | `tagline` | No | Short description of the server's purpose |
 | `icon` | No | Icon URL, emoji, or local file (auto-discovered: `icon.svg`, `icon.png`) |
-| `mcp.transport` | No | Transport type: `"http"` (default) for remote servers, `"stdio"` for local servers |
-| `mcp.url` | Yes (HTTP) | Full URL to the MCP server endpoint (for HTTP transport) |
+| `mcp.transport` | No | Transport type: `"http"` (default), `"sse"`, or `"stdio"` for local servers |
+| `mcp.url` | Yes (HTTP/SSE) | Full URL to the MCP server endpoint (for HTTP/SSE transport) |
 | `mcp.command` | Yes (stdio) | Command to run the local server (for stdio transport) |
 | `mcp.args` | No (stdio) | Arguments for the command (for stdio transport) |
-| `mcp.authType` | Yes (HTTP) | Authentication type: `"oauth"`, `"bearer"`, or `"none"` |
+| `mcp.authType` | Yes (HTTP/SSE) | Authentication type: `"oauth"`, `"bearer"`, or `"none"`. Not required for stdio. |
 
 ## Transport Types
 
