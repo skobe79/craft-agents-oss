@@ -1316,7 +1316,7 @@ Workspace themes override app-level themes. Both are optional - the app has sens
 |-------|---------|-------|
 | \`background\` | Surface/page background | Light/dark surface color |
 | \`foreground\` | Text and icons | Primary text color |
-| \`accent\` | Brand color, Auto mode | Highlights, active states, purple UI elements |
+| \`accent\` | Brand color, Execute mode | Highlights, active states, purple UI elements |
 | \`info\` | Warnings, Ask mode | Amber indicators, attention states |
 | \`success\` | Connected status | Green checkmarks, success states |
 | \`destructive\` | Errors, delete actions | Red alerts, failed states |

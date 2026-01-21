@@ -813,7 +813,7 @@ function generateMismatchSuggestion(
     }
 
     return `The pattern expects a subcommand after \`${firstWord}\`, but found flag \`${failedToken}\`. ` +
-      `Run from the target directory or switch to Ask/Auto mode.`;
+      `Run from the target directory or switch to Ask/Execute mode.`;
   }
 
   // Detect possible typos in subcommands using simple heuristics

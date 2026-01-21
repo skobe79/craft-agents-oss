@@ -344,7 +344,7 @@ export default function App() {
           className="max-w-4xl w-full rounded-[12px] shadow-hero"
         />
 
-        {/* Explore/Auto mode cards */}
+        {/* Explore/Execute mode cards */}
         <div className="max-w-4xl w-full py-8">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-background rounded-[12px] shadow-minimal p-6">
@@ -352,8 +352,8 @@ export default function App() {
               <p className="text-[14px] text-foreground/70">Read-only by default. Let the agent research, analyze, and draft a plan. Review proposals before any changes happen. Iterate until you're aligned.</p>
             </div>
             <div className="bg-background rounded-[12px] shadow-minimal p-6">
-              <h3 className="font-semibold mb-2">Auto mode</h3>
-              <p className="text-[14px] text-foreground/70">Once aligned, switch to auto. The agent executes without interruption. Review the results when done, just like reviewing delivered work from a teammate.</p>
+              <h3 className="font-semibold mb-2">Execute mode</h3>
+              <p className="text-[14px] text-foreground/70">Once aligned, switch to Execute. The agent executes without interruption. Review the results when done, just like reviewing delivered work from a teammate.</p>
             </div>
           </div>
         </div>

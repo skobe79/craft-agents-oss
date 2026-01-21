@@ -189,6 +189,8 @@ export interface TurnCardProps {
   onAcceptPlanWithCompact?: () => void
   /** Whether this is the last response in the session (shows Accept Plan button only for last response) */
   isLastResponse?: boolean
+  /** Session folder path for stripping from file paths in tool display */
+  sessionFolderPath?: string
 }
 
 // ============================================================================
@@ -357,16 +359,59 @@ function getToolDisplayName(name: string): string {
   return displayNames[stripped] || stripped
 }
 
+/**
+ * Strip session/workspace folder paths from file paths for cleaner display.
+ * Only strips paths that match the current session folder path.
+ * Example: /path/to/sessions/260121-foo/plans/file.md → plans/file.md
+ */
+function stripSessionFolderPath(filePath: string, sessionFolderPath?: string): string {
+  if (!sessionFolderPath) return filePath
+
+  // Get workspace path (parent of sessions folder)
+  // sessionFolderPath: /path/workspaces/{uuid}/sessions/{sessionId}
+  const workspacePath = sessionFolderPath.replace(/\/sessions\/[^/]+$/, '')
+
+  // Try session folder first (more specific)
+  if (filePath.startsWith(sessionFolderPath + '/')) {
+    return filePath.slice(sessionFolderPath.length + 1)
+  }
+
+  // Then try workspace folder
+  if (filePath.startsWith(workspacePath + '/')) {
+    return filePath.slice(workspacePath.length + 1)
+  }
+
+  return filePath
+}
+
 /** Format tool input as a concise summary - CSS truncate handles overflow */
-function formatToolInput(input?: Record<string, unknown>): string {
+function formatToolInput(
+  input?: Record<string, unknown>,
+  toolName?: string,
+  sessionFolderPath?: string
+): string {
   if (!input || Object.keys(input).length === 0) return ''
   const parts: string[] = []
+
+  // For Edit/Write tools, only show file_path (skip old_string, new_string, replace_all, content)
+  const isEditOrWrite = toolName === 'Edit' || toolName === 'Write'
+
   for (const [key, value] of Object.entries(input)) {
     // Skip meta fields and description (shown separately)
     if (key === '_intent' || key === 'description' || value === undefined || value === null) continue
-    const valStr = typeof value === 'string'
+
+    // For Edit/Write tools, only include file_path
+    if (isEditOrWrite && key !== 'file_path') continue
+
+    let valStr = typeof value === 'string'
       ? value.replace(/\s+/g, ' ').trim()
       : JSON.stringify(value)
+
+    // Strip session/workspace paths from file_path for Edit/Write tools
+    if (isEditOrWrite && key === 'file_path' && typeof value === 'string') {
+      valStr = stripSessionFolderPath(valStr, sessionFolderPath)
+    }
+
     parts.push(valStr)
     if (parts.length >= 2) break // Max 2 values
   }
@@ -482,6 +527,8 @@ interface ActivityRowProps {
   onOpenDetails?: () => void
   /** Whether this is the last child at its depth level (for └ corner in tree view) */
   isLastChild?: boolean
+  /** Session folder path for stripping from file paths in tool display */
+  sessionFolderPath?: string
 }
 
 /**
@@ -503,7 +550,7 @@ function TreeViewConnector({ depth }: { depth: number; isLastChild?: boolean }) 
 }
 
 /** Single activity row in expanded view */
-function ActivityRow({ activity, onOpenDetails, isLastChild }: ActivityRowProps) {
+function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath }: ActivityRowProps) {
   const depth = activity.depth || 0
 
   // Intermediate messages (LLM commentary) - render with dashed circle icon
@@ -594,7 +641,7 @@ function ActivityRow({ activity, onOpenDetails, isLastChild }: ActivityRowProps)
 
   // Intent for MCP tools, description for Bash commands
   const intentOrDescription = activity.intent || (activity.toolInput?.description as string | undefined)
-  const inputSummary = formatToolInput(activity.toolInput)
+  const inputSummary = formatToolInput(activity.toolInput, activity.toolName, sessionFolderPath)
   const isComplete = activity.status === 'completed' || activity.status === 'error'
   const isBackgrounded = activity.status === 'backgrounded'
 
@@ -688,13 +735,15 @@ interface ActivityGroupRowProps {
   onOpenActivityDetails?: (activity: ActivityItem) => void
   /** Animation index for staggered animation */
   animationIndex?: number
+  /** Session folder path for stripping from file paths in tool display */
+  sessionFolderPath?: string
 }
 
 /**
  * Renders a Task subagent with its child activities grouped together.
  * Provides visual containment and collapsible children.
  */
-function ActivityGroupRow({ group, expandedGroups: externalExpandedGroups, onExpandedGroupsChange, onOpenActivityDetails, animationIndex = 0 }: ActivityGroupRowProps) {
+function ActivityGroupRow({ group, expandedGroups: externalExpandedGroups, onExpandedGroupsChange, onOpenActivityDetails, animationIndex = 0, sessionFolderPath }: ActivityGroupRowProps) {
   // Use local state if no controlled state provided
   const [localExpandedGroups, setLocalExpandedGroups] = useState<Set<string>>(new Set())
   const expandedGroups = externalExpandedGroups ?? localExpandedGroups
@@ -832,6 +881,7 @@ function ActivityGroupRow({ group, expandedGroups: externalExpandedGroups, onExp
                     activity={child}
                     onOpenDetails={onOpenActivityDetails ? () => onOpenActivityDetails(child) : undefined}
                     isLastChild={idx === group.children.length - 1}
+                    sessionFolderPath={sessionFolderPath}
                   />
                 </motion.div>
               ))}
@@ -1259,6 +1309,7 @@ export const TurnCard = React.memo(function TurnCard({
   onAcceptPlan,
   onAcceptPlanWithCompact,
   isLastResponse,
+  sessionFolderPath,
 }: TurnCardProps) {
   // Derive the turn phase from props using the state machine.
   // This provides a single source of truth for lifecycle state,
@@ -1466,6 +1517,7 @@ export const TurnCard = React.memo(function TurnCard({
                           onExpandedGroupsChange={handleExpandedActivityGroupsChange}
                           onOpenActivityDetails={onOpenActivityDetails}
                           animationIndex={index}
+                          sessionFolderPath={sessionFolderPath}
                         />
                       ) : (
                         <motion.div
@@ -1477,6 +1529,7 @@ export const TurnCard = React.memo(function TurnCard({
                           <ActivityRow
                             activity={item}
                             onOpenDetails={onOpenActivityDetails ? () => onOpenActivityDetails(item) : undefined}
+                            sessionFolderPath={sessionFolderPath}
                           />
                         </motion.div>
                       )
@@ -1495,6 +1548,7 @@ export const TurnCard = React.memo(function TurnCard({
                           activity={activity}
                           onOpenDetails={onOpenActivityDetails ? () => onOpenActivityDetails(activity) : undefined}
                           isLastChild={lastChildSet.has(activity.id)}
+                          sessionFolderPath={sessionFolderPath}
                         />
                       </motion.div>
                     ))

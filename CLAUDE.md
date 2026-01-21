@@ -254,7 +254,7 @@ Three-level permission system (SHIFT+TAB cycles):
 |------|---------|----------|
 | `'safe'` | Explore | Read-only, blocks all write operations |
 | `'ask'` | Ask to Edit | Prompts for bash commands (default) |
-| `'allow-all'` | Auto | Auto-approves all commands |
+| `'allow-all'` | Execute | Auto-approves all commands |
 
 **In Explore mode blocked:** `api_*`, Bash, Write, Edit, MCP write tools
 

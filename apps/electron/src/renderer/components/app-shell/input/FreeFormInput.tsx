@@ -70,9 +70,18 @@ function formatTokenCount(tokens: number): string {
   return tokens.toString()
 }
 
+/** Default rotating placeholders for onboarding/empty state */
+const DEFAULT_PLACEHOLDERS = [
+  'What would you like to work on?',
+  'Ask me to analyze your codebase...',
+  'Describe a bug you need help fixing...',
+  'I can help you write documentation...',
+  'Let\'s refactor some code together...',
+]
+
 export interface FreeFormInputProps {
-  /** Placeholder text for the textarea */
-  placeholder?: string
+  /** Placeholder text(s) for the textarea - can be array for rotation */
+  placeholder?: string | string[]
   /** Whether input is disabled */
   disabled?: boolean
   /** Whether the session is currently processing */
@@ -156,7 +165,7 @@ export interface FreeFormInputProps {
  * - Active option badges
  */
 export function FreeFormInput({
-  placeholder = 'Message...',
+  placeholder = DEFAULT_PLACEHOLDERS,
   disabled = false,
   isProcessing = false,
   onSubmit,
