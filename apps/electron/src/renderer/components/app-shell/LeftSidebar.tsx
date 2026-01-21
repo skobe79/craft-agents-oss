@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/styled-context-menu'
 import { ContextMenuProvider } from '@/components/ui/menu-context'
 import { SidebarMenu, type SidebarMenuType } from './SidebarMenu'
+import { HelpPopover } from '@/components/ui/HelpPopover'
+import type { DocFeature } from '@craft-agent/shared/docs/doc-links'
 
 /** Context menu configuration for sidebar items */
 export interface SidebarContextMenuConfig {
@@ -46,6 +48,8 @@ export interface LinkItem {
   dataTutorial?: string // data-tutorial attribute for tutorial targeting
   // Context menu configuration (optional - if provided, right-click shows context menu)
   contextMenu?: SidebarContextMenuConfig
+  // Help documentation link (optional - shows help icon on hover)
+  helpFeature?: DocFeature
 }
 
 export interface SeparatorItem {
@@ -216,6 +220,18 @@ export function LeftSidebar({ links, isCollapsed, getItemProps, focusedItemId, i
               {link.label && (
                 <span className="ml-auto text-xs text-foreground/30 opacity-0 group-hover/section:opacity-100 transition-opacity">
                   {link.label}
+                </span>
+              )}
+              {/* Help icon: Shows on hover when helpFeature is set */}
+              {link.helpFeature && (
+                <span
+                  className={cn(
+                    "opacity-0 group-hover/section:opacity-100 transition-opacity",
+                    !link.label && "ml-auto"
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <HelpPopover feature={link.helpFeature} side="right" align="start" />
                 </span>
               )}
             </button>

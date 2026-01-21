@@ -1204,6 +1204,8 @@ function AppShellContent({
                         type: 'sources',
                         onAddSource: openAddSource,
                       },
+                      // Help documentation link
+                      helpFeature: 'sources',
                       // Subcategories for source types: APIs, MCPs, Local Folders
                       items: [
                         {
@@ -1256,6 +1258,8 @@ function AppShellContent({
                         type: 'skills',
                         onAddSkill: openAddSkill,
                       },
+                      // Help documentation link
+                      helpFeature: 'skills',
                     },
                     { id: "separator:skills-settings", type: "separator" },
                     {
@@ -1264,7 +1268,8 @@ function AppShellContent({
                       icon: Settings,
                       variant: isSettingsNavigation(navState) ? "default" : "ghost",
                       onClick: () => handleSettingsClick('app'),
-                      // No context menu for Settings
+                      // Help documentation link
+                      helpFeature: 'app-settings',
                     },
                   ]}
                 />
@@ -1416,37 +1421,31 @@ function AppShellContent({
                       </StyledDropdownMenuContent>
                     </DropdownMenu>
                   )}
-                  {/* Add Source button and Help (only for sources mode) */}
+                  {/* Add Source button (only for sources mode) */}
                   {isSourcesNavigation(navState) && activeWorkspace && (
-                    <>
-                      <EditPopover
-                        trigger={
-                          <HeaderIconButton
-                            icon={<Plus className="h-4 w-4" />}
-                            tooltip="Add Source"
-                            data-tutorial="add-source-button"
-                          />
-                        }
-                        {...getEditConfig('add-source', activeWorkspace.rootPath)}
-                      />
-                      <HelpPopover feature="sources" />
-                    </>
+                    <EditPopover
+                      trigger={
+                        <HeaderIconButton
+                          icon={<Plus className="h-4 w-4" />}
+                          tooltip="Add Source"
+                          data-tutorial="add-source-button"
+                        />
+                      }
+                      {...getEditConfig('add-source', activeWorkspace.rootPath)}
+                    />
                   )}
-                  {/* Add Skill button and Help (only for skills mode) */}
+                  {/* Add Skill button (only for skills mode) */}
                   {isSkillsNavigation(navState) && activeWorkspace && (
-                    <>
-                      <EditPopover
-                        trigger={
-                          <HeaderIconButton
-                            icon={<Plus className="h-4 w-4" />}
-                            tooltip="Add Skill"
-                            data-tutorial="add-skill-button"
-                          />
-                        }
-                        {...getEditConfig('add-skill', activeWorkspace.rootPath)}
-                      />
-                      <HelpPopover feature="skills" />
-                    </>
+                    <EditPopover
+                      trigger={
+                        <HeaderIconButton
+                          icon={<Plus className="h-4 w-4" />}
+                          tooltip="Add Skill"
+                          data-tutorial="add-skill-button"
+                        />
+                      }
+                      {...getEditConfig('add-skill', activeWorkspace.rootPath)}
+                    />
                   )}
                 </>
               }
