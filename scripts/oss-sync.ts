@@ -21,7 +21,7 @@ const scriptDir = dirname(new URL(import.meta.url).pathname);
 const repoRoot = dirname(scriptDir);
 const allowListPath = join(scriptDir, 'oss-allow-list.txt');
 
-const DEFAULT_TARGET = 'git@github.com:lukilabs/craft-agents-oss.git';
+const DEFAULT_TARGET = 'https://github.com/lukilabs/craft-agents-oss.git';
 
 // Colors for console output
 const colors = {
