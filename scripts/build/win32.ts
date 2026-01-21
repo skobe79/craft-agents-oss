@@ -91,7 +91,8 @@ async function buildMainProcess(config: BuildConfig): Promise<void> {
     }
   }
 
-  await $`cd ${rootDir} && npx esbuild ${mainArgs}`;
+  // Use bunx instead of npx to avoid Windows path space issues
+  await $`cd ${rootDir} && bunx esbuild ${mainArgs}`;
 }
 
 /**
@@ -115,7 +116,8 @@ export async function buildElectronAppWindows(config: BuildConfig): Promise<void
   if (existsSync(rendererDir)) {
     rmSync(rendererDir, { recursive: true, force: true });
   }
-  await $`cd ${rootDir} && npx vite build --config apps/electron/vite.config.ts`;
+  // Use bunx to avoid Windows path space issues
+  await $`cd ${rootDir} && bunx vite build --config apps/electron/vite.config.ts`;
 
   // Verify renderer was built
   if (!existsSync(join(rendererDir, 'index.html'))) {
@@ -161,7 +163,8 @@ export async function packageWindows(config: BuildConfig): Promise<string> {
     }
 
     try {
-      await $`cd ${electronDir} && npx electron-builder --win --x64`;
+      // Use bunx to avoid Windows path space issues
+      await $`cd ${electronDir} && bunx electron-builder --win --x64`;
       console.log(`  electron-builder succeeded on attempt ${attempt} ✓`);
       lastError = null;
       break;
