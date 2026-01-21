@@ -271,7 +271,7 @@ function ProcessingIndicator({ startTime, statusMessage }: ProcessingIndicatorPr
           </motion.span>
         </AnimatePresence>
         {elapsed >= 1 && (
-          <span className="text-muted-foreground/60 ml-1">
+          <span className="text-muted-foreground/60 ml-1 tabular-nums">
             {formatElapsed(elapsed)}
           </span>
         )}
