@@ -11,6 +11,7 @@ if (!process.env.S3_VERSIONS_BUCKET_ENDPOINT || !process.env.S3_VERSIONS_BUCKET_
 
 const isLatest = process.argv.includes('--latest');
 const uploadScript = process.argv.includes('--script');
+const scriptOnly = process.argv.includes('--script-only');
 const scriptDir = import.meta.dir;
 const repoRoot = dirname(scriptDir);
 const installAppShPath = join(repoRoot, 'scripts', 'install-app.sh');
@@ -22,11 +23,15 @@ const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf
 const version = packageJson.version;
 
 console.log(`Uploading Electron version ${version}...`);
-if (isLatest) {
-  console.log('Will also update electron/latest');
-}
-if (uploadScript) {
-  console.log('Will also upload install scripts (install-app.sh, install-app.ps1)');
+if (scriptOnly) {
+  console.log('Script-only mode: uploading install scripts only');
+} else {
+  if (isLatest) {
+    console.log('Will also update electron/latest');
+  }
+  if (uploadScript) {
+    console.log('Will also upload install scripts (install-app.sh, install-app.ps1)');
+  }
 }
 console.log('');
 
@@ -270,8 +275,42 @@ async function uploadElectronBuilds(version: string) {
   console.log('Upload complete!');
 }
 
+async function uploadScriptsOnly(): Promise<void> {
+  console.log('Uploading install scripts...');
+
+  // macOS/Linux bash script
+  console.log('Uploading install-app.sh...');
+  const shContent = readFileSync(installAppShPath);
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: 'install-app.sh',
+    Body: shContent,
+    ContentType: 'text/x-shellscript',
+    CacheControl: 'no-cache, no-store, must-revalidate',
+  }));
+  console.log(`  ✓ install-app.sh (${(shContent.length / 1024).toFixed(2)} KB)`);
+
+  // Windows PowerShell script
+  console.log('Uploading install-app.ps1...');
+  const ps1Content = readFileSync(installAppPs1Path);
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: 'install-app.ps1',
+    Body: ps1Content,
+    ContentType: 'text/plain',
+    CacheControl: 'no-cache, no-store, must-revalidate',
+  }));
+  console.log(`  ✓ install-app.ps1 (${(ps1Content.length / 1024).toFixed(2)} KB)`);
+
+  console.log('Upload complete!');
+}
+
 try {
-  await uploadElectronBuilds(version);
+  if (scriptOnly) {
+    await uploadScriptsOnly();
+  } else {
+    await uploadElectronBuilds(version);
+  }
 } catch (error) {
   console.error('Upload failed:', error);
   process.exit(1);
