@@ -642,8 +642,24 @@ async function testApiSource(
         } else if (source.api.authType === 'header' && source.api.headerName) {
           headers[source.api.headerName] = credValue;
         } else if (source.api.authType === 'basic') {
-          // Basic auth - credValue should already be base64 encoded
-          headers['Authorization'] = `Basic ${credValue}`;
+          // Basic auth - credValue is stored as JSON {"username":"...", "password":"..."}
+          // Parse and base64 encode as username:password
+          try {
+            const parsed = JSON.parse(credValue);
+            if (parsed.username && parsed.password) {
+              const basicAuth = Buffer.from(`${parsed.username}:${parsed.password}`).toString('base64');
+              headers['Authorization'] = `Basic ${basicAuth}`;
+            } else {
+              // Fallback: assume it's already base64 encoded
+              headers['Authorization'] = `Basic ${credValue}`;
+            }
+          } catch {
+            // Not JSON, assume it's already base64 encoded or raw user:pass
+            const basicAuth = credValue.includes(':')
+              ? Buffer.from(credValue).toString('base64')
+              : credValue;
+            headers['Authorization'] = `Basic ${basicAuth}`;
+          }
         }
         // Query param auth would need URL modification, skip for now
       }
