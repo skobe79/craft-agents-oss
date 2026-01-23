@@ -191,8 +191,8 @@ export async function packageWindows(config: BuildConfig): Promise<string> {
     }
 
     try {
-      // Use node to run electron-builder directly
-      run('node ./node_modules/electron-builder/out/cli/cli.js --win --x64', electronDir);
+      // Run electron-builder from electronDir using npx (npx traverses up to find it in root node_modules)
+      run('npx electron-builder --win --x64', electronDir);
       console.log(`  electron-builder succeeded on attempt ${attempt} ✓`);
       lastError = null;
       break;

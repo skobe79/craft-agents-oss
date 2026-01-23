@@ -1422,8 +1422,8 @@ export class SessionManager {
       const config = loadStoredConfig()
       managed.agent = new CraftAgent({
         workspace: managed.workspace,
-        // Model priority: session-specific > workspace default > global config
-        model: managed.model || config?.model,
+        // Session model takes priority, fallback to global config, then resolve with customModel override
+        model: resolveModelId(managed.model || config?.model || DEFAULT_MODEL),
         // Initialize thinking level at construction to avoid race conditions
         thinkingLevel: managed.thinkingLevel,
         isHeadless: !AGENT_FLAGS.defaultModesEnabled,
