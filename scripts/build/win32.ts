@@ -170,7 +170,7 @@ export async function buildElectronAppWindows(config: BuildConfig): Promise<void
  * Package the Windows app with electron-builder (with retry logic)
  */
 export async function packageWindows(config: BuildConfig): Promise<string> {
-  const { rootDir, electronDir } = config;
+  const { electronDir } = config;
 
   console.log('Packaging app with electron-builder...');
 
@@ -191,8 +191,8 @@ export async function packageWindows(config: BuildConfig): Promise<string> {
     }
 
     try {
-      // Run electron-builder from rootDir with --project flag (electron-builder is in root node_modules)
-      run('node ./node_modules/electron-builder/out/cli/cli.js --win --x64 --project apps/electron', rootDir);
+      // Run electron-builder from electronDir using npx (npx traverses up to find it in root node_modules)
+      run('npx electron-builder --win --x64', electronDir);
       console.log(`  electron-builder succeeded on attempt ${attempt} ✓`);
       lastError = null;
       break;
