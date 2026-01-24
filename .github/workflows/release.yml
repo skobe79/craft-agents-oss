@@ -25,7 +25,7 @@ on:
         description: 'Update /latest endpoint (auto-enabled for tag pushes)'
         required: false
         type: boolean
-        default: false
+        default: true
       force_rebuild:
         description: 'Force rebuild even if artifact exists in S3'
         required: false
