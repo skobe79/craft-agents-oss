@@ -158,14 +158,6 @@ export interface CodeOverlayData {
   error?: string
 }
 
-export interface DiffOverlayData {
-  type: 'diff'
-  filePath: string
-  original: string
-  modified: string
-  error?: string
-}
-
 export interface TerminalOverlayData {
   type: 'terminal'
   command: string
@@ -189,7 +181,7 @@ export interface JSONOverlayData {
   error?: string
 }
 
-export type OverlayData = CodeOverlayData | DiffOverlayData | TerminalOverlayData | GenericOverlayData | JSONOverlayData
+export type OverlayData = CodeOverlayData | TerminalOverlayData | GenericOverlayData | JSONOverlayData
 
 // ============================================================================
 // Main Extraction Function
@@ -235,16 +227,8 @@ export function extractOverlayData(activity: ActivityItem): OverlayData | null {
     }
   }
 
-  // Edit tool → Diff overlay
-  if (toolName === 'edit' || toolName === 'multiedit') {
-    return {
-      type: 'diff',
-      filePath,
-      original: (input?.old_string as string) || '',
-      modified: (input?.new_string as string) || '',
-      error: activity.error,
-    }
-  }
+  // Edit/Write tools are handled directly by the click handler (multi-diff overlay)
+  // so they fall through to the generic handler if they reach here
 
   // Bash tool → Terminal overlay
   if (toolName === 'bash') {

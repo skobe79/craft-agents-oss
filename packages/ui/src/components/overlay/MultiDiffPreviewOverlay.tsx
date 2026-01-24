@@ -10,13 +10,10 @@
 
 import * as React from 'react'
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import * as ReactDOM from 'react-dom'
 import { PencilLine, FilePlus, ChevronDown, Check } from 'lucide-react'
 import { ShikiDiffViewer } from '../code-viewer/ShikiDiffViewer'
 import { truncateFilePath } from '../code-viewer/language-map'
-import { useOverlayMode, OVERLAY_LAYOUT } from '../../lib/layout'
-import { PreviewHeader, PreviewHeaderBadge } from '../ui/PreviewHeader'
-import { FullscreenOverlayBase } from './FullscreenOverlayBase'
+import { PreviewOverlay, type BadgeVariant } from './PreviewOverlay'
 
 /**
  * A single file change (Edit or Write)
@@ -51,6 +48,8 @@ export interface MultiDiffPreviewOverlayProps {
   theme?: 'light' | 'dark'
   /** Callback to open file in external editor */
   onOpenFile?: (filePath: string) => void
+  /** Render inline without dialog (for playground) */
+  embedded?: boolean
 }
 
 // ============================================
@@ -279,15 +278,8 @@ export function MultiDiffPreviewOverlay({
   focusedChangeId,
   theme = 'light',
   onOpenFile,
+  embedded,
 }: MultiDiffPreviewOverlayProps) {
-  const responsiveMode = useOverlayMode()
-  const isModal = responsiveMode === 'modal'
-
-  // Use CSS variables so custom themes are respected
-  const backgroundColor = 'var(--background)'
-  const textColor = 'var(--foreground)'
-  const sidebarBg = 'var(--foreground-2)'
-
   // Create sidebar entries
   const sidebarEntries = useMemo(() => {
     return createSidebarEntries(changes, consolidated)
@@ -372,152 +364,82 @@ export function MultiDiffPreviewOverlay({
     }
   }, [selectedEntry])
 
-  // Handle Escape key in modal mode only
-  // (Fullscreen mode uses FullscreenOverlayBase which handles ESC via Radix Dialog)
-  useEffect(() => {
-    if (!isOpen || !isModal) return
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isModal, onClose])
-
   const handleSelectEntry = useCallback((key: string) => {
     setSelectedKey(key)
   }, [])
 
-  if (!isOpen) return null
-
   // Determine if we should show sidebar
   const showSidebar = sidebarEntries.length > 1
 
-  // Build header content
-  const headerContent = (
-    <>
-      {selectedEntry && (
-        <>
-          {(() => {
-            const hasWrite = selectedEntry.changes.some(c => c.toolType === 'Write')
-            const IconComponent = hasWrite ? FilePlus : PencilLine
-            const label = hasWrite ? 'Write' : 'Edit'
-            const variant = hasWrite ? 'green' : 'orange'
-            return (
-              <PreviewHeaderBadge
-                icon={IconComponent}
-                label={selectedEntry.changes.length > 1 ? `${selectedEntry.changes.length} ${label}s` : label}
-                variant={variant as any}
+  // Compute header badge dynamically based on selected entry
+  const badge = useMemo((): { icon: typeof PencilLine; label: string; variant: BadgeVariant } => {
+    if (selectedEntry) {
+      const hasWrite = selectedEntry.changes.some(c => c.toolType === 'Write')
+      return {
+        icon: hasWrite ? FilePlus : PencilLine,
+        label: selectedEntry.changes.length > 1
+          ? `${selectedEntry.changes.length} ${hasWrite ? 'Write' : 'Edit'}s`
+          : (hasWrite ? 'Write' : 'Edit'),
+        variant: hasWrite ? 'green' : 'orange',
+      }
+    }
+    return { icon: PencilLine, label: 'Edit', variant: 'orange' }
+  }, [selectedEntry])
+
+  const headerTitle = selectedEntry
+    ? truncateFilePath(selectedEntry.filePath)
+    : `${sidebarEntries.length} file${sidebarEntries.length !== 1 ? 's' : ''}`
+  const headerTitleClick = selectedEntry && onOpenFile
+    ? () => onOpenFile(selectedEntry.filePath)
+    : undefined
+
+  return (
+    <PreviewOverlay
+      isOpen={isOpen}
+      onClose={onClose}
+      theme={theme}
+      badge={badge}
+      title={headerTitle}
+      onTitleClick={headerTitleClick}
+      embedded={embedded}
+    >
+      {/* Sidebar + diff content fills the available space */}
+      <div className="absolute inset-0 flex">
+        {/* Sidebar navigation for multiple files */}
+        {showSidebar && (
+          <div className="w-64 shrink-0 h-full overflow-y-auto">
+            <div className="px-2 py-2">
+              <Sidebar
+                entries={sidebarEntries}
+                selectedKey={selectedKey}
+                onSelect={handleSelectEntry}
+                theme={theme}
               />
-            )
-          })()}
-          <PreviewHeaderBadge
-            label={truncateFilePath(selectedEntry.filePath)}
-            onClick={onOpenFile ? () => onOpenFile(selectedEntry.filePath) : undefined}
-            shrinkable
-          />
-        </>
-      )}
-      {!selectedEntry && sidebarEntries.length > 0 && (
-        <span className="text-sm" style={{ color: 'var(--foreground-50)' }}>
-          {sidebarEntries.length} file{sidebarEntries.length !== 1 ? 's' : ''}
-        </span>
-      )}
-    </>
-  )
-
-  const mainContent = (
-    <div className="flex h-full">
-      {/* Sidebar */}
-      {showSidebar && (
-        <div
-          className="w-64 shrink-0 h-full overflow-y-auto"
-          style={{
-            backgroundColor: sidebarBg,
-            borderRight: '1px solid var(--foreground-5)',
-          }}
-        >
-          <div className="px-2 py-2">
-            <Sidebar
-              entries={sidebarEntries}
-              selectedKey={selectedKey}
-              onSelect={handleSelectEntry}
-              theme={theme}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Main diff area */}
-      <div className="flex-1 min-w-0 h-full" style={{ backgroundColor }}>
-        {selectedEntry ? (
-          <ShikiDiffViewer
-            key={selectedKey}
-            original={combinedDiff.original}
-            modified={combinedDiff.modified}
-            filePath={selectedEntry.filePath}
-            diffStyle="unified"
-            theme={theme}
-          />
-        ) : (
-          <div
-            className="h-full flex items-center justify-center"
-            style={{ color: 'var(--foreground-50)' }}
-          >
-            Select a file to view changes
+            </div>
           </div>
         )}
-      </div>
-    </div>
-  )
 
-  // Fullscreen mode - uses FullscreenOverlayBase for proper ESC, focus, and traffic light management
-  if (!isModal) {
-    return (
-      <FullscreenOverlayBase isOpen={isOpen} onClose={onClose} accessibleTitle="Multi-file diff preview">
-        <div className="flex flex-col h-full" style={{ backgroundColor, color: textColor }}>
-          <PreviewHeader onClose={onClose} height={54}>
-            {headerContent}
-          </PreviewHeader>
-          <div className="flex-1 min-h-0">
-            {mainContent}
-          </div>
-        </div>
-      </FullscreenOverlayBase>
-    )
-  }
-
-  // Modal mode
-  return ReactDOM.createPortal(
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center ${OVERLAY_LAYOUT.modalBackdropClass}`}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div
-        className="flex flex-col overflow-hidden smooth-corners"
-        style={{
-          backgroundColor,
-          color: textColor,
-          width: '90vw',
-          maxWidth: OVERLAY_LAYOUT.modalMaxWidth,
-          height: `${OVERLAY_LAYOUT.modalMaxHeightPercent}vh`,
-          borderRadius: 16,
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-        }}
-      >
-        <PreviewHeader onClose={onClose} height={48}>
-          {headerContent}
-        </PreviewHeader>
-        <div className="flex-1 min-h-0">
-          {mainContent}
+        {/* Main diff area */}
+        <div className="flex-1 min-w-0 h-full">
+          {selectedEntry ? (
+            <ShikiDiffViewer
+              key={selectedKey}
+              original={combinedDiff.original}
+              modified={combinedDiff.modified}
+              filePath={selectedEntry.filePath}
+              diffStyle="unified"
+              theme={theme}
+            />
+          ) : (
+            <div
+              className="h-full flex items-center justify-center"
+              style={{ color: 'var(--foreground-50)' }}
+            >
+              Select a file to view changes
+            </div>
+          )}
         </div>
       </div>
-    </div>,
-    document.body
+    </PreviewOverlay>
   )
 }

@@ -24,7 +24,6 @@ import {
   parseGlobResult,
   extractOverlayData,
   CodePreviewOverlay,
-  DiffPreviewOverlay,
   MultiDiffPreviewOverlay,
   TerminalPreviewOverlay,
   GenericOverlay,
@@ -955,21 +954,7 @@ export function ChatDisplay({
         />
       )}
 
-      {/* Diff preview overlay (single Edit tool) */}
-      {overlayData?.type === 'diff' && (
-        <DiffPreviewOverlay
-          isOpen={!!overlayState}
-          onClose={handleCloseOverlay}
-          original={overlayData.original}
-          modified={overlayData.modified}
-          filePath={overlayData.filePath}
-          theme={isDark ? 'dark' : 'light'}
-          error={overlayData.error}
-          onOpenFile={onOpenFile}
-        />
-      )}
-
-      {/* Multi-diff preview overlay (multiple Edit/Write tools) */}
+      {/* Multi-diff preview overlay (Edit/Write tools) */}
       {overlayState?.type === 'multi-diff' && (
         <MultiDiffPreviewOverlay
           isOpen={true}

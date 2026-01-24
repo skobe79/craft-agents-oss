@@ -1,29 +1,25 @@
 /**
  * ShikiDiffViewer - Electron wrapper for the portable ShikiDiffViewer
  *
- * This thin wrapper imports the portable component from @craft-agent/ui
- * and connects it to Electron's ThemeContext.
- *
- * Note: The base component uses a simpler timing approach for onReady.
- * If more precise timing is needed for window reveal, the onReady callback
- * fires after a short delay (100ms) to allow Shiki to highlight.
- *
- * The diff viewer uses pierre-dark/pierre-light themes which are optimized
- * for diff visualization rather than the preset Shiki themes.
+ * Connects the base component to Electron's ThemeContext, passing the
+ * app's Shiki theme (e.g. dracula, nord) so the diff viewer uses matching
+ * syntax highlighting. Falls back to craft-dark/craft-light (transparent bg)
+ * when no Shiki theme is configured.
  */
 
 import * as React from 'react'
 import { ShikiDiffViewer as BaseShikiDiffViewer, type ShikiDiffViewerProps as BaseProps } from '@craft-agent/ui'
 import { useTheme } from '@/hooks/useTheme'
 
-export interface ShikiDiffViewerProps extends Omit<BaseProps, 'theme'> {}
+export interface ShikiDiffViewerProps extends Omit<BaseProps, 'theme' | 'shikiTheme'> {}
 
 /**
  * ShikiDiffViewer - Shiki-based diff viewer component
- * Connected to Electron's theme context.
+ * Connected to Electron's theme context. Passes the app's Shiki theme
+ * so the diff viewer uses the matching syntax theme (e.g. dracula, nord).
  */
 export function ShikiDiffViewer(props: ShikiDiffViewerProps) {
-  const { isDark } = useTheme()
+  const { isDark, shikiTheme } = useTheme()
 
-  return <BaseShikiDiffViewer {...props} theme={isDark ? 'dark' : 'light'} />
+  return <BaseShikiDiffViewer {...props} theme={isDark ? 'dark' : 'light'} shikiTheme={shikiTheme} />
 }

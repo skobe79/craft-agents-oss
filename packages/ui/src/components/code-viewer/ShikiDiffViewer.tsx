@@ -11,7 +11,7 @@
 import * as React from 'react'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { FileDiff, type FileDiffMetadata, type FileDiffProps } from '@pierre/diffs/react'
-import { parseDiffFromFile, DIFFS_TAG_NAME, type FileContents } from '@pierre/diffs'
+import { parseDiffFromFile, DIFFS_TAG_NAME, registerCustomTheme, resolveTheme, type FileContents } from '@pierre/diffs'
 import { cn } from '../../lib/utils'
 import { LANGUAGE_MAP } from './language-map'
 
@@ -28,6 +28,18 @@ if (typeof HTMLElement !== 'undefined' && !customElements.get(DIFFS_TAG_NAME)) {
   customElements.define(DIFFS_TAG_NAME, FileDiffContainer)
 }
 
+// Register custom themes based on pierre-dark/light but with transparent background.
+// This lets the container's var(--background) CSS variable show through,
+// so the diff viewer respects custom app themes (e.g. Dracula).
+registerCustomTheme('craft-dark', async () => {
+  const theme = await resolveTheme('pierre-dark')
+  return { ...theme, name: 'craft-dark', bg: 'transparent', colors: { ...theme.colors, 'editor.background': 'transparent' } }
+})
+registerCustomTheme('craft-light', async () => {
+  const theme = await resolveTheme('pierre-light')
+  return { ...theme, name: 'craft-light', bg: 'transparent', colors: { ...theme.colors, 'editor.background': 'transparent' } }
+})
+
 export interface ShikiDiffViewerProps {
   /** Original (before) content */
   original: string
@@ -41,6 +53,9 @@ export interface ShikiDiffViewerProps {
   diffStyle?: 'unified' | 'split'
   /** Theme mode */
   theme?: 'light' | 'dark'
+  /** Shiki theme name (e.g., 'dracula', 'github-dark'). When provided, uses the matching
+   *  Shiki theme natively. Falls back to craft-dark/craft-light (transparent bg) if not set. */
+  shikiTheme?: string
   /** Callback when ready */
   onReady?: () => void
   /** Additional class names */
@@ -63,6 +78,7 @@ export function ShikiDiffViewer({
   language,
   diffStyle = 'unified',
   theme = 'light',
+  shikiTheme,
   onReady,
   className,
 }: ShikiDiffViewerProps) {
@@ -92,17 +108,19 @@ export function ShikiDiffViewer({
     return parseDiffFromFile(oldFile, newFile)
   }, [oldFile, newFile])
 
-  // Diff options - use pierre themes for better diff contrast
+  // Diff options - use the app's Shiki theme if available, otherwise fall back
+  // to craft-dark/craft-light which have transparent bg for CSS variable theming
+  const resolvedThemeName = shikiTheme || (theme === 'dark' ? 'craft-dark' : 'craft-light')
   const options: FileDiffProps<undefined>['options'] = useMemo(() => ({
-    theme: theme === 'dark' ? 'pierre-dark' : 'pierre-light',
+    theme: resolvedThemeName,
     diffStyle,
     diffIndicators: 'bars',
-    disableBackground: false,
+    disableBackground: true,
     lineDiffType: 'word',
     overflow: 'scroll',
-    disableFileHeader: true, // We handle headers ourselves
+    disableFileHeader: true,
     themeType: theme === 'dark' ? 'dark' : 'light',
-  }), [theme, diffStyle])
+  }), [resolvedThemeName, theme, diffStyle])
 
   // Call onReady after first render
   useEffect(() => {

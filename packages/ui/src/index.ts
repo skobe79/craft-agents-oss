@@ -123,7 +123,6 @@ export {
   type CopyButtonProps,
   // Specialized overlays
   CodePreviewOverlay,
-  DiffPreviewOverlay,
   MultiDiffPreviewOverlay,
   TerminalPreviewOverlay,
   GenericOverlay,
@@ -132,7 +131,6 @@ export {
   DocumentFormattedMarkdownOverlay,
   detectLanguageFromPath,
   type CodePreviewOverlayProps,
-  type DiffPreviewOverlayProps,
   type MultiDiffPreviewOverlayProps,
   type FileChange,
   type TerminalPreviewOverlayProps,
@@ -166,7 +164,6 @@ export {
   type GrepResult,
   type GlobResult,
   type CodeOverlayData,
-  type DiffOverlayData,
   type TerminalOverlayData,
   type GenericOverlayData,
   type JSONOverlayData,

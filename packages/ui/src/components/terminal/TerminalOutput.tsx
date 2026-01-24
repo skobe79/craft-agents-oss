@@ -49,8 +49,7 @@ export function TerminalOutput({
 
   const isDark = theme === 'dark'
 
-  // Theme-aware colors
-  const bgColor = isDark ? '#1e1e1e' : '#ffffff'
+  // Theme-aware colors for inner elements (outer bg inherits from overlay's bg-background)
   const textColor = isDark ? '#e4e4e4' : '#1a1a1a'
   const mutedColor = isDark ? '#888888' : '#666666'
   const matchColor = '#22c55e' // Green for grep matches
@@ -90,7 +89,7 @@ export function TerminalOutput({
   return (
     <div
       className={cn('h-full w-full overflow-auto p-4 font-mono text-sm', className)}
-      style={{ fontFamily: '"JetBrains Mono", monospace', backgroundColor: bgColor, color: textColor }}
+      style={{ fontFamily: '"JetBrains Mono", monospace' }}
     >
       {/* Command section */}
       <div className="mb-4">

@@ -252,7 +252,9 @@ interface ManagedSession {
   isProcessing: boolean
   lastMessageAt: number
   streamingText: string
-  abortController?: AbortController
+  // Incremented each time a new message starts processing.
+  // Used to detect if a follow-up message has superseded the current one (stale-request guard).
+  processingGeneration: number
   // Track tool_use_id -> toolName mapping (since tool_result only has toolUseId)
   pendingTools: Map<string, string>
   // Stack of parent tool IDs for nested tool calls (e.g., Task spawning Read/Grep)
@@ -834,6 +836,7 @@ export class SessionManager {
             isProcessing: false,
             lastMessageAt: meta.lastUsedAt,
             streamingText: '',
+            processingGeneration: 0,
             pendingTools: new Map(),
             parentToolStack: [],
             toolToParentMap: new Map(),
@@ -1379,6 +1382,7 @@ export class SessionManager {
       isProcessing: false,
       lastMessageAt: storedSession.lastUsedAt,
       streamingText: '',
+      processingGeneration: 0,
       pendingTools: new Map(),
       parentToolStack: [],
       toolToParentMap: new Map(),
@@ -1541,7 +1545,6 @@ export class SessionManager {
             sessionLog.info(`Force-aborting after plan submission for session ${managed.id}`)
             managed.agent.forceAbort(AbortReason.PlanSubmitted)
             managed.isProcessing = false
-            managed.abortController = undefined
 
             // Clear parent tool tracking (stale entries would corrupt future tracking)
             managed.parentToolStack = []
@@ -1597,7 +1600,6 @@ export class SessionManager {
           sessionLog.info(`Force-aborting after auth request for session ${managed.id}`)
           managed.agent.forceAbort(AbortReason.AuthRequest)
           managed.isProcessing = false
-          managed.abortController = undefined
 
           // Clear parent tool tracking (stale entries would corrupt future tracking)
           managed.parentToolStack = []
@@ -2285,13 +2287,11 @@ export class SessionManager {
     // Get workspace slug before deleting
     const workspaceRootPath = managed.workspace.rootPath
 
-    // If processing is in progress, abort and wait for cleanup
-    if (managed.isProcessing && managed.abortController) {
-      managed.abortController.abort()
-      // TIMING NOTE: Brief wait for abort signal to propagate through async
-      // operations. AbortController.abort() is synchronous but in-flight
-      // promises may still be settling. 100ms is a generous buffer to prevent
-      // file corruption from overlapping writes during rapid delete operations.
+    // If processing is in progress, force-abort via Query.close() and wait for cleanup
+    if (managed.isProcessing && managed.agent) {
+      managed.agent.forceAbort(AbortReason.UserStop)
+      // Brief wait for the query to finish tearing down before we delete session files.
+      // Prevents file corruption from overlapping writes during rapid delete operations.
       await new Promise(resolve => setTimeout(resolve, 100))
     }
 
@@ -2370,9 +2370,8 @@ export class SessionManager {
         status: 'queued'
       }, managed.workspace.id)
 
-      // Force-abort via SDK's AbortController - immediately stops processing
-      // This sends SIGTERM to subprocess (5s timeout, then SIGKILL)
-      // The for-await loop will throw AbortError, caught by our handler
+      // Force-abort via Query.close() - immediately stops processing.
+      // The for-await loop will complete, triggering onProcessingStopped → queue drain.
       managed.agent?.forceAbort(AbortReason.Redirect)
 
       return
@@ -2462,11 +2461,11 @@ export class SessionManager {
     managed.lastMessageAt = Date.now()
     managed.isProcessing = true
     managed.streamingText = ''
-    managed.abortController = new AbortController()
+    managed.processingGeneration++
 
-    // Capture the abort controller reference to detect if a new request supersedes this one
-    // This prevents the finally block from clobbering state when a follow-up message arrives
-    const myAbortController = managed.abortController
+    // Capture the generation to detect if a new request supersedes this one.
+    // This prevents the finally block from clobbering state when a follow-up message arrives.
+    const myGeneration = managed.processingGeneration
 
     // Start perf span for entire sendMessage flow
     const sendSpan = perf.span('session.sendMessage', { sessionId })
@@ -2605,7 +2604,7 @@ export class SessionManager {
       )
 
       if (isAbortError) {
-        // Extract abort reason (passed to AbortController.abort())
+        // Extract abort reason if available (safety net for unexpected abort propagation)
         const reason = (error as DOMException).cause as AbortReason | undefined
 
         sessionLog.info(`Chat aborted (reason: ${reason || 'unknown'})`)
@@ -2637,7 +2636,7 @@ export class SessionManager {
       // Only handle cleanup for unexpected exits (loop break without complete event)
       // Normal completion returns early after calling onProcessingStopped
       // Errors are handled in catch block
-      if (managed.isProcessing && managed.abortController === myAbortController) {
+      if (managed.isProcessing && managed.processingGeneration === myGeneration) {
         sessionLog.info('Finally block cleanup - unexpected exit')
         sendSpan.mark('chat.unexpected_exit')
         sendSpan.end()
@@ -2657,7 +2656,7 @@ export class SessionManager {
     // Clear queue - user explicitly stopped, don't process queued messages
     managed.messageQueue = []
 
-    // Force-abort via AbortController - immediately stops processing
+    // Force-abort via Query.close() - immediately stops processing
     if (managed.agent) {
       managed.agent.forceAbort(AbortReason.UserStop)
     }
@@ -2665,7 +2664,6 @@ export class SessionManager {
     // Set state immediately - the SDK will send a complete event
     // but since we cleared isProcessing, onProcessingStopped won't be called again
     managed.isProcessing = false
-    managed.abortController = undefined
 
     // Clear parent tool tracking (stale entries would corrupt future parent-child tracking)
     managed.parentToolStack = []
@@ -2713,7 +2711,6 @@ export class SessionManager {
 
     // 1. Cleanup state
     managed.isProcessing = false
-    managed.abortController = undefined
     managed.parentToolStack = []
     managed.toolToParentMap.clear()
     managed.pendingTextParent = undefined
@@ -3381,7 +3378,7 @@ To view this task's output:
       }
 
       case 'error':
-        // Skip abort errors - these are expected when force-aborting via AbortController
+        // Skip abort errors - these are expected when force-aborting via Query.close()
         if (event.message.includes('aborted') || event.message.includes('AbortError')) {
           sessionLog.info('Skipping abort error event (expected during interrupt)')
           break
@@ -3398,7 +3395,7 @@ To view this task's output:
         break
 
       case 'typed_error':
-        // Skip abort errors - these are expected when force-aborting via AbortController
+        // Skip abort errors - these are expected when force-aborting via Query.close()
         const typedErrorMsg = event.error.message || event.error.title || ''
         if (typedErrorMsg.includes('aborted') || typedErrorMsg.includes('AbortError')) {
           sessionLog.info('Skipping typed abort error event (expected during interrupt)')

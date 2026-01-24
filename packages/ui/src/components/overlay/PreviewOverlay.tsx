@@ -9,7 +9,7 @@
  * - Consistent header layout with badge, title, close button
  * - Optional error banner
  *
- * Used by: CodePreviewOverlay, DiffPreviewOverlay, TerminalPreviewOverlay, GenericOverlay
+ * Used by: CodePreviewOverlay, TerminalPreviewOverlay, GenericOverlay
  */
 
 import { useEffect, type ReactNode } from 'react'
@@ -56,10 +56,8 @@ export interface PreviewOverlayProps {
   /** Main content */
   children: ReactNode
 
-  /** Background color override (default: theme-based) */
-  backgroundColor?: string
-  /** Text color override (default: theme-based) */
-  textColor?: string
+  /** Render inline (no dialog/portal) — for embedding in design system playground */
+  embedded?: boolean
 }
 
 export function PreviewOverlay({
@@ -73,8 +71,7 @@ export function PreviewOverlay({
   error,
   headerActions,
   children,
-  backgroundColor,
-  textColor,
+  embedded = false,
 }: PreviewOverlayProps) {
   const responsiveMode = useOverlayMode()
   const isModal = responsiveMode === 'modal'
@@ -93,15 +90,7 @@ export function PreviewOverlay({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, isModal, onClose])
 
-  if (!isOpen) return null
-
-  // Use CSS variables so custom themes are respected.
-  // Overlays that need hardcoded colors (code viewers with Shiki themes)
-  // explicitly pass backgroundColor/textColor props, bypassing these defaults.
-  const defaultBg = 'var(--background)'
-  const defaultText = 'var(--foreground)'
-  const bgColor = backgroundColor ?? defaultBg
-  const txtColor = textColor ?? defaultText
+  if (!isOpen && !embedded) return null
 
   const header = (
     <PreviewHeader onClose={onClose} height={isModal ? 48 : 54}>
@@ -128,6 +117,17 @@ export function PreviewOverlay({
 
   const contentArea = <div className="flex-1 min-h-0 relative">{children}</div>
 
+  // Embedded mode — renders inline without dialog/portal, for design system playground
+  if (embedded) {
+    return (
+      <div className="flex flex-col bg-background h-full w-full overflow-hidden rounded-lg border border-foreground/5">
+        {header}
+        {errorBanner}
+        {contentArea}
+      </div>
+    )
+  }
+
   // Fullscreen mode - uses FullscreenOverlayBase for portal, traffic lights, and ESC handling
   if (!isModal) {
     return (
@@ -136,10 +136,7 @@ export function PreviewOverlay({
         onClose={onClose}
         className="flex flex-col bg-background"
       >
-        <div
-          className="flex flex-col flex-1 min-h-0"
-          style={{ backgroundColor: bgColor, color: txtColor }}
-        >
+        <div className="flex flex-col flex-1 min-h-0">
           {header}
           {errorBanner}
           {contentArea}
@@ -159,8 +156,6 @@ export function PreviewOverlay({
       <div
         className="flex flex-col bg-background shadow-3xl overflow-hidden smooth-corners"
         style={{
-          backgroundColor: bgColor,
-          color: txtColor,
           width: '90vw',
           maxWidth: OVERLAY_LAYOUT.modalMaxWidth,
           height: `${OVERLAY_LAYOUT.modalMaxHeightPercent}vh`,

@@ -26,6 +26,10 @@ export interface TerminalPreviewOverlayProps {
   description?: string
   /** Theme mode */
   theme?: 'light' | 'dark'
+  /** Error message if the command failed to execute */
+  error?: string
+  /** Render inline without dialog (for playground) */
+  embedded?: boolean
 }
 
 function getToolConfig(toolType: ToolType): {
@@ -52,9 +56,9 @@ export function TerminalPreviewOverlay({
   toolType = 'bash',
   description,
   theme = 'light',
+  error,
+  embedded,
 }: TerminalPreviewOverlayProps) {
-  const backgroundColor = theme === 'dark' ? '#1e1e1e' : '#ffffff'
-  const textColor = theme === 'dark' ? '#e4e4e4' : '#1a1a1a'
   const config = getToolConfig(toolType)
 
   return (
@@ -68,8 +72,8 @@ export function TerminalPreviewOverlay({
         variant: config.variant,
       }}
       title={description || ''}
-      backgroundColor={backgroundColor}
-      textColor={textColor}
+      error={error ? { label: 'Command Failed', message: error } : undefined}
+      embedded={embedded}
     >
       <TerminalOutput
         command={command}

@@ -71,6 +71,8 @@ export interface JSONPreviewOverlayProps {
   theme?: 'light' | 'dark'
   /** Optional error message */
   error?: string
+  /** Render inline without dialog (for playground) */
+  embedded?: boolean
 }
 
 /**
@@ -96,6 +98,7 @@ export function JSONPreviewOverlay({
   title = 'JSON',
   theme = 'dark',
   error,
+  embedded,
 }: JSONPreviewOverlayProps) {
   // Select theme based on mode
   const jsonTheme = useMemo(() => {
@@ -119,10 +122,10 @@ export function JSONPreviewOverlay({
       title={title}
       theme={theme}
       error={error ? { label: 'Parse Error', message: error } : undefined}
-      backgroundColor="var(--foreground-2)"
+      embedded={embedded}
     >
       <div className="h-full overflow-auto p-4">
-        <div className="rounded-lg bg-background shadow-minimal p-4">
+        <div className="p-4">
           <JsonView
             value={processedData}
             style={jsonTheme}
