@@ -61,6 +61,9 @@ export interface PreviewOverlayProps {
 
   /** Render inline (no dialog/portal) — for embedding in design system playground */
   embedded?: boolean
+
+  /** Custom class names for the overlay container (e.g., to override bg-background) */
+  className?: string
 }
 
 export function PreviewOverlay({
@@ -75,7 +78,10 @@ export function PreviewOverlay({
   headerActions,
   children,
   embedded = false,
+  className,
 }: PreviewOverlayProps) {
+  // Use custom className if provided, otherwise fall back to default bg
+  const bgClass = className || OVERLAY_BG
   const responsiveMode = useOverlayMode()
   const isModal = responsiveMode === 'modal'
 
@@ -96,7 +102,7 @@ export function PreviewOverlay({
   if (!isOpen && !embedded) return null
 
   const header = (
-    <PreviewHeader onClose={onClose} height={isModal ? 48 : 54} rightActions={headerActions}>
+    <PreviewHeader onClose={onClose} height={48} rightActions={headerActions}>
       <PreviewHeaderBadge
         icon={badge.icon}
         label={badge.label}
@@ -122,7 +128,7 @@ export function PreviewOverlay({
   // Embedded mode — renders inline without dialog/portal, for design system playground
   if (embedded) {
     return (
-      <div className={`flex flex-col ${OVERLAY_BG} h-full w-full overflow-hidden rounded-lg border border-foreground/5`}>
+      <div className={`flex flex-col ${bgClass} h-full w-full overflow-hidden rounded-lg border border-foreground/5`}>
         {header}
         {errorBanner}
         {contentArea}
@@ -136,7 +142,7 @@ export function PreviewOverlay({
       <FullscreenOverlayBase
         isOpen={isOpen}
         onClose={onClose}
-        className={`flex flex-col ${OVERLAY_BG}`}
+        className={`flex flex-col ${bgClass}`}
       >
         <div className="flex flex-col flex-1 min-h-0">
           {header}
@@ -156,7 +162,7 @@ export function PreviewOverlay({
       }}
     >
       <div
-        className={`flex flex-col ${OVERLAY_BG} shadow-3xl overflow-hidden smooth-corners`}
+        className={`flex flex-col ${bgClass} shadow-3xl overflow-hidden smooth-corners`}
         style={{
           width: '90vw',
           maxWidth: OVERLAY_LAYOUT.modalMaxWidth,

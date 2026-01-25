@@ -65,6 +65,35 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
+      # Require release notes file to exist before proceeding with release.
+      # This replaces AI-generated changelogs - release notes must be written manually.
+      - name: Validate release notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          NOTES_FILE="docs/release-notes/${VERSION}.md"
+
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "::error::Missing release notes: $NOTES_FILE"
+            echo ""
+            echo "❌ Release notes file not found!"
+            echo ""
+            echo "Before releasing v${VERSION}, create the file:"
+            echo "  $NOTES_FILE"
+            echo ""
+            echo "Example content:"
+            echo "  ## Features"
+            echo "  - New feature description"
+            echo ""
+            echo "  ## Improvements"
+            echo "  - Improvement description"
+            echo ""
+            echo "  ## Bug Fixes"
+            echo "  - Fix description"
+            exit 1
+          fi
+
+          echo "✓ Found release notes: $NOTES_FILE"
+
       - name: Check trigger type
         id: check
         run: |
@@ -350,37 +379,15 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      # Generate changelog before sync so it can be used as the commit message
-      - name: Get commits since last release
-        run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
-          git log "$LAST_TAG"..HEAD --pretty=format:"- %s" --no-merges | head -50 > /tmp/commits.txt
-
-      - name: Generate changelog
+      # Read release notes from docs/release-notes/{version}.md (validated in prepare job)
+      - name: Read release notes
         id: changelog
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          COMMITS=$(cat /tmp/commits.txt)
           VERSION="${{ needs.prepare.outputs.version }}"
+          NOTES_FILE="docs/release-notes/${VERSION}.md"
 
-          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
-            -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -d "$(jq -n \
-              --arg commits "$COMMITS" \
-              --arg version "$VERSION" \
-              '{
-                model: "claude-haiku-4-20250514",
-                max_tokens: 1024,
-                messages: [{
-                  role: "user",
-                  content: "Write a changelog for version \($version) of Craft Agents. Commits:\n\($commits)\n\nInclude only user-facing changes. Group into Features, Improvements, Bug Fixes. Keep it brief (5-10 items max). Start directly with content, no title needed."
-                }]
-              }')")
-
-          CHANGELOG=$(echo "$RESPONSE" | jq -r '.content[0].text // "No changelog generated"')
+          # Read the release notes file
+          CHANGELOG=$(cat "$NOTES_FILE")
           echo "$CHANGELOG" > /tmp/changelog.md
 
           # Build commit message: version as title, changelog as body

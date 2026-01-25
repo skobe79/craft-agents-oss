@@ -28,6 +28,8 @@ import {
   TerminalPreviewOverlay,
   GenericOverlay,
   JSONPreviewOverlay,
+  DocumentFormattedMarkdownOverlay,
+  detectLanguage,
   type ActivityItem,
   type OverlayData,
   type FileChange,
@@ -1031,26 +1033,36 @@ export function ChatDisplay({
         />
       )}
 
-      {/* Markdown preview overlay (pop-out, turn details, generic activities) */}
+      {/* Markdown preview overlay (pop-out, turn details) - renders markdown properly */}
       {overlayState?.type === 'markdown' && (
-        <GenericOverlay
+        <DocumentFormattedMarkdownOverlay
           isOpen={true}
           onClose={handleCloseOverlay}
           content={overlayState.content}
-          title={overlayState.title}
-          theme={isDark ? 'dark' : 'light'}
+          onOpenUrl={onOpenUrl}
+          onOpenFile={onOpenFile}
         />
       )}
 
-      {/* Generic overlay for unknown tool types */}
+      {/* Generic overlay for unknown tool types - route markdown to fullscreen viewer */}
       {overlayData?.type === 'generic' && (
-        <GenericOverlay
-          isOpen={!!overlayState}
-          onClose={handleCloseOverlay}
-          content={overlayData.content}
-          title={overlayData.title}
-          theme={isDark ? 'dark' : 'light'}
-        />
+        detectLanguage(overlayData.content) === 'markdown' ? (
+          <DocumentFormattedMarkdownOverlay
+            isOpen={true}
+            onClose={handleCloseOverlay}
+            content={overlayData.content}
+            onOpenUrl={onOpenUrl}
+            onOpenFile={onOpenFile}
+          />
+        ) : (
+          <GenericOverlay
+            isOpen={!!overlayState}
+            onClose={handleCloseOverlay}
+            content={overlayData.content}
+            title={overlayData.title}
+            theme={isDark ? 'dark' : 'light'}
+          />
+        )
       )}
     </div>
   )
@@ -1090,8 +1102,7 @@ function ErrorMessage({ message }: { message: Message }) {
   const [detailsOpen, setDetailsOpen] = React.useState(false)
 
   return (
-    // ml-3 aligns with TurnCard header left padding for visual consistency
-    <div className="flex justify-start ml-3">
+    <div className="flex justify-start mt-4">
       {/* Subtle bg (3% opacity) + tinted shadow for softer error appearance */}
       <div
         className="max-w-[80%] shadow-tinted rounded-[8px] pl-5 pr-4 pt-2 pb-2.5 break-words"

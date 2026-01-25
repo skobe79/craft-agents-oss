@@ -967,6 +967,14 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     app.quit()
   })
 
+  // New Window: create a new window for the current workspace
+  ipcMain.handle(IPC_CHANNELS.MENU_NEW_WINDOW, (event) => {
+    const workspaceId = windowManager.getWorkspaceForWindow(event.sender.id)
+    if (workspaceId) {
+      windowManager.createWindow({ workspaceId })
+    }
+  })
+
   ipcMain.handle(IPC_CHANNELS.MENU_MINIMIZE, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     win?.minimize()

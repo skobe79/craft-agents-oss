@@ -76,8 +76,11 @@ export const AGENT_FLAGS = {
  * Build MCP and API servers from sources using the new unified modules.
  * Handles credential loading and server building in one step.
  * When auth errors occur, updates source configs to reflect actual state.
+ *
+ * @param sources - Sources to build servers for
+ * @param sessionPath - Optional path to session folder for saving large API responses
  */
-async function buildServersFromSources(sources: LoadedSource[]) {
+async function buildServersFromSources(sources: LoadedSource[], sessionPath?: string) {
   const span = perf.span('sources.buildServers', { count: sources.length })
   const credManager = getSourceCredentialManager()
   const serverBuilder = getSourceServerBuilder()
@@ -122,7 +125,8 @@ async function buildServersFromSources(sources: LoadedSource[]) {
     return undefined
   }
 
-  const result = await serverBuilder.buildAll(sourcesWithCreds, getTokenForSource)
+  // Pass sessionPath to enable saving large API responses to session folder
+  const result = await serverBuilder.buildAll(sourcesWithCreds, getTokenForSource, sessionPath)
   span.mark('servers.built')
   span.setMetadata('mcpCount', Object.keys(result.mcpServers).length)
   span.setMetadata('apiCount', Object.keys(result.apiServers).length)
@@ -683,7 +687,9 @@ export class SessionManager {
     const enabledSources = allSources.filter(s =>
       enabledSlugs.includes(s.config.slug) && s.config.enabled && s.config.isAuthenticated
     )
-    const { mcpServers, apiServers } = await buildServersFromSources(enabledSources)
+    // Pass session path so large API responses can be saved to session folder
+    const sessionPath = getSessionStoragePath(workspaceRootPath, managed.id)
+    const { mcpServers, apiServers } = await buildServersFromSources(enabledSources, sessionPath)
     const intendedSlugs = enabledSources.map(s => s.config.slug)
     managed.agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
 
@@ -886,9 +892,10 @@ export class SessionManager {
   // Persist a session to disk (async with debouncing)
   private persistSession(managed: ManagedSession): void {
     try {
-      // Filter out transient messages (error, status, system) that shouldn't be persisted
+      // Filter out transient status messages (progress indicators like "Compacting...")
+      // Error messages are now persisted with rich fields for diagnostics
       const persistableMessages = managed.messages.filter(m =>
-        m.role !== 'error' && m.role !== 'status' && m.role !== 'system'
+        m.role !== 'status'
       )
 
       const workspaceRootPath = managed.workspace.rootPath
@@ -1675,7 +1682,9 @@ export class SessionManager {
 
         // Build server configs for all enabled sources
         const allEnabledSources = getSourcesBySlugs(workspaceRootPath, managed.enabledSourceSlugs || [])
-        const { mcpServers, apiServers, errors } = await buildServersFromSources(allEnabledSources)
+        // Pass session path so large API responses can be saved to session folder
+        const sessionPath = getSessionStoragePath(workspaceRootPath, managed.id)
+        const { mcpServers, apiServers, errors } = await buildServersFromSources(allEnabledSources, sessionPath)
 
         if (errors.length > 0) {
           sessionLog.warn(`Source build errors during auto-enable:`, errors)
@@ -2010,7 +2019,9 @@ export class SessionManager {
     // If agent exists, build and apply servers immediately
     if (managed.agent) {
       const sources = getSourcesBySlugs(workspaceRootPath, sourceSlugs)
-      const { mcpServers, apiServers, errors } = await buildServersFromSources(sources)
+      // Pass session path so large API responses can be saved to session folder
+      const sessionPath = getSessionStoragePath(workspaceRootPath, sessionId)
+      const { mcpServers, apiServers, errors } = await buildServersFromSources(sources, sessionPath)
       if (errors.length > 0) {
         sessionLog.warn(`Source build errors:`, errors)
       }
@@ -2491,7 +2502,9 @@ export class SessionManager {
     if (managed.enabledSourceSlugs?.length) {
       // Always build server configs fresh (no caching - single source of truth)
       const sources = getSourcesBySlugs(workspaceRootPath, managed.enabledSourceSlugs)
-      const { mcpServers, apiServers, errors } = await buildServersFromSources(sources)
+      // Pass session path so large API responses can be saved to session folder
+      const sessionPath = getSessionStoragePath(workspaceRootPath, sessionId)
+      const { mcpServers, apiServers, errors } = await buildServersFromSources(sources, sessionPath)
       if (errors.length > 0) {
         sessionLog.warn(`Source build errors:`, errors)
       }
@@ -3410,11 +3423,19 @@ To view this task's output:
         }
         // Typed errors have structured information - send both formats for compatibility
         sessionLog.info('typed_error:', JSON.stringify(event.error, null, 2))
+        // Build rich error message with all diagnostic fields for persistence and UI display
         const typedErrorMessage: Message = {
           id: generateMessageId(),
           role: 'error',
-          content: event.error.message || event.error.title || 'An error occurred',
-          timestamp: Date.now()
+          // Combine title and message for content display (handles undefined gracefully)
+          content: [event.error.title, event.error.message].filter(Boolean).join(': ') || 'An error occurred',
+          timestamp: Date.now(),
+          // Rich error fields for diagnostics and retry functionality
+          errorCode: event.error.code,
+          errorTitle: event.error.title,
+          errorDetails: event.error.details,
+          errorOriginal: event.error.originalError,
+          errorCanRetry: event.error.canRetry,
         }
         managed.messages.push(typedErrorMessage)
         // Send typed_error event with full structure for renderer to handle

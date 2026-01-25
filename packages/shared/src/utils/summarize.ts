@@ -1,81 +1,31 @@
 /**
  * Shared summarization utility for large tool results.
  * Uses Claude Haiku for fast, cost-effective summarization.
+ *
+ * Uses Agent SDK query() for proper OAuth token handling (same pattern as title-generator.ts).
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import { getDefaultOptions } from '../agent/options.ts';
 import { SUMMARIZATION_MODEL } from '../config/models.ts';
 import { resolveModelId } from '../config/storage.ts';
 import { debug } from './debug.ts';
-import { getCredentialManager } from '../credentials/index.ts';
 
 // Token limit for summarization trigger (roughly ~60KB of text)
 export const TOKEN_LIMIT = 15000;
 
 // Max tokens to send to Haiku for summarization (~400KB, Haiku handles this quickly)
-const MAX_SUMMARIZATION_INPUT = 100000;
-
-// Lazy-initialized Anthropic client for summarization.
-// Must be reset via resetSummarizationClient() when auth/provider settings change.
-let anthropicClient: Anthropic | null = null;
+// Beyond this, even Haiku can't process - we save to file and provide reference only
+export const MAX_SUMMARIZATION_INPUT = 100000;
 
 /**
  * Reset the cached summarization client.
- * Call this when auth or provider settings change so the next summarization
- * picks up the new credentials/base URL.
+ * @deprecated No longer needed - SDK query() handles auth automatically.
+ * Kept for backwards compatibility.
  */
 export function resetSummarizationClient(): void {
-  anthropicClient = null;
-}
-
-/**
- * Get or create Anthropic client for summarization.
- * Supports auth types: api_key and oauth_token.
- */
-async function getAnthropicClient(): Promise<Anthropic | null> {
-  if (anthropicClient) {
-    return anthropicClient;
-  }
-
-  // Option 1: Direct API key from env (set by reinitializeAuth in sessions.ts)
-  const envApiKey = process.env.ANTHROPIC_API_KEY;
-  if (envApiKey) {
-    const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim();
-    anthropicClient = new Anthropic({
-      apiKey: envApiKey,
-      ...(baseUrl ? { baseURL: baseUrl } : {})
-    });
-    debug('[summarize] Using ANTHROPIC_API_KEY for summarization');
-    return anthropicClient;
-  }
-
-  // Option 2: Claude Max OAuth token
-  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  if (oauthToken) {
-    const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim();
-    anthropicClient = new Anthropic({
-      apiKey: oauthToken,
-      ...(baseUrl ? { baseURL: baseUrl } : {})
-    });
-    debug('[summarize] Using CLAUDE_CODE_OAUTH_TOKEN for summarization');
-    return anthropicClient;
-  }
-
-  // Fallback: try credential manager (for cases where env vars aren't set yet)
-  const manager = getCredentialManager();
-  const apiKey = await manager.getApiKey();
-  if (apiKey) {
-    const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim();
-    anthropicClient = new Anthropic({
-      apiKey,
-      ...(baseUrl ? { baseURL: baseUrl } : {})
-    });
-    debug('[summarize] Using API key from credential manager for summarization');
-    return anthropicClient;
-  }
-
-  debug('[summarize] No auth available - summarization will use truncation fallback');
-  return null;
+  // No-op: SDK query() handles auth automatically via getDefaultOptions()
+  debug('[summarize] resetSummarizationClient called (no-op with SDK query)');
 }
 
 /**
@@ -103,7 +53,10 @@ export interface SummarizationContext {
 
 /**
  * Summarize a large tool result to fit within context limits.
- * Uses Claude Haiku for fast, cheap summarization.
+ * Uses Claude Haiku for fast, cheap summarization via Agent SDK query().
+ *
+ * Uses Agent SDK query() which properly handles OAuth tokens (Claude Max)
+ * via getDefaultOptions() - same pattern as title-generator.ts.
  *
  * @param response - The large response text to summarize
  * @param context - Context about the tool/API call for better summarization
@@ -113,14 +66,6 @@ export async function summarizeLargeResult(
   response: string,
   context: SummarizationContext
 ): Promise<string> {
-  const client = await getAnthropicClient();
-
-  // If no client (no API key), fall back to truncation
-  if (!client) {
-    debug('[summarize] Falling back to truncation (no API key for Haiku summarization)');
-    return response.substring(0, 40000) + '\n\n[Result truncated due to size - smart summarization requires API key auth]';
-  }
-
   // Build context from tool input (safely stringify to handle cyclic structures)
   let inputContext = 'No specific parameters provided.';
   if (context.input) {
@@ -153,13 +98,8 @@ export async function summarizeLargeResult(
     : response;
   const wasTruncated = response.length > maxChars;
 
-  try {
-    const result = await client.messages.create({
-      model: resolveModelId(SUMMARIZATION_MODEL),
-      max_tokens: 4096,
-      messages: [{
-        role: 'user',
-        content: `You are summarizing a tool result that was too large to fit in context.
+  // Build the summarization prompt
+  const prompt = `You are summarizing a tool result that was too large to fit in context.
 
 Tool: ${context.toolName}
 ${endpointContext}
@@ -176,14 +116,33 @@ Your task:
 Tool result to summarize:
 ${truncatedResponse}
 
-Provide a concise but comprehensive summary that captures the essential information needed to accomplish the stated goal.`
-      }]
-    });
+Provide a concise but comprehensive summary that captures the essential information needed to accomplish the stated goal.`;
 
-    const textBlock = result.content.find(b => b.type === 'text');
-    return textBlock?.text || 'Failed to summarize result';
+  try {
+    // Use Agent SDK query() which properly handles OAuth tokens
+    const defaultOptions = getDefaultOptions();
+    const options = {
+      ...defaultOptions,
+      model: resolveModelId(SUMMARIZATION_MODEL),
+      maxTurns: 1,
+    };
+
+    let summary = '';
+
+    for await (const message of query({ prompt, options })) {
+      if (message.type === 'assistant') {
+        for (const block of message.message.content) {
+          if (block.type === 'text') {
+            summary += block.text;
+          }
+        }
+      }
+    }
+
+    return summary.trim() || 'Failed to summarize result';
   } catch (error) {
-    debug(`[summarize] Summarization failed: ${error}`);
+    // Log with console.error for visibility in logs
+    console.error(`[summarize] Summarization failed for ${context.toolName}: ${error}`);
     // Fall back to truncation if summarization fails
     return response.substring(0, 40000) + '\n\n[Result truncated due to size]';
   }

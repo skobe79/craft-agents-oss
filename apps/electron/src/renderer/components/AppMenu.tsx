@@ -101,6 +101,11 @@ export function AppMenu({
         </DropdownMenuTrigger>
         <StyledDropdownMenuContent align="start" minWidth="min-w-48">
           {/* File actions at root level */}
+          <StyledDropdownMenuItem onClick={onNewChat}>
+            <SquarePenRounded className="h-3.5 w-3.5" />
+            New Chat
+            <DropdownMenuShortcut className="pl-6">{modKey}N</DropdownMenuShortcut>
+          </StyledDropdownMenuItem>
           {onNewWindow && (
             <StyledDropdownMenuItem onClick={onNewWindow}>
               <AppWindow className="h-3.5 w-3.5" />
@@ -108,11 +113,6 @@ export function AppMenu({
               <DropdownMenuShortcut className="pl-6">{modKey}⇧N</DropdownMenuShortcut>
             </StyledDropdownMenuItem>
           )}
-          <StyledDropdownMenuItem onClick={onNewChat}>
-            <SquarePenRounded className="h-3.5 w-3.5" />
-            New Chat
-            <DropdownMenuShortcut className="pl-6">{modKey}N</DropdownMenuShortcut>
-          </StyledDropdownMenuItem>
 
           <StyledDropdownMenuSeparator />
 

@@ -11,7 +11,6 @@ export type MessageRole =
   | 'tool'
   | 'error'
   | 'status'
-  | 'system'
   | 'info'
   | 'warning'
   | 'plan'

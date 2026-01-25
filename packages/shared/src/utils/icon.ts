@@ -40,6 +40,10 @@ const CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
   'image/jpg': '.jpg',
+  'image/x-icon': '.ico',
+  'image/vnd.microsoft.icon': '.ico',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
 };
 
 // ============================================================

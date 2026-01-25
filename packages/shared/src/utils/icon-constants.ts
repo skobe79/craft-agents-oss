@@ -21,7 +21,7 @@ export const EMOJI_REGEX = /^(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u200D
 /**
  * Supported icon file extensions in priority order.
  */
-export const ICON_EXTENSIONS = ['.svg', '.png', '.jpg', '.jpeg'];
+export const ICON_EXTENSIONS = ['.svg', '.png', '.jpg', '.jpeg', '.ico', '.webp', '.gif'];
 
 // ============================================================
 // Pure Functions (no Node.js dependencies)

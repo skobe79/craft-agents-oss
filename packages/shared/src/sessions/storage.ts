@@ -8,6 +8,7 @@
  * - attachments/ (file attachments)
  * - plans/ (plan files for Safe Mode)
  * - long_responses/ (full tool results that were summarized due to size limits)
+ * - downloads/ (binary files downloaded from API sources: PDFs, images, archives, etc.)
  */
 
 import {
@@ -79,7 +80,7 @@ export function ensureSessionDir(workspaceRootPath: string, sessionId: string): 
   if (!existsSync(sessionDir)) {
     mkdirSync(sessionDir, { recursive: true });
   }
-  // Also create plans, attachments, and long_responses directories
+  // Also create plans, attachments, long_responses, and downloads directories
   const plansDir = join(sessionDir, 'plans');
   if (!existsSync(plansDir)) {
     mkdirSync(plansDir, { recursive: true });
@@ -91,6 +92,11 @@ export function ensureSessionDir(workspaceRootPath: string, sessionId: string): 
   const longResponsesDir = join(sessionDir, 'long_responses');
   if (!existsSync(longResponsesDir)) {
     mkdirSync(longResponsesDir, { recursive: true });
+  }
+  // Downloads directory for binary files from API responses (PDFs, images, etc.)
+  const downloadsDir = join(sessionDir, 'downloads');
+  if (!existsSync(downloadsDir)) {
+    mkdirSync(downloadsDir, { recursive: true });
   }
   return sessionDir;
 }
@@ -110,11 +116,10 @@ export function getSessionPlansPath(workspaceRootPath: string, sessionId: string
 }
 
 /**
- * Get the long_responses directory for a session.
- * Used to store full tool results that were summarized due to size limits.
+ * Get the downloads directory for a session (binary files from API responses)
  */
-export function getSessionLongResponsesPath(workspaceRootPath: string, sessionId: string): string {
-  return join(getSessionPath(workspaceRootPath, sessionId), 'long_responses');
+export function getSessionDownloadsPath(workspaceRootPath: string, sessionId: string): string {
+  return join(getSessionPath(workspaceRootPath, sessionId), 'downloads');
 }
 
 // ============================================================

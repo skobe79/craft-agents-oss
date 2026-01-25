@@ -941,6 +941,7 @@ export interface ElectronAPI {
 
   // Menu actions (from renderer to main)
   menuQuit(): Promise<void>
+  menuNewWindow(): Promise<void>
   menuMinimize(): Promise<void>
   menuMaximize(): Promise<void>
   menuZoomIn(): Promise<void>

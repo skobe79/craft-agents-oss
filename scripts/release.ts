@@ -20,6 +20,7 @@ import { dirname, join } from 'path';
 const scriptDir = dirname(new URL(import.meta.url).pathname);
 const repoRoot = dirname(scriptDir);
 const versionFile = join(repoRoot, 'packages/shared/src/version/app-version.ts');
+const releaseNotesDir = join(repoRoot, 'docs/release-notes');
 
 type BumpType = 'patch' | 'minor' | 'major';
 
@@ -76,6 +77,13 @@ function bumpVersion(current: string, type: BumpType): string {
 
 function isValidVersion(version: string): boolean {
   return /^\d+\.\d+\.\d+$/.test(version);
+}
+
+// Check if release notes file exists for the given version.
+// Returns the file path if it exists, null otherwise.
+function getReleaseNotesPath(version: string): string | null {
+  const notesPath = join(releaseNotesDir, `${version}.md`);
+  return existsSync(notesPath) ? notesPath : null;
 }
 
 function updateVersionFile(version: string): void {
@@ -224,6 +232,24 @@ async function main(): Promise<void> {
   }
 
   console.log(`New version: ${newVersion}`);
+
+  // Validate release notes file exists (required for CI workflow).
+  // This ensures the release won't fail in GitHub Actions due to missing notes.
+  const releaseNotesPath = getReleaseNotesPath(newVersion);
+  if (!releaseNotesPath) {
+    const expectedPath = `docs/release-notes/${newVersion}.md`;
+    console.error(`\n❌ Missing release notes: ${expectedPath}`);
+    console.error(`\nThe release workflow requires this file to exist.`);
+    console.error(`Create it with content like:\n`);
+    console.error(`  ## Features`);
+    console.error(`  - New feature description\n`);
+    console.error(`  ## Improvements`);
+    console.error(`  - Improvement description\n`);
+    console.error(`  ## Bug Fixes`);
+    console.error(`  - Fix description\n`);
+    process.exit(1);
+  }
+  console.log(`Release notes: ${releaseNotesPath.replace(repoRoot + '/', '')}`);
 
   if (dryRun) {
     console.log('\n[DRY RUN] Would perform the following actions:');

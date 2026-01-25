@@ -135,6 +135,7 @@ export {
   JSONPreviewOverlay,
   DataTableOverlay,
   DocumentFormattedMarkdownOverlay,
+  detectLanguage,
   detectLanguageFromPath,
   type CodePreviewOverlayProps,
   type MultiDiffPreviewOverlayProps,

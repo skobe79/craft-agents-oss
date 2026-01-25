@@ -1513,6 +1513,7 @@ function AppShellContent({
           >
             <AppMenu
               onNewChat={() => handleNewChat(true)}
+              onNewWindow={() => window.electronAPI.menuNewWindow()}
               onOpenSettings={onOpenSettings}
               onOpenKeyboardShortcuts={onOpenKeyboardShortcuts}
               onOpenStoredUserPreferences={onOpenStoredUserPreferences}
@@ -1663,7 +1664,7 @@ function AppShellContent({
                       onToggle: () => toggleExpanded('nav:sources'),
                       contextMenu: {
                         type: 'sources',
-                        onAddSource: openAddSource,
+                        onAddSource: () => openAddSource(),
                       },
                       items: [
                         {
@@ -1849,7 +1850,8 @@ function AppShellContent({
                       <DropdownMenuTrigger asChild>
                         <HeaderIconButton
                           icon={<ListFilter className="h-4 w-4" />}
-                          className={(listFilter.size > 0 || labelFilter.size > 0) ? "text-foreground" : undefined}
+                          className={(listFilter.size > 0 || labelFilter.size > 0) ? "bg-accent/5 text-accent rounded-[8px] shadow-tinted" : "rounded-[8px]"}
+                          style={(listFilter.size > 0 || labelFilter.size > 0) ? { '--shadow-color': 'var(--accent-rgb)' } as React.CSSProperties : undefined}
                         />
                       </DropdownMenuTrigger>
                       <StyledDropdownMenuContent align="end" light minWidth="min-w-[200px]">
@@ -2367,8 +2369,8 @@ function AppShellContent({
               modal={true}
               trigger={
                 <div
-                  className="fixed top-[120px] w-0 h-0 pointer-events-none"
-                  style={{ left: sidebarWidth + 20 }}
+                  className="fixed w-0 h-0 pointer-events-none"
+                  style={{ left: sidebarWidth + 20, top: editPopoverAnchorY.current }}
                   aria-hidden="true"
                 />
               }

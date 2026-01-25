@@ -416,6 +416,7 @@ const api: ElectronAPI = {
 
   // Menu actions (for unified Craft menu)
   menuQuit: () => ipcRenderer.invoke(IPC_CHANNELS.MENU_QUIT),
+  menuNewWindow: () => ipcRenderer.invoke(IPC_CHANNELS.MENU_NEW_WINDOW),
   menuMinimize: () => ipcRenderer.invoke(IPC_CHANNELS.MENU_MINIMIZE),
   menuMaximize: () => ipcRenderer.invoke(IPC_CHANNELS.MENU_MAXIMIZE),
   menuZoomIn: () => ipcRenderer.invoke(IPC_CHANNELS.MENU_ZOOM_IN),

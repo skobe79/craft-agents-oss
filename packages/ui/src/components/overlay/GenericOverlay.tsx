@@ -39,7 +39,7 @@ export interface GenericOverlayProps {
  * Auto-detect language from content patterns.
  * Checks for JSON, code blocks, then defaults to markdown.
  */
-function detectLanguage(content: string): string {
+export function detectLanguage(content: string): string {
   const trimmed = content.trim()
 
   // Check for JSON - starts with { or [ and looks like valid JSON structure

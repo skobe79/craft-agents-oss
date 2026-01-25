@@ -134,11 +134,13 @@ export class SourceServerBuilder {
    * @param source - The source configuration
    * @param credential - API credential (null for public APIs)
    * @param getToken - Token getter for OAuth APIs (Google, etc.) - supports auto-refresh
+   * @param sessionPath - Optional path to session folder for saving large responses
    */
   async buildApiServer(
     source: LoadedSource,
     credential: ApiCredential | null,
-    getToken?: () => Promise<string>
+    getToken?: () => Promise<string>,
+    sessionPath?: string
   ): Promise<ReturnType<typeof createSdkMcpServer> | null> {
     if (source.config.type !== 'api') return null;
     if (!source.config.api) {
@@ -160,7 +162,7 @@ export class SourceServerBuilder {
       const config = this.buildApiConfig(source);
       // Pass the token getter function - it will be called before each request
       // to get a fresh token (with auto-refresh if expired)
-      return createApiServer(config, getToken);
+      return createApiServer(config, getToken, sessionPath);
     }
 
     // Slack APIs - use token getter with auto-refresh
@@ -173,14 +175,14 @@ export class SourceServerBuilder {
       const config = this.buildApiConfig(source);
       // Pass the token getter function - it will be called before each request
       // to get a fresh token (with auto-refresh if expired)
-      return createApiServer(config, getToken);
+      return createApiServer(config, getToken, sessionPath);
     }
 
     // Public APIs (no auth) can be used immediately
     if (authType === 'none') {
       debug(`[SourceServerBuilder] Building public API server for ${source.config.slug}`);
       const config = this.buildApiConfig(source);
-      return createApiServer(config, '');
+      return createApiServer(config, '', sessionPath);
     }
 
     // API key/bearer/header/query/basic auth - use static credential
@@ -191,7 +193,7 @@ export class SourceServerBuilder {
 
     debug(`[SourceServerBuilder] Building API server for ${source.config.slug} (auth: ${authType})`);
     const config = this.buildApiConfig(source);
-    return createApiServer(config, credential);
+    return createApiServer(config, credential, sessionPath);
   }
 
   /**
@@ -234,10 +236,12 @@ export class SourceServerBuilder {
    *
    * @param sourcesWithCredentials - Sources with their pre-loaded credentials
    * @param getTokenForSource - Function to get token getter for OAuth sources
+   * @param sessionPath - Optional path to session folder for saving large API responses
    */
   async buildAll(
     sourcesWithCredentials: SourceWithCredential[],
-    getTokenForSource?: (source: LoadedSource) => (() => Promise<string>) | undefined
+    getTokenForSource?: (source: LoadedSource) => (() => Promise<string>) | undefined,
+    sessionPath?: string
   ): Promise<BuiltServers> {
     const mcpServers: Record<string, McpServerConfig> = {};
     const apiServers: Record<string, ReturnType<typeof createSdkMcpServer>> = {};
@@ -263,7 +267,7 @@ export class SourceServerBuilder {
           }
         } else if (source.config.type === 'api') {
           const getToken = getTokenForSource?.(source);
-          const server = await this.buildApiServer(source, credential ?? null, getToken);
+          const server = await this.buildApiServer(source, credential ?? null, getToken, sessionPath);
           if (server) {
             apiServers[source.config.slug] = server;
           }
