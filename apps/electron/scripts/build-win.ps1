@@ -255,6 +255,19 @@ try {
     Pop-Location
 }
 
+# Copy doc assets (matches electron:build:assets step used by Mac/Linux builds)
+# Without this, loadBundledDocs() can't find the docs and falls back to placeholders
+Write-Host "  Copying doc assets..."
+$DocsSrc = "$RootDir\packages\shared\assets\docs"
+$DocsDst = "$ElectronDir\dist\assets\docs"
+if (Test-Path $DocsSrc) {
+    New-Item -ItemType Directory -Force -Path "$ElectronDir\dist\assets" | Out-Null
+    Copy-Item -Recurse -Force $DocsSrc $DocsDst
+    Write-Host "  Doc assets copied" -ForegroundColor Green
+} else {
+    Write-Host "  WARNING: No doc assets found at $DocsSrc" -ForegroundColor Yellow
+}
+
 # 7. Package with electron-builder
 Write-Host "Packaging app with electron-builder..."
 
