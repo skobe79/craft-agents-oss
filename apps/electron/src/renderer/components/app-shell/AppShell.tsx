@@ -186,15 +186,19 @@ function FilterLabelItems({
   labels,
   labelFilter,
   setLabelFilter,
+  pinnedLabelId,
 }: {
   labels: LabelConfig[]
   labelFilter: Set<string>
   setLabelFilter: React.Dispatch<React.SetStateAction<Set<string>>>
+  /** Label ID pinned by the current route (non-removable, shown as checked+disabled) */
+  pinnedLabelId?: string | null
 }) {
   return (
     <>
       {labels.map(label => {
         const hasChildren = label.children && label.children.length > 0
+        const isPinned = label.id === pinnedLabelId
         if (hasChildren) {
           // Parent label: render as a submenu trigger with nested items.
           // The parent itself is also toggleable via clicking the trigger area.
@@ -204,13 +208,15 @@ function FilterLabelItems({
                 <FilterMenuRow
                   icon={<LabelIcon label={label} size="sm" hasChildren />}
                   label={label.name}
-                  accessory={labelFilter.has(label.id) && <Check className="h-3 w-3 text-foreground" />}
+                  accessory={(isPinned || labelFilter.has(label.id)) && <Check className={cn("h-3 w-3", isPinned ? "text-muted-foreground" : "text-foreground")} />}
                 />
               </StyledDropdownMenuSubTrigger>
               <StyledDropdownMenuSubContent minWidth="min-w-[160px]">
-                {/* Allow selecting the parent label itself */}
+                {/* Allow selecting the parent label itself (disabled if pinned) */}
                 <StyledDropdownMenuItem
+                  disabled={isPinned}
                   onClick={(e) => {
+                    if (isPinned) return
                     e.preventDefault()
                     setLabelFilter(prev => {
                       const next = new Set(prev)
@@ -223,25 +229,28 @@ function FilterLabelItems({
                   <FilterMenuRow
                     icon={<LabelIcon label={label} size="sm" hasChildren />}
                     label={label.name}
-                    accessory={labelFilter.has(label.id) && <Check className="h-3 w-3 text-foreground" />}
+                    accessory={(isPinned || labelFilter.has(label.id)) && <Check className={cn("h-3 w-3", isPinned ? "text-muted-foreground" : "text-foreground")} />}
                   />
                 </StyledDropdownMenuItem>
                 <StyledDropdownMenuSeparator />
-                {/* Recurse into children */}
+                {/* Recurse into children, passing pinnedLabelId down */}
                 <FilterLabelItems
                   labels={label.children!}
                   labelFilter={labelFilter}
                   setLabelFilter={setLabelFilter}
+                  pinnedLabelId={pinnedLabelId}
                 />
               </StyledDropdownMenuSubContent>
             </DropdownMenuSub>
           )
         }
-        // Leaf label: render as a simple toggleable item
+        // Leaf label: render as a simple toggleable item (disabled if pinned)
         return (
           <StyledDropdownMenuItem
             key={label.id}
+            disabled={isPinned}
             onClick={(e) => {
+              if (isPinned) return
               e.preventDefault()
               setLabelFilter(prev => {
                 const next = new Set(prev)
@@ -254,7 +263,7 @@ function FilterLabelItems({
             <FilterMenuRow
               icon={<LabelIcon label={label} size="sm" />}
               label={label.name}
-              accessory={labelFilter.has(label.id) && <Check className="h-3 w-3 text-foreground" />}
+              accessory={(isPinned || labelFilter.has(label.id)) && <Check className={cn("h-3 w-3", isPinned ? "text-muted-foreground" : "text-foreground")} />}
             />
           </StyledDropdownMenuItem>
         )
@@ -377,16 +386,74 @@ function AppShellContent({
   // Derive source filter from navigation state (only when in sources navigator)
   const sourceFilter: SourceFilter | null = isSourcesNavigation(navState) ? navState.filter ?? null : null
 
-  // Session list filter: empty set shows all, otherwise shows only sessions with selected states
-  const [listFilter, setListFilter] = React.useState<Set<TodoStateId>>(() => {
-    const saved = storage.get<TodoStateId[]>(storage.KEYS.listFilter, [])
-    return new Set(saved)
+  // Per-view filter storage: each session list view (allChats, flagged, state:X, label:X, view:X)
+  // has its own independent set of status and label filters.
+  // Stored as a single map in localStorage keyed by view identifier.
+  type ViewFiltersMap = Record<string, { statuses: TodoStateId[], labels: string[] }>
+
+  // Compute a stable key for the current chat filter view
+  const chatFilterKey = useMemo(() => {
+    if (!chatFilter) return null
+    switch (chatFilter.kind) {
+      case 'allChats': return 'allChats'
+      case 'flagged': return 'flagged'
+      case 'state': return `state:${chatFilter.stateId}`
+      case 'label': return `label:${chatFilter.labelId}`
+      case 'view': return `view:${chatFilter.viewId}`
+      default: return 'allChats'
+    }
+  }, [chatFilter])
+
+  const [viewFiltersMap, setViewFiltersMap] = React.useState<ViewFiltersMap>(() => {
+    const saved = storage.get<ViewFiltersMap>(storage.KEYS.viewFilters, {})
+    // Backward compat: migrate old global filters into 'allChats' entry if not yet present
+    if (!saved.allChats) {
+      const oldStatuses = storage.get<TodoStateId[]>(storage.KEYS.listFilter, [])
+      const oldLabels = storage.get<string[]>(storage.KEYS.labelFilter, [])
+      if (oldStatuses.length > 0 || oldLabels.length > 0) {
+        saved.allChats = { statuses: oldStatuses, labels: oldLabels }
+      }
+    }
+    return saved
   })
-  // Label filter: empty set shows all, otherwise shows only sessions with at least one matching label
-  const [labelFilter, setLabelFilter] = React.useState<Set<string>>(() => {
-    const saved = storage.get<string[]>(storage.KEYS.labelFilter, [])
-    return new Set(saved)
-  })
+
+  // Derive current view's status filter from the per-view map
+  const listFilter = useMemo(() => {
+    if (!chatFilterKey) return new Set<TodoStateId>()
+    return new Set<TodoStateId>(viewFiltersMap[chatFilterKey]?.statuses ?? [])
+  }, [viewFiltersMap, chatFilterKey])
+
+  // Derive current view's label filter from the per-view map
+  const labelFilter = useMemo(() => {
+    if (!chatFilterKey) return new Set<string>()
+    return new Set<string>(viewFiltersMap[chatFilterKey]?.labels ?? [])
+  }, [viewFiltersMap, chatFilterKey])
+
+  // Setter for status filter — updates only the current view's entry in the map
+  const setListFilter = useCallback((updater: Set<TodoStateId> | ((prev: Set<TodoStateId>) => Set<TodoStateId>)) => {
+    setViewFiltersMap(prev => {
+      if (!chatFilterKey) return prev
+      const current = new Set<TodoStateId>(prev[chatFilterKey]?.statuses ?? [])
+      const next = typeof updater === 'function' ? updater(current) : updater
+      return {
+        ...prev,
+        [chatFilterKey]: { statuses: [...next], labels: prev[chatFilterKey]?.labels ?? [] }
+      }
+    })
+  }, [chatFilterKey])
+
+  // Setter for label filter — updates only the current view's entry in the map
+  const setLabelFilter = useCallback((updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    setViewFiltersMap(prev => {
+      if (!chatFilterKey) return prev
+      const current = new Set<string>(prev[chatFilterKey]?.labels ?? [])
+      const next = typeof updater === 'function' ? updater(current) : updater
+      return {
+        ...prev,
+        [chatFilterKey]: { statuses: prev[chatFilterKey]?.statuses ?? [], labels: [...next] }
+      }
+    })
+  }, [chatFilterKey])
   // Search state for session list
   const [searchActive, setSearchActive] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState('')
@@ -909,29 +976,46 @@ function AppShellContent({
         result = workspaceSessionMetas
     }
 
-    // Apply secondary filters in allChats view (status + labels, AND-ed together)
-    if (chatFilter.kind === 'allChats') {
-      // Filter by status if any statuses are selected
-      if (listFilter.size > 0) {
-        result = result.filter(s => listFilter.has((s.todoState || 'todo') as TodoStateId))
+    // Apply secondary filters (status + labels, AND-ed together) in ALL views.
+    // These layer on top of the primary chatFilter to allow further narrowing.
+    // Filter by status if any statuses are selected
+    if (listFilter.size > 0) {
+      result = result.filter(s => listFilter.has((s.todoState || 'todo') as TodoStateId))
+    }
+    // Filter by labels if any labels are selected (includes descendants)
+    if (labelFilter.size > 0) {
+      // Expand selected labels to include all descendant IDs
+      const matchIds = new Set<string>()
+      for (const id of labelFilter) {
+        matchIds.add(id)
+        const descendants = getDescendantIds(labelConfigs, id)
+        for (const d of descendants) matchIds.add(d)
       }
-      // Filter by labels if any labels are selected (includes descendants)
-      if (labelFilter.size > 0) {
-        // Expand selected labels to include all descendant IDs
-        const matchIds = new Set<string>()
-        for (const id of labelFilter) {
-          matchIds.add(id)
-          const descendants = getDescendantIds(labelConfigs, id)
-          for (const d of descendants) matchIds.add(d)
-        }
-        result = result.filter(s =>
-          s.labels?.some(l => matchIds.has(extractLabelId(l)))
-        )
-      }
+      result = result.filter(s =>
+        s.labels?.some(l => matchIds.has(extractLabelId(l)))
+      )
     }
 
     return result
   }, [workspaceSessionMetas, chatFilter, listFilter, labelFilter, labelConfigs])
+
+  // Derive "pinned" (non-removable) filters from the current chatFilter path.
+  // These represent filters that are implicit in the current deeplink/route and
+  // should be displayed as fixed chips in the filter bar that users cannot remove.
+  const pinnedFilters = useMemo(() => {
+    if (!chatFilter) return { pinnedStatusId: null as string | null, pinnedLabelId: null as string | null, pinnedFlagged: false }
+    switch (chatFilter.kind) {
+      case 'state':
+        return { pinnedStatusId: chatFilter.stateId, pinnedLabelId: null, pinnedFlagged: false }
+      case 'label':
+        // Don't pin the __all__ pseudo-label — that just means "any label"
+        return { pinnedStatusId: null, pinnedLabelId: chatFilter.labelId !== '__all__' ? chatFilter.labelId : null, pinnedFlagged: false }
+      case 'flagged':
+        return { pinnedStatusId: null, pinnedLabelId: null, pinnedFlagged: true }
+      default:
+        return { pinnedStatusId: null, pinnedLabelId: null, pinnedFlagged: false }
+    }
+  }, [chatFilter])
 
   // Ensure session messages are loaded when selected
   React.useEffect(() => {
@@ -1015,15 +1099,10 @@ function AppShellContent({
     storage.set(storage.KEYS.rightSidebarVisible, isRightSidebarVisible)
   }, [isRightSidebarVisible])
 
-  // Persist list filter to localStorage
+  // Persist per-view filter map to localStorage
   React.useEffect(() => {
-    storage.set(storage.KEYS.listFilter, [...listFilter])
-  }, [listFilter])
-
-  // Persist label filter to localStorage
-  React.useEffect(() => {
-    storage.set(storage.KEYS.labelFilter, [...labelFilter])
-  }, [labelFilter])
+    storage.set(storage.KEYS.viewFilters, viewFiltersMap)
+  }, [viewFiltersMap])
 
   // Persist sidebar section collapsed states
   React.useEffect(() => {
@@ -1844,8 +1923,10 @@ function AppShellContent({
               compensateForStoplight={!isSidebarVisible}
               actions={
                 <>
-                  {/* Filter dropdown - allows filtering by statuses and labels (only in All Chats view) */}
-                  {chatFilter?.kind === 'allChats' && (
+                  {/* Filter dropdown - available in ALL chat views.
+                      Shows user-added filters (removable) and pinned filters (non-removable, derived from route).
+                      Pinned filters: state views pin a status, label views pin a label, flagged pins the flag. */}
+                  {isChatsNavigation(navState) && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <HeaderIconButton
@@ -1855,7 +1936,7 @@ function AppShellContent({
                         />
                       </DropdownMenuTrigger>
                       <StyledDropdownMenuContent align="end" light minWidth="min-w-[200px]">
-                        {/* Header with title and clear button */}
+                        {/* Header with title and clear button (only clears user-added filters, never pinned) */}
                         <div className="flex items-center justify-between px-2 py-1.5 border-b border-foreground/5">
                           <span className="text-xs font-medium text-muted-foreground">Filter Chats</span>
                           {(listFilter.size > 0 || labelFilter.size > 0) && (
@@ -1872,10 +1953,53 @@ function AppShellContent({
                           )}
                         </div>
 
-                        {/* Selected items at root level - shows active filters with checkmarks for quick visibility */}
-                        {(listFilter.size > 0 || labelFilter.size > 0) && (
+                        {/* Active filter chips: pinned (non-removable) + user-added (removable).
+                            Pinned chips appear first with a muted style, user-added chips are clickable to remove. */}
+                        {(pinnedFilters.pinnedFlagged || pinnedFilters.pinnedStatusId || pinnedFilters.pinnedLabelId || listFilter.size > 0 || labelFilter.size > 0) && (
                           <>
-                            {/* Selected statuses */}
+                            {/* Pinned: flagged */}
+                            {pinnedFilters.pinnedFlagged && (
+                              <StyledDropdownMenuItem disabled>
+                                <FilterMenuRow
+                                  icon={<Flag className="h-3.5 w-3.5" />}
+                                  label="Flagged"
+                                  accessory={<Check className="h-3 w-3 text-muted-foreground" />}
+                                />
+                              </StyledDropdownMenuItem>
+                            )}
+                            {/* Pinned: status from state view */}
+                            {(() => {
+                              if (!pinnedFilters.pinnedStatusId) return null
+                              const state = effectiveTodoStates.find(s => s.id === pinnedFilters.pinnedStatusId)
+                              if (!state) return null
+                              return (
+                                <StyledDropdownMenuItem disabled key={`pinned-status-${state.id}`}>
+                                  <FilterMenuRow
+                                    icon={state.icon}
+                                    label={state.label}
+                                    accessory={<Check className="h-3 w-3 text-muted-foreground" />}
+                                    iconStyle={state.iconColorable ? { color: state.resolvedColor } : undefined}
+                                    noIconContainer
+                                  />
+                                </StyledDropdownMenuItem>
+                              )
+                            })()}
+                            {/* Pinned: label from label view */}
+                            {(() => {
+                              if (!pinnedFilters.pinnedLabelId) return null
+                              const label = findLabelById(labelConfigs, pinnedFilters.pinnedLabelId)
+                              if (!label) return null
+                              return (
+                                <StyledDropdownMenuItem disabled key={`pinned-label-${label.id}`}>
+                                  <FilterMenuRow
+                                    icon={<LabelIcon label={label} size="sm" />}
+                                    label={label.name}
+                                    accessory={<Check className="h-3 w-3 text-muted-foreground" />}
+                                  />
+                                </StyledDropdownMenuItem>
+                              )
+                            })()}
+                            {/* User-added: selected statuses (removable on click) */}
                             {effectiveTodoStates.filter(s => listFilter.has(s.id)).map(state => {
                               const applyColor = state.iconColorable
                               return (
@@ -1900,7 +2024,7 @@ function AppShellContent({
                                 </StyledDropdownMenuItem>
                               )
                             })}
-                            {/* Selected labels */}
+                            {/* User-added: selected labels (removable on click) */}
                             {Array.from(labelFilter).map(labelId => {
                               const label = findLabelById(labelConfigs, labelId)
                               if (!label) return null
@@ -1928,7 +2052,8 @@ function AppShellContent({
                           </>
                         )}
 
-                        {/* Statuses submenu - all workspace statuses with toggle selection */}
+                        {/* Statuses submenu - all workspace statuses with toggle selection.
+                            Pinned status (from state view) is shown as checked+disabled. */}
                         <DropdownMenuSub>
                           <StyledDropdownMenuSubTrigger>
                             <Inbox className="h-3.5 w-3.5" />
@@ -1937,10 +2062,13 @@ function AppShellContent({
                           <StyledDropdownMenuSubContent minWidth="min-w-[180px]">
                             {effectiveTodoStates.map(state => {
                               const applyColor = state.iconColorable
+                              const isPinned = state.id === pinnedFilters.pinnedStatusId
                               return (
                                 <StyledDropdownMenuItem
                                   key={state.id}
+                                  disabled={isPinned}
                                   onClick={(e) => {
+                                    if (isPinned) return
                                     e.preventDefault()
                                     setListFilter(prev => {
                                       const next = new Set(prev)
@@ -1953,7 +2081,7 @@ function AppShellContent({
                                   <FilterMenuRow
                                     icon={state.icon}
                                     label={state.label}
-                                    accessory={listFilter.has(state.id) && <Check className="h-3 w-3 text-foreground" />}
+                                    accessory={(isPinned || listFilter.has(state.id)) && <Check className={cn("h-3 w-3", isPinned ? "text-muted-foreground" : "text-foreground")} />}
                                     iconStyle={applyColor ? { color: state.resolvedColor } : undefined}
                                     noIconContainer
                                   />
@@ -1963,7 +2091,8 @@ function AppShellContent({
                           </StyledDropdownMenuSubContent>
                         </DropdownMenuSub>
 
-                        {/* Labels submenu - full label tree with recursive submenus */}
+                        {/* Labels submenu - full label tree with recursive submenus.
+                            Pinned label (from label view) is shown as checked+disabled. */}
                         <DropdownMenuSub>
                           <StyledDropdownMenuSubTrigger>
                             <Tag className="h-3.5 w-3.5" />
@@ -1979,6 +2108,7 @@ function AppShellContent({
                                 labels={labelConfigs}
                                 labelFilter={labelFilter}
                                 setLabelFilter={setLabelFilter}
+                                pinnedLabelId={pinnedFilters.pinnedLabelId}
                               />
                             )}
                           </StyledDropdownMenuSubContent>
@@ -1992,33 +2122,6 @@ function AppShellContent({
                         >
                           <Search className="h-3.5 w-3.5" />
                           <span className="flex-1">Search</span>
-                        </StyledDropdownMenuItem>
-                      </StyledDropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                  {/* More menu with Search for non-allChats views (only for chats mode) */}
-                  {isChatsNavigation(navState) && chatFilter?.kind !== 'allChats' && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <HeaderIconButton icon={<MoreHorizontal className="h-4 w-4" />} />
-                      </DropdownMenuTrigger>
-                      <StyledDropdownMenuContent align="end" light>
-                        <StyledDropdownMenuItem
-                          onClick={() => {
-                            setSearchActive(true)
-                          }}
-                        >
-                          <Search className="h-3.5 w-3.5" />
-                          <span className="flex-1">Search</span>
-                        </StyledDropdownMenuItem>
-                        <StyledDropdownMenuSeparator />
-                        <StyledDropdownMenuItem
-                          onClick={() => {
-                            window.electronAPI?.openUrl(getDocUrl('statuses'))
-                          }}
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          <span className="flex-1">Learn More</span>
                         </StyledDropdownMenuItem>
                       </StyledDropdownMenuContent>
                     </DropdownMenu>
@@ -2298,7 +2401,7 @@ function AppShellContent({
             align="start"
             secondaryAction={{
               label: 'Edit File',
-              onClick: () => window.electronAPI?.openFile(`${activeWorkspace.rootPath}/statuses/config.json`),
+              onClick: () => contextValue.onOpenFile(`${activeWorkspace.rootPath}/statuses/config.json`),
             }}
             {...getEditConfig('edit-statuses', activeWorkspace.rootPath)}
           />
@@ -2318,7 +2421,7 @@ function AppShellContent({
             align="start"
             secondaryAction={{
               label: 'Edit File',
-              onClick: () => window.electronAPI?.openFile(`${activeWorkspace.rootPath}/labels/config.json`),
+              onClick: () => contextValue.onOpenFile(`${activeWorkspace.rootPath}/labels/config.json`),
             }}
             {...(() => {
               // Spread base config, override context to include which label was right-clicked
@@ -2354,7 +2457,7 @@ function AppShellContent({
             align="start"
             secondaryAction={{
               label: 'Edit File',
-              onClick: () => window.electronAPI?.openFile(`${activeWorkspace.rootPath}/views.json`),
+              onClick: () => contextValue.onOpenFile(`${activeWorkspace.rootPath}/views.json`),
             }}
             {...getEditConfig('edit-views', activeWorkspace.rootPath)}
           />
@@ -2411,7 +2514,7 @@ function AppShellContent({
             align="start"
             secondaryAction={{
               label: 'Edit File',
-              onClick: () => window.electronAPI?.openFile(`${activeWorkspace.rootPath}/labels/config.json`),
+              onClick: () => contextValue.onOpenFile(`${activeWorkspace.rootPath}/labels/config.json`),
             }}
             {...(() => {
               // Spread base config, override context to include which label was right-clicked

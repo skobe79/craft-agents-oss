@@ -2278,9 +2278,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Preset themes (app-level)
   ipcMain.handle(IPC_CHANNELS.THEME_GET_PRESETS, async () => {
     const { loadPresetThemes } = await import('@craft-agent/shared/config/storage')
-    // Pass bundled themes path from Electron resources (dist/resources/themes)
-    const bundledThemesDir = join(__dirname, 'resources/themes')
-    return loadPresetThemes(bundledThemesDir)
+    return loadPresetThemes()
   })
 
   ipcMain.handle(IPC_CHANNELS.THEME_LOAD_PRESET, async (_event, themeId: string) => {

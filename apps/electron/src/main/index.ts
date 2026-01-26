@@ -14,6 +14,8 @@ import { loadWindowState, saveWindowState } from './window-state'
 import { getWorkspaces } from '@craft-agent/shared/config'
 import { initializeDocs } from '@craft-agent/shared/docs'
 import { ensureDefaultPermissions } from '@craft-agent/shared/agent/permissions-config'
+import { ensureToolIcons } from '@craft-agent/shared/config'
+import { setBundledAssetsRoot } from '@craft-agent/shared/utils'
 import { handleDeepLink } from './deep-link'
 import { registerThumbnailScheme, registerThumbnailHandler } from './thumbnail-protocol'
 import log, { isDebugMode, mainLog, getLogFilePath } from './logger'
@@ -149,12 +151,18 @@ async function createInitialWindows(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  // Register bundled assets root so all seeding functions can find their files
+  // (docs, permissions, themes, tool-icons resolve via getBundledAssetsDir)
+  setBundledAssetsRoot(__dirname)
+
   // Initialize bundled docs
   initializeDocs()
 
   // Ensure default permissions file exists (copies bundled default.json on first run)
-  const bundledPermissionsDir = join(__dirname, 'resources/permissions')
-  ensureDefaultPermissions(bundledPermissionsDir)
+  ensureDefaultPermissions()
+
+  // Seed tool icons to ~/.craft-agent/tool-icons/ (copies bundled SVGs on first run)
+  ensureToolIcons()
 
   // Register thumbnail:// protocol handler (scheme was registered earlier, before app.whenReady)
   registerThumbnailHandler()

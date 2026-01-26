@@ -20,6 +20,7 @@ import { File, Folder, FolderOpen, FileText, Image, FileCode, ChevronRight } fro
 import type { SessionFile } from '../../../shared/types'
 import { cn } from '@/lib/utils'
 import * as storage from '@/lib/local-storage'
+import { useAppShellContext } from '@/context/AppShellContext'
 
 /**
  * Stagger animation variants for child items - matches LeftSidebar pattern
@@ -407,19 +408,29 @@ export function SessionFilesSection({ sessionId, className }: SessionFilesSectio
     }
   }, [sessionId, loadFiles])
 
-  // Handle file click - reveal in Finder
+  // Use the link interceptor (via context) so file clicks show in-app previews
+  // instead of always opening in Finder / default app.
+  const { onOpenFile } = useAppShellContext()
+
+  // Handle file click — preview in-app if possible, open directory in Finder
   const handleFileClick = useCallback((file: SessionFile) => {
     if (file.type === 'directory') {
+      // eslint-disable-next-line craft-links/no-direct-file-open -- directories can't be previewed in-app
       window.electronAPI.openFile(file.path)
     } else {
-      window.electronAPI.showInFolder(file.path)
+      onOpenFile(file.path)
     }
-  }, [])
+  }, [onOpenFile])
 
-  // Handle double-click - open the file
+  // Handle double-click — same as single click (interceptor decides preview vs external)
   const handleFileDoubleClick = useCallback((file: SessionFile) => {
-    window.electronAPI.openFile(file.path)
-  }, [])
+    if (file.type === 'directory') {
+      // eslint-disable-next-line craft-links/no-direct-file-open -- directories can't be previewed in-app
+      window.electronAPI.openFile(file.path)
+    } else {
+      onOpenFile(file.path)
+    }
+  }, [onOpenFile])
 
   // Toggle folder expanded state
   const handleToggleExpand = useCallback((path: string) => {

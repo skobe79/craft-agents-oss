@@ -14,6 +14,7 @@ import { SourceMenu } from '@/components/app-shell/SourceMenu'
 import { cn } from '@/lib/utils'
 import { routes, navigate } from '@/lib/navigate'
 import { useNavigation } from '@/contexts/NavigationContext'
+import { useAppShellContext } from '@/context/AppShellContext'
 import { toast } from 'sonner'
 import {
   Info_Page,
@@ -169,6 +170,7 @@ function getPermissionsDescription(source: LoadedSource): string {
 
 export default function SourceInfoPage({ sourceSlug, workspaceId, onDelete }: SourceInfoPageProps) {
   const { navigateToSource } = useNavigation()
+  const { onOpenFile } = useAppShellContext()
   const [source, setSource] = useState<LoadedSource | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -332,29 +334,23 @@ export default function SourceInfoPage({ sourceSlug, workspaceId, onDelete }: So
     }
   }, [source])
 
-  // Handle editing guide.md - opens in system default text editor
-  const handleEditGuide = useCallback(async () => {
+  // Handle editing guide.md — routes through link interceptor for in-app preview
+  const handleEditGuide = useCallback(() => {
     if (!source) return
+    onOpenFile(`${source.folderPath}/guide.md`)
+  }, [source, onOpenFile])
 
-    const guidePath = `${source.folderPath}/guide.md`
-    await window.electronAPI.openFile(guidePath)
-  }, [source])
-
-  // Handle editing config.json - opens in system default text editor
-  const handleEditConfig = useCallback(async () => {
+  // Handle editing config.json — routes through link interceptor for in-app preview
+  const handleEditConfig = useCallback(() => {
     if (!source) return
+    onOpenFile(`${source.folderPath}/config.json`)
+  }, [source, onOpenFile])
 
-    const configPath = `${source.folderPath}/config.json`
-    await window.electronAPI.openFile(configPath)
-  }, [source])
-
-  // Handle editing permissions.json - opens in system default text editor
-  const handleEditPermissions = useCallback(async () => {
+  // Handle editing permissions.json — routes through link interceptor for in-app preview
+  const handleEditPermissions = useCallback(() => {
     if (!source) return
-
-    const permissionsPath = `${source.folderPath}/permissions.json`
-    await window.electronAPI.openFile(permissionsPath)
-  }, [source])
+    onOpenFile(`${source.folderPath}/permissions.json`)
+  }, [source, onOpenFile])
 
   // Handle deleting source (navigates to source list, preserving current filter)
   const handleDelete = useCallback(async () => {

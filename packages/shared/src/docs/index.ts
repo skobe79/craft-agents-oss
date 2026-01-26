@@ -13,6 +13,7 @@ import { homedir } from 'os';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
 import { isDebugEnabled } from '../utils/debug.ts';
 import { getAppVersion } from '../version/index.ts';
+import { getBundledAssetsDir } from '../utils/paths.ts';
 
 const CONFIG_DIR = join(homedir(), '.craft-agent');
 const DOCS_DIR = join(CONFIG_DIR, 'docs');
@@ -20,31 +21,13 @@ const DOCS_DIR = join(CONFIG_DIR, 'docs');
 // Track if docs have been initialized this session (prevents re-init on hot reload)
 let docsInitialized = false;
 
-// Resolve the assets directory using process.cwd() based paths.
-// All paths work in both ESM (Bun dev) and CJS (Electron bundle) environments.
-// Handles multiple scenarios:
-// - Development (bun): process.cwd() = monorepo root
-// - Bundled (esbuild): process.cwd() = app directory containing dist/
-// - Electron packaged: process.cwd() = app resources directory
+// Resolve the bundled docs assets directory using the shared asset resolver.
+// Handles all environments: dev (monorepo source), bundled (dist/assets/docs),
+// and packaged Electron (setBundledAssetsRoot sets the base path at startup).
 function getAssetsDir(): string {
-  // Try multiple possible locations in priority order:
-  const possiblePaths = [
-    // 1. Development: monorepo root -> packages/shared/assets/docs
-    join(process.cwd(), 'packages', 'shared', 'assets', 'docs'),
-    // 2. Bundled: dist/assets/docs (assets copied during build)
-    join(process.cwd(), 'dist', 'assets', 'docs'),
-    // 3. Bundled alternative: assets/docs at cwd root
-    join(process.cwd(), 'assets', 'docs'),
-  ];
-
-  for (const p of possiblePaths) {
-    if (existsSync(p)) {
-      return p;
-    }
-  }
-
-  // Fallback: development path (will fail gracefully if files don't exist)
-  return possiblePaths[0]!;
+  return getBundledAssetsDir('docs')
+    // Fallback: development path (will fail gracefully if files don't exist)
+    ?? join(process.cwd(), 'packages', 'shared', 'assets', 'docs');
 }
 
 /**

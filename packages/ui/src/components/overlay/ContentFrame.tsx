@@ -5,14 +5,17 @@
  * centered on a bg-foreground-3 background. Supports optional left and right sidebars
  * rendered outside the card (e.g., file navigation in MultiDiffPreviewOverlay).
  *
+ * The card is always centered in the viewport. Sidebars are positioned absolutely
+ * so they hang off the card edges without shifting its center position.
+ *
  * Layout:
  *   absolute inset-0, flex centered, p-6
- *     └── flex row (gap-4, max-w constrained, max-h-[80vh])
- *          ├── leftSidebar?  (shrink-0, overflow-y-auto)
- *          ├── Card (flex-1, rounded-2xl, bg-background, shadow-strong)
+ *     └── relative wrapper (max-w constrained, height: min(100%, 80vh), centered)
+ *          ├── leftSidebar?  (absolute, right-full — hangs left of card)
+ *          ├── Card (h-full, rounded-2xl, bg-background, shadow-strong)
  *          │    ├── Title bar (traffic lights + title label)
  *          │    └── children (flex-1, min-h-0)
- *          └── rightSidebar? (shrink-0, overflow-y-auto)
+ *          └── rightSidebar? (absolute, left-full — hangs right of card)
  *
  * Used by: TerminalPreviewOverlay, CodePreviewOverlay, GenericOverlay,
  *          JSONPreviewOverlay, MultiDiffPreviewOverlay
@@ -23,7 +26,7 @@ import type { ReactNode } from 'react'
 export interface ContentFrameProps {
   /** Title bar label displayed between the traffic lights and the right spacer */
   title: string
-  /** Max width of the entire layout row — card + sidebars (default: 850) */
+  /** Max width of the card (default: 850). Sidebars are outside this constraint. */
   maxWidth?: number
   /** Optional content rendered to the left of the card (e.g., sidebar navigation) */
   leftSidebar?: ReactNode
@@ -42,21 +45,22 @@ export function ContentFrame({
 }: ContentFrameProps) {
   return (
     <div className="absolute inset-0 flex items-center justify-center p-6 overflow-auto">
-      {/* Row container — holds optional sidebars + the main card.
-          max-w applies to the entire row so sidebars are included in the constraint. */}
+      {/* Relative wrapper — centered by the parent flex container.
+          Sidebars are absolutely positioned off the card edges so they don't
+          affect centering. maxWidth applies to the card only. */}
       <div
-        className="flex gap-4 w-full h-full"
-        style={{ maxWidth, maxHeight: '80vh' }}
+        className="relative w-full"
+        style={{ maxWidth, height: 'min(100%, 80vh)' }}
       >
-        {/* Left sidebar — rendered outside the card, directly on the bg-foreground-3 background */}
+        {/* Left sidebar — absolutely positioned to the left of the card */}
         {leftSidebar && (
-          <div className="shrink-0 h-full overflow-y-auto">
+          <div className="absolute right-full top-0 h-full mr-4 overflow-y-auto">
             {leftSidebar}
           </div>
         )}
 
         {/* Main card — the "app window" with title bar and content */}
-        <div className="flex-1 min-w-0 flex flex-col rounded-2xl overflow-hidden backdrop-blur-sm shadow-strong bg-background">
+        <div className="h-full flex flex-col rounded-2xl overflow-hidden backdrop-blur-sm shadow-strong bg-background">
           {/* Title bar with decorative traffic lights */}
           <div className="flex justify-between items-center px-4 py-3 border-b border-foreground/12 select-none shrink-0">
             <div className="flex gap-2">
@@ -76,9 +80,9 @@ export function ContentFrame({
           </div>
         </div>
 
-        {/* Right sidebar — rendered outside the card, directly on the bg-foreground-3 background */}
+        {/* Right sidebar — absolutely positioned to the right of the card */}
         {rightSidebar && (
-          <div className="shrink-0 h-full overflow-y-auto">
+          <div className="absolute left-full top-0 h-full ml-4 overflow-y-auto">
             {rightSidebar}
           </div>
         )}

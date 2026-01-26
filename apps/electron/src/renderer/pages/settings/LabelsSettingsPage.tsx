@@ -37,7 +37,7 @@ export const meta: DetailsPageMeta = {
 }
 
 export default function LabelsSettingsPage() {
-  const { activeWorkspaceId } = useAppShellContext()
+  const { activeWorkspaceId, onOpenFile } = useAppShellContext()
   const activeWorkspace = useActiveWorkspace()
   const { labels, isLoading } = useLabels(activeWorkspaceId)
 
@@ -46,12 +46,12 @@ export default function LabelsSettingsPage() {
   const labelsEditConfig = getEditConfig('edit-labels', rootPath)
   const autoRulesEditConfig = getEditConfig('edit-auto-rules', rootPath)
 
-  // Secondary action: open the labels config file directly in default editor
+  // Secondary action: open the labels config file via link interceptor for in-app preview
   const editFileAction = rootPath ? {
     label: 'Edit File',
     onClick: () => {
       const configPath = `${rootPath}/labels/config.json`
-      window.electronAPI?.openFile(configPath)
+      onOpenFile(configPath)
     },
   } : undefined
 

@@ -14,6 +14,7 @@ import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { routes } from '@/lib/navigate'
+import { useAppShellContext } from '@/context/AppShellContext'
 import { Spinner } from '@craft-agent/ui'
 import {
   SettingsSection,
@@ -86,6 +87,7 @@ function serializePreferences(state: PreferencesFormState): string {
 }
 
 export default function PreferencesPage() {
+  const { onOpenFile } = useAppShellContext()
   const [formState, setFormState] = useState<PreferencesFormState>(emptyFormState)
   const [isLoading, setIsLoading] = useState(true)
   const [preferencesPath, setPreferencesPath] = useState<string | null>(null)
@@ -180,11 +182,11 @@ export default function PreferencesPage() {
     setFormState(prev => ({ ...prev, [field]: value }))
   }, [])
 
-  // Handle opening preferences file in editor
-  const handleEditPreferences = useCallback(async () => {
+  // Handle opening preferences file — routes through link interceptor for in-app preview
+  const handleEditPreferences = useCallback(() => {
     if (!preferencesPath) return
-    await window.electronAPI.openFile(preferencesPath)
-  }, [preferencesPath])
+    onOpenFile(preferencesPath)
+  }, [preferencesPath, onOpenFile])
 
   if (isLoading) {
     return (

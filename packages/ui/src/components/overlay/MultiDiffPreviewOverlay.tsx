@@ -136,10 +136,12 @@ function SidebarItem({ entry, isSelected, onClick, theme }: SidebarItemProps) {
     <button
       onClick={onClick}
       title={entry.filePath}
-      className="w-full flex items-center gap-2 px-3 py-1.5 text-left rounded-md transition-colors"
+      className={`w-full flex items-center gap-2 px-3 py-1.5 text-left rounded-md transition-colors ${isSelected ? 'shadow-minimal' : ''}`}
       style={{
         color: textColor,
-        backgroundColor: isSelected ? 'var(--foreground-5)' : 'transparent',
+        // Selected bg must be inline — otherwise leftover hover inline styles override the className.
+        // React re-render sets this on selection change, clearing any stale hover bg.
+        backgroundColor: isSelected ? 'var(--background)' : undefined,
       }}
       onMouseEnter={(e) => {
         if (!isSelected) {
@@ -148,12 +150,13 @@ function SidebarItem({ entry, isSelected, onClick, theme }: SidebarItemProps) {
       }}
       onMouseLeave={(e) => {
         if (!isSelected) {
-          e.currentTarget.style.backgroundColor = 'transparent'
+          // Use empty string to fully remove the inline property, not 'transparent'
+          e.currentTarget.style.backgroundColor = ''
         }
       }}
     >
       <div className="flex-1 min-w-0">
-        <div className="text-sm truncate">{fileName}</div>
+        <div className="text-xs font-medium truncate">{fileName}</div>
         {parentDir && (
           <div className="text-[10px] truncate" style={{ color: mutedColor }}>
             {parentDir}
@@ -177,16 +180,8 @@ interface SidebarProps {
 }
 
 function Sidebar({ entries, selectedKey, onSelect, theme }: SidebarProps) {
-  const mutedColor = 'var(--foreground-50)'
-
   return (
     <div className="space-y-0.5">
-      <div
-        className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide"
-        style={{ color: mutedColor }}
-      >
-        Changes
-      </div>
       {entries.map(entry => (
         <SidebarItem
           key={entry.key}
@@ -482,7 +477,6 @@ export function MultiDiffPreviewOverlay({
     >
       <ContentFrame
         title="Diff"
-        maxWidth={1100}
         leftSidebar={showSidebar ? (
           <div className="w-64 h-full">
             <div className="px-2 py-2">

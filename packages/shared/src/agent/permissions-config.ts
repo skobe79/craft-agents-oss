@@ -15,6 +15,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { debug } from '../utils/debug.ts';
 import { CONFIG_DIR } from '../config/paths.ts';
+import { getBundledAssetsDir } from '../utils/paths.ts';
 import { getSourcePath } from '../sources/storage.ts';
 import {
   SAFE_MODE_CONFIG,
@@ -42,11 +43,10 @@ export function getAppPermissionsDir(): string {
 
 /**
  * Ensure default permissions file exists.
- * Copies bundled default.json from the provided directory on first run.
+ * Resolves bundled path automatically via getBundledAssetsDir('permissions').
  * Only copies if file doesn't exist (preserves user edits).
- * @param bundledPermissionsDir - Path to bundled permissions (e.g., Electron's resources/permissions)
  */
-export function ensureDefaultPermissions(bundledPermissionsDir?: string): void {
+export function ensureDefaultPermissions(): void {
   const permissionsDir = getAppPermissionsDir();
 
   // Create permissions directory if it doesn't exist
@@ -54,8 +54,9 @@ export function ensureDefaultPermissions(bundledPermissionsDir?: string): void {
     mkdirSync(permissionsDir, { recursive: true });
   }
 
-  // If no bundled permissions directory provided, just ensure the directory exists
-  if (!bundledPermissionsDir || !existsSync(bundledPermissionsDir)) {
+  // Resolve bundled permissions directory via shared asset resolver
+  const bundledPermissionsDir = getBundledAssetsDir('permissions');
+  if (!bundledPermissionsDir) {
     return;
   }
 

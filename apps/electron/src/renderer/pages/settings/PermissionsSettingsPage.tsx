@@ -130,7 +130,7 @@ function buildCustomPermissionsData(config: PermissionsConfigFile): PermissionRo
 }
 
 export default function PermissionsSettingsPage() {
-  const { activeWorkspaceId } = useAppShellContext()
+  const { activeWorkspaceId, onOpenFile } = useAppShellContext()
   const activeWorkspace = useActiveWorkspace()
 
   // Loading and data state
@@ -240,7 +240,7 @@ export default function PermissionsSettingsPage() {
                           secondaryAction={{
                             label: 'Edit File',
                             onClick: () => {
-                              window.electronAPI.openFile(defaultPermissionsPath)
+                              onOpenFile(defaultPermissionsPath)
                             },
                           }}
                         />
@@ -284,7 +284,7 @@ export default function PermissionsSettingsPage() {
                               label: 'Edit File',
                               onClick: () => {
                                 const permissionsPath = `${activeWorkspace.rootPath}/permissions.json`
-                                window.electronAPI.openFile(permissionsPath)
+                                onOpenFile(permissionsPath)
                               },
                             } : undefined}
                           />
