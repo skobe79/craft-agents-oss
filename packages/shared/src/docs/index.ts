@@ -133,7 +133,7 @@ export function listDocs(): string[] {
 
 /**
  * Initialize docs directory with bundled documentation.
- * Overwrites when content differs.
+ * Always writes all docs on launch to ensure consistency across debug and release modes.
  */
 export function initializeDocs(): void {
   // Skip if already initialized this session (prevents re-init on hot reload)
@@ -146,29 +146,15 @@ export function initializeDocs(): void {
     mkdirSync(DOCS_DIR, { recursive: true });
   }
 
+  // Always write bundled docs to disk on launch.
+  // This ensures consistent behavior between debug and release modes —
+  // docs are always up-to-date with the running version.
   for (const [filename, content] of Object.entries(BUNDLED_DOCS)) {
     const docPath = join(DOCS_DIR, filename);
-
-    if (!existsSync(docPath)) {
-      // File doesn't exist - create it
-      writeFileSync(docPath, content, 'utf-8');
-      console.log(`[docs] Created ${filename}`);
-      continue;
-    }
-
-    // Production - update when content differs
-    try {
-      const existingContent = readFileSync(docPath, 'utf-8');
-      if (existingContent !== content) {
-        writeFileSync(docPath, content, 'utf-8');
-        console.log(`[docs] Synced ${filename}`);
-      }
-    } catch {
-      // Error reading - overwrite
-      writeFileSync(docPath, content, 'utf-8');
-      console.log(`[docs] Recreated ${filename}`);
-    }
+    writeFileSync(docPath, content, 'utf-8');
   }
+
+  console.log(`[docs] Synced ${Object.keys(BUNDLED_DOCS).length} docs`);
 }
 
 export { BUNDLED_DOCS };
