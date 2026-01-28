@@ -36,6 +36,7 @@ import {
   validateWorkspacePermissions,
   validateSourcePermissions,
   validateAllPermissions,
+  validateToolIcons,
   formatValidationResult,
 } from '../config/validators.ts';
 import { PERMISSION_MODE_CONFIG } from './mode-types.ts';
@@ -366,6 +367,7 @@ Returns structured validation results with errors, warnings, and suggestions.
 - \`statuses\`: Validates ~/.craft-agent/workspaces/{workspace}/statuses/config.json (workflow states)
 - \`preferences\`: Validates ~/.craft-agent/preferences.json (user preferences)
 - \`permissions\`: Validates permissions.json files (workspace, source, and app-level default)
+- \`tool-icons\`: Validates ~/.craft-agent/tool-icons/tool-icons.json (CLI tool icon mappings)
 - \`all\`: Validates all configuration files
 
 **For specific source validation:** Use target='sources' with sourceSlug parameter.
@@ -377,7 +379,7 @@ Returns structured validation results with errors, warnings, and suggestions.
 3. If errors found, fix them and re-validate
 4. Once valid, changes take effect on next reload`,
     {
-      target: z.enum(['config', 'sources', 'statuses', 'preferences', 'permissions', 'all']).describe(
+      target: z.enum(['config', 'sources', 'statuses', 'preferences', 'permissions', 'tool-icons', 'all']).describe(
         'Which config file(s) to validate'
       ),
       sourceSlug: z.string().optional().describe(
@@ -413,6 +415,9 @@ Returns structured validation results with errors, warnings, and suggestions.
             } else {
               result = validateAllPermissions(workspaceRootPath);
             }
+            break;
+          case 'tool-icons':
+            result = validateToolIcons();
             break;
           case 'all':
             result = validateAll(workspaceRootPath);
@@ -920,6 +925,10 @@ After creating or editing a source's config.json, run this tool to:
           if (result.success) {
             source.connectionStatus = 'connected';
             source.connectionError = undefined;
+            // Set isAuthenticated for sources that don't require auth
+            if (source.api?.authType === 'none') {
+              source.isAuthenticated = true;
+            }
           } else {
             source.connectionStatus = 'failed';
             source.connectionError = result.error;
@@ -974,6 +983,7 @@ After creating or editing a source's config.json, run this tool to:
             source.lastTestedAt = Date.now();
             source.connectionStatus = 'connected';
             source.connectionError = undefined;
+            source.isAuthenticated = true; // Local sources don't require auth
             saveSourceConfig(workspaceRootPath, source);
             results.push(`**✓ Local Path Exists** (${localPath})`);
           } else {
@@ -1098,6 +1108,10 @@ After creating or editing a source's config.json, run this tool to:
               if (mcpResult.success) {
                 source.connectionStatus = 'connected';
                 source.connectionError = undefined;
+                // Set isAuthenticated for sources that don't require auth
+                if (source.mcp?.authType === 'none') {
+                  source.isAuthenticated = true;
+                }
                 saveSourceConfig(workspaceRootPath, source);
 
                 results.push('**✓ MCP Connected**');

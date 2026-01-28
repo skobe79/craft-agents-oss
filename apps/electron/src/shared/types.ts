@@ -50,6 +50,10 @@ export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
 import type { LoadedSkill, SkillMetadata } from '@craft-agent/shared/skills/types';
 export type { LoadedSkill, SkillMetadata };
 
+// Import gallery types (for skills.sh registry)
+import type { GallerySkill, GalleryResponse, GallerySort } from '@craft-agent/shared/skills/gallery';
+export type { GallerySkill, GalleryResponse, GallerySort };
+
 
 /**
  * File/directory entry in a skill folder
@@ -390,7 +394,6 @@ export type SessionEvent =
   | { type: 'text_complete'; sessionId: string; text: string; isIntermediate?: boolean; turnId?: string; parentToolUseId?: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; toolUseId: string; toolInput: Record<string, unknown>; toolIntent?: string; toolDisplayName?: string; toolDisplayMeta?: import('@craft-agent/core').ToolDisplayMeta; turnId?: string; parentToolUseId?: string }
   | { type: 'tool_result'; sessionId: string; toolUseId: string; toolName: string; result: string; turnId?: string; parentToolUseId?: string; isError?: boolean }
-  | { type: 'parent_update'; sessionId: string; toolUseId: string; parentToolUseId: string }
   | { type: 'error'; sessionId: string; error: string }
   | { type: 'typed_error'; sessionId: string; error: TypedError }
   | { type: 'complete'; sessionId: string; tokenUsage?: Session['tokenUsage']; hasUnread?: boolean }
@@ -590,11 +593,7 @@ export const IPC_CHANNELS = {
   ONBOARDING_VALIDATE_MCP: 'onboarding:validateMcp',
   ONBOARDING_START_MCP_OAUTH: 'onboarding:startMcpOAuth',
   ONBOARDING_SAVE_CONFIG: 'onboarding:saveConfig',
-  // Claude OAuth
-  ONBOARDING_GET_EXISTING_CLAUDE_TOKEN: 'onboarding:getExistingClaudeToken',
-  ONBOARDING_IS_CLAUDE_CLI_INSTALLED: 'onboarding:isClaudeCliInstalled',
-  ONBOARDING_RUN_CLAUDE_SETUP_TOKEN: 'onboarding:runClaudeSetupToken',
-  // Native Claude OAuth (two-step flow)
+  // Claude OAuth (two-step flow)
   ONBOARDING_START_CLAUDE_OAUTH: 'onboarding:startClaudeOAuth',
   ONBOARDING_EXCHANGE_CLAUDE_CODE: 'onboarding:exchangeClaudeCode',
   ONBOARDING_HAS_CLAUDE_OAUTH_STATE: 'onboarding:hasClaudeOAuthState',
@@ -654,6 +653,12 @@ export const IPC_CHANNELS = {
   SKILLS_OPEN_FINDER: 'skills:openFinder',
   SKILLS_CHANGED: 'skills:changed',
 
+  // Skills Gallery (fetch from skills.sh registry)
+  GALLERY_FETCH_SKILLS: 'gallery:fetchSkills',
+  GALLERY_SEARCH_SKILLS: 'gallery:searchSkills',
+  GALLERY_FETCH_SKILL_CONTENT: 'gallery:fetchSkillContent',
+  GALLERY_INSTALL_SKILL: 'gallery:installSkill',
+
   // Status management (workspace-scoped)
   STATUSES_LIST: 'statuses:list',
   STATUSES_REORDER: 'statuses:reorder',  // Reorder statuses (drag-and-drop)
@@ -688,6 +693,9 @@ export const IPC_CHANNELS = {
   THEME_SET_COLOR_THEME: 'theme:setColorTheme',
   THEME_BROADCAST_PREFERENCES: 'theme:broadcastPreferences',  // Send preferences to main for broadcast
   THEME_PREFERENCES_CHANGED: 'theme:preferencesChanged',  // Broadcast: preferences changed in another window
+
+  // Tool icon mappings (for Appearance settings)
+  TOOL_ICONS_GET_MAPPINGS: 'toolIcons:getMappings',
 
   // Logo URL resolution (uses Node.js filesystem cache)
   LOGO_GET_URL: 'logo:getUrl',
@@ -731,6 +739,15 @@ export const IPC_CHANNELS = {
 
 // Re-import types for ElectronAPI
 import type { Workspace, SessionMetadata, StoredAttachment as StoredAttachmentType } from '@craft-agent/core/types';
+
+/** Tool icon mapping entry from tool-icons.json (with icon resolved to data URL) */
+export interface ToolIconMapping {
+  id: string
+  displayName: string
+  /** Data URL of the icon (e.g., data:image/png;base64,...) */
+  iconDataUrl: string
+  commands: string[]
+}
 
 // Type-safe IPC API exposed to renderer
 export interface ElectronAPI {
@@ -835,11 +852,7 @@ export interface ElectronAPI {
     anthropicBaseUrl?: string | null  // Custom Anthropic API base URL
     customModel?: string | null  // Custom model ID override
   }): Promise<OnboardingSaveResult>
-  // Claude OAuth
-  getExistingClaudeToken(): Promise<string | null>
-  isClaudeCliInstalled(): Promise<boolean>
-  runClaudeSetupToken(): Promise<ClaudeOAuthResult>
-  // Native Claude OAuth (two-step flow)
+  // Claude OAuth (two-step flow)
   startClaudeOAuth(): Promise<{ success: boolean; authUrl?: string; error?: string }>
   exchangeClaudeCode(code: string): Promise<ClaudeOAuthResult>
   hasClaudeOAuthState(): Promise<boolean>
@@ -912,6 +925,12 @@ export interface ElectronAPI {
   // Skills change listener (live updates when skills are added/removed/modified)
   onSkillsChanged(callback: (skills: LoadedSkill[]) => void): () => void
 
+  // Skills Gallery (skills.sh registry)
+  galleryFetchSkills(sort?: GallerySort, offset?: number): Promise<GalleryResponse>
+  gallerySearchSkills(query: string, limit?: number): Promise<GalleryResponse>
+  galleryFetchSkillContent(topSource: string, skillId: string): Promise<string | null>
+  galleryInstallSkill(workspaceId: string, skillId: string, topSource: string): Promise<void>
+
   // Statuses (workspace-scoped)
   listStatuses(workspaceId: string): Promise<import('@craft-agent/shared/statuses').StatusConfig[]>
   reorderStatuses(workspaceId: string, orderedIds: string[]): Promise<void>
@@ -932,6 +951,9 @@ export interface ElectronAPI {
   // Generic workspace image loading/saving (returns data URL for images, raw string for SVG)
   readWorkspaceImage(workspaceId: string, relativePath: string): Promise<string>
   writeWorkspaceImage(workspaceId: string, relativePath: string, base64: string, mimeType: string): Promise<void>
+
+  // Tool icon mappings (for Appearance settings page)
+  getToolIconMappings(): Promise<ToolIconMapping[]>
 
   // Theme (app-level only)
   getAppTheme(): Promise<import('@config/theme').ThemeOverrides | null>
@@ -1087,7 +1109,7 @@ export type ChatFilter =
 /**
  * Settings subpage options
  */
-export type SettingsSubpage = 'app' | 'workspace' | 'permissions' | 'labels' | 'shortcuts' | 'preferences'
+export type SettingsSubpage = 'app' | 'appearance' | 'workspace' | 'permissions' | 'labels' | 'shortcuts' | 'preferences'
 
 /**
  * Chats navigation state - shows SessionList in navigator
@@ -1138,8 +1160,8 @@ export interface SettingsNavigationState {
  */
 export interface SkillsNavigationState {
   navigator: 'skills'
-  /** Selected skill details, or null for empty state */
-  details: { type: 'skill'; skillSlug: string } | null
+  /** Selected skill details, gallery view, gallery skill detail, or null for empty state */
+  details: { type: 'skill'; skillSlug: string } | { type: 'gallery' } | { type: 'gallery-skill'; skillId: string; topSource: string } | null
   /** Optional right sidebar panel state */
   rightSidebar?: RightSidebarPanel
 }
@@ -1206,7 +1228,13 @@ export const getNavigationStateKey = (state: NavigationState): string => {
     return 'sources'
   }
   if (state.navigator === 'skills') {
-    if (state.details) {
+    if (state.details?.type === 'gallery') {
+      return 'skills/gallery'
+    }
+    if (state.details?.type === 'gallery-skill') {
+      return `skills/gallery-skill/${state.details.topSource}/${state.details.skillId}`
+    }
+    if (state.details?.type === 'skill') {
       return `skills/skill/${state.details.skillSlug}`
     }
     return 'skills'
@@ -1244,6 +1272,19 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
 
   // Handle skills
   if (key === 'skills') return { navigator: 'skills', details: null }
+  if (key === 'skills/gallery') return { navigator: 'skills', details: { type: 'gallery' } }
+  // Gallery skill detail: skills/gallery-skill/{owner}/{repo}/{skillId}
+  if (key.startsWith('skills/gallery-skill/')) {
+    const rest = key.slice('skills/gallery-skill/'.length)
+    // topSource is owner/repo (2 segments), skillId is the rest
+    const parts = rest.split('/')
+    if (parts.length >= 3) {
+      const topSource = `${parts[0]}/${parts[1]}`
+      const skillId = parts.slice(2).join('/')
+      return { navigator: 'skills', details: { type: 'gallery-skill', skillId, topSource } }
+    }
+    return { navigator: 'skills', details: { type: 'gallery' } }
+  }
   if (key.startsWith('skills/skill/')) {
     const skillSlug = key.slice(13)
     if (skillSlug) {
@@ -1256,7 +1297,7 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
   if (key === 'settings') return { navigator: 'settings', subpage: 'app' }
   if (key.startsWith('settings:')) {
     const subpage = key.slice(9) as SettingsSubpage
-    if (['app', 'workspace', 'permissions', 'labels', 'shortcuts', 'preferences'].includes(subpage)) {
+    if (['app', 'appearance', 'workspace', 'permissions', 'labels', 'shortcuts', 'preferences'].includes(subpage)) {
       return { navigator: 'settings', subpage }
     }
   }

@@ -1,3 +1,5 @@
+// Capture errors in the isolated preload context and forward to Sentry
+import '@sentry/electron/preload'
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_CHANNELS, type SessionEvent, type ElectronAPI, type FileAttachment, type AuthType } from '../shared/types'
 
@@ -157,11 +159,7 @@ const api: ElectronAPI = {
     anthropicBaseUrl?: string | null
     customModel?: string | null
   }) => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_SAVE_CONFIG, config),
-  // Claude OAuth
-  getExistingClaudeToken: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_GET_EXISTING_CLAUDE_TOKEN),
-  isClaudeCliInstalled: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_IS_CLAUDE_CLI_INSTALLED),
-  runClaudeSetupToken: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_RUN_CLAUDE_SETUP_TOKEN),
-  // Native Claude OAuth (two-step flow)
+  // Claude OAuth (two-step flow)
   startClaudeOAuth: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_START_CLAUDE_OAUTH),
   exchangeClaudeCode: (code: string) => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_EXCHANGE_CLAUDE_CODE, code),
   hasClaudeOAuthState: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_HAS_CLAUDE_OAUTH_STATE),
@@ -287,6 +285,16 @@ const api: ElectronAPI = {
   openSkillInFinder: (workspaceId: string, skillSlug: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SKILLS_OPEN_FINDER, workspaceId, skillSlug),
 
+  // Skills Gallery (skills.sh registry)
+  galleryFetchSkills: (sort?: string, offset?: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GALLERY_FETCH_SKILLS, sort, offset),
+  gallerySearchSkills: (query: string, limit?: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SEARCH_SKILLS, query, limit),
+  galleryFetchSkillContent: (topSource: string, skillId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GALLERY_FETCH_SKILL_CONTENT, topSource, skillId),
+  galleryInstallSkill: (workspaceId: string, skillId: string, topSource: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GALLERY_INSTALL_SKILL, workspaceId, skillId, topSource),
+
   // Skills change listener (live updates when skills are added/removed/modified)
   onSkillsChanged: (callback: (skills: import('@craft-agent/shared/skills').LoadedSkill[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, skills: import('@craft-agent/shared/skills').LoadedSkill[]) => {
@@ -333,6 +341,9 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.VIEWS_LIST, workspaceId),
   saveViews: (workspaceId: string, views: any[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.VIEWS_SAVE, workspaceId, views),
+
+  // Tool icon mappings (for Appearance settings page)
+  getToolIconMappings: () => ipcRenderer.invoke(IPC_CHANNELS.TOOL_ICONS_GET_MAPPINGS),
 
   // Theme (app-level only)
   getAppTheme: () => ipcRenderer.invoke(IPC_CHANNELS.THEME_GET_APP),
