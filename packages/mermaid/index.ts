@@ -970,9 +970,14 @@ async function generateHtml(): Promise<string> {
     }
     .hero-buttons {
       display: flex;
-      flex-direction: column;
+      flex-wrap: wrap;
       align-items: flex-start;
       gap: 0.5rem;
+    }
+    @media (max-width: 768px) {
+      .hero-buttons {
+        flex-direction: column;
+      }
     }
     .hero-btn {
       display: inline-flex;
