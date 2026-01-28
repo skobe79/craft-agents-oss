@@ -914,11 +914,6 @@ function AppShellContent({
     navigate(routes.view.skills(skill.slug))
   }, [activeWorkspaceId, navigate])
 
-  // Handle opening the skills gallery
-  const handleGalleryClick = React.useCallback(() => {
-    navigate(routes.view.skills('gallery'))
-  }, [navigate])
-
   // Focus zone management
   const { focusZone, focusNextZone, focusPreviousZone } = useFocusContext()
 
@@ -2761,8 +2756,6 @@ function AppShellContent({
                 onSkillClick={handleSkillSelect}
                 onDeleteSkill={handleDeleteSkill}
                 selectedSkillSlug={isSkillsNavigation(navState) && navState.details?.type === 'skill' ? navState.details.skillSlug : null}
-                isGallerySelected={isSkillsNavigation(navState) && navState.details?.type === 'gallery'}
-                onGalleryClick={handleGalleryClick}
               />
             )}
             {isSettingsNavigation(navState) && (
