@@ -169,7 +169,7 @@ function renderEdgeLabel(edge: PositionedEdge, font: string): string {
   const mid = edge.labelPosition ?? edgeMidpoint(edge.points)
   const label = edge.label!
   const textWidth = estimateTextWidth(label, FONT_SIZES.edgeLabel, FONT_WEIGHTS.edgeLabel)
-  const padding = 4
+  const padding = 8
 
   // Background pill behind text for readability
   const bgWidth = textWidth + padding * 2
@@ -177,7 +177,7 @@ function renderEdgeLabel(edge: PositionedEdge, font: string): string {
 
   return (
     `<rect x="${mid.x - bgWidth / 2}" y="${mid.y - bgHeight / 2}" ` +
-    `width="${bgWidth}" height="${bgHeight}" rx="2" ry="2" ` +
+    `width="${bgWidth}" height="${bgHeight}" rx="4" ry="4" ` +
     `fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="0.5" />\n` +
     `<text x="${mid.x}" y="${mid.y}" text-anchor="middle" dy="${TEXT_BASELINE_SHIFT}" ` +
     `font-size="${FONT_SIZES.edgeLabel}" font-weight="${FONT_WEIGHTS.edgeLabel}" ` +

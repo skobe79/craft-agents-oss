@@ -37,13 +37,8 @@ export const samples: Sample[] = [
     Layout --> SVG: Vector
     Layout --> ASCII: Text
     SVG --> Theme
-    Theme --> Light
-    Theme --> Dark
-    Theme --> Custom
-    Light --> Output
-    Dark --> Output
-    Custom --> Output
-    ASCII --> Output
+    ASCII --> Theme
+    Theme --> Output
     Output --> [*]`,
     options: { transparent: true },
   },

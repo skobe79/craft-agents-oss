@@ -268,6 +268,8 @@ async function generateHtml(): Promise<string> {
   <meta name="twitter:title" content="Beautiful Mermaid" />
   <meta name="twitter:description" content="Mermaid rendering, made beautiful. Ultra-fast, fully themeable, outputs to SVG and ASCII." />
   <meta name="twitter:image" content="https://agents.craft.do/mermaid/og-image.png" />
+  <!-- Plausible Analytics -->
+  <script defer data-domain="agents.craft.do/mermaid" src="https://plausible.io/js/script.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -378,8 +380,8 @@ async function generateHtml(): Promise<string> {
       display: flex;
       align-items: center;
       height: 30px;
-      gap: 6px;
-      padding: 0 12px;
+      gap: 8px;
+      padding: 0 14px 0 12px;
       border: none;
       border-radius: 8px;
       background: color-mix(in srgb, var(--t-bg) 97%, var(--t-fg));
@@ -728,7 +730,7 @@ async function generateHtml(): Promise<string> {
 
     /* -- Source panel -- */
     .source-panel {
-      padding: 0.75rem 1rem;
+      padding: 0.75rem 1.5rem;
       border-right: 1px solid color-mix(in srgb, var(--t-fg) 5%, var(--t-bg));
       min-width: 0;      /* grid child: allow shrinking below content width */
       overflow-y: auto;
@@ -935,7 +937,7 @@ async function generateHtml(): Promise<string> {
       line-height: 1.6;
       color: color-mix(in srgb, var(--t-fg) 70%, var(--t-bg));
       margin: 0 0 1.5rem;
-      max-width: 600px;
+      max-width: 640px;
     }
     .hero-description a {
       color: var(--t-fg);
@@ -1095,9 +1097,9 @@ async function generateHtml(): Promise<string> {
     <h1 class="hero-title">Beautiful Mermaid</h1>
     <p class="hero-tagline">Mermaid Rendering, made beautiful.</p>
     <p class="hero-description">
-      <code>beautiful-mermaid</code> is an open source diagram rendering library built for the AI era.
+      An open source library for rendering diagrams, designed for the age of AI: <code>beautiful-mermaid</code>.
       Ultra-fast, fully themeable, and outputs to both SVG and ASCII.<br>
-      By the team at <a href="https://craft.do" target="_blank" rel="noopener">Craft</a> — because diagrams deserve great design too.
+      Built by the team at <a href="https://craft.do" target="_blank" rel="noopener">Craft</a> — because diagrams deserve great design too.
     </p>
     <div class="hero-buttons">
       <a href="https://agents.craft.do" target="_blank" rel="noopener" class="hero-btn hero-btn-primary">
@@ -1116,7 +1118,7 @@ async function generateHtml(): Promise<string> {
     <div class="hero-meta">
       <p class="meta" id="total-timing">Rendering ${samples.length * 2} samples\u2026</p>
       <div class="meta">Samples rendered client-side in real time</div>
-      <div class="meta">Supports Flowchart, State, Sequence, Class, and ER diagrams</div>
+      <div class="meta">Early preview — actively evolving</div>
     </div>
   </header>
 
