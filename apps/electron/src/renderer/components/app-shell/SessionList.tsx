@@ -157,7 +157,10 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   return (
     <>
       {before}
-      <span className="px-1 py-0.5 bg-yellow-300 rounded-[4px] text-black/90">{match}</span>
+      <span
+        className="px-1.5 py-0.5 bg-[color-mix(in_oklab,var(--info)_15%,var(--background))] shadow-tinted rounded-[4px] text-info"
+        style={{ '--shadow-color': 'var(--info-rgb)' } as React.CSSProperties}
+      >{match}</span>
       {highlightMatch(after, query)}
     </>
   )

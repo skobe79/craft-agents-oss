@@ -784,7 +784,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
             const matchIdIndex = reverseCounter - (nodeMatches.length - 1 - j)
             const markId = `${turnId}-match-${matchIdIndex}`
             mark.id = markId
-            mark.className = 'search-highlight px-1 py-0.5 bg-yellow-300 rounded-[4px] text-black/90'
+            mark.className = 'search-highlight px-1.5 py-0.5 bg-[color-mix(in_oklab,var(--info)_15%,var(--background))] shadow-tinted rounded-[4px] text-info'
+            mark.style.setProperty('--shadow-color', 'var(--info-rgb)')
             mark.textContent = text.slice(matchStart, matchEnd)
             fragments.unshift(mark)
             createdMatchIds.push(markId)
