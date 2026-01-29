@@ -958,7 +958,7 @@ export function SessionList({
     // Scroll the selected item into view
     requestAnimationFrame(() => {
       const element = document.querySelector(`[data-session-id="${item.id}"]`)
-      element?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      element?.scrollIntoView({ block: 'nearest', behavior: 'instant' })
     })
   }, [navigate, currentFilter])
 

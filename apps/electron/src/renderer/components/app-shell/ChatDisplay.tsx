@@ -626,7 +626,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
       const tryScroll = () => {
         const matchEl = document.getElementById(matchId) as HTMLElement | null
         if (matchEl) {
-          matchEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          matchEl.scrollIntoView({ behavior: 'instant', block: 'center' })
           // Subtle pop-out: scale + shadow + brighter bg
           matchEl.classList.add('current-match')
           matchEl.style.transform = 'scale(1.05)'
