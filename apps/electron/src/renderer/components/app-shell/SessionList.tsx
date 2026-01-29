@@ -157,7 +157,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   return (
     <>
       {before}
-      <span className="px-1 py-0.5 bg-yellow-300 rounded-[4px] text-black/90">{match}</span>
+      <span className="px-1 py-0.5 bg-yellow-300/30 rounded-[4px]">{match}</span>
       {highlightMatch(after, query)}
     </>
   )
@@ -1158,10 +1158,11 @@ export function SessionList({
       {/* Search input - OUTSIDE ScrollArea to prevent arrow key capture */}
       {searchActive && (
         <div className="shrink-0 px-2 py-2 border-b border-border/50">
-          <div className="relative">
+          {/* Elevated input wrapper with shadow-minimal for consistent styling with filter inputs */}
+          <div className="relative rounded-[8px] shadow-minimal bg-muted/50 has-[:focus-visible]:bg-background">
             {/* Show spinner while searching content, otherwise show search icon */}
             {isSearchingContent ? (
-              <Spinner className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-info" />
+              <Spinner className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground" />
             ) : (
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             )}
@@ -1172,7 +1173,7 @@ export function SessionList({
               onChange={(e) => onSearchChange?.(e.target.value)}
               onKeyDown={handleSearchKeyDown}
               placeholder="Search titles and content..."
-              className="w-full h-8 pl-8 pr-8 text-sm bg-foreground/5 border-0 rounded-[8px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+              className="w-full h-8 pl-8 pr-8 text-sm bg-transparent border-0 rounded-[8px] outline-none focus-visible:ring-0 focus-visible:outline-none placeholder:text-muted-foreground/50"
             />
             <button
               onClick={onSearchClose}

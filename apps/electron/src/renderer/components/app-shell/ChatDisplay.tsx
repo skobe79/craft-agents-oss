@@ -598,11 +598,17 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
         console.log('[ChatDisplay Scroll] Try scroll to match:', matchId, 'element found:', !!matchEl)
         if (matchEl) {
           matchEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          // Add visual emphasis to current match
-          matchEl.classList.add('ring-2', 'ring-info')
-          // Remove emphasis from other matches
-          document.querySelectorAll('mark.search-highlight.ring-2').forEach(el => {
-            if (el.id !== matchId) el.classList.remove('ring-2', 'ring-info')
+          // Add active styling to current match (prominent yellow with shadow)
+          matchEl.classList.remove('bg-yellow-300/30')
+          matchEl.classList.add('bg-yellow-300', 'shadow-tinted', 'text-black/90')
+          ;(matchEl as HTMLElement).style.setProperty('--shadow-color', '234, 179, 8') // yellow-500 RGB
+          // Remove active styling from other matches (revert to passive)
+          document.querySelectorAll('mark.search-highlight.bg-yellow-300').forEach(el => {
+            if (el.id !== matchId) {
+              el.classList.remove('bg-yellow-300', 'shadow-tinted', 'text-black/90')
+              el.classList.add('bg-yellow-300/30')
+              ;(el as HTMLElement).style.removeProperty('--shadow-color')
+            }
           })
           shouldScrollToMatchRef.current = false
         } else if (attempts < maxAttempts) {
@@ -745,7 +751,8 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
             const matchIdIndex = reverseCounter - (nodeMatches.length - 1 - j)
             const markId = `${turnId}-match-${matchIdIndex}`
             mark.id = markId
-            mark.className = 'search-highlight px-1 py-0.5 bg-yellow-300 rounded-[4px] text-black/90'
+            // All highlights start as passive (subtle 30% opacity yellow)
+            mark.className = 'search-highlight px-1 py-0.5 bg-yellow-300/30 rounded-[4px]'
             mark.textContent = text.slice(matchStart, matchEnd)
             fragments.unshift(mark)
             createdMatchIds.push(markId)
