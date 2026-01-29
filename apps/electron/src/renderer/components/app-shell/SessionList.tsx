@@ -157,7 +157,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   return (
     <>
       {before}
-      <span className="px-1 py-0.5 bg-yellow-300 rounded-[4px] text-black/90" style={{ boxShadow: '0 1px 3px rgba(234, 179, 8, 0.4)' }}>{match}</span>
+      <span className="px-0.5 bg-yellow-300 rounded-[3px] text-black/90" style={{ boxShadow: '0 1px 2px rgba(234, 179, 8, 0.3)' }}>{match}</span>
       {highlightMatch(after, query)}
     </>
   )
