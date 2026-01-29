@@ -1563,6 +1563,10 @@ function AppShellContent({
   const handleNewChat = useCallback(async (_useCurrentAgent: boolean = true) => {
     if (!activeWorkspace) return
 
+    // Exit search mode and switch to All Chats
+    setSearchActive(false)
+    setSearchQuery('')
+
     const newSession = await onCreateSession(activeWorkspace.id)
     // Navigate to the new session via central routing
     navigate(routes.view.allChats(newSession.id))
