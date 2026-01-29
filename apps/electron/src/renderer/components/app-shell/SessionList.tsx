@@ -372,7 +372,7 @@ function SessionItem({
             {contentMatch && contentMatch.snippet && (
               <div className="flex items-center gap-1.5 text-xs text-foreground/50 w-full pr-6 min-w-0">
                 <Search className="h-3 w-3 shrink-0 text-info/70" />
-                <span className="truncate italic">
+                <span className="truncate">
                   {searchQuery ? highlightMatch(contentMatch.snippet, searchQuery) : contentMatch.snippet}
                 </span>
               </div>
