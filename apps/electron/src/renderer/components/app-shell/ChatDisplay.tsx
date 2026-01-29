@@ -630,16 +630,14 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
           // Subtle pop-out: scale + shadow + brighter bg
           matchEl.classList.add('current-match')
           matchEl.style.transform = 'scale(1.05)'
-          matchEl.style.boxShadow = '0 2px 8px rgba(234, 179, 8, 0.6)'
-          matchEl.style.backgroundColor = '#fde047' // yellow-300 (brighter than base yellow-400)
+          matchEl.style.backgroundColor = '#fb923c' // orange-400
           // Remove pop-out from other matches
           document.querySelectorAll('mark.search-highlight.current-match').forEach(el => {
             if (el.id !== matchId) {
               el.classList.remove('current-match')
               const htmlEl = el as HTMLElement
               htmlEl.style.transform = ''
-              htmlEl.style.boxShadow = '0 1px 3px rgba(234, 179, 8, 0.4)'
-              htmlEl.style.backgroundColor = '' // Reset to default yellow-400
+              htmlEl.style.backgroundColor = '' // Reset to default yellow-300
             }
           })
           shouldScrollToMatchRef.current = false
@@ -797,8 +795,6 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
             const markId = `${turnId}-match-${matchIdIndex}`
             mark.id = markId
             mark.className = 'search-highlight px-0.5 bg-yellow-300 rounded-[3px] text-black/90'
-            mark.style.boxShadow = '0 1px 2px rgba(234, 179, 8, 0.3)'
-            mark.style.transition = 'transform 0.2s ease-out, box-shadow 0.2s ease-out, background-color 0.2s ease-out'
             mark.style.display = 'inline-block' // Required for transform to work
             mark.textContent = text.slice(matchStart, matchEnd)
             fragments.unshift(mark)

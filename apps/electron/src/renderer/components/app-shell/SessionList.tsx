@@ -368,15 +368,6 @@ function SessionItem({
                 {searchQuery ? highlightMatch(getSessionTitle(item), searchQuery) : getSessionTitle(item)}
               </div>
             </div>
-            {/* Content match snippet - shown when found in conversation content */}
-            {contentMatch && contentMatch.snippet && (
-              <div className="flex items-center gap-1.5 text-xs text-foreground/50 w-full pr-6 min-w-0">
-                <Search className="h-3 w-3 shrink-0 text-info/70" />
-                <span className="truncate">
-                  {searchQuery ? highlightMatch(contentMatch.snippet, searchQuery) : contentMatch.snippet}
-                </span>
-              </div>
-            )}
             {/* Subtitle row — badges scroll horizontally when they overflow */}
             <div className="flex items-center gap-1.5 text-xs text-foreground/70 w-full -mb-[2px] min-w-0">
               {/* Fixed indicators (Spinner + New) — always visible */}
@@ -552,47 +543,51 @@ function SessionItem({
                 </Tooltip>
               )}
             </div>
+            {/* Content match snippet - shown when found in conversation content (at bottom) */}
+            {contentMatch && contentMatch.snippet && (
+              <div className="flex items-center gap-1.5 text-xs text-foreground/50 w-full min-w-0 pl-2 pr-1.5 mt-1.5 mb-1 h-8 border border-border rounded-md">
+                  <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} style={{ color: 'color-mix(in oklch, var(--foreground) 60%, transparent)' }} />
+                  <span className="truncate flex-1 min-w-0">
+                    {searchQuery ? highlightMatch(contentMatch.snippet, searchQuery) : contentMatch.snippet}
+                  </span>
+                  {/* Match navigation chevrons - inline on right when selected with matches */}
+                  {isSelected && chatMatchCount != null && chatMatchCount > 0 && (
+                    <div className="flex items-center shrink-0 gap-0.5 ml-1.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onNavigatePrev?.() }}
+                        className={cn(
+                          "p-0.5 rounded transition-colors",
+                          (chatMatchIndex ?? 0) <= 0
+                            ? "opacity-30 cursor-default"
+                            : "hover:bg-foreground/5"
+                        )}
+                        disabled={(chatMatchIndex ?? 0) <= 0}
+                        title="Previous match"
+                      >
+                        <ChevronUp className="size-4 text-muted-foreground" strokeWidth={1.5} />
+                      </button>
+                      <span className="text-[9px] text-muted-foreground tabular-nums leading-tight">
+                        {(chatMatchIndex ?? 0) + 1}/{chatMatchCount ?? 0}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onNavigateNext?.() }}
+                        className={cn(
+                          "p-0.5 rounded transition-colors",
+                          (chatMatchIndex ?? 0) >= (chatMatchCount ?? 1) - 1
+                            ? "opacity-30 cursor-default"
+                            : "hover:bg-foreground/5"
+                        )}
+                        disabled={(chatMatchIndex ?? 0) >= (chatMatchCount ?? 1) - 1}
+                        title="Next match"
+                      >
+                        <ChevronDown className="size-4 text-muted-foreground" strokeWidth={1.5} />
+                      </button>
+                    </div>
+                  )}
+              </div>
+            )}
           </div>
         </button>
-
-        {/* Match navigation - vertically stacked chevrons on right side when selected with matches */}
-        {/* Always rendered but uses opacity transition for smooth show/hide */}
-        <div className={cn(
-          "absolute right-2 top-0 bottom-0 flex flex-col items-center justify-center gap-0.5 py-2 z-10 transition-opacity duration-150",
-          isSelected && searchQuery && chatMatchCount != null && chatMatchCount > 0
-            ? "opacity-100"
-            : "opacity-0 pointer-events-none"
-        )}>
-          <button
-            onClick={(e) => { e.stopPropagation(); onNavigatePrev?.() }}
-            className={cn(
-              "p-0.5 rounded transition-colors",
-              (chatMatchIndex ?? 0) <= 0
-                ? "opacity-30 cursor-default"
-                : "hover:bg-foreground/10"
-            )}
-            disabled={(chatMatchIndex ?? 0) <= 0}
-            title="Previous match"
-          >
-            <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
-          <span className="text-[9px] text-muted-foreground tabular-nums text-center leading-tight">
-            {(chatMatchIndex ?? 0) + 1}/{chatMatchCount ?? 0}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); onNavigateNext?.() }}
-            className={cn(
-              "p-0.5 rounded transition-colors",
-              (chatMatchIndex ?? 0) >= (chatMatchCount ?? 1) - 1
-                ? "opacity-30 cursor-default"
-                : "hover:bg-foreground/10"
-            )}
-            disabled={(chatMatchIndex ?? 0) >= (chatMatchCount ?? 1) - 1}
-            title="Next match"
-          >
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
-        </div>
 
         {/* Action buttons - visible on hover or when menu is open, hidden in search mode with matches */}
         {!(isSelected && searchQuery && chatMatchCount && chatMatchCount > 0) && (
