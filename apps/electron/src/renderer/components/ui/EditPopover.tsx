@@ -751,6 +751,7 @@ export function EditPopover({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const dragStartRef = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 })
+  const dragOffsetRef = useRef({ x: 0, y: 0 })
   const popoverRef = useRef<HTMLDivElement>(null)
 
   // Resize state for dynamic sizing
@@ -761,6 +762,7 @@ export function EditPopover({
   // Reset drag position and size when popover opens
   useEffect(() => {
     if (open) {
+      dragOffsetRef.current = { x: 0, y: 0 }
       setDragOffset({ x: 0, y: 0 })
       setContainerSize({ width: width || 400, height: 480 })
     }
@@ -782,12 +784,23 @@ export function EditPopover({
     if (!isDragging) return
 
     const handleMouseMove = (e: MouseEvent) => {
-      const deltaX = e.clientX - dragStartRef.current.x
-      const deltaY = e.clientY - dragStartRef.current.y
-      setDragOffset({
-        x: dragStartRef.current.offsetX + deltaX,
-        y: dragStartRef.current.offsetY + deltaY,
-      })
+      const rect = popoverRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      const MARGIN = 20
+      const MARGIN_TOP = 50 // Match app title bar height (h-[50px])
+      const curr = dragOffsetRef.current
+      const baseX = rect.left - curr.x
+      const baseY = rect.top - curr.y
+
+      const newX = dragStartRef.current.offsetX + e.clientX - dragStartRef.current.x
+      const newY = dragStartRef.current.offsetY + e.clientY - dragStartRef.current.y
+
+      const clampedX = Math.max(MARGIN - baseX, Math.min(window.innerWidth - MARGIN - rect.width - baseX, newX))
+      const clampedY = Math.max(MARGIN_TOP - baseY, Math.min(window.innerHeight - MARGIN - rect.height - baseY, newY))
+
+      dragOffsetRef.current = { x: clampedX, y: clampedY }
+      setDragOffset({ x: clampedX, y: clampedY })
     }
 
     const handleMouseUp = () => {
