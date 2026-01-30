@@ -304,9 +304,9 @@ export interface FolderSourceConfig {
   api?: ApiSourceConfig;
   local?: LocalSourceConfig;
 
-  // Icon: emoji or URL (auto-downloaded to icon.* file)
-  // Local icon files (icon.svg, icon.png) are auto-discovered
-  // Priority: local file > URL (downloaded) > emoji
+  // Icon: emoji or URL
+  // Config is the source of truth. Local icon files are auto-discovered only when icon is undefined.
+  // Priority: emoji > URL > local file (auto-discovered)
   icon?: string;
 
   // Short description for agent context (e.g., "Issue tracking, bugs, tasks, sprints")

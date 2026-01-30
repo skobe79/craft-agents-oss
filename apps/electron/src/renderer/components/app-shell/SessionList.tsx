@@ -505,7 +505,7 @@ function SessionItem({
                   const displayValue = rawValue ? formatDisplayValue(rawValue, label.valueType) : undefined
                   return (
                     <LabelValuePopover
-                      key={label.id}
+                      key={`${label.id}-${labelIndex}`}
                       label={label}
                       value={rawValue}
                       open={openLabelIndex === labelIndex}
