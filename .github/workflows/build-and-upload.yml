@@ -3,21 +3,11 @@ name: Build
 on:
   workflow_dispatch:
     inputs:
-      build_macos:
-        description: 'Build macOS (arm64 + x64)'
+      targets:
+        description: 'Targets to build (comma-separated: macos-arm64, macos-x64, windows, linux, or "all")'
         required: false
-        type: boolean
-        default: true
-      build_windows:
-        description: 'Build Windows (x64)'
-        required: false
-        type: boolean
-        default: true
-      build_linux:
-        description: 'Build Linux (x64)'
-        required: false
-        type: boolean
-        default: true
+        type: string
+        default: 'all'
 
 permissions:
   contents: read
@@ -46,28 +36,34 @@ jobs:
       - name: Build matrix
         id: matrix
         run: |
+          TARGETS="${{ inputs.targets || 'all' }}"
           MATRIX='{"include":['
           FIRST=true
 
-          if [ "${{ inputs.build_macos }}" = "true" ]; then
+          add_target() {
             if [ "$FIRST" = true ]; then FIRST=false; else MATRIX+=','; fi
-            MATRIX+='{"os":"macos-14","platform":"darwin","arch":"arm64","ext":"dmg"}'
-            MATRIX+=','
-            MATRIX+='{"os":"macos-15-intel","platform":"darwin","arch":"x64","ext":"dmg"}'
+            MATRIX+="$1"
+          }
+
+          if [[ "$TARGETS" == "all" || "$TARGETS" == *"macos-arm64"* ]]; then
+            add_target '{"os":"macos-14","platform":"darwin","arch":"arm64","ext":"dmg"}'
           fi
 
-          if [ "${{ inputs.build_windows }}" = "true" ]; then
-            if [ "$FIRST" = true ]; then FIRST=false; else MATRIX+=','; fi
-            MATRIX+='{"os":"windows-2019","platform":"win32","arch":"x64","ext":"exe"}'
+          if [[ "$TARGETS" == "all" || "$TARGETS" == *"macos-x64"* ]]; then
+            add_target '{"os":"macos-15-intel","platform":"darwin","arch":"x64","ext":"dmg"}'
           fi
 
-          if [ "${{ inputs.build_linux }}" = "true" ]; then
-            if [ "$FIRST" = true ]; then FIRST=false; else MATRIX+=','; fi
-            MATRIX+='{"os":"ubuntu-latest","platform":"linux","arch":"x64","ext":"AppImage"}'
+          if [[ "$TARGETS" == "all" || "$TARGETS" == *"windows"* ]]; then
+            add_target '{"os":"windows-2019","platform":"win32","arch":"x64","ext":"exe"}'
+          fi
+
+          if [[ "$TARGETS" == "all" || "$TARGETS" == *"linux"* ]]; then
+            add_target '{"os":"ubuntu-latest","platform":"linux","arch":"x64","ext":"AppImage"}'
           fi
 
           MATRIX+=']}'
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Targets: $TARGETS"
           echo "Matrix: $MATRIX"
 
   build:
