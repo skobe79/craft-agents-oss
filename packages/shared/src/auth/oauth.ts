@@ -370,7 +370,7 @@ export class CraftOAuth {
             return;
           }
 
-          // Success!
+          // Success! Include deeplink to return user to their chat session
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end(generateCallbackPage({
             title: 'Authorization Successful',
