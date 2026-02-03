@@ -172,6 +172,225 @@ describe('discoverOAuthMetadata', () => {
       const result = await discoverOAuthMetadata('https://example.com/mcp');
       expect(result).toEqual(metadata);
     });
+
+    it('falls back to GET when HEAD returns 405', async () => {
+      const protectedResourceMetadata = {
+        resource: 'https://example.com/api',
+        authorization_servers: ['https://example.com/auth'],
+      };
+
+      const authServerMetadata = {
+        authorization_endpoint: 'https://example.com/auth/authorize',
+        token_endpoint: 'https://example.com/auth/token',
+      };
+
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        // HEAD returns 405 Method Not Allowed
+        if (options?.method === 'HEAD') {
+          return Promise.resolve(new Response(null, { status: 405 }));
+        }
+        // GET returns 401 with resource_metadata
+        if (url === 'https://example.com/mcp' && options?.method === 'GET') {
+          return Promise.resolve(new Response(null, {
+            status: 401,
+            headers: {
+              'WWW-Authenticate': 'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"',
+            },
+          }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-protected-resource') {
+          return Promise.resolve(new Response(JSON.stringify(protectedResourceMetadata), { status: 200 }));
+        }
+        if (url === 'https://example.com/auth/.well-known/oauth-authorization-server') {
+          return Promise.resolve(new Response(JSON.stringify(authServerMetadata), { status: 200 }));
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }));
+      });
+
+      const result = await discoverOAuthMetadata('https://example.com/mcp');
+      expect(result).toEqual(authServerMetadata);
+    });
+
+    it('falls back when authorization_servers is empty array', async () => {
+      const protectedResourceMetadata = {
+        resource: 'https://example.com/api',
+        authorization_servers: [], // Empty array
+      };
+
+      const metadata = {
+        authorization_endpoint: 'https://example.com/oauth/authorize',
+        token_endpoint: 'https://example.com/oauth/token',
+      };
+
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        if (options?.method === 'HEAD') {
+          return Promise.resolve(new Response(null, {
+            status: 401,
+            headers: {
+              'WWW-Authenticate': 'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"',
+            },
+          }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-protected-resource') {
+          return Promise.resolve(new Response(JSON.stringify(protectedResourceMetadata), { status: 200 }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-authorization-server') {
+          return Promise.resolve(new Response(JSON.stringify(metadata), { status: 200 }));
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }));
+      });
+
+      const result = await discoverOAuthMetadata('https://example.com/mcp');
+      expect(result).toEqual(metadata);
+    });
+
+    it('falls back when protected resource returns malformed JSON', async () => {
+      const metadata = {
+        authorization_endpoint: 'https://example.com/oauth/authorize',
+        token_endpoint: 'https://example.com/oauth/token',
+      };
+
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        if (options?.method === 'HEAD') {
+          return Promise.resolve(new Response(null, {
+            status: 401,
+            headers: {
+              'WWW-Authenticate': 'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"',
+            },
+          }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-protected-resource') {
+          return Promise.resolve(new Response('not valid json {{{', { status: 200 }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-authorization-server') {
+          return Promise.resolve(new Response(JSON.stringify(metadata), { status: 200 }));
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }));
+      });
+
+      const result = await discoverOAuthMetadata('https://example.com/mcp');
+      expect(result).toEqual(metadata);
+    });
+
+    it('rejects resource_metadata URL pointing to private IP (SSRF protection)', async () => {
+      const metadata = {
+        authorization_endpoint: 'https://example.com/oauth/authorize',
+        token_endpoint: 'https://example.com/oauth/token',
+      };
+
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        if (options?.method === 'HEAD') {
+          return Promise.resolve(new Response(null, {
+            status: 401,
+            headers: {
+              // Malicious server tries to redirect to AWS metadata endpoint
+              'WWW-Authenticate': 'Bearer resource_metadata="http://169.254.169.254/latest/meta-data/"',
+            },
+          }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-authorization-server') {
+          return Promise.resolve(new Response(JSON.stringify(metadata), { status: 200 }));
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }));
+      });
+
+      const result = await discoverOAuthMetadata('https://example.com/mcp');
+      // Should fall back to RFC 8414 instead of following SSRF URL
+      expect(result).toEqual(metadata);
+    });
+
+    it('rejects resource_metadata URL with non-HTTPS scheme', async () => {
+      const metadata = {
+        authorization_endpoint: 'https://example.com/oauth/authorize',
+        token_endpoint: 'https://example.com/oauth/token',
+      };
+
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        if (options?.method === 'HEAD') {
+          return Promise.resolve(new Response(null, {
+            status: 401,
+            headers: {
+              'WWW-Authenticate': 'Bearer resource_metadata="http://example.com/.well-known/oauth-protected-resource"',
+            },
+          }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-authorization-server') {
+          return Promise.resolve(new Response(JSON.stringify(metadata), { status: 200 }));
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }));
+      });
+
+      const result = await discoverOAuthMetadata('https://example.com/mcp');
+      expect(result).toEqual(metadata);
+    });
+
+    it('handles trailing slash in authorization server URL', async () => {
+      const protectedResourceMetadata = {
+        resource: 'https://example.com/api',
+        authorization_servers: ['https://example.com/auth/'], // Trailing slash
+      };
+
+      const authServerMetadata = {
+        authorization_endpoint: 'https://example.com/auth/authorize',
+        token_endpoint: 'https://example.com/auth/token',
+      };
+
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        if (options?.method === 'HEAD') {
+          return Promise.resolve(new Response(null, {
+            status: 401,
+            headers: {
+              'WWW-Authenticate': 'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"',
+            },
+          }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-protected-resource') {
+          return Promise.resolve(new Response(JSON.stringify(protectedResourceMetadata), { status: 200 }));
+        }
+        // Should be normalized to single slash
+        if (url === 'https://example.com/auth/.well-known/oauth-authorization-server') {
+          return Promise.resolve(new Response(JSON.stringify(authServerMetadata), { status: 200 }));
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }));
+      });
+
+      const result = await discoverOAuthMetadata('https://example.com/mcp');
+      expect(result).toEqual(authServerMetadata);
+    });
+
+    it('parses resource_metadata with single quotes', async () => {
+      const protectedResourceMetadata = {
+        resource: 'https://example.com/api',
+        authorization_servers: ['https://example.com/auth'],
+      };
+
+      const authServerMetadata = {
+        authorization_endpoint: 'https://example.com/auth/authorize',
+        token_endpoint: 'https://example.com/auth/token',
+      };
+
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        if (options?.method === 'HEAD') {
+          return Promise.resolve(new Response(null, {
+            status: 401,
+            headers: {
+              // Single quotes instead of double quotes
+              'WWW-Authenticate': "Bearer resource_metadata='https://example.com/.well-known/oauth-protected-resource'",
+            },
+          }));
+        }
+        if (url === 'https://example.com/.well-known/oauth-protected-resource') {
+          return Promise.resolve(new Response(JSON.stringify(protectedResourceMetadata), { status: 200 }));
+        }
+        if (url === 'https://example.com/auth/.well-known/oauth-authorization-server') {
+          return Promise.resolve(new Response(JSON.stringify(authServerMetadata), { status: 200 }));
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }));
+      });
+
+      const result = await discoverOAuthMetadata('https://example.com/mcp');
+      expect(result).toEqual(authServerMetadata);
+    });
   });
 
   describe('RFC 8414 discovery fallback', () => {
