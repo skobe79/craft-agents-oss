@@ -145,6 +145,7 @@ autoUpdater.logger = {
 // to detect when the download is complete as a fallback mechanism.
 
 let macOSWatcherInterval: NodeJS.Timeout | null = null
+let macOSFallbackTimeout: NodeJS.Timeout | null = null
 
 /**
  * Start watching the update cache directory on macOS for download completion.
@@ -162,26 +163,39 @@ function startMacOSDownloadWatcher(version: string): void {
   // Poll every 2 seconds to check for downloaded file
   let lastSize = 0
   let stableCount = 0
+  let pollCount = 0
 
   macOSWatcherInterval = setInterval(() => {
+    pollCount++
     try {
       if (!fs.existsSync(cacheDir)) {
+        if (pollCount % 5 === 0) {
+          mainLog.info(`[auto-update] macOS watcher: cache directory doesn't exist yet (poll #${pollCount})`)
+        }
         return // Directory doesn't exist yet, keep waiting
       }
 
       const files = fs.readdirSync(cacheDir)
-      const zipFile = files.find(f => f.endsWith('.zip'))
+      if (pollCount % 5 === 0) {
+        mainLog.info(`[auto-update] macOS watcher poll #${pollCount}, files: ${JSON.stringify(files)}`)
+      }
 
-      if (zipFile) {
-        const filePath = path.join(cacheDir, zipFile)
+      // Look for any update file (zip, dmg, or update-info.json indicating completion)
+      const updateFile = files.find(f =>
+        f.endsWith('.zip') || f.endsWith('.dmg') || f === 'update-info.json'
+      )
+
+      if (updateFile) {
+        const filePath = path.join(cacheDir, updateFile)
         const stats = fs.statSync(filePath)
 
         // Check if file size is stable (download complete)
         if (stats.size === lastSize && stats.size > 0) {
           stableCount++
-          // File size stable for 6 seconds (3 checks) = likely complete
-          if (stableCount >= 3) {
-            mainLog.info(`[auto-update] macOS watcher detected complete download: ${zipFile} (${stats.size} bytes)`)
+          mainLog.info(`[auto-update] macOS watcher: ${updateFile} size stable (${stats.size} bytes), count: ${stableCount}`)
+          // File size stable for 4 seconds (2 checks) = likely complete
+          if (stableCount >= 2) {
+            mainLog.info(`[auto-update] macOS watcher detected complete download: ${updateFile} (${stats.size} bytes)`)
             stopMacOSDownloadWatcher()
 
             // Only update state if we're still in 'downloading' state
@@ -201,9 +215,31 @@ function startMacOSDownloadWatcher(version: string): void {
         }
       }
     } catch (error) {
-      // Ignore errors (directory might not exist yet)
+      mainLog.warn(`[auto-update] macOS watcher error:`, error)
     }
   }, 2000)
+
+  // Fallback: After 30 seconds, if we're still downloading, force check the file system
+  // This handles cases where update-downloaded event never fires
+  macOSFallbackTimeout = setTimeout(() => {
+    mainLog.info('[auto-update] macOS 30-second fallback triggered')
+    if (updateInfo.downloadState === 'downloading') {
+      // Check if file actually exists now
+      const existing = checkForExistingDownload()
+      if (existing.exists) {
+        mainLog.info('[auto-update] macOS fallback: file exists, forcing state to ready')
+        stopMacOSDownloadWatcher()
+        updateInfo = {
+          ...updateInfo,
+          downloadState: 'ready',
+          downloadProgress: 100,
+        }
+        broadcastUpdateInfo()
+      } else {
+        mainLog.info('[auto-update] macOS fallback: file still not found, continuing to wait')
+      }
+    }
+  }, 30 * 1000)
 
   // Stop watching after 10 minutes (download should be done by then)
   setTimeout(() => {
@@ -221,6 +257,10 @@ function stopMacOSDownloadWatcher(): void {
   if (macOSWatcherInterval) {
     clearInterval(macOSWatcherInterval)
     macOSWatcherInterval = null
+  }
+  if (macOSFallbackTimeout) {
+    clearTimeout(macOSFallbackTimeout)
+    macOSFallbackTimeout = null
   }
 }
 
