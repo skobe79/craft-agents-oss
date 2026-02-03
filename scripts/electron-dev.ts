@@ -144,6 +144,16 @@ function getOAuthDefines(): Record<string, string> {
 function getElectronEnv(): Record<string, string> {
   const vitePort = process.env.CRAFT_VITE_PORT || "5173";
 
+  // CRAFT AGENTS: Use local Codex fork in dev mode for faster debugging
+  // The fork includes PreToolUse hook support for permission enforcement
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const localCodexPath = join(homeDir, "Documents/GitHub/craft-agents-codex/codex-rs/target/release/codex");
+  const codexPath = process.env.CODEX_PATH || (existsSync(localCodexPath) ? localCodexPath : "codex");
+
+  if (codexPath !== "codex") {
+    console.log(`🔧 Using local Codex build: ${codexPath}`);
+  }
+
   return {
     ...process.env as Record<string, string>,
     VITE_DEV_SERVER_URL: `http://localhost:${vitePort}`,
@@ -151,6 +161,7 @@ function getElectronEnv(): Record<string, string> {
     CRAFT_APP_NAME: process.env.CRAFT_APP_NAME || "Craft Agents",
     CRAFT_DEEPLINK_SCHEME: process.env.CRAFT_DEEPLINK_SCHEME || "craftagents",
     CRAFT_INSTANCE_NUMBER: process.env.CRAFT_INSTANCE_NUMBER || "",
+    CODEX_PATH: codexPath,
   };
 }
 

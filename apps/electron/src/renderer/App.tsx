@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTheme } from '@/hooks/useTheme'
 import type { ThemeOverrides } from '@config/theme'
 import { useSetAtom, useStore, useAtomValue } from 'jotai'
-import type { Session, Workspace, SessionEvent, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, SetupNeeds, TodoState, NewChatActionParams, ContentBadge, AuthType, AgentCapabilities } from '../shared/types'
+import type { Session, Workspace, SessionEvent, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, SetupNeeds, TodoState, NewChatActionParams, ContentBadge, AuthType, AgentCapabilities, LlmConnectionWithStatus } from '../shared/types'
 import type { SessionOptions, SessionOptionUpdates } from './hooks/useSessionOptions'
 import { defaultSessionOptions, mergeSessionOptions } from './hooks/useSessionOptions'
 import { generateMessageId } from '../shared/types'
@@ -187,6 +187,10 @@ export default function App() {
   const [authType, setAuthType] = useState<AuthType | null>(null)
   // Backend capabilities (models, thinking levels) - adapts UI based on provider
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null)
+  // LLM connections with authentication status (for provider selection)
+  const [llmConnections, setLlmConnections] = useState<LlmConnectionWithStatus[]>([])
+  // Workspace default LLM connection (for new sessions)
+  const [workspaceDefaultLlmConnection, setWorkspaceDefaultLlmConnection] = useState<string | undefined>()
   const [menuNewChatTrigger, setMenuNewChatTrigger] = useState(0)
   // Permission requests per session (queue to handle multiple concurrent requests)
   const [pendingPermissions, setPendingPermissions] = useState<Map<string, PermissionRequest[]>>(new Map())
@@ -263,6 +267,17 @@ export default function App() {
     const caps = await window.electronAPI.getBackendCapabilities()
     setCapabilities(caps)
   }, [])
+
+  // Refresh LLM connections from config (called on workspace change and after connection updates)
+  const refreshLlmConnections = useCallback(async () => {
+    const connections = await window.electronAPI.listLlmConnectionsWithStatus()
+    setLlmConnections(connections)
+    // Also refresh workspace default
+    if (windowWorkspaceId) {
+      const settings = await window.electronAPI.getWorkspaceSettings(windowWorkspaceId)
+      setWorkspaceDefaultLlmConnection(settings?.defaultLlmConnection)
+    }
+  }, [windowWorkspaceId])
 
   // Handle onboarding completion
   const handleOnboardingComplete = useCallback(async () => {
@@ -410,6 +425,10 @@ export default function App() {
     window.electronAPI.getBackendCapabilities().then((caps) => {
       setCapabilities(caps)
     })
+    // Load LLM connections with authentication status
+    window.electronAPI.listLlmConnectionsWithStatus().then((connections) => {
+      setLlmConnections(connections)
+    })
     // Load persisted input drafts into ref (no re-render needed)
     window.electronAPI.getAllDrafts().then((drafts) => {
       if (Object.keys(drafts).length > 0) {
@@ -429,6 +448,13 @@ export default function App() {
       cleanupApp()
     }
   }, [])
+
+  // Refresh LLM connections and workspace default when workspace changes
+  useEffect(() => {
+    if (windowWorkspaceId) {
+      refreshLlmConnections()
+    }
+  }, [windowWorkspaceId, refreshLlmConnections])
 
   // Listen for session events - uses centralized event processor for consistent state transitions
   //
@@ -1203,6 +1229,9 @@ export default function App() {
     customModel,
     authType,
     capabilities,
+    llmConnections,
+    workspaceDefaultLlmConnection,
+    refreshLlmConnections,
     pendingPermissions,
     pendingCredentials,
     getDraft,
@@ -1247,6 +1276,9 @@ export default function App() {
     customModel,
     authType,
     capabilities,
+    llmConnections,
+    workspaceDefaultLlmConnection,
+    refreshLlmConnections,
     pendingPermissions,
     pendingCredentials,
     getDraft,

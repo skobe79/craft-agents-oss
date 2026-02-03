@@ -1,20 +1,26 @@
 /**
- * Backend Abstraction Layer
+ * Agent Backend Abstraction Layer
  *
- * This module provides a unified interface for AI backends (Claude, OpenAI, etc.)
- * allowing CraftAgent to switch between providers seamlessly.
+ * This module provides a unified interface for AI agents (Claude, Codex, etc.)
+ * allowing seamless provider switching.
+ *
+ * Naming convention:
+ * - ClaudeAgent: Claude SDK implementation (implements AgentBackend directly)
+ * - CodexAgent: OpenAI Codex app-server implementation
+ * - AgentBackend: Interface that all agents implement
+ * - createAgent: Factory function to create agents
  *
  * Usage:
  * ```typescript
- * import { createBackend, type AgentBackend } from '@craft-agent/shared/agent/backend';
+ * import { createAgent, type AgentBackend } from '@craft-agent/shared/agent/backend';
  *
- * const backend = createBackend({
+ * const agent = createAgent({
  *   provider: 'anthropic',
  *   workspace: myWorkspace,
  *   model: 'claude-sonnet-4-5-20250929',
  * });
  *
- * for await (const event of backend.chat('Hello')) {
+ * for await (const event of agent.chat('Hello')) {
  *   console.log(event);
  * }
  * ```
@@ -42,8 +48,21 @@ export type {
 export { AbortReason } from './types.ts';
 
 // Factory
-export { createBackend, detectProvider, getAvailableProviders, isProviderAvailable } from './factory.ts';
+export {
+  createBackend,
+  createAgent,
+  detectProvider,
+  getAvailableProviders,
+  isProviderAvailable,
+  // LLM Connection support
+  connectionTypeToProvider,
+  connectionAuthTypeToBackendAuthType,
+  resolveSessionConnection,
+  createConfigFromConnection,
+  createBackendFromConnection,
+} from './factory.ts';
 
-// Backend implementations (for direct instantiation if needed)
-export { ClaudeBackend } from './claude.ts';
-export { CodexBackend } from './codex/index.ts';
+// Agent implementations
+// Both agents implement AgentBackend directly
+export { ClaudeAgent } from '../claude-agent.ts';
+export { CodexAgent, CodexBackend } from '../codex-agent.ts';

@@ -178,6 +178,12 @@ const api: ElectronAPI = {
   // Codex OAuth (CLI-based, checks ~/.codex/auth.json)
   checkCodexAuth: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_CHECK_CODEX_AUTH),
 
+  // ChatGPT OAuth (for Codex chatgptAuthTokens mode)
+  startChatGptOAuth: () => ipcRenderer.invoke(IPC_CHANNELS.CHATGPT_START_OAUTH),
+  cancelChatGptOAuth: () => ipcRenderer.invoke(IPC_CHANNELS.CHATGPT_CANCEL_OAUTH),
+  getChatGptAuthStatus: () => ipcRenderer.invoke(IPC_CHANNELS.CHATGPT_GET_AUTH_STATUS),
+  chatGptLogout: () => ipcRenderer.invoke(IPC_CHANNELS.CHATGPT_LOGOUT),
+
   // Backend capabilities (models, thinking levels)
   getBackendCapabilities: () => ipcRenderer.invoke(IPC_CHANNELS.GET_BACKEND_CAPABILITIES),
 
@@ -486,6 +492,18 @@ const api: ElectronAPI = {
   menuCopy: () => ipcRenderer.invoke(IPC_CHANNELS.MENU_COPY),
   menuPaste: () => ipcRenderer.invoke(IPC_CHANNELS.MENU_PASTE),
   menuSelectAll: () => ipcRenderer.invoke(IPC_CHANNELS.MENU_SELECT_ALL),
+
+  // LLM Connections (provider configurations)
+  listLlmConnections: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_LIST),
+  listLlmConnectionsWithStatus: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_LIST_WITH_STATUS),
+  getLlmConnection: (slug: string) => ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_GET, slug),
+  saveLlmConnection: (connection: import('../shared/types').LlmConnection) =>
+    ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_SAVE, connection),
+  deleteLlmConnection: (slug: string) => ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_DELETE, slug),
+  testLlmConnection: (slug: string) => ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_TEST, slug),
+  setDefaultLlmConnection: (slug: string) => ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_SET_DEFAULT, slug),
+  setWorkspaceDefaultLlmConnection: (workspaceId: string, slug: string | null) =>
+    ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_SET_WORKSPACE_DEFAULT, workspaceId, slug),
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

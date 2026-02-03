@@ -253,6 +253,8 @@ export interface SystemPromptOptions {
   workspaceRootPath?: string;
   /** Working directory for context file discovery (monorepo support) */
   workingDirectory?: string;
+  /** Backend name for "powered by X" text (default: 'Claude Code') */
+  backendName?: string;
 }
 
 /**
@@ -302,13 +304,15 @@ Use config_validate to verify changes match the expected schema.
  * @param workspaceRootPath - Root path of the workspace
  * @param workingDirectory - Working directory for context file discovery
  * @param preset - System prompt preset ('default' | 'mini' | custom string)
+ * @param backendName - Backend name for "powered by X" text (default: 'Claude Code')
  */
 export function getSystemPrompt(
   pinnedPreferencesPrompt?: string,
   debugMode?: DebugModeConfig,
   workspaceRootPath?: string,
   workingDirectory?: string,
-  preset?: SystemPromptPreset | string
+  preset?: SystemPromptPreset | string,
+  backendName?: string
 ): string {
   // Use mini agent prompt for quick edits (pass workspace root for config paths)
   if (preset === 'mini') {
@@ -326,7 +330,7 @@ export function getSystemPrompt(
   // Note: Date/time context is now added to user messages instead of system prompt
   // to enable prompt caching. The system prompt stays static and cacheable.
   // Safe Mode context is also in user messages for the same reason.
-  const basePrompt = getCraftAssistantPrompt(workspaceRootPath);
+  const basePrompt = getCraftAssistantPrompt(workspaceRootPath, backendName);
   const fullPrompt = `${basePrompt}${preferences}${debugContext}${projectContextFiles}`;
 
   debug('[getSystemPrompt] full prompt length:', fullPrompt.length);
@@ -399,8 +403,11 @@ function getCraftAgentEnvironmentMarker(): string {
  *
  * This prompt is intentionally concise - detailed documentation lives in
  * ${APP_ROOT}/docs/ and is read on-demand when topics come up.
+ *
+ * @param workspaceRootPath - Root path of the workspace
+ * @param backendName - Backend name for "powered by X" text (default: 'Claude Code')
  */
-function getCraftAssistantPrompt(workspaceRootPath?: string): string {
+function getCraftAssistantPrompt(workspaceRootPath?: string, backendName: string = 'Claude Code'): string {
   // Default to ${APP_ROOT}/workspaces/{id} if no path provided
   const workspacePath = workspaceRootPath || `${APP_ROOT}/workspaces/{id}`;
 
@@ -419,7 +426,7 @@ You are Craft Agent - an AI assistant that helps users connect and work across t
 **Core capabilities:**
 - **Connect external sources** - MCP servers, REST APIs, local filesystems. Users can integrate Linear, GitHub, Craft, custom APIs, and more.
 - **Automate workflows** - Combine data from multiple sources to create unique, powerful workflows.
-- **Code** - You are powered by Claude Code, so you can write and execute code (Python, Bash) to manipulate data, call APIs, and automate tasks.
+- **Code** - You are powered by ${backendName}, so you can write and execute code (Python, Bash) to manipulate data, call APIs, and automate tasks.
 
 ## External Sources
 
@@ -474,7 +481,7 @@ When you learn information about the user (their name, timezone, location, langu
 6. **Present File Paths, Links As Clickable Markdown Links**: Format file paths and URLs as clickable markdown links for easy access instead of code formatting.
 7. **Nice Markdown Formatting**: The user sees your responses rendered in markdown. Use headings, lists, bold/italic text, and code blocks for clarity. Basic HTML is also supported, but use sparingly.
 
-!!IMPORTANT!!. You must refer to yourself as Craft Agent in all responses. You can acknowledge that you are powered by Claude Code, but you must always refer to yourself as Craft Agent.
+!!IMPORTANT!!. You must refer to yourself as Craft Agent in all responses. You can acknowledge that you are powered by ${backendName}, but you must always refer to yourself as Craft Agent.
 
 ## Git Conventions
 

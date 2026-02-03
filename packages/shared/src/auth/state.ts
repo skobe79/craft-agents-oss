@@ -12,7 +12,14 @@
  */
 
 import { getCredentialManager } from '../credentials/index.ts';
-import { loadStoredConfig, getActiveWorkspace, type AuthType, type Workspace } from '../config/storage.ts';
+import {
+  loadStoredConfig,
+  getActiveWorkspace,
+  getDefaultLlmConnection,
+  getLlmConnection,
+  type AuthType,
+  type Workspace,
+} from '../config/storage.ts';
 import { refreshClaudeToken, isTokenExpired } from './claude-token.ts';
 import { debug } from '../utils/debug.ts';
 
@@ -221,31 +228,86 @@ export async function getValidClaudeOAuthToken(): Promise<TokenResult> {
 
 /**
  * Get complete authentication state from all sources (config file + credential store)
+ *
+ * Uses LLM connections as the source of truth for auth type and credentials.
+ * Falls back to legacy global credentials for backwards compatibility.
  */
 export async function getAuthState(): Promise<AuthState> {
   const config = loadStoredConfig();
   const manager = getCredentialManager();
-
-  const apiKey = await manager.getApiKey();
-  const tokenResult = await getValidClaudeOAuthToken();
   const activeWorkspace = getActiveWorkspace();
 
-  // Determine if billing credentials are satisfied based on auth type
+  // Get the default LLM connection to determine auth type
+  const defaultConnectionSlug = getDefaultLlmConnection();
+  const connection = getLlmConnection(defaultConnectionSlug);
+
+  // Determine auth type from connection (with fallback to legacy config.authType)
+  let effectiveAuthType: AuthType | null = null;
+  if (connection) {
+    // Map connection authType to legacy AuthType format for backwards compatibility
+    if (connection.authType === 'api_key') {
+      effectiveAuthType = 'api_key';
+    } else if (connection.authType === 'oauth') {
+      effectiveAuthType = 'oauth_token';
+    } else if (connection.authType === 'codex_oauth') {
+      effectiveAuthType = 'codex_oauth';
+    }
+  } else {
+    // Fallback to legacy config.authType
+    effectiveAuthType = config?.authType ?? null;
+  }
+
+  // Check credentials based on the effective auth type and connection
   let hasCredentials = false;
-  if (config?.authType === 'api_key') {
-    // Keyless providers (Ollama) are valid when a custom base URL is configured
-    hasCredentials = !!apiKey || !!config?.anthropicBaseUrl;
-  } else if (config?.authType === 'oauth_token') {
-    hasCredentials = !!tokenResult.accessToken;
+  let apiKey: string | null = null;
+  let claudeOAuthToken: string | null = null;
+  let migrationRequired: MigrationInfo | undefined;
+
+  if (connection) {
+    // Use LLM connection credentials (with fallback to legacy)
+    hasCredentials = await manager.hasLlmCredentials(defaultConnectionSlug, connection.authType);
+
+    if (connection.authType === 'api_key') {
+      // Check connection-scoped credential first, then fallback to legacy
+      apiKey = await manager.getLlmApiKey(defaultConnectionSlug) || await manager.getApiKey();
+      // Keyless providers (Ollama) are valid when a custom base URL is configured
+      if (!apiKey && connection.baseUrl) {
+        hasCredentials = true;
+      }
+    } else if (connection.authType === 'oauth') {
+      // Check connection-scoped credential first, then fallback to legacy
+      const llmOAuth = await manager.getLlmOAuth(defaultConnectionSlug);
+      if (llmOAuth?.accessToken) {
+        claudeOAuthToken = llmOAuth.accessToken;
+      } else {
+        // Fallback to legacy global credential
+        const tokenResult = await getValidClaudeOAuthToken();
+        claudeOAuthToken = tokenResult.accessToken;
+        migrationRequired = tokenResult.migrationRequired;
+      }
+    }
+    // codex_oauth credentials are handled separately by CodexAgent
+  } else {
+    // Fallback to legacy behavior when no connection is configured
+    apiKey = await manager.getApiKey();
+    const tokenResult = await getValidClaudeOAuthToken();
+    claudeOAuthToken = tokenResult.accessToken;
+    migrationRequired = tokenResult.migrationRequired;
+
+    if (effectiveAuthType === 'api_key') {
+      hasCredentials = !!apiKey || !!config?.anthropicBaseUrl;
+    } else if (effectiveAuthType === 'oauth_token') {
+      hasCredentials = !!claudeOAuthToken;
+    }
   }
 
   return {
     billing: {
-      type: config?.authType ?? null,
+      type: effectiveAuthType,
       hasCredentials,
       apiKey,
-      claudeOAuthToken: tokenResult.accessToken,
-      migrationRequired: tokenResult.migrationRequired,
+      claudeOAuthToken,
+      migrationRequired,
     },
     workspace: {
       hasWorkspace: !!activeWorkspace,

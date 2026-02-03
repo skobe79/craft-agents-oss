@@ -13,6 +13,22 @@ import type { SettingsSubpage } from '../../../shared/types'
 
 type IconProps = { className?: string }
 
+/** AI sparkles icon for AI settings */
+export const AiSettingsIcon = ({ className }: IconProps) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+  >
+    <path
+      d="M9.5 2L10.3 4.7L13 5.5L10.3 6.3L9.5 9L8.7 6.3L6 5.5L8.7 4.7L9.5 2ZM19 6L20.1 9.9L24 11L20.1 12.1L19 16L17.9 12.1L14 11L17.9 9.9L19 6ZM9 13L10.5 18L15.5 19.5L10.5 21L9 26L7.5 21L2.5 19.5L7.5 18L9 13Z"
+      fill="currentColor"
+      transform="scale(0.85) translate(1.5, 0)"
+    />
+  </svg>
+)
+
 /** Custom app settings icon (toggle switches) */
 export const AppSettingsIcon = ({ className }: IconProps) => (
   <svg
@@ -147,6 +163,7 @@ export const PreferencesIcon = ({ className }: IconProps) => (
  */
 export const SETTINGS_ICONS: Record<SettingsSubpage, React.ComponentType<IconProps>> = {
   app: AppSettingsIcon,
+  ai: AiSettingsIcon,
   appearance: AppearanceIcon,
   input: InputIcon,
   workspace: WorkspaceIcon,

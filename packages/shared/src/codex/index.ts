@@ -6,4 +6,13 @@
  */
 
 export { AppServerClient, type AppServerOptions, type AppServerEvents } from './app-server-client.ts';
-export { hasCodexOAuth, getCodexAuthPath } from './auth.ts';
+export {
+  generateCodexConfig,
+  generateBridgeConfig,
+  getCredentialCachePath,
+  validateSlugForToml,
+  type CodexConfigGeneratorOptions,
+  type CodexConfigResult,
+  type ConfigWarning,
+  type CredentialCacheEntry,
+} from './config-generator.ts';

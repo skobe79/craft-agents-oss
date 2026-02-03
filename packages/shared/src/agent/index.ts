@@ -1,4 +1,8 @@
-export * from './craft-agent.ts';
+// Export ClaudeAgent (renamed from CraftAgent) and backward-compatible aliases
+export * from './claude-agent.ts';
+
+// Export CodexAgent for direct use
+export { CodexAgent, CodexBackend } from './codex-agent.ts';
 export * from './errors.ts';
 export * from './options.ts';
 
@@ -106,15 +110,26 @@ export {
 // Export LLM tool - secondary Claude calls for subtasks
 export { createLLMTool, type LLMToolOptions } from './llm-tool.ts';
 
-// Export backend abstraction - unified interface for AI providers
-// This module enables switching between Claude (Anthropic) and OpenAI backends
+// Export BaseAgent - shared abstract class for all agent backends
 export {
-  // Factory
+  BaseAgent,
+  // Mini agent configuration (centralized for all backends)
+  type MiniAgentConfig,
+  MINI_AGENT_TOOLS,
+  MINI_AGENT_MCP_KEYS,
+} from './base-agent.ts';
+
+// Export backend abstraction - unified interface for AI agents
+// This module enables switching between Claude (Anthropic) and Codex (OpenAI) agents
+export {
+  // Factory (createAgent is the preferred name, createBackend is kept for backward compat)
   createBackend,
+  createAgent,
   detectProvider,
   getAvailableProviders,
-  // Backend implementations
-  ClaudeBackend,
+  // Agent implementations (both implement AgentBackend directly)
+  ClaudeAgent as BackendClaudeAgent, // Alias to avoid conflict with direct export
+  CodexAgent as BackendCodexAgent, // Avoid conflict with direct export above
   // Types
   type AgentBackend,
   type AgentCapabilities,
@@ -133,3 +148,6 @@ export {
   // Enums
   AbortReason as BackendAbortReason,
 } from './backend/index.ts';
+
+// Export core utilities for shared agent logic
+export * from './core/index.ts';

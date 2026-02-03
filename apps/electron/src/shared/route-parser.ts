@@ -13,9 +13,9 @@ import type {
   NavigationState,
   ChatFilter,
   SourceFilter,
-  SettingsSubpage,
   RightSidebarPanel,
 } from './types'
+import { isValidSettingsSubpage, type SettingsSubpage } from './settings-registry'
 
 // =============================================================================
 // Route Types
@@ -93,9 +93,8 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
 
   // Settings navigator
   if (first === 'settings') {
-    const subpage = (segments[1] || 'app') as SettingsSubpage
-    const validSubpages: SettingsSubpage[] = ['app', 'appearance', 'input', 'workspace', 'permissions', 'labels', 'shortcuts', 'preferences']
-    if (!validSubpages.includes(subpage)) return null
+    const subpage = segments[1] || 'app'
+    if (!isValidSettingsSubpage(subpage)) return null
     return {
       navigator: 'settings',
       details: { type: subpage, id: subpage },

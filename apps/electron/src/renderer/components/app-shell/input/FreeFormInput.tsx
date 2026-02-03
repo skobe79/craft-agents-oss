@@ -10,6 +10,7 @@ import {
   DatabaseZap,
   ChevronDown,
   Loader2,
+  Lock,
 } from 'lucide-react'
 import { Icon_Home, Icon_Folder } from '@craft-agent/ui'
 
@@ -187,6 +188,11 @@ export interface FreeFormInputProps {
   }
   /** Enable compact mode - hides attach, sources, working directory for popover embedding */
   compactMode?: boolean
+  // Connection selection (hierarchical connection → model selector)
+  /** Current LLM connection slug (locked after first message) */
+  currentConnection?: string
+  /** Callback when connection changes (only works when session is empty) */
+  onConnectionChange?: (connectionSlug: string) => void
 }
 
 /**
@@ -237,12 +243,16 @@ export function FreeFormInput({
   isEmptySession = false,
   contextStatus,
   compactMode = false,
+  currentConnection,
+  onConnectionChange,
 }: FreeFormInputProps) {
-  // Read custom model, capabilities, and workspace info from context.
+  // Read custom model, capabilities, connections, and workspace info from context.
   // Uses optional variant so playground (no provider) doesn't crash.
   const appShellCtx = useOptionalAppShellContext()
   const customModel = appShellCtx?.customModel ?? null
   const capabilities = appShellCtx?.capabilities ?? null
+  const llmConnections = appShellCtx?.llmConnections ?? []
+  const workspaceDefaultConnection = appShellCtx?.workspaceDefaultLlmConnection
 
   // Compute available models from capabilities, falling back to hardcoded MODELS
   // This allows the UI to adapt when switching between Claude and OpenAI backends
@@ -260,6 +270,30 @@ export function FreeFormInput({
     }
     return THINKING_LEVELS
   }, [capabilities?.thinkingLevels])
+
+  // Group connections by provider type for hierarchical dropdown
+  // Each provider (Anthropic, OpenAI) can have multiple connections (API Key, Claude Max, etc.)
+  const connectionsByProvider = React.useMemo(() => {
+    const groups: Record<string, typeof llmConnections> = {
+      'Anthropic': [],
+      'OpenAI': [],
+    }
+    for (const conn of llmConnections) {
+      if (conn.type === 'anthropic') groups['Anthropic'].push(conn)
+      else if (conn.type === 'openai') groups['OpenAI'].push(conn)
+    }
+    // Return only non-empty groups
+    return Object.entries(groups).filter(([, conns]) => conns.length > 0)
+  }, [llmConnections])
+
+  // Find current connection details for display
+  const currentConnectionDetails = React.useMemo(() => {
+    if (!currentConnection) return null
+    return llmConnections.find(c => c.slug === currentConnection) ?? null
+  }, [llmConnections, currentConnection])
+
+  // Effective connection: use prop, fall back to workspace default, then first available
+  const effectiveConnection = currentConnection || workspaceDefaultConnection || llmConnections[0]?.slug
 
   // Access todoStates and onTodoStateChange from context for the # menu state picker
   const todoStates = appShellCtx?.todoStates ?? []
@@ -1530,7 +1564,7 @@ export function FreeFormInput({
 
           {/* Right side: Model + Send - never shrink so they're always visible */}
           <div className="flex items-center shrink-0">
-          {/* 5. Model Selector - Hidden in compact mode (EditPopover embedding) */}
+          {/* 5. Model/Connection Selector - Hidden in compact mode (EditPopover embedding) */}
           {!compactMode && (
           <DropdownMenu open={modelDropdownOpen} onOpenChange={setModelDropdownOpen}>
             <Tooltip>
@@ -1544,15 +1578,27 @@ export function FreeFormInput({
                     )}
                   >
                     {/* Show custom model name when a custom API connection is active */}
-                    {getModelShortName(customModel || currentModel)}
+                    {customModel ? (
+                      getModelShortName(customModel)
+                    ) : isEmptySession && llmConnections.length > 1 && currentConnectionDetails ? (
+                      // Empty session with multiple connections: show "Connection / Model"
+                      <>
+                        <span className="opacity-60">{currentConnectionDetails.name}</span>
+                        <span className="opacity-40 mx-0.5">/</span>
+                        <span>{getModelShortName(currentModel)}</span>
+                      </>
+                    ) : (
+                      // Active session or single connection: just show model name
+                      getModelShortName(currentModel)
+                    )}
                     {!customModel && <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />}
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="top">Model</TooltipContent>
             </Tooltip>
-            <StyledDropdownMenuContent side="top" align="end" sideOffset={8} className="min-w-[240px]">
-              {/* When custom model is active, show it as a static item instead of Anthropic options */}
+            <StyledDropdownMenuContent side="top" align="end" sideOffset={8} className="min-w-[260px]">
+              {/* When custom model is active, show it as a static item */}
               {customModel ? (
                 <StyledDropdownMenuItem
                   disabled
@@ -1564,39 +1610,116 @@ export function FreeFormInput({
                   </div>
                   <Check className="h-4 w-4 text-foreground shrink-0 ml-3" />
                 </StyledDropdownMenuItem>
+              ) : isEmptySession && llmConnections.length > 1 ? (
+                /* Hierarchical view: Provider → Connection → Models (for new sessions with multiple connections) */
+                connectionsByProvider.map(([providerName, connections]) => (
+                  <React.Fragment key={providerName}>
+                    {/* Provider group label */}
+                    <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide select-none">
+                      {providerName}
+                    </div>
+                    {connections.map((conn) => {
+                      const isCurrentConnection = effectiveConnection === conn.slug
+                      const isAuthenticated = conn.isAuthenticated
+                      return (
+                        <DropdownMenuSub key={conn.slug}>
+                          <StyledDropdownMenuSubTrigger
+                            disabled={!isAuthenticated}
+                            className={cn(
+                              "flex items-center justify-between px-2 py-2 rounded-lg",
+                              isCurrentConnection && "bg-foreground/5"
+                            )}
+                          >
+                            <div className="text-left flex-1">
+                              <div className="font-medium text-sm flex items-center gap-2">
+                                {conn.name}
+                                {isCurrentConnection && <Check className="h-3 w-3 text-foreground" />}
+                              </div>
+                              {!isAuthenticated && (
+                                <div className="text-xs text-muted-foreground">Not authenticated</div>
+                              )}
+                            </div>
+                          </StyledDropdownMenuSubTrigger>
+                          {isAuthenticated && (
+                            <StyledDropdownMenuSubContent className="min-w-[220px]">
+                              {/* Show models for this connection */}
+                              {(conn.models || availableModels).map((model) => {
+                                const modelId = typeof model === 'string' ? model : model.id
+                                const modelName = typeof model === 'string' ? getModelShortName(model) : model.name
+                                const isSelectedModel = isCurrentConnection && currentModel === modelId
+                                return (
+                                  <StyledDropdownMenuItem
+                                    key={modelId}
+                                    onSelect={() => {
+                                      // If selecting a different connection, update both connection and model
+                                      if (!isCurrentConnection && onConnectionChange) {
+                                        onConnectionChange(conn.slug)
+                                      }
+                                      onModelChange(modelId)
+                                    }}
+                                    className="flex items-center justify-between px-2 py-2 rounded-lg cursor-pointer"
+                                  >
+                                    <div className="font-medium text-sm">{modelName}</div>
+                                    {isSelectedModel && (
+                                      <Check className="h-4 w-4 text-foreground shrink-0 ml-3" />
+                                    )}
+                                  </StyledDropdownMenuItem>
+                                )
+                              })}
+                            </StyledDropdownMenuSubContent>
+                          )}
+                        </DropdownMenuSub>
+                      )
+                    })}
+                    <StyledDropdownMenuSeparator className="my-1" />
+                  </React.Fragment>
+                ))
               ) : (
-                /* Model options from capabilities (adapts to Claude/OpenAI backends) */
-                availableModels.map((model) => {
-                  const isSelected = currentModel === model.id
-                  // Fallback descriptions for common models (when capabilities don't provide descriptions)
-                  const defaultDescriptions: Record<string, string> = {
-                    'claude-opus-4-5-20251101': 'Most capable for complex work',
-                    'claude-sonnet-4-5-20250929': 'Best for everyday tasks',
-                    'claude-haiku-4-5-20251001': 'Fastest for quick answers',
-                    'claude-3-5-haiku-latest': 'Fastest for quick answers',
-                    'codex-1': 'OpenAI Codex model',
-                    'o3': 'OpenAI o3 model',
-                    'o4-mini': 'OpenAI o4-mini model',
-                  }
-                  const description = ('description' in model ? model.description : null) || defaultDescriptions[model.id] || ''
-                  return (
-                    <StyledDropdownMenuItem
-                      key={model.id}
-                      onSelect={() => onModelChange(model.id)}
-                      className="flex items-center justify-between px-2 py-2 rounded-lg cursor-pointer"
-                    >
-                      <div className="text-left">
-                        <div className="font-medium text-sm">{model.name}</div>
-                        {description && (
-                          <div className="text-xs text-muted-foreground">{description}</div>
-                        )}
+                /* Flat model list (single connection or session started) */
+                <>
+                  {/* Lock indicator showing which connection is being used */}
+                  {!isEmptySession && currentConnectionDetails && llmConnections.length > 1 && (
+                    <>
+                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground select-none">
+                        <Lock className="h-3 w-3" />
+                        <span>Using {currentConnectionDetails.name}</span>
                       </div>
-                      {isSelected && (
-                        <Check className="h-4 w-4 text-foreground shrink-0 ml-3" />
-                      )}
-                    </StyledDropdownMenuItem>
-                  )
-                })
+                      <StyledDropdownMenuSeparator className="my-1" />
+                    </>
+                  )}
+                  {/* Model options from capabilities (adapts to Claude/OpenAI backends) */}
+                  {(currentConnectionDetails?.models || availableModels).map((model) => {
+                    const isSelected = currentModel === model.id
+                    // Fallback descriptions for common models (when capabilities don't provide descriptions)
+                    const defaultDescriptions: Record<string, string> = {
+                      'claude-opus-4-5-20251101': 'Most capable for complex work',
+                      'claude-sonnet-4-5-20250929': 'Best for everyday tasks',
+                      'claude-haiku-4-5-20251001': 'Fastest for quick answers',
+                      'claude-3-5-haiku-latest': 'Fastest for quick answers',
+                      'codex-1': 'OpenAI Codex model',
+                      'o3': 'OpenAI o3 model',
+                      'o4-mini': 'OpenAI o4-mini model',
+                    }
+                    const description = ('description' in model ? model.description : null) || defaultDescriptions[model.id] || ''
+                    return (
+                      <StyledDropdownMenuItem
+                        key={model.id}
+                        onSelect={() => onModelChange(model.id)}
+                        className="flex items-center justify-between px-2 py-2 rounded-lg cursor-pointer"
+                      >
+                        <div className="text-left">
+                          <div className="font-medium text-sm">{model.name}</div>
+                          {description && (
+                            <div className="text-xs text-muted-foreground">{description}</div>
+                          )}
+                        </div>
+                        {isSelected && (
+                          <Check className="h-4 w-4 text-foreground shrink-0 ml-3" />
+                        )}
+                      </StyledDropdownMenuItem>
+                    )
+                  })}
+                </>
               )}
 
               {/* Thinking level selector — only shown when thinking levels are available

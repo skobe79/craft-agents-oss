@@ -102,22 +102,25 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
       const manager = getCredentialManager()
 
       // 1. Save billing credential if provided (only when authType is specified)
+      // Save to BOTH legacy global location AND LLM connection for backwards compatibility
       if (config.credential && config.authType) {
         mainLog.info('[Onboarding:Main] Saving credential for authType:', config.authType)
         if (config.authType === 'api_key') {
           mainLog.info('[Onboarding:Main] Calling manager.setApiKey...')
+          // Save to legacy global location (for backwards compat)
           await manager.setApiKey(config.credential)
-          mainLog.info('[Onboarding:Main] API key saved successfully')
+          // Also save to LLM connection (new system)
+          await manager.setLlmApiKey('anthropic-api', config.credential)
+          mainLog.info('[Onboarding:Main] API key saved to both legacy and LLM connection')
         } else if (config.authType === 'oauth_token') {
           // NOTE: For oauth_token, credentials are saved via ONBOARDING_EXCHANGE_CLAUDE_CODE
-          // which marks them with source: 'native'. We no longer import from Claude CLI.
-          // If we receive a credential here, it means user completed native OAuth flow.
+          // which saves to both legacy (claude_oauth::global) and LLM connection (llm_oauth::claude-max)
           mainLog.info('[Onboarding:Main] OAuth token auth type selected')
           mainLog.info('[Onboarding:Main] Credentials should already be saved via native OAuth flow')
         }
       } else if (config.authType === 'codex_oauth') {
-        // Codex OAuth reads from ~/.codex/auth.json - no credential to save
-        mainLog.info('[Onboarding:Main] Codex OAuth selected - no credential to save (reads from ~/.codex/auth.json)')
+        // Codex OAuth tokens are saved via CHATGPT_START_OAUTH handler to llm_oauth::codex
+        mainLog.info('[Onboarding:Main] Codex OAuth selected - credentials saved via ChatGPT OAuth flow')
       } else {
         mainLog.info('[Onboarding:Main] Skipping credential save', {
           hasCredential: !!config.credential,
@@ -137,10 +140,21 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
         activeSessionId: null,
       }
 
-      // 3. Update authType if provided
+      // 3. Update authType and defaultLlmConnection if provided
       if (config.authType) {
         mainLog.info('[Onboarding:Main] Updating authType from', newConfig.authType, 'to', config.authType)
+        // Keep authType for backwards compatibility
         newConfig.authType = config.authType
+
+        // Also set defaultLlmConnection based on authType (new system)
+        // This is the authoritative setting going forward
+        const connectionSlug = config.authType === 'api_key' ? 'anthropic-api' :
+                               config.authType === 'oauth_token' ? 'claude-max' :
+                               config.authType === 'codex_oauth' ? 'codex' : null
+        if (connectionSlug) {
+          mainLog.info('[Onboarding:Main] Setting defaultLlmConnection to', connectionSlug)
+          newConfig.defaultLlmConnection = connectionSlug
+        }
       }
 
       // 3a. Update anthropicBaseUrl if provided
@@ -285,6 +299,8 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
 
       // Save credentials with refresh token support and source marker
       const manager = getCredentialManagerFn()
+
+      // Save to legacy global location (for backwards compat)
       await manager.setClaudeOAuthCredentials({
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -292,8 +308,15 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
         source: 'native', // Mark as obtained from our native OAuth flow
       })
 
+      // Also save to LLM connection (new system)
+      await manager.setLlmOAuth('claude-max', {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresAt,
+      })
+
       const expiresAtDate = tokens.expiresAt ? new Date(tokens.expiresAt).toISOString() : 'never'
-      mainLog.info(`[Onboarding] Claude OAuth successful (expires: ${expiresAtDate})`)
+      mainLog.info(`[Onboarding] Claude OAuth saved to both legacy and LLM connection (expires: ${expiresAtDate})`)
       return { success: true, token: tokens.accessToken }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'

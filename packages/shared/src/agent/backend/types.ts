@@ -21,43 +21,19 @@ import type { AuthRequest } from '../session-scoped-tools.ts';
 import type { Workspace } from '../../config/storage.ts';
 import type { SessionConfig as Session } from '../../sessions/storage.ts';
 
-// Import AbortReason and RecoveryMessage from craft-agent (single source of truth)
-// These are imported for local use in this file, then re-exported
-import { AbortReason, type RecoveryMessage } from '../craft-agent.ts';
+// Import AbortReason and RecoveryMessage from core module (single source of truth)
+import { AbortReason, type RecoveryMessage } from '../core/index.ts';
 export { AbortReason, type RecoveryMessage };
+
+// Import and re-export ModelDefinition from centralized registry
+import type { ModelDefinition, ModelProvider } from '../../config/models.ts';
+export type { ModelDefinition } from '../../config/models.ts';
 
 /**
  * Provider identifier for AI backends.
- * Extensible to support additional providers in the future.
+ * @deprecated Use ModelProvider from config/models.ts instead
  */
-export type AgentProvider = 'anthropic' | 'openai';
-
-// OpenAIVariant removed - Codex backend now uses app-server mode exclusively
-
-/**
- * Model definition with provider-specific metadata.
- * Used by UI to populate model selection dropdowns.
- */
-export interface ModelDefinition {
-  /** Model identifier (e.g., 'claude-sonnet-4-5-20250929', 'codex-mini') */
-  id: string;
-  /** Human-readable name (e.g., 'Sonnet 4.5', 'Codex Mini') */
-  name: string;
-  /** Provider that offers this model */
-  provider: AgentProvider;
-  /** Maximum context window in tokens */
-  contextWindow: number;
-  /** Whether model supports extended thinking */
-  supportsThinking?: boolean;
-  /** Whether model supports vision/image inputs */
-  supportsVision?: boolean;
-  /** Whether model supports tool/function calling */
-  supportsTools?: boolean;
-  /** Cost per million input tokens (USD) */
-  inputCostPerM?: number;
-  /** Cost per million output tokens (USD) */
-  outputCostPerM?: number;
-}
+export type AgentProvider = ModelProvider;
 
 /**
  * Thinking level definition for extended reasoning.
@@ -106,15 +82,20 @@ export interface AgentCapabilities {
 // ============================================================
 
 /**
+ * Permission prompt types for different tool categories.
+ */
+export type PermissionRequestType = 'bash' | 'file_write' | 'mcp_mutation' | 'api_mutation';
+
+/**
  * Permission request callback signature.
  * Called when a tool requires user permission before execution.
  */
 export type PermissionCallback = (request: {
   requestId: string;
   toolName: string;
-  command: string;
+  command?: string;
   description: string;
-  type?: 'bash';
+  type?: PermissionRequestType;
 }) => void;
 
 /**
@@ -385,6 +366,15 @@ export interface BackendConfig {
 
   /** System prompt preset ('default' | 'mini' | custom string) */
   systemPromptPreset?: 'default' | 'mini' | string;
+
+  /**
+   * Custom CODEX_HOME directory for per-session configuration (Codex backend only).
+   * When set, the Codex app-server will read config.toml from this directory
+   * instead of ~/.codex, enabling per-session MCP server configuration.
+   *
+   * Typically set to: `{sessionPath}/.codex-home`
+   */
+  codexHome?: string;
 
   /** Callback when SDK session ID is captured/updated */
   onSdkSessionIdUpdate?: (sdkSessionId: string) => void;

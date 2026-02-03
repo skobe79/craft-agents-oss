@@ -204,6 +204,26 @@ export function copyInterceptor(config: BuildConfig): void {
 }
 
 /**
+ * Copy Bridge MCP Server to packaged app resources.
+ * The bridge server is used for API sources in Codex sessions.
+ */
+export function copyBridgeServer(config: BuildConfig): void {
+  const { rootDir, electronDir } = config;
+
+  const bridgeSource = join(rootDir, 'packages', 'bridge-mcp-server', 'dist', 'index.js');
+  const bridgeDest = join(electronDir, 'resources', 'bridge-mcp-server', 'index.js');
+
+  if (!existsSync(bridgeSource)) {
+    console.warn(`Warning: Bridge server not found at ${bridgeSource}. API sources in Codex sessions will not work.`);
+    return;
+  }
+
+  console.log('Copying Bridge MCP Server...');
+  mkdirSync(dirname(bridgeDest), { recursive: true });
+  copyFileSync(bridgeSource, bridgeDest);
+}
+
+/**
  * Build the Electron app (main, preload, renderer)
  */
 export async function buildElectronApp(config: BuildConfig): Promise<void> {

@@ -24,6 +24,7 @@ import type {
   LoadedSkill,
   NewChatActionParams,
   AuthType,
+  LlmConnectionWithStatus,
 } from '../../shared/types'
 import type { AgentCapabilities } from '@craft-agent/shared/agent/backend'
 import type { TodoState as TodoStateConfig } from '@/config/todo-states'
@@ -45,6 +46,12 @@ export interface AppShellContextType {
   authType: AuthType | null
   /** Backend capabilities (models, thinking levels) - null until backend ready */
   capabilities: AgentCapabilities | null
+  /** All LLM connections with authentication status */
+  llmConnections: LlmConnectionWithStatus[]
+  /** Default LLM connection slug for the current workspace */
+  workspaceDefaultLlmConnection?: string
+  /** Refresh LLM connections from config */
+  refreshLlmConnections: () => Promise<void>
   pendingPermissions: Map<string, PermissionRequest[]>
   pendingCredentials: Map<string, CredentialRequest[]>
   /** Get draft input text for a session - reads from ref without triggering re-renders */

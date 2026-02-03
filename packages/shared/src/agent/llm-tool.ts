@@ -26,15 +26,15 @@ import { readFile } from 'fs/promises';
 import { existsSync, statSync } from 'fs';
 import { getAnthropicApiKey, getAnthropicBaseUrl, getClaudeOAuthToken } from '../config/storage.ts';
 
+// Import allowed models from centralized registry
+import { ALLOWED_LLM_TOOL_MODELS } from '../config/models.ts';
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const ALLOWED_MODELS = [
-  'claude-sonnet-4-5-20250929',
-  'claude-3-5-haiku-latest',
-  'claude-opus-4-5-20251101',
-] as const;
+// ALLOWED_MODELS derived from centralized registry
+const ALLOWED_MODELS = ALLOWED_LLM_TOOL_MODELS as readonly string[];
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
@@ -420,7 +420,7 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
         .describe(`File/image paths (max ${MAX_ATTACHMENTS}). Use {path, startLine, endLine} for large text files.`),
 
       model: z.enum(ALLOWED_MODELS).optional()
-        .describe('Model to use. Defaults to claude-3-5-haiku-latest'),
+        .describe('Model to use. Defaults to claude-haiku-4-5-latest'),
 
       systemPrompt: z.string().optional()
         .describe('Optional system prompt'),
@@ -483,7 +483,7 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
       }
 
       // --- Validate model + thinking compatibility ---
-      if (args.thinking && args.model === 'claude-3-5-haiku-latest') {
+      if (args.thinking && args.model === 'claude-haiku-4-5-latest') {
         return errorResponse(
           'Extended thinking not supported on Haiku.\n\n' +
           'Use claude-sonnet-4-5-20250929 or claude-opus-4-5-20251101 for thinking mode.'
@@ -589,7 +589,7 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
       // BUILD REQUEST
       // ========================================
 
-      const model = args.model || 'claude-3-5-haiku-latest';
+      const model = args.model || 'claude-haiku-4-5-latest';
       const thinkingEnabled = args.thinking === true;
       const thinkingBudget = thinkingEnabled ? (args.thinkingBudget || 10000) : 0;
       const outputTokens = args.maxTokens || 4096;

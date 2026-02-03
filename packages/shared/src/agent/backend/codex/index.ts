@@ -1,9 +1,13 @@
 /**
- * Codex Backend Module
+ * Codex Agent Module
  *
- * Exports the CodexBackend implementation that uses the Codex app-server protocol.
+ * Exports the CodexAgent implementation that uses the Codex app-server protocol.
  * Communicates via JSON-RPC over stdio with `codex app-server`.
+ *
+ * Note: The main CodexAgent class has been moved to ../codex-agent.ts
+ * for consistency with ClaudeAgent. This index re-exports for backward compatibility.
  */
 
-export { CodexBackend } from './backend.ts';
+// Re-export CodexAgent from its new location
+export { CodexAgent, CodexBackend } from '../../codex-agent.ts';
 export { EventAdapter } from './event-adapter.ts';

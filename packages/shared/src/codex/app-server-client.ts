@@ -55,12 +55,112 @@ import type {
   AgentMessageDeltaNotification,
   TurnStartedNotification,
   TurnCompletedNotification,
+  TurnPlanUpdatedNotification,
   ThreadStartedNotification,
+  ThreadTokenUsageUpdatedNotification,
 } from '@craft-agent/codex-types/v2';
 
 // ============================================================
 // Types
 // ============================================================
+
+/**
+ * ChatGPT auth tokens for the `chatgptAuthTokens` login mode.
+ * These types extend the generated codex-types since `chatgptAuthTokens`
+ * may not be in older type definitions.
+ */
+export interface ChatGptAuthTokensLoginParams {
+  type: 'chatgptAuthTokens';
+  idToken: string;
+  accessToken: string;
+}
+
+/**
+ * Token refresh request params from Codex app-server.
+ * Sent when the server receives a 401 and needs fresh tokens.
+ */
+export interface ChatGptTokenRefreshRequestParams {
+  reason: 'unauthorized' | 'expired' | string;
+  previousAccountId?: string;
+}
+
+/**
+ * Token refresh response to send back to the server.
+ */
+export interface ChatGptTokenRefreshResponse {
+  idToken: string;
+  accessToken: string;
+}
+
+// ============================================================
+// CRAFT AGENTS: PreToolUse Hook Types
+// ============================================================
+
+/**
+ * Tool type enum for PreToolUse hook.
+ * Matches the Rust ToolCallType enum in the fork.
+ */
+export type ToolCallType =
+  | 'bash'
+  | 'fileWrite'
+  | 'fileEdit'
+  | 'mcp'
+  | 'custom'
+  | 'function'
+  | 'localShell';
+
+/**
+ * Parameters for PreToolUse hook request.
+ * Sent BEFORE tool execution to allow client to block/modify/allow.
+ */
+export interface ToolCallPreExecuteParams {
+  threadId: string;
+  turnId: string;
+  itemId: string;       // call_id for matching
+  toolType: ToolCallType;
+  toolName: string;
+  input: unknown;       // JSON value of tool input
+  mcpServer?: string;   // For MCP tools
+  mcpTool?: string;     // For MCP tools
+}
+
+/**
+ * Type of permission prompt to display when decision is AskUser.
+ */
+export type PermissionPromptType = 'bash' | 'file_write' | 'mcp_mutation' | 'api_mutation';
+
+/**
+ * Metadata for displaying a permission prompt when decision is AskUser.
+ */
+export interface PermissionPromptMetadata {
+  promptType: PermissionPromptType;
+  description: string;
+  command?: string;     // For bash
+  filePath?: string;    // For file operations
+  toolName?: string;    // For MCP/API
+}
+
+/**
+ * User's decision on a permission prompt.
+ */
+export type UserPermissionDecision = 'approved' | 'denied' | 'timedOut';
+
+/**
+ * Decision for PreToolUse hook response.
+ */
+export type ToolCallPreExecuteDecision =
+  | { type: 'allow' }
+  | { type: 'block'; reason: string }
+  | { type: 'modify'; input: unknown }
+  | { type: 'askUser'; prompt: PermissionPromptMetadata }
+  | { type: 'userResponse'; decision: UserPermissionDecision; acceptForSession?: boolean };
+
+/**
+ * Response for PreToolUse hook.
+ */
+export interface ToolCallPreExecuteResponse {
+  decision: ToolCallPreExecuteDecision;
+}
 
 /**
  * JSON-RPC message types
@@ -115,6 +215,14 @@ export interface AppServerOptions {
   requestTimeout?: number;
   /** Debug callback for logging */
   onDebug?: (message: string) => void;
+  /**
+   * Custom environment variables to pass to the codex process.
+   * These are merged with process.env (custom values take precedence).
+   *
+   * Use CODEX_HOME to set a per-session config directory:
+   * { CODEX_HOME: '/path/to/session/.codex-home' }
+   */
+  env?: Record<string, string>;
 }
 
 /**
@@ -123,8 +231,10 @@ export interface AppServerOptions {
 export interface AppServerEvents {
   // Server notifications (v2 protocol)
   'thread/started': ThreadStartedNotification;
+  'thread/tokenUsage/updated': ThreadTokenUsageUpdatedNotification;
   'turn/started': TurnStartedNotification;
   'turn/completed': TurnCompletedNotification;
+  'turn/plan/updated': TurnPlanUpdatedNotification;
   'item/started': ItemStartedNotification;
   'item/completed': ItemCompletedNotification;
   'item/agentMessage/delta': AgentMessageDeltaNotification;
@@ -134,6 +244,18 @@ export interface AppServerEvents {
   // Server requests (approval)
   'item/commandExecution/requestApproval': CommandExecutionRequestApprovalParams & { requestId: RequestId };
   'item/fileChange/requestApproval': FileChangeRequestApprovalParams & { requestId: RequestId };
+
+  // CRAFT AGENTS: PreToolUse hook request
+  // Sent BEFORE tool execution to allow client to block/modify/allow
+  'item/toolCall/preExecute': ToolCallPreExecuteParams & { requestId: RequestId };
+
+  // Server requests (auth)
+  // Token refresh request - server asks us to provide fresh ChatGPT tokens
+  'account/chatgptAuthTokens/refresh': ChatGptTokenRefreshRequestParams & { requestId: RequestId };
+
+  // Auth notifications
+  'account/login/completed': { loginId: string | null; success: boolean; error: string | null };
+  'account/updated': { authMode: 'apikey' | 'chatgpt' | 'chatgptAuthTokens' | null };
 
   // Legacy EventMsg events (for compatibility)
   'event': EventMsg;
@@ -172,6 +294,11 @@ export interface AppServerEvents {
  * await client.disconnect();
  * ```
  */
+/**
+ * Connection state for preventing race conditions.
+ */
+type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'disconnecting';
+
 export class AppServerClient extends EventEmitter {
   private options: Required<AppServerOptions>;
   private process: ChildProcess | null = null;
@@ -180,6 +307,13 @@ export class AppServerClient extends EventEmitter {
   private nextRequestId: number = 1;
   private initialized: boolean = false;
 
+  // Connection state machine to prevent race conditions
+  private connectionState: ConnectionState = 'disconnected';
+
+  // Write queue for backpressure handling
+  private writeQueue: Array<{ data: string; resolve: () => void; reject: (err: Error) => void }> = [];
+  private isWriting: boolean = false;
+
   constructor(options: AppServerOptions) {
     super();
     this.options = {
@@ -187,6 +321,7 @@ export class AppServerClient extends EventEmitter {
       codexPath: options.codexPath || 'codex',
       requestTimeout: options.requestTimeout || 30000,
       onDebug: options.onDebug || (() => {}),
+      env: options.env || {},
     };
   }
 
@@ -198,13 +333,16 @@ export class AppServerClient extends EventEmitter {
    * Connect to the app-server by spawning the process.
    */
   async connect(): Promise<void> {
-    if (this.process) {
-      throw new Error('Already connected');
+    // State machine guard - prevent double connect or connect during disconnect
+    if (this.connectionState !== 'disconnected') {
+      throw new Error(`Cannot connect: state is ${this.connectionState}`);
     }
+    this.connectionState = 'connecting';
 
     this.debug('Spawning codex app-server...');
 
     // Spawn the app-server process
+    // Custom env vars (e.g., CODEX_HOME for per-session config) take precedence
     this.process = spawn(this.options.codexPath, ['app-server'], {
       cwd: this.options.workDir,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -212,6 +350,8 @@ export class AppServerClient extends EventEmitter {
         ...process.env,
         // Ensure we get proper exit codes
         FORCE_COLOR: '0',
+        // Custom env vars (e.g., CODEX_HOME) override defaults
+        ...this.options.env,
       },
     });
 
@@ -250,6 +390,7 @@ export class AppServerClient extends EventEmitter {
     // Perform initialization handshake
     await this.initialize();
 
+    this.connectionState = 'connected';
     this.emit('connected', undefined as unknown as void);
     this.debug('Connected to app-server');
   }
@@ -258,11 +399,25 @@ export class AppServerClient extends EventEmitter {
    * Disconnect from the app-server.
    */
   async disconnect(): Promise<void> {
-    if (!this.process) {
+    // State machine guard - only disconnect if connected, ignore if already disconnecting/disconnected
+    if (this.connectionState !== 'connected') {
+      this.debug(`Disconnect skipped: state is ${this.connectionState}`);
       return;
     }
+    this.connectionState = 'disconnecting';
 
     this.debug('Disconnecting from app-server...');
+
+    // Reject any pending writes
+    for (const pending of this.writeQueue) {
+      pending.reject(new Error('Connection closing'));
+    }
+    this.writeQueue = [];
+
+    if (!this.process) {
+      this.cleanup();
+      return;
+    }
 
     // Kill the process gracefully
     this.process.kill('SIGTERM');
@@ -311,39 +466,53 @@ export class AppServerClient extends EventEmitter {
 
     const id = String(this.nextRequestId++);
 
-    return new Promise<T>((resolve, reject) => {
-      // Set up timeout
-      const timeoutId = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        reject(new Error(`Request ${method} timed out after ${this.options.requestTimeout}ms`));
-      }, this.options.requestTimeout);
+    // Set up timeout and tracking first
+    const timeoutId = setTimeout(() => {
+      this.pendingRequests.delete(id);
+    }, this.options.requestTimeout);
+
+    const resultPromise = new Promise<T>((resolve, reject) => {
+      const originalReject = reject;
+      const wrappedReject = (err: Error) => {
+        clearTimeout(timeoutId);
+        originalReject(err);
+      };
 
       // Track pending request
       this.pendingRequests.set(id, {
         method,
         resolve: resolve as (value: unknown) => void,
-        reject,
+        reject: wrappedReject,
         timeoutId,
       });
-
-      // Send request
-      const request: JsonRpcRequest = {
-        jsonrpc: '2.0',
-        id,
-        method,
-        params,
-      };
-
-      const json = JSON.stringify(request);
-      this.debug(`→ ${method} (${id}): ${json.slice(0, 200)}${json.length > 200 ? '...' : ''}`);
-      this.process!.stdin!.write(json + '\n');
     });
+
+    // Build and send request with backpressure handling
+    const request: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params,
+    };
+
+    const json = JSON.stringify(request);
+    this.debug(`→ ${method} (${id}): ${json.slice(0, 200)}${json.length > 200 ? '...' : ''}`);
+
+    try {
+      await this.writeWithBackpressure(json + '\n');
+    } catch (err) {
+      this.pendingRequests.delete(id);
+      clearTimeout(timeoutId);
+      throw err;
+    }
+
+    return resultPromise;
   }
 
   /**
    * Send a notification (no response expected).
    */
-  notify(method: string, params?: unknown): void {
+  async notify(method: string, params?: unknown): Promise<void> {
     if (!this.process?.stdin?.writable) {
       throw new Error('Not connected');
     }
@@ -356,13 +525,13 @@ export class AppServerClient extends EventEmitter {
 
     const json = JSON.stringify(notification);
     this.debug(`→ ${method} (notify): ${json.slice(0, 200)}${json.length > 200 ? '...' : ''}`);
-    this.process.stdin.write(json + '\n');
+    await this.writeWithBackpressure(json + '\n');
   }
 
   /**
    * Respond to a server request (approval request, user input request).
    */
-  respond(id: RequestId, result: unknown): void {
+  async respond(id: RequestId, result: unknown): Promise<void> {
     if (!this.process?.stdin?.writable) {
       throw new Error('Not connected');
     }
@@ -375,7 +544,7 @@ export class AppServerClient extends EventEmitter {
 
     const json = JSON.stringify(response);
     this.debug(`→ response (${id}): ${json.slice(0, 200)}${json.length > 200 ? '...' : ''}`);
-    this.process.stdin.write(json + '\n');
+    await this.writeWithBackpressure(json + '\n');
   }
 
   // ============================================================
@@ -447,25 +616,113 @@ export class AppServerClient extends EventEmitter {
   }
 
   /**
+   * Login with ChatGPT external tokens (chatgptAuthTokens mode).
+   *
+   * This allows Craft Agent to own the OAuth flow and inject tokens into Codex.
+   * The tokens are stored in memory only - Codex will request refresh via
+   * the `account/chatgptAuthTokens/refresh` server request when needed.
+   *
+   * @param tokens - The idToken and accessToken from ChatGPT OAuth
+   */
+  async accountLoginWithChatGptTokens(tokens: {
+    idToken: string;
+    accessToken: string;
+  }): Promise<LoginAccountResponse> {
+    const params: ChatGptAuthTokensLoginParams = {
+      type: 'chatgptAuthTokens',
+      idToken: tokens.idToken,
+      accessToken: tokens.accessToken,
+    };
+    return this.request<LoginAccountResponse>('account/login/start', params);
+  }
+
+  /**
+   * Respond to a ChatGPT token refresh request.
+   *
+   * Called when the server receives a 401 and needs fresh tokens.
+   * The application should refresh the tokens and call this method with the new values.
+   *
+   * @param requestId - The request ID from the refresh request event
+   * @param tokens - The refreshed idToken and accessToken
+   */
+  async respondToTokenRefresh(
+    requestId: RequestId,
+    tokens: ChatGptTokenRefreshResponse
+  ): Promise<void> {
+    await this.respond(requestId, tokens);
+  }
+
+  /**
+   * Respond to a failed token refresh (e.g., refresh token expired).
+   *
+   * This tells Codex that we couldn't refresh the tokens and it should
+   * emit an auth error.
+   *
+   * @param requestId - The request ID from the refresh request event
+   * @param error - Error message explaining why refresh failed
+   */
+  async respondToTokenRefreshError(
+    requestId: RequestId,
+    error: string
+  ): Promise<void> {
+    // Send JSON-RPC error response
+    if (!this.process?.stdin?.writable) {
+      throw new Error('Not connected');
+    }
+
+    const response = {
+      jsonrpc: '2.0' as const,
+      id: requestId,
+      error: {
+        code: -32000,
+        message: error,
+      },
+    };
+
+    const json = JSON.stringify(response);
+    this.debug(`→ error response (${requestId}): ${error}`);
+    await this.writeWithBackpressure(json + '\n');
+  }
+
+  /**
    * Respond to a command execution approval request.
    */
-  respondToCommandApproval(
+  async respondToCommandApproval(
     requestId: RequestId,
     decision: CommandExecutionApprovalDecision
-  ): void {
+  ): Promise<void> {
     const response: CommandExecutionRequestApprovalResponse = { decision };
-    this.respond(requestId, response);
+    await this.respond(requestId, response);
   }
 
   /**
    * Respond to a file change approval request.
    */
-  respondToFileChangeApproval(
+  async respondToFileChangeApproval(
     requestId: RequestId,
     decision: FileChangeApprovalDecision
-  ): void {
+  ): Promise<void> {
     const response: FileChangeRequestApprovalResponse = { decision };
-    this.respond(requestId, response);
+    await this.respond(requestId, response);
+  }
+
+  /**
+   * CRAFT AGENTS: Respond to a PreToolUse hook request.
+   *
+   * This is called BEFORE tool execution. The decision can:
+   * - Allow: Continue with original tool execution
+   * - Block: Return error to model with reason (guides retry behavior)
+   * - Modify: Continue with modified input (path expansion, skill qualification)
+   *
+   * @param requestId - The request ID from the preExecute event
+   * @param decision - Allow, Block (with reason), or Modify (with new input)
+   */
+  async respondToToolCallPreExecute(
+    requestId: RequestId,
+    decision: ToolCallPreExecuteDecision
+  ): Promise<void> {
+    const response: ToolCallPreExecuteResponse = { decision };
+    await this.respond(requestId, response);
   }
 
   // ============================================================
@@ -580,6 +837,24 @@ export class AppServerClient extends EventEmitter {
         });
         break;
 
+      // ChatGPT token refresh request (chatgptAuthTokens mode)
+      // Server asks us to provide fresh tokens after receiving 401
+      case 'account/chatgptAuthTokens/refresh':
+        this.emit('account/chatgptAuthTokens/refresh', {
+          ...(request.params as ChatGptTokenRefreshRequestParams),
+          requestId: request.id,
+        });
+        break;
+
+      // CRAFT AGENTS: PreToolUse hook request
+      // Sent BEFORE tool execution to allow client to block/modify/allow
+      case 'item/toolCall/preExecute':
+        this.emit('item/toolCall/preExecute', {
+          ...(request.params as ToolCallPreExecuteParams),
+          requestId: request.id,
+        });
+        break;
+
       // Legacy approval methods (v1 protocol)
       case 'execCommandApproval':
       case 'applyPatchApproval':
@@ -635,6 +910,19 @@ export class AppServerClient extends EventEmitter {
         this.emit('item/reasoning/textDelta', params as { threadId: string; turnId: string; itemId: string; delta: string });
         break;
 
+      case 'turn/plan/updated':
+        this.emit('turn/plan/updated', params as TurnPlanUpdatedNotification);
+        break;
+
+      // Auth notifications
+      case 'account/login/completed':
+        this.emit('account/login/completed', params as { loginId: string | null; success: boolean; error: string | null });
+        break;
+
+      case 'account/updated':
+        this.emit('account/updated', params as { authMode: 'apikey' | 'chatgpt' | 'chatgptAuthTokens' | null });
+        break;
+
       default:
         // Emit as generic event for unknown notifications
         this.debug(`Unknown notification: ${method}`);
@@ -652,6 +940,13 @@ export class AppServerClient extends EventEmitter {
     }
     this.pendingRequests.clear();
 
+    // Reject any pending writes
+    for (const pending of this.writeQueue) {
+      pending.reject(new Error('Connection closed'));
+    }
+    this.writeQueue = [];
+    this.isWriting = false;
+
     // Close readline
     this.readline?.close();
     this.readline = null;
@@ -659,6 +954,9 @@ export class AppServerClient extends EventEmitter {
     // Clear process reference
     this.process = null;
     this.initialized = false;
+
+    // Reset state machine
+    this.connectionState = 'disconnected';
   }
 
   /**
@@ -666,6 +964,60 @@ export class AppServerClient extends EventEmitter {
    */
   private debug(message: string): void {
     this.options.onDebug(`[AppServer] ${message}`);
+  }
+
+  /**
+   * Write to stdin with backpressure handling.
+   * Queues writes and waits for drain events when buffer is full.
+   */
+  private async writeWithBackpressure(data: string): Promise<void> {
+    if (!this.process?.stdin?.writable) {
+      throw new Error('Not connected');
+    }
+    // Allow writes during 'connecting' (for initialization handshake) and 'connected' states
+    if (this.connectionState !== 'connected' && this.connectionState !== 'connecting') {
+      throw new Error(`Cannot write: state is ${this.connectionState}`);
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      this.writeQueue.push({ data, resolve, reject });
+      this.processWriteQueue();
+    });
+  }
+
+  /**
+   * Process the write queue, respecting backpressure.
+   */
+  private processWriteQueue(): void {
+    if (this.isWriting || this.writeQueue.length === 0) {
+      return;
+    }
+    if (!this.process?.stdin?.writable) {
+      // Connection lost, reject all pending
+      for (const pending of this.writeQueue) {
+        pending.reject(new Error('Connection lost'));
+      }
+      this.writeQueue = [];
+      return;
+    }
+
+    this.isWriting = true;
+    const pending = this.writeQueue.shift()!;
+
+    const canContinue = this.process.stdin.write(pending.data);
+    pending.resolve();
+
+    if (canContinue) {
+      // Buffer not full, process next immediately
+      this.isWriting = false;
+      this.processWriteQueue();
+    } else {
+      // Buffer full, wait for drain
+      this.process.stdin.once('drain', () => {
+        this.isWriting = false;
+        this.processWriteQueue();
+      });
+    }
   }
 }
 

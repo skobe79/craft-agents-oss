@@ -20,6 +20,9 @@ export type CredentialType =
   // Global credentials
   | 'anthropic_api_key'  // Anthropic API key for Claude
   | 'claude_oauth'       // Claude OAuth token (Max subscription)
+  // LLM connection credentials (keyed by connection slug)
+  | 'llm_api_key'        // API key for LLM connection
+  | 'llm_oauth'          // OAuth token for LLM connection
   // Workspace credentials
   | 'workspace_oauth'    // Workspace MCP OAuth token
   // Source credentials (stored at ~/.craft-agent/workspaces/{ws}/sources/{slug}/)
@@ -32,6 +35,8 @@ export type CredentialType =
 const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
   'anthropic_api_key',
   'claude_oauth',
+  'llm_api_key',
+  'llm_oauth',
   'workspace_oauth',
   'source_oauth',
   'source_bearer',
@@ -47,6 +52,10 @@ function isValidCredentialType(type: string): type is CredentialType {
 /** Credential identifier - determines credential store entry key */
 export interface CredentialId {
   type: CredentialType;
+
+  // LLM connection-scoped format
+  /** LLM connection slug for llm_api_key/llm_oauth credentials */
+  connectionSlug?: string;
 
   // Workspace-scoped format
   /** Workspace ID for workspace-scoped credentials */
@@ -82,6 +91,12 @@ export interface StoredCredential {
   tokenType?: string;
   /** Where the credential came from: 'native' (our OAuth), 'cli' (Claude CLI import) */
   source?: 'native' | 'cli';
+  /**
+   * OIDC id_token (JWT with user identity claims).
+   * Used by OpenAI/Codex which returns both id_token and access_token.
+   * The `value` field stores access_token, this field stores id_token.
+   */
+  idToken?: string;
 }
 
 // Using "::" as delimiter instead of "/" because server names and API names
@@ -96,14 +111,33 @@ const SOURCE_CREDENTIAL_TYPES = [
   'source_basic',
 ] as const;
 
+/** LLM connection credential types */
+const LLM_CREDENTIAL_TYPES = [
+  'llm_api_key',
+  'llm_oauth',
+] as const;
+
 /** Check if type is a source credential */
 function isSourceCredential(type: CredentialType): boolean {
   return (SOURCE_CREDENTIAL_TYPES as readonly string[]).includes(type);
 }
 
+/** Check if type is an LLM connection credential */
+function isLlmCredential(type: CredentialType): boolean {
+  return (LLM_CREDENTIAL_TYPES as readonly string[]).includes(type);
+}
+
 /** Convert CredentialId to credential store account string */
 export function credentialIdToAccount(id: CredentialId): string {
   const parts: string[] = [id.type];
+
+  // LLM connection-scoped format:
+  // llm_api_key::{connectionSlug}
+  // llm_oauth::{connectionSlug}
+  if (isLlmCredential(id.type) && id.connectionSlug) {
+    parts.push(id.connectionSlug);
+    return parts.join(CREDENTIAL_DELIMITER);
+  }
 
   // Workspace-scoped format (no source):
   // workspace_oauth::{workspaceId}
@@ -135,6 +169,13 @@ export function accountToCredentialId(account: string): CredentialId | null {
   }
 
   const type = typeStr;
+
+  // LLM connection-scoped format:
+  // llm_api_key::{connectionSlug}
+  // llm_oauth::{connectionSlug}
+  if (isLlmCredential(type) && parts.length === 2) {
+    return { type, connectionSlug: parts[1] };
+  }
 
   // Workspace-scoped format (no source):
   // workspace_oauth::{workspaceId}

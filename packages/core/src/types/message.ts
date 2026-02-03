@@ -388,7 +388,8 @@ export type AgentEvent =
   | { type: 'task_progress'; toolUseId: string; elapsedSeconds: number; turnId?: string }
   | { type: 'shell_killed'; shellId: string; turnId?: string }
   | { type: 'source_activated'; sourceSlug: string; originalMessage: string }
-  | { type: 'usage_update'; usage: Pick<AgentEventUsage, 'inputTokens' | 'contextWindow'> };
+  | { type: 'usage_update'; usage: Pick<AgentEventUsage, 'inputTokens' | 'contextWindow'> }
+  | { type: 'todos_updated'; todos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }>; turnId?: string; explanation?: string | null };
 
 /**
  * Generate a unique message ID

@@ -10,6 +10,8 @@ import { join } from "path";
 const ROOT_DIR = join(import.meta.dir, "..");
 const DIST_DIR = join(ROOT_DIR, "apps/electron/dist");
 const OUTPUT_FILE = join(DIST_DIR, "main.cjs");
+const BRIDGE_SERVER_DIR = join(ROOT_DIR, "packages/bridge-mcp-server");
+const BRIDGE_SERVER_OUTPUT = join(BRIDGE_SERVER_DIR, "dist/index.js");
 
 // Load .env file if it exists
 function loadEnvFile(): void {
@@ -110,6 +112,44 @@ async function verifyJsFile(filePath: string): Promise<{ valid: boolean; error?:
   return { valid: true };
 }
 
+// Build the Bridge MCP Server (used for API sources in Codex sessions)
+async function buildBridgeServer(): Promise<void> {
+  console.log("🌉 Building Bridge MCP Server...");
+
+  // Ensure dist directory exists
+  const distDir = join(BRIDGE_SERVER_DIR, "dist");
+  if (!existsSync(distDir)) {
+    mkdirSync(distDir, { recursive: true });
+  }
+
+  const proc = spawn({
+    cmd: [
+      "bun", "build",
+      join(BRIDGE_SERVER_DIR, "src/index.ts"),
+      "--outfile", BRIDGE_SERVER_OUTPUT,
+      "--target", "node",
+    ],
+    cwd: ROOT_DIR,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    console.error("❌ Bridge server build failed with exit code", exitCode);
+    process.exit(exitCode);
+  }
+
+  // Verify output exists
+  if (!existsSync(BRIDGE_SERVER_OUTPUT)) {
+    console.error("❌ Bridge server output not found at", BRIDGE_SERVER_OUTPUT);
+    process.exit(1);
+  }
+
+  console.log("✅ Bridge server built successfully");
+}
+
 async function main(): Promise<void> {
   loadEnvFile();
 
@@ -117,6 +157,9 @@ async function main(): Promise<void> {
   if (!existsSync(DIST_DIR)) {
     mkdirSync(DIST_DIR, { recursive: true });
   }
+
+  // Build bridge server first (needed for API sources in Codex sessions)
+  await buildBridgeServer();
 
   const buildDefines = getBuildDefines();
 

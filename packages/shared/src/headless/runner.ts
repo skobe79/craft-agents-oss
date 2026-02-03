@@ -1,4 +1,4 @@
-import { CraftAgent, type CraftAgentConfig, type PermissionMode, type SdkMcpServerConfig } from '../agent/craft-agent.ts';
+import { ClaudeAgent, type ClaudeAgentConfig, type PermissionMode, type SdkMcpServerConfig } from '../agent/claude-agent.ts';
 import { createApiServer } from '../sources/api-tools.ts';
 import { listSessions, getOrCreateSessionById, updateSessionSdkId } from '../sessions/storage.ts';
 import { debug } from '../utils/debug.ts';
@@ -41,7 +41,7 @@ const SAFE_COMMANDS = new Set([
  *
  * Reuses existing components:
  * - CraftMcpClient for MCP connections
- * - CraftAgent for query execution
+ * - ClaudeAgent for query execution
  *
  * Handles interactions automatically:
  * - Permissions: based on policy (deny-all, allow-safe, allow-all)
@@ -50,7 +50,7 @@ const SAFE_COMMANDS = new Set([
  */
 export class HeadlessRunner {
   private config: HeadlessConfig;
-  private agent: CraftAgent | null = null;
+  private agent: ClaudeAgent | null = null;
 
   // Session management
   private workspaceRootPath: string | null = null;
@@ -185,14 +185,14 @@ ${this.config.prompt}
   }
 
   /**
-   * Create CraftAgent with headless callbacks for permissions and questions.
+   * Create ClaudeAgent with headless callbacks for permissions and questions.
    */
   private async createAgent(): Promise<void> {
     // Map permission policy to the new PermissionMode system
     const permissionMode = policyToPermissionMode(this.config.permissionPolicy);
     debug('[HeadlessRunner] Using permission mode:', permissionMode, 'from policy:', this.config.permissionPolicy || 'deny-all');
 
-    const agentConfig: CraftAgentConfig = {
+    const agentConfig: ClaudeAgentConfig = {
       workspace: this.config.workspace,
       model: this.config.model,
       isHeadless: true,
@@ -206,7 +206,7 @@ ${this.config.prompt}
       },
     };
 
-    this.agent = new CraftAgent(agentConfig);
+    this.agent = new ClaudeAgent(agentConfig);
 
     // Wire up permission handler based on policy
     this.agent.onPermissionRequest = (request) => {

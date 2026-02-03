@@ -18,7 +18,11 @@ craft-agent/
     └── shared/      # @craft-agent/shared - Business logic
 ```
 
-**Imports:** `import { CraftAgent } from '@craft-agent/shared/agent'`
+**Imports:**
+```typescript
+import { createAgent, ClaudeAgent, CodexAgent } from '@craft-agent/shared/agent'
+import type { AgentBackend, BackendConfig } from '@craft-agent/shared/agent'
+```
 
 **Sub-docs:** [`apps/electron/CLAUDE.md`](apps/electron/CLAUDE.md) | [`packages/shared/CLAUDE.md`](packages/shared/CLAUDE.md)
 
@@ -201,16 +205,76 @@ bun run check-version         # Verify all package.json versions match
 
 ## Architecture
 
-### Agent Layer (`packages/shared/src/agent/craft-agent.ts`)
+### Multi-Backend Agent System (`packages/shared/src/agent/`)
 
-Core `CraftAgent` wrapping `@anthropic-ai/claude-agent-sdk`:
+The agent layer supports **multiple AI backends** through an abstract base class pattern:
+
+```
+BaseAgent (abstract)           # Shared logic: permissions, sources, planning, config watching
+    ├── ClaudeAgent            # Anthropic Claude via @anthropic-ai/claude-agent-sdk
+    └── CodexAgent             # OpenAI Codex via app-server JSON-RPC over stdio
+```
+
+**Factory:** `createAgent(config)` returns the appropriate backend based on `config.provider`:
+- `'anthropic'` → ClaudeAgent (default)
+- `'openai'` → CodexAgent
+
+### BaseAgent (`packages/shared/src/agent/base-agent.ts`)
+
+Abstract base class providing shared functionality for all backends:
+
+| Module | Location | Purpose |
+|--------|----------|---------|
+| `PermissionManager` | `agent/core/` | Permission evaluation, mode management, command whitelisting |
+| `SourceManager` | `agent/core/` | Active/inactive source state tracking, context formatting |
+| `PromptBuilder` | `agent/core/` | Context blocks for user messages (session state, sources) |
+| `PathProcessor` | `agent/core/` | Path expansion (~) and normalization |
+| `ConfigWatcherManager` | `agent/core/` | Hot-reload source/config changes |
+| `PlanningAdvisor` | `agent/core/` | Heuristics for planning mode suggestions |
+| `UsageTracker` | `agent/core/` | Token usage and context window tracking |
+
+### ClaudeAgent (`packages/shared/src/agent/claude-agent.ts`)
+
+Anthropic Claude implementation wrapping `@anthropic-ai/claude-agent-sdk`:
 - SDK's agentic loop handles tool calls, MCP communication
 - `PreToolUse` hook for bash permission approval
 - `PostToolUse` hook summarizes large results (>15k tokens) using `_intent` for context
 - `formatSourceState()` injects `<sources>` context into user messages
 - Session continuity via `resume` option
 
-**AgentEvent types:** `status`, `text_delta`, `text_complete`, `tool_start`, `tool_result`, `permission_request`, `error`, `complete`, `task_backgrounded`, `shell_backgrounded`, `task_progress`
+**Auth types:** `api_key` (Anthropic API key), `oauth_token` (Claude Max OAuth)
+
+### CodexAgent (`packages/shared/src/agent/codex-agent.ts`)
+
+OpenAI Codex implementation using the **app-server protocol**:
+- Spawns `codex app-server` and communicates via JSON-RPC over stdio
+- Pre-tool approval via `item/toolCall/preExecute` hook (requires Craft Agents fork)
+- Thread persistence for session resume across restarts
+- ChatGPT Plus OAuth authentication via `chatgptAuthTokens` mode
+
+**Key methods:**
+- `handleToolCallPreExecute()` - unified permission checking (same logic as ClaudeAgent)
+- `injectChatGptTokens()` - inject OAuth tokens from UI flow
+- `tryInjectStoredChatGptTokens()` - auto-inject stored credentials on startup
+- Token refresh via `account/chatgptAuthTokens/refresh` server request
+
+**Auth:** ChatGPT Plus OAuth. Tokens stored at `llm_oauth::codex` credential key.
+
+**Craft Agents Codex Fork:**
+
+We maintain a fork of OpenAI Codex with additional hooks for Craft Agent integration:
+- **Repo:** [github.com/lukilabs/craft-agents-codex](https://github.com/lukilabs/craft-agents-codex)
+- **Releases:** [github.com/lukilabs/craft-agents-codex/releases](https://github.com/lukilabs/craft-agents-codex/releases)
+
+**Fork additions:**
+- `item/toolCall/preExecute` - Pre-tool approval hook (intercept ALL tools before execution)
+- Unified permission checking matching ClaudeAgent behavior
+- Source blocking for inactive MCP sources with auto-activation support
+
+**Setup:** Set `CODEX_PATH` env var to the fork binary path, or configure `codexPath` in LLM connection config.
+Without the fork, Codex runs with default approval behavior (no pre-tool blocking).
+
+**AgentEvent types:** `status`, `text_delta`, `text_complete`, `tool_start`, `tool_result`, `permission_request`, `error`, `complete`, `task_backgrounded`, `shell_backgrounded`, `task_progress`, `typed_error`, `source_activated`
 
 ### Configuration (`packages/shared/src/config/storage.ts`)
 
@@ -242,6 +306,22 @@ interface Workspace {
 - `workspace_oauth::{workspaceId}` - MCP server auth. Each server has its own OAuth.
 - `getWorkspaceOAuth()` does NOT fall back to Craft OAuth.
 
+### LLM Connections (`packages/shared/src/config/llm-connections.ts`)
+
+Named provider configurations for AI backends. Sessions lock to a connection after first message.
+
+**Connection types:**
+| Type | Backend | Auth Types |
+|------|---------|------------|
+| `anthropic` | ClaudeAgent | `api_key`, `oauth` |
+| `openai` | CodexAgent | `codex_oauth` |
+| `openai-compat` | (future) | `api_key`, `none` |
+
+**Built-in connections:**
+- `anthropic-api` - Anthropic API Key
+- `claude-max` - Claude Max OAuth
+- `codex` - Codex (ChatGPT Plus)
+
 ### Credential Storage (`packages/shared/src/credentials/`)
 
 AES-256-GCM encrypted file at `~/.craft-agent/credentials.enc`. Cross-platform, no OS prompts.
@@ -250,6 +330,7 @@ AES-256-GCM encrypted file at `~/.craft-agent/credentials.enc`. Cross-platform, 
 ```
 anthropic_api_key::global             # Anthropic API key
 claude_oauth::global                  # Claude Max OAuth
+llm_oauth::codex                      # Codex (ChatGPT Plus) OAuth
 craft_oauth::global                   # Craft API OAuth
 workspace_oauth::{workspaceId}        # Workspace MCP OAuth
 source_oauth::{workspaceId}::{sourceSlug}    # OAuth for MCP/API sources
@@ -323,7 +404,7 @@ App-level only. **6-color system:** background, foreground, accent, info, succes
 
 ## Key Patterns
 
-**Streaming:** `CraftAgent.chat()` → `AsyncGenerator<SDKMessage>` → `AgentEvent` → 50ms throttled updates
+**Streaming:** `agent.chat()` → `AsyncGenerator<AgentEvent>` → 50ms throttled updates
 
 **Tool Permissions:** `PreToolUse` blocks dangerous bash by default. Dangerous commands (rm, sudo, git push) never auto-allow.
 
@@ -335,8 +416,11 @@ App-level only. **6-color system:** background, foreground, accent, info, succes
 
 | Directory | Purpose |
 |-----------|---------|
-| `agent/` | CraftAgent, session-scoped-tools, mode-manager, permissions-config |
-| `auth/` | oauth, craft-token, claude-token, google-oauth, state |
+| `agent/` | Multi-backend agent system (BaseAgent, ClaudeAgent, CodexAgent) |
+| `agent/core/` | Shared modules: PermissionManager, SourceManager, PromptBuilder, etc. |
+| `agent/backend/` | Backend-specific adapters (event adapters, factory) |
+| `auth/` | oauth, craft-token, claude-token, google-oauth, chatgpt-oauth, state |
+| `codex/` | Codex app-server client (JSON-RPC over stdio) |
 | `config/` | storage, preferences, models, theme, watcher |
 | `credentials/` | manager, backends (secure-storage, env) |
 | `mcp/` | client, validation |
@@ -376,6 +460,7 @@ bun run sync-secrets   # Syncs op:// refs from .env.1password → .env
 | Layer | Tech |
 |-------|------|
 | Runtime | Bun |
-| AI | @anthropic-ai/claude-agent-sdk |
+| AI (Anthropic) | @anthropic-ai/claude-agent-sdk |
+| AI (OpenAI) | Codex app-server (JSON-RPC over stdio) |
 | Credentials | AES-256-GCM encrypted file |
 | Electron | Electron + React, shadcn/ui + Tailwind v4, esbuild + Vite |

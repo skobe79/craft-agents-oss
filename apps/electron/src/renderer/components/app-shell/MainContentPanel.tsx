@@ -24,8 +24,9 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
 } from '@/contexts/NavigationContext'
-import { AppSettingsPage, AppearanceSettingsPage, InputSettingsPage, WorkspaceSettingsPage, PermissionsSettingsPage, LabelsSettingsPage, PreferencesPage, ShortcutsPage, SourceInfoPage, ChatPage } from '@/pages'
+import { SourceInfoPage, ChatPage } from '@/pages'
 import SkillInfoPage from '@/pages/SkillInfoPage'
+import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
 
 export interface MainContentPanelProps {
   /** Whether the app is in focused mode (single chat, no sidebar) */
@@ -48,59 +49,14 @@ export function MainContentPanel({
     </StoplightProvider>
   )
 
-  // Settings navigator - always has content (subpage determines which page)
+  // Settings navigator - uses component map from settings-pages.ts
   if (isSettingsNavigation(navState)) {
-    switch (navState.subpage) {
-      case 'appearance':
-        return wrapWithStoplight(
-          <Panel variant="grow" className={className}>
-            <AppearanceSettingsPage />
-          </Panel>
-        )
-      case 'input':
-        return wrapWithStoplight(
-          <Panel variant="grow" className={className}>
-            <InputSettingsPage />
-          </Panel>
-        )
-      case 'workspace':
-        return wrapWithStoplight(
-          <Panel variant="grow" className={className}>
-            <WorkspaceSettingsPage />
-          </Panel>
-        )
-      case 'permissions':
-        return wrapWithStoplight(
-          <Panel variant="grow" className={className}>
-            <PermissionsSettingsPage />
-          </Panel>
-        )
-      case 'labels':
-        return wrapWithStoplight(
-          <Panel variant="grow" className={className}>
-            <LabelsSettingsPage />
-          </Panel>
-        )
-      case 'shortcuts':
-        return wrapWithStoplight(
-          <Panel variant="grow" className={className}>
-            <ShortcutsPage />
-          </Panel>
-        )
-      case 'preferences':
-        return wrapWithStoplight(
-          <Panel variant="grow" className={className}>
-            <PreferencesPage />
-          </Panel>
-        )
-      case 'app':
-      default:
-        return wrapWithStoplight(
-          <Panel variant="grow" className={className}>
-            <AppSettingsPage />
-          </Panel>
-        )
-    }
+    const SettingsPageComponent = getSettingsPageComponent(navState.subpage)
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <SettingsPageComponent />
+      </Panel>
+    )
   }
 
   // Sources navigator - show source info or empty state

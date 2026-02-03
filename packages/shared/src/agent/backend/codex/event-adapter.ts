@@ -18,6 +18,8 @@ import type {
   AgentMessageDeltaNotification,
   TurnStartedNotification,
   TurnCompletedNotification,
+  TurnPlanUpdatedNotification,
+  TurnPlanStep,
   ThreadStartedNotification,
   FileUpdateChange,
 } from '@craft-agent/codex-types/v2';
@@ -37,30 +39,31 @@ interface OutputDeltaNotification {
  * - thread/started → (internal, thread ID captured in backend)
  * - turn/started → status event
  * - item/started → tool_start (for tool items)
- * - item/agentMessage/delta → text_delta
- * - item/reasoning/textDelta → thinking_delta
+ * - item/agentMessage/delta → text_delta (with turnId)
+ * - item/reasoning/textDelta → text_delta (streamed as intermediate thinking)
  * - item/commandExecution/outputDelta → (streaming output, captured for tool_result)
- * - item/completed → tool_result / text_complete
+ * - item/completed → tool_result / text_complete (with turnId)
  * - turn/completed → complete with usage
  */
 export class EventAdapter {
   private turnIndex: number = 0;
   private itemIndex: number = 0;
 
-  // Track accumulated text per item for streaming deltas
-  private accumulatedText: Map<string, string> = new Map();
-
   // Track command output for tool results
   private commandOutput: Map<string, string> = new Map();
 
+  // Current turn ID for event correlation
+  private currentTurnId: string | null = null;
+
   /**
    * Start a new turn - resets item indexing and streaming state.
+   * @param turnId - The turn ID for event correlation
    */
-  startTurn(): void {
+  startTurn(turnId?: string): void {
     this.turnIndex++;
     this.itemIndex = 0;
-    this.accumulatedText.clear();
     this.commandOutput.clear();
+    this.currentTurnId = turnId || null;
   }
 
   /**
@@ -74,6 +77,8 @@ export class EventAdapter {
    * Adapt turn/started notification.
    */
   *adaptTurnStarted(notification: TurnStartedNotification): Generator<AgentEvent> {
+    // Capture turn ID for event correlation
+    this.currentTurnId = notification.turn?.id || null;
     yield { type: 'status', message: 'Thinking...' };
   }
 
@@ -84,6 +89,51 @@ export class EventAdapter {
     // Turn completed - emit complete event
     // Note: Usage tracking is handled by the backend separately
     yield { type: 'complete' };
+  }
+
+  /**
+   * Adapt turn/plan/updated notification.
+   * Converts Codex's native task list to todos_updated events for TurnCard display.
+   */
+  *adaptTurnPlanUpdated(notification: TurnPlanUpdatedNotification): Generator<AgentEvent> {
+    // Guard against null/undefined plan
+    const plan = notification.plan ?? [];
+    if (plan.length === 0) {
+      return; // Skip emitting event for empty plans
+    }
+
+    const todos = plan.map((step: TurnPlanStep) => ({
+      content: step.step || '',
+      status: this.normalizePlanStatus(step.status),
+      // For Codex, activeForm is the same as content (no verb-to-ing conversion)
+      activeForm: step.status === 'inProgress' ? step.step : undefined,
+    }));
+
+    yield {
+      type: 'todos_updated',
+      todos,
+      turnId: notification.turnId,
+      explanation: notification.explanation,
+    } as AgentEvent;
+  }
+
+  /**
+   * Normalize Codex plan status to TodoItem status.
+   * Codex: "pending" | "inProgress" | "completed"
+   * UI:    "pending" | "in_progress" | "completed"
+   */
+  private normalizePlanStatus(status: string): 'pending' | 'in_progress' | 'completed' {
+    switch (status) {
+      case 'inProgress':
+        return 'in_progress';
+      case 'pending':
+      case 'completed':
+        return status;
+      default:
+        // Log unexpected status for debugging, default to 'pending'
+        console.warn(`[EventAdapter] Unexpected plan status: ${status}, defaulting to 'pending'`);
+        return 'pending';
+    }
   }
 
   /**
@@ -121,8 +171,39 @@ export class EventAdapter {
         });
         break;
 
-      // No start event for messages, reasoning, errors
+      case 'imageView':
+        yield this.createToolStart(item.id, 'ImageView', {
+          path: item.path,
+        });
+        break;
+
+      case 'collabAgentToolCall':
+        // Collaborative agent tool call (multi-agent orchestration)
+        yield this.createToolStart(item.id, `CollabAgent:${item.tool}`, {
+          tool: item.tool,
+          prompt: item.prompt,
+          senderThreadId: item.senderThreadId,
+        });
+        break;
+
+      // User messages and reasoning don't emit tool_start
+      case 'userMessage':
+      case 'reasoning':
+      case 'agentMessage':
+        break;
+
+      // Review mode transitions are status events
+      case 'enteredReviewMode':
+        yield { type: 'status', message: `Entered review mode: ${item.review}` };
+        break;
+
+      case 'exitedReviewMode':
+        yield { type: 'status', message: `Exited review mode: ${item.review}` };
+        break;
+
       default:
+        // Log unknown types for debugging instead of silent drop
+        console.warn(`[EventAdapter] Unknown item type in started: ${(item as { type: string }).type}`);
         break;
     }
   }
@@ -136,18 +217,27 @@ export class EventAdapter {
       yield {
         type: 'text_delta',
         text: delta,
+        turnId: this.currentTurnId || undefined,
       };
     }
   }
 
   /**
    * Adapt item/reasoning/textDelta notification - streaming thinking.
-   * Note: Reasoning deltas are ignored for now as there's no thinking_delta AgentEvent type.
-   * The full reasoning content is captured in item/completed.
+   * Streams reasoning as intermediate text_delta events for real-time visibility.
    */
-  *adaptReasoningDelta(_notification: OutputDeltaNotification): Generator<AgentEvent> {
-    // Reasoning deltas are accumulated but not streamed to UI
-    // The full content is emitted in adaptItemCompleted for reasoning items
+  *adaptReasoningDelta(notification: OutputDeltaNotification): Generator<AgentEvent> {
+    const { delta } = notification;
+    if (delta) {
+      // Stream reasoning as intermediate text for real-time thinking visibility
+      // The UI should render these with appropriate styling (e.g., italics, collapsible)
+      yield {
+        type: 'text_delta',
+        text: delta,
+        turnId: this.currentTurnId || undefined,
+        // Note: isIntermediate is set on text_complete, deltas are always partial
+      };
+    }
   }
 
   /**
@@ -188,16 +278,44 @@ export class EventAdapter {
         break;
 
       case 'webSearch':
+        // Surface actual search results to the UI
+        yield this.createWebSearchResult(item);
+        break;
+
+      case 'imageView':
         yield {
           type: 'tool_result',
           toolUseId: item.id,
-          toolName: 'WebSearch',
-          result: `Search completed: ${item.query}`,
+          toolName: 'ImageView',
+          result: `Viewed image: ${item.path}`,
           isError: false,
+          turnId: this.currentTurnId || undefined,
         };
         break;
 
+      case 'collabAgentToolCall':
+        yield {
+          type: 'tool_result',
+          toolUseId: item.id,
+          toolName: `CollabAgent:${item.tool}`,
+          result: item.status === 'completed' ? 'Collaborative task completed' : `Status: ${item.status}`,
+          isError: item.status === 'failed',
+          turnId: this.currentTurnId || undefined,
+        };
+        break;
+
+      case 'userMessage':
+        // User messages don't need completion events
+        break;
+
+      case 'enteredReviewMode':
+      case 'exitedReviewMode':
+        // Review mode transitions already handled in started
+        break;
+
       default:
+        // Log unknown types for debugging instead of silent drop
+        console.warn(`[EventAdapter] Unknown item type in completed: ${(item as { type: string }).type}`);
         break;
     }
   }
@@ -215,6 +333,7 @@ export class EventAdapter {
       toolName,
       toolUseId: id,
       input,
+      turnId: this.currentTurnId || undefined,
     };
   }
 
@@ -234,6 +353,7 @@ export class EventAdapter {
       toolName: 'Bash',
       result: output || (isError ? `Exit code: ${item.exitCode}` : 'Success'),
       isError,
+      turnId: this.currentTurnId || undefined,
     };
   }
 
@@ -250,6 +370,7 @@ export class EventAdapter {
       toolName: 'Edit',
       result: isError ? `Patch failed:\n${summary}` : `Applied:\n${summary}`,
       isError,
+      turnId: this.currentTurnId || undefined,
     };
   }
 
@@ -276,6 +397,27 @@ export class EventAdapter {
       toolName: `mcp__${item.server}__${item.tool}`,
       result,
       isError,
+      turnId: this.currentTurnId || undefined,
+    };
+  }
+
+  /**
+   * Create tool result for web search with actual results.
+   */
+  private createWebSearchResult(item: ThreadItem & { type: 'webSearch' }): AgentEvent {
+    // WebSearch items currently only have `query` - the actual results would need
+    // to come from a different field if Codex provides them. For now, we indicate
+    // the search was performed. Once Codex exposes results, update this.
+    // TODO: Extract actual results when Codex provides them in the item
+    const result = `Web search completed for: "${item.query}"`;
+
+    return {
+      type: 'tool_result',
+      toolUseId: item.id,
+      toolName: 'WebSearch',
+      result,
+      isError: false,
+      turnId: this.currentTurnId || undefined,
     };
   }
 
@@ -286,6 +428,7 @@ export class EventAdapter {
     return {
       type: 'text_complete',
       text: item.text,
+      turnId: this.currentTurnId || undefined,
     };
   }
 
@@ -299,6 +442,7 @@ export class EventAdapter {
       type: 'text_complete',
       text,
       isIntermediate: true,
+      turnId: this.currentTurnId || undefined,
     };
   }
 }

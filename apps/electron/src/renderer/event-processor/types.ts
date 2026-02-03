@@ -389,6 +389,22 @@ export interface UsageUpdateEvent {
 }
 
 /**
+ * Codex turn/plan/updated notification - task list updates
+ * Synthesized into TodoWrite tool messages for TurnCard display
+ */
+export interface TodosUpdatedEvent {
+  type: 'todos_updated'
+  sessionId: string
+  todos: Array<{
+    content: string
+    status: 'pending' | 'in_progress' | 'completed'
+    activeForm?: string
+  }>
+  turnId?: string
+  explanation?: string | null
+}
+
+/**
  * Union of all agent events
  */
 export type AgentEvent =
@@ -427,6 +443,7 @@ export type AgentEvent =
   | AuthCompletedEvent
   | SourceActivatedEvent
   | UsageUpdateEvent
+  | TodosUpdatedEvent
 
 /**
  * Side effects that need to be handled outside the pure processor

@@ -9,6 +9,7 @@ import type { CredentialBackend } from './backends/types.ts';
 import type { CredentialId, CredentialType, StoredCredential } from './types.ts';
 import { SecureStorageBackend } from './backends/secure-storage.ts';
 import { debug } from '../utils/debug.ts';
+import { hasCodexOAuth } from '../codex/auth.ts';
 
 export class CredentialManager {
   private backends: CredentialBackend[] = [];
@@ -268,11 +269,163 @@ export class CredentialManager {
 
   // Note: OpenAI API key methods removed - Codex now uses app-server OAuth (~/.codex/auth.json)
 
-  /** Check if a credential is expired (with 5-minute buffer) */
+  // ============================================================
+  // LLM Connection Credentials
+  // ============================================================
+
+  /**
+   * Get API key for an LLM connection.
+   * @param connectionSlug - The connection slug
+   * @returns API key or null if not found
+   */
+  async getLlmApiKey(connectionSlug: string): Promise<string | null> {
+    const cred = await this.get({ type: 'llm_api_key', connectionSlug });
+    return cred?.value || null;
+  }
+
+  /**
+   * Set API key for an LLM connection.
+   * @param connectionSlug - The connection slug
+   * @param apiKey - The API key to store
+   */
+  async setLlmApiKey(connectionSlug: string, apiKey: string): Promise<void> {
+    await this.set({ type: 'llm_api_key', connectionSlug }, { value: apiKey });
+  }
+
+  /**
+   * Get OAuth token for an LLM connection.
+   * @param connectionSlug - The connection slug
+   * @returns OAuth credentials or null if not found
+   */
+  async getLlmOAuth(connectionSlug: string): Promise<{
+    accessToken: string;
+    refreshToken?: string;
+    expiresAt?: number;
+    /** OIDC id_token (used by OpenAI/Codex) */
+    idToken?: string;
+  } | null> {
+    const cred = await this.get({ type: 'llm_oauth', connectionSlug });
+    if (!cred) return null;
+    return {
+      accessToken: cred.value,
+      refreshToken: cred.refreshToken,
+      expiresAt: cred.expiresAt,
+      idToken: cred.idToken,
+    };
+  }
+
+  /**
+   * Set OAuth token for an LLM connection.
+   * @param connectionSlug - The connection slug
+   * @param credentials - OAuth credentials to store
+   */
+  async setLlmOAuth(connectionSlug: string, credentials: {
+    accessToken: string;
+    refreshToken?: string;
+    expiresAt?: number;
+    /** OIDC id_token (used by OpenAI/Codex) */
+    idToken?: string;
+  }): Promise<void> {
+    await this.set({ type: 'llm_oauth', connectionSlug }, {
+      value: credentials.accessToken,
+      refreshToken: credentials.refreshToken,
+      expiresAt: credentials.expiresAt,
+      idToken: credentials.idToken,
+    });
+  }
+
+  /**
+   * Delete all credentials for an LLM connection.
+   * @param connectionSlug - The connection slug
+   */
+  async deleteLlmCredentials(connectionSlug: string): Promise<void> {
+    await this.delete({ type: 'llm_api_key', connectionSlug });
+    await this.delete({ type: 'llm_oauth', connectionSlug });
+  }
+
+  /**
+   * Check if an LLM connection has valid credentials.
+   * @param connectionSlug - The connection slug
+   * @param authType - The auth type to check
+   * @returns true if credentials exist and are valid
+   */
+  async hasLlmCredentials(connectionSlug: string, authType: 'api_key' | 'oauth' | 'codex_oauth' | 'none'): Promise<boolean> {
+    if (authType === 'none') return true;
+
+    if (authType === 'api_key') {
+      // Check connection-scoped credential first
+      const apiKey = await this.getLlmApiKey(connectionSlug);
+      if (apiKey) return true;
+
+      // Fall back to legacy global Anthropic API key for built-in 'anthropic-api' connection
+      // This ensures backwards compatibility with credentials saved before LLM connections
+      if (connectionSlug === 'anthropic-api') {
+        const legacyKey = await this.getApiKey();
+        return !!legacyKey;
+      }
+      return false;
+    }
+
+    if (authType === 'oauth' || authType === 'codex_oauth') {
+      // Check connection-scoped credential first
+      const oauth = await this.getLlmOAuth(connectionSlug);
+
+      // If no connection-scoped OAuth, check legacy credentials for built-in connections
+      if (!oauth) {
+        // Fall back to legacy Claude OAuth for 'claude-max' connection
+        if (connectionSlug === 'claude-max' && authType === 'oauth') {
+          const legacyOAuth = await this.getClaudeOAuth();
+          return !!legacyOAuth;
+        }
+        // For codex connection with codex_oauth, check ~/.codex/auth.json
+        if (connectionSlug === 'codex' && authType === 'codex_oauth') {
+          return hasCodexOAuth();
+        }
+        return false;
+      }
+
+      // For codex_oauth, we need both idToken and accessToken
+      // CodexAgent.tryInjectStoredChatGptTokens() requires both fields
+      if (authType === 'codex_oauth' && !oauth.idToken) {
+        return false;
+      }
+
+      // Check if expired
+      if (oauth.expiresAt && this.isExpired({ value: oauth.accessToken, expiresAt: oauth.expiresAt })) {
+        return !!oauth.refreshToken; // Can refresh
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a credential is expired (with 5-minute buffer).
+   *
+   * If expiresAt is not set:
+   * - OAuth tokens (have refreshToken): treated as expired to force refresh attempt
+   * - API keys (no refreshToken): treated as never expiring
+   *
+   * This prevents OAuth tokens from being treated as valid forever when
+   * the provider doesn't return expires_in in the token response.
+   */
   isExpired(credential: StoredCredential): boolean {
-    if (!credential.expiresAt) return false;
-    // Consider expired if within 5 minutes of expiry
-    return Date.now() > credential.expiresAt - 5 * 60 * 1000;
+    if (credential.expiresAt) {
+      // Consider expired if within 5 minutes of expiry
+      return Date.now() > credential.expiresAt - 5 * 60 * 1000;
+    }
+
+    // No expiresAt set - behavior depends on credential type
+    if (credential.refreshToken) {
+      // OAuth token without expiry - treat as expired to force refresh
+      // This is safer than assuming it's valid forever
+      debug('[CredentialManager] OAuth token missing expiresAt - treating as expired');
+      return true;
+    }
+
+    // API key without expiry - these typically don't expire
+    return false;
   }
 }
 

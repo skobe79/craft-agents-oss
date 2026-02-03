@@ -54,6 +54,10 @@ export type { LoadedSkill, SkillMetadata };
 import type { AgentCapabilities } from '@craft-agent/shared/agent/backend';
 export type { AgentCapabilities };
 
+// Import LLM connection types
+import type { LlmConnection, LlmConnectionWithStatus, LlmAuthType } from '@craft-agent/shared/config';
+export type { LlmConnection, LlmConnectionWithStatus, LlmAuthType };
+
 
 /**
  * File/directory entry in a skill folder
@@ -337,6 +341,8 @@ export interface Session {
   sharedId?: string
   // Model to use for this session (overrides global config if set)
   model?: string
+  // LLM connection slug for this session (locked after first message)
+  llmConnection?: string
   // Thinking level for this session ('off', 'think', 'max')
   thinkingLevel?: ThinkingLevel
   // Role/type of the last message (for badge display without loading messages)
@@ -389,6 +395,8 @@ export interface CreateSessionOptions {
   workingDirectory?: string | 'user_default' | 'none'
   /** Model override for the session (e.g., 'haiku', 'sonnet') */
   model?: string
+  /** LLM connection slug for the session (locked after first message) */
+  llmConnection?: string
   /** System prompt preset for the session ('default' | 'mini' or custom string) */
   systemPromptPreset?: 'default' | 'mini' | string
   /** When true, session won't appear in session list (e.g., mini edit sessions) */
@@ -450,6 +458,18 @@ export type SessionEvent =
   | { type: 'source_activated'; sessionId: string; sourceSlug: string; originalMessage: string }
   // Real-time usage update during processing (for context display)
   | { type: 'usage_update'; sessionId: string; tokenUsage: { inputTokens: number; contextWindow?: number } }
+  // Codex turn plan updates (native task list)
+  | {
+      type: 'todos_updated'
+      sessionId: string
+      todos: Array<{
+        content: string
+        status: 'pending' | 'in_progress' | 'completed'
+        activeForm?: string
+      }>
+      turnId?: string
+      explanation?: string | null
+    }
 
 // Options for sendMessage
 export interface SendMessageOptions {
@@ -490,6 +510,8 @@ export type SessionCommand =
   | { type: 'revokeShare' }
   | { type: 'startOAuth'; requestId: string }
   | { type: 'refreshTitle' }
+  // Connection selection (locked after first message)
+  | { type: 'setConnection'; connectionSlug: string }
   // Pending plan execution (Accept & Compact flow)
   | { type: 'setPendingPlanExecution'; planPath: string }
   | { type: 'markCompactionComplete' }
@@ -621,6 +643,22 @@ export const IPC_CHANNELS = {
 
   // Backend capabilities (for capabilities-driven UI)
   GET_BACKEND_CAPABILITIES: 'backend:getCapabilities',
+
+  // LLM Connections (provider configurations)
+  LLM_CONNECTION_LIST: 'LLM_Connection:list',
+  LLM_CONNECTION_LIST_WITH_STATUS: 'LLM_Connection:listWithStatus',
+  LLM_CONNECTION_GET: 'LLM_Connection:get',
+  LLM_CONNECTION_SAVE: 'LLM_Connection:save',
+  LLM_CONNECTION_DELETE: 'LLM_Connection:delete',
+  LLM_CONNECTION_TEST: 'LLM_Connection:test',
+  LLM_CONNECTION_SET_DEFAULT: 'LLM_Connection:setDefault',
+  LLM_CONNECTION_SET_WORKSPACE_DEFAULT: 'LLM_Connection:setWorkspaceDefault',
+
+  // ChatGPT OAuth (for Codex chatgptAuthTokens mode)
+  CHATGPT_START_OAUTH: 'chatgpt:startOAuth',
+  CHATGPT_CANCEL_OAUTH: 'chatgpt:cancelOAuth',
+  CHATGPT_GET_AUTH_STATUS: 'chatgpt:getAuthStatus',
+  CHATGPT_LOGOUT: 'chatgpt:logout',
 
   // Settings - API Setup
   SETTINGS_GET_API_SETUP: 'settings:getApiSetup',
@@ -896,6 +934,13 @@ export interface ElectronAPI {
   // Codex OAuth (CLI-based, checks ~/.codex/auth.json)
   checkCodexAuth(): Promise<{ authenticated: boolean; error?: string }>
 
+  // ChatGPT OAuth (for Codex chatgptAuthTokens mode)
+  // Note: startChatGptOAuth opens browser and completes full OAuth flow internally
+  startChatGptOAuth(): Promise<{ success: boolean; error?: string }>
+  cancelChatGptOAuth(): Promise<{ success: boolean }>
+  getChatGptAuthStatus(): Promise<{ authenticated: boolean; expiresAt?: number; hasRefreshToken?: boolean }>
+  chatGptLogout(): Promise<{ success: boolean }>
+
   // Backend capabilities (models, thinking levels) - returns null if backend not ready
   getBackendCapabilities(): Promise<AgentCapabilities | null>
 
@@ -1060,6 +1105,16 @@ export interface ElectronAPI {
   menuCopy(): Promise<void>
   menuPaste(): Promise<void>
   menuSelectAll(): Promise<void>
+
+  // LLM Connections (provider configurations)
+  listLlmConnections(): Promise<LlmConnection[]>
+  listLlmConnectionsWithStatus(): Promise<LlmConnectionWithStatus[]>
+  getLlmConnection(slug: string): Promise<LlmConnection | null>
+  saveLlmConnection(connection: LlmConnection): Promise<{ success: boolean; error?: string }>
+  deleteLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
+  testLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
+  setDefaultLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
+  setWorkspaceDefaultLlmConnection(workspaceId: string, slug: string | null): Promise<{ success: boolean; error?: string }>
 }
 
 /**
@@ -1114,6 +1169,8 @@ export interface WorkspaceSettings {
   workingDirectory?: string
   /** Whether local (stdio) MCP servers are enabled */
   localMcpEnabled?: boolean
+  /** Default LLM connection slug for new sessions in this workspace */
+  defaultLlmConnection?: string
 }
 
 /**
@@ -1158,9 +1215,10 @@ export type ChatFilter =
   | { kind: 'view'; viewId: string }
 
 /**
- * Settings subpage options
+ * Settings subpage options - re-exported from settings-registry (single source of truth)
  */
-export type SettingsSubpage = 'app' | 'appearance' | 'input' | 'workspace' | 'permissions' | 'labels' | 'shortcuts' | 'preferences'
+export type { SettingsSubpage } from './settings-registry'
+import { isValidSettingsSubpage, type SettingsSubpage } from './settings-registry'
 
 /**
  * Chats navigation state - shows SessionList in navigator
@@ -1328,8 +1386,8 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
   // Handle settings
   if (key === 'settings') return { navigator: 'settings', subpage: 'app' }
   if (key.startsWith('settings:')) {
-    const subpage = key.slice(9) as SettingsSubpage
-    if (['app', 'appearance', 'input', 'workspace', 'permissions', 'labels', 'shortcuts', 'preferences'].includes(subpage)) {
+    const subpage = key.slice(9)
+    if (isValidSettingsSubpage(subpage)) {
       return { navigator: 'settings', subpage }
     }
   }

@@ -290,17 +290,40 @@ export function useOnboarding({
   // Two-step OAuth flow state
   const [isWaitingForCode, setIsWaitingForCode] = useState(false)
 
-  // Start Claude OAuth (native browser-based OAuth with PKCE - two-step flow)
+  // Start OAuth flow (Claude or ChatGPT depending on selected method)
   const handleStartOAuth = useCallback(async () => {
-    setState(s => ({ ...s, errorMessage: undefined }))
+    setState(s => ({ ...s, credentialStatus: 'validating', errorMessage: undefined }))
 
     try {
-      // Start OAuth flow - this opens the browser
+      // ChatGPT OAuth (single-step flow - opens browser, captures tokens automatically)
+      if (state.apiSetupMethod === 'codex_oauth') {
+        const result = await window.electronAPI.startChatGptOAuth()
+
+        if (result.success) {
+          // Tokens captured automatically, save config and complete
+          await handleSaveConfig(undefined)
+          setState(s => ({
+            ...s,
+            credentialStatus: 'success',
+            step: 'complete',
+          }))
+        } else {
+          setState(s => ({
+            ...s,
+            credentialStatus: 'error',
+            errorMessage: result.error || 'ChatGPT authentication failed',
+          }))
+        }
+        return
+      }
+
+      // Claude OAuth (two-step flow - opens browser, user copies code)
       const result = await window.electronAPI.startClaudeOAuth()
 
       if (result.success) {
         // Browser opened successfully, now waiting for user to copy the code
         setIsWaitingForCode(true)
+        setState(s => ({ ...s, credentialStatus: 'idle' }))
       } else {
         setState(s => ({
           ...s,
@@ -315,7 +338,7 @@ export function useOnboarding({
         errorMessage: error instanceof Error ? error.message : 'OAuth failed',
       }))
     }
-  }, [])
+  }, [state.apiSetupMethod, handleSaveConfig])
 
   // Submit authorization code (second step of OAuth flow)
   const handleSubmitAuthCode = useCallback(async (code: string) => {

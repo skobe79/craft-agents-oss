@@ -11,7 +11,7 @@ import { WindowManager } from './window-manager'
 import { registerOnboardingHandlers } from './onboarding'
 import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AuthType, type ApiSetupInfo, type SendMessageOptions } from '../shared/types'
 import { readFileAttachment, perf, validateImageForClaudeAPI, IMAGE_LIMITS } from '@craft-agent/shared/utils'
-import { getAuthType, setAuthType, getPreferencesPath, getCustomModel, setCustomModel, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, getAnthropicBaseUrl, setAnthropicBaseUrl, loadStoredConfig, saveConfig, type Workspace, SUMMARIZATION_MODEL } from '@craft-agent/shared/config'
+import { getAuthType, setAuthType, getPreferencesPath, getCustomModel, setCustomModel, getModel, setModel, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, getAnthropicBaseUrl, setAnthropicBaseUrl, loadStoredConfig, saveConfig, type Workspace, SUMMARIZATION_MODEL, getLlmConnections, getLlmConnection, addLlmConnection, updateLlmConnection, deleteLlmConnection, getDefaultLlmConnection, setDefaultLlmConnection, touchLlmConnection, type LlmConnection, type LlmConnectionWithStatus } from '@craft-agent/shared/config'
 import { getSessionAttachmentsPath, validateSessionId } from '@craft-agent/shared/sessions'
 import { loadWorkspaceSources, getSourcesBySlugs, type LoadedSource } from '@craft-agent/shared/sources'
 import { isValidThinkingLevel } from '@craft-agent/shared/agent/thinking-levels'
@@ -390,6 +390,10 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       case 'refreshTitle':
         ipcLog.info(`IPC: refreshTitle received for session ${sessionId}`)
         return sessionManager.refreshTitle(sessionId)
+      // Connection selection (locked after first message)
+      case 'setConnection':
+        ipcLog.info(`IPC: setConnection received for session ${sessionId}, connection: ${command.connectionSlug}`)
+        return sessionManager.setSessionConnection(sessionId, command.connectionSlug)
       // Pending plan execution (Accept & Compact flow)
       case 'setPendingPlanExecution':
         return sessionManager.setPendingPlanExecution(sessionId, command.planPath)
@@ -1201,20 +1205,16 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   })
 
   // Update API setup and credential
+  // NOTE: This handler is deprecated - use LLM connections instead.
+  // Kept for backwards compatibility but no longer deletes credentials when switching auth types.
   ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE_API_SETUP, async (_event, authType: AuthType, credential?: string, anthropicBaseUrl?: string | null, customModel?: string | null) => {
     const manager = getCredentialManager()
 
-    // Clear old credentials when switching auth types
-    const oldAuthType = getAuthType()
-    if (oldAuthType !== authType) {
-      if (oldAuthType === 'api_key') {
-        await manager.delete({ type: 'anthropic_api_key' })
-      } else if (oldAuthType === 'oauth_token') {
-        await manager.delete({ type: 'claude_oauth' })
-      }
-    }
+    // REMOVED: Credential deletion when switching auth types
+    // Multiple auth types can now coexist via LLM connections.
+    // Each connection has its own credentials that don't interfere with each other.
 
-    // Set new auth type
+    // Set new auth type (kept for backwards compat, but defaultLlmConnection is authoritative)
     setAuthType(authType)
 
     // Update Anthropic base URL (null to clear, undefined to keep unchanged)
@@ -1243,22 +1243,29 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     }
 
     // Store or clear credential
+    // Save to both legacy and LLM connection for backwards compatibility
     if (credential) {
       if (authType === 'api_key') {
         await manager.setApiKey(credential)
+        await manager.setLlmApiKey('anthropic-api', credential)
+        ipcLog.info('Saved API key to both legacy and LLM connection')
       } else if (authType === 'oauth_token') {
         // Save the access token (refresh token and expiry are managed by the OAuth flow)
         await manager.setClaudeOAuth(credential)
-        ipcLog.info('Saved Claude OAuth access token')
+        await manager.setLlmOAuth('claude-max', { accessToken: credential })
+        ipcLog.info('Saved Claude OAuth access token to both legacy and LLM connection')
       }
     } else if (credential === '') {
       // Empty string means user explicitly cleared the credential
+      // Only clear the specific credential being referenced, not all credentials
       if (authType === 'api_key') {
         await manager.delete({ type: 'anthropic_api_key' })
-        ipcLog.info('API key cleared')
+        await manager.deleteLlmCredentials('anthropic-api')
+        ipcLog.info('API key cleared from both legacy and LLM connection')
       } else if (authType === 'oauth_token') {
         await manager.delete({ type: 'claude_oauth' })
-        ipcLog.info('Claude OAuth cleared')
+        await manager.deleteLlmCredentials('claude-max')
+        ipcLog.info('Claude OAuth cleared from both legacy and LLM connection')
       }
     }
 
@@ -1458,18 +1465,27 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       thinkingLevel: config?.defaults?.thinkingLevel,
       workingDirectory: config?.defaults?.workingDirectory,
       localMcpEnabled: config?.localMcpServers?.enabled ?? true,
+      defaultLlmConnection: config?.defaults?.defaultLlmConnection,
     }
   })
 
   // Update a workspace setting
-  // Valid keys: 'name', 'model', 'enabledSourceSlugs', 'permissionMode', 'cyclablePermissionModes', 'thinkingLevel', 'workingDirectory', 'localMcpEnabled'
+  // Valid keys: 'name', 'model', 'enabledSourceSlugs', 'permissionMode', 'cyclablePermissionModes', 'thinkingLevel', 'workingDirectory', 'localMcpEnabled', 'defaultLlmConnection'
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_SETTINGS_UPDATE, async (_event, workspaceId: string, key: string, value: unknown) => {
     const workspace = getWorkspaceOrThrow(workspaceId)
 
     // Validate key is a known workspace setting
-    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'cyclablePermissionModes', 'thinkingLevel', 'workingDirectory', 'localMcpEnabled']
+    const validKeys = ['name', 'model', 'enabledSourceSlugs', 'permissionMode', 'cyclablePermissionModes', 'thinkingLevel', 'workingDirectory', 'localMcpEnabled', 'defaultLlmConnection']
     if (!validKeys.includes(key)) {
       throw new Error(`Invalid workspace setting key: ${key}. Valid keys: ${validKeys.join(', ')}`)
+    }
+
+    // Validate defaultLlmConnection exists before saving
+    if (key === 'defaultLlmConnection' && value !== undefined && value !== null) {
+      const { getLlmConnection } = await import('@craft-agent/shared/config/storage')
+      if (!getLlmConnection(value as string)) {
+        throw new Error(`LLM connection "${value}" not found`)
+      }
     }
 
     const { loadWorkspaceConfig, saveWorkspaceConfig } = await import('@craft-agent/shared/workspaces')
@@ -1544,6 +1560,371 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // Get all drafts (for loading on app start)
   ipcMain.handle(IPC_CHANNELS.DRAFTS_GET_ALL, async () => {
     return getAllSessionDrafts()
+  })
+
+  // ============================================================
+  // LLM Connections (provider configurations)
+  // ============================================================
+
+  // List all LLM connections (includes built-in and custom)
+  ipcMain.handle(IPC_CHANNELS.LLM_CONNECTION_LIST, async (): Promise<LlmConnection[]> => {
+    return getLlmConnections()
+  })
+
+  // List all LLM connections with authentication status
+  ipcMain.handle(IPC_CHANNELS.LLM_CONNECTION_LIST_WITH_STATUS, async (): Promise<LlmConnectionWithStatus[]> => {
+    const connections = getLlmConnections()
+    const credentialManager = getCredentialManager()
+    const defaultSlug = getDefaultLlmConnection()
+
+    return Promise.all(connections.map(async (conn): Promise<LlmConnectionWithStatus> => {
+      // Check if credentials exist for this connection
+      const hasCredentials = await credentialManager.hasLlmCredentials(conn.slug, conn.authType)
+      return {
+        ...conn,
+        isAuthenticated: conn.authType === 'none' || hasCredentials,
+        isDefault: conn.slug === defaultSlug,
+      }
+    }))
+  })
+
+  // Get a specific LLM connection by slug
+  ipcMain.handle(IPC_CHANNELS.LLM_CONNECTION_GET, async (_event, slug: string): Promise<LlmConnection | null> => {
+    return getLlmConnection(slug)
+  })
+
+  // Save (create or update) an LLM connection
+  // If connection.slug exists and is found, updates it; otherwise creates new
+  ipcMain.handle(IPC_CHANNELS.LLM_CONNECTION_SAVE, async (_event, connection: LlmConnection): Promise<{ success: boolean; error?: string }> => {
+    try {
+      // Check if this is an update or create
+      const existing = getLlmConnection(connection.slug)
+      if (existing) {
+        // Update existing connection (can't change slug)
+        const { slug: _slug, ...updates } = connection
+        const success = updateLlmConnection(connection.slug, updates)
+        if (!success) {
+          return { success: false, error: 'Failed to update connection' }
+        }
+      } else {
+        // Create new connection
+        const success = addLlmConnection(connection)
+        if (!success) {
+          return { success: false, error: 'Connection with this slug already exists' }
+        }
+      }
+      ipcLog.info(`LLM connection saved: ${connection.slug}`)
+      return { success: true }
+    } catch (error) {
+      ipcLog.error('Failed to save LLM connection:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  // Delete an LLM connection (at least one connection must remain)
+  ipcMain.handle(IPC_CHANNELS.LLM_CONNECTION_DELETE, async (_event, slug: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const connection = getLlmConnection(slug)
+      if (!connection) {
+        return { success: false, error: 'Connection not found' }
+      }
+      // deleteLlmConnection handles the "at least one must remain" check
+      const success = deleteLlmConnection(slug)
+      if (success) {
+        // Also delete associated credentials
+        const credentialManager = getCredentialManager()
+        await credentialManager.deleteLlmCredentials(slug)
+        ipcLog.info(`LLM connection deleted: ${slug}`)
+      }
+      return { success }
+    } catch (error) {
+      ipcLog.error('Failed to delete LLM connection:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  // Test an LLM connection (validate credentials and connectivity with actual API call)
+  ipcMain.handle(IPC_CHANNELS.LLM_CONNECTION_TEST, async (_event, slug: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const connection = getLlmConnection(slug)
+      if (!connection) {
+        return { success: false, error: 'Connection not found' }
+      }
+
+      // Check if connection has valid credentials
+      const credentialManager = getCredentialManager()
+      const hasCredentials = await credentialManager.hasLlmCredentials(slug, connection.authType)
+      if (!hasCredentials && connection.authType !== 'none') {
+        return { success: false, error: 'No credentials configured' }
+      }
+
+      // For Codex (openai with codex_oauth), just validate OAuth tokens exist
+      // Starting the Codex app-server is heavyweight and would disrupt the user
+      if (connection.type === 'openai' && connection.authType === 'codex_oauth') {
+        ipcLog.info(`LLM connection validated (credentials only): ${slug}`)
+        touchLlmConnection(slug)
+        return { success: true }
+      }
+
+      // For Anthropic and OpenAI-compatible, make an actual API call
+      if (connection.type === 'anthropic' || connection.type === 'openai-compat') {
+        const Anthropic = (await import('@anthropic-ai/sdk')).default
+
+        // Get the appropriate credential based on auth type
+        let authKey: string | null = null
+        if (connection.authType === 'api_key') {
+          authKey = await credentialManager.getLlmApiKey(slug)
+          // Fall back to legacy global API key for built-in 'anthropic-api' connection
+          if (!authKey && slug === 'anthropic-api') {
+            authKey = await credentialManager.getApiKey()
+          }
+        } else if (connection.authType === 'oauth') {
+          const oauth = await credentialManager.getLlmOAuth(slug)
+          if (!oauth) {
+            // Fall back to legacy Claude OAuth for 'claude-max' connection
+            if (slug === 'claude-max') {
+              authKey = await credentialManager.getClaudeOAuth()
+            }
+          } else {
+            authKey = oauth.accessToken
+          }
+        }
+
+        // For 'none' auth type (e.g., local Ollama), use a dummy token
+        if (connection.authType === 'none') {
+          authKey = 'ollama'
+        }
+
+        if (!authKey && connection.authType !== 'none') {
+          return { success: false, error: 'Could not retrieve credentials' }
+        }
+
+        // Build client config based on connection type
+        const baseUrl = connection.baseUrl
+        const isCustomUrl = !!baseUrl
+
+        const client = new Anthropic({
+          ...(isCustomUrl ? { baseURL: baseUrl } : {}),
+          ...(isCustomUrl
+            ? { authToken: authKey || 'ollama', apiKey: null }  // Bearer for custom URLs
+            : connection.authType === 'oauth'
+              ? { authToken: authKey, apiKey: null }            // Bearer for Claude Max OAuth
+              : { apiKey: authKey, authToken: null }            // x-api-key for Anthropic API
+          ),
+        })
+
+        // Use connection's default model or fall back to summarization model
+        const testModel = connection.defaultModel || SUMMARIZATION_MODEL
+
+        // Make a minimal API call to validate the connection
+        await client.messages.create({
+          model: testModel,
+          max_tokens: 16,
+          messages: [{ role: 'user', content: 'hi' }],
+          tools: [{
+            name: 'test_tool',
+            description: 'Test tool for validation',
+            input_schema: { type: 'object' as const, properties: {} }
+          }]
+        })
+
+        ipcLog.info(`LLM connection validated: ${slug}`)
+        touchLlmConnection(slug)
+        return { success: true }
+      }
+
+      // Unknown connection type - just validate credentials exist
+      ipcLog.info(`LLM connection validated (credentials only): ${slug}`)
+      touchLlmConnection(slug)
+      return { success: true }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      const lowerMsg = msg.toLowerCase()
+      ipcLog.info(`[LLM_CONNECTION_TEST] Error for ${slug}: ${msg.slice(0, 500)}`)
+
+      // Connection errors — server unreachable
+      if (lowerMsg.includes('econnrefused') || lowerMsg.includes('enotfound') || lowerMsg.includes('fetch failed')) {
+        return { success: false, error: 'Cannot connect to API server. Check the URL and ensure the server is running.' }
+      }
+
+      // 404 on endpoint
+      if (lowerMsg.includes('404') && !lowerMsg.includes('model')) {
+        return { success: false, error: 'Endpoint not found. Ensure the server supports the Anthropic Messages API.' }
+      }
+
+      // Auth errors
+      if (lowerMsg.includes('401') || lowerMsg.includes('unauthorized') || lowerMsg.includes('authentication')) {
+        return { success: false, error: 'Authentication failed. Check your API key or OAuth token.' }
+      }
+
+      // Rate limit / quota errors
+      if (lowerMsg.includes('429') || lowerMsg.includes('rate limit') || lowerMsg.includes('quota')) {
+        return { success: false, error: 'Rate limited or quota exceeded. Try again later.' }
+      }
+
+      // Credit/billing errors
+      if (lowerMsg.includes('credit') || lowerMsg.includes('billing') || lowerMsg.includes('insufficient')) {
+        return { success: false, error: 'Billing issue. Check your account credits or payment method.' }
+      }
+
+      // Model not found
+      if (lowerMsg.includes('model not found') || lowerMsg.includes('invalid model')) {
+        return { success: false, error: 'Model not found. Check the connection configuration.' }
+      }
+
+      // Fallback
+      return { success: false, error: msg.slice(0, 200) }
+    }
+  })
+
+  // Set global default LLM connection
+  ipcMain.handle(IPC_CHANNELS.LLM_CONNECTION_SET_DEFAULT, async (_event, slug: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const success = setDefaultLlmConnection(slug)
+      if (success) {
+        ipcLog.info(`Global default LLM connection set to: ${slug}`)
+      }
+      return { success, error: success ? undefined : 'Connection not found' }
+    } catch (error) {
+      ipcLog.error('Failed to set default LLM connection:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  // Set workspace default LLM connection
+  ipcMain.handle(IPC_CHANNELS.LLM_CONNECTION_SET_WORKSPACE_DEFAULT, async (_event, workspaceId: string, slug: string | null): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const workspace = getWorkspaceOrThrow(workspaceId)
+
+      // Validate connection exists if setting (not clearing)
+      if (slug) {
+        const connection = getLlmConnection(slug)
+        if (!connection) {
+          return { success: false, error: 'Connection not found' }
+        }
+      }
+
+      const { loadWorkspaceConfig, saveWorkspaceConfig } = await import('@craft-agent/shared/workspaces')
+      const config = loadWorkspaceConfig(workspace.rootPath)
+      if (!config) {
+        return { success: false, error: 'Failed to load workspace config' }
+      }
+
+      // Update workspace defaults
+      config.defaults = config.defaults || {}
+      if (slug) {
+        config.defaults.defaultLlmConnection = slug
+      } else {
+        delete config.defaults.defaultLlmConnection
+      }
+
+      saveWorkspaceConfig(workspace.rootPath, config)
+      ipcLog.info(`Workspace ${workspaceId} default LLM connection set to: ${slug}`)
+      return { success: true }
+    } catch (error) {
+      ipcLog.error('Failed to set workspace default LLM connection:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
+  // ============================================================
+  // ChatGPT OAuth (for Codex chatgptAuthTokens mode)
+  // ============================================================
+
+  // Start ChatGPT OAuth flow
+  // Opens browser for authentication, waits for callback, exchanges code for tokens
+  ipcMain.handle(IPC_CHANNELS.CHATGPT_START_OAUTH, async (): Promise<{
+    success: boolean
+    error?: string
+  }> => {
+    try {
+      const { startChatGptOAuth, exchangeChatGptCode } = await import('@craft-agent/shared/auth')
+      const credentialManager = getCredentialManager()
+
+      ipcLog.info('Starting ChatGPT OAuth flow...')
+
+      // Start OAuth and wait for authorization code
+      const code = await startChatGptOAuth((status) => {
+        ipcLog.info(`[ChatGPT OAuth] ${status}`)
+      })
+
+      // Exchange code for tokens
+      const tokens = await exchangeChatGptCode(code, (status) => {
+        ipcLog.info(`[ChatGPT OAuth] ${status}`)
+      })
+
+      // Store both tokens properly in credential manager
+      // OpenAI OIDC returns both: idToken (JWT for identity) and accessToken (for API access)
+      await credentialManager.setLlmOAuth('codex', {
+        accessToken: tokens.accessToken,  // Store actual accessToken
+        idToken: tokens.idToken,           // Store idToken separately
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresAt,
+      })
+
+      ipcLog.info('ChatGPT OAuth completed successfully')
+      return { success: true }
+    } catch (error) {
+      ipcLog.error('ChatGPT OAuth failed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'OAuth authentication failed',
+      }
+    }
+  })
+
+  // Cancel ongoing ChatGPT OAuth flow
+  ipcMain.handle(IPC_CHANNELS.CHATGPT_CANCEL_OAUTH, async (): Promise<{ success: boolean }> => {
+    try {
+      const { cancelChatGptOAuth } = await import('@craft-agent/shared/auth')
+      cancelChatGptOAuth()
+      ipcLog.info('ChatGPT OAuth cancelled')
+      return { success: true }
+    } catch (error) {
+      ipcLog.error('Failed to cancel ChatGPT OAuth:', error)
+      return { success: false }
+    }
+  })
+
+  // Get ChatGPT authentication status
+  ipcMain.handle(IPC_CHANNELS.CHATGPT_GET_AUTH_STATUS, async (): Promise<{
+    authenticated: boolean
+    expiresAt?: number
+    hasRefreshToken?: boolean
+  }> => {
+    try {
+      const credentialManager = getCredentialManager()
+      const creds = await credentialManager.getLlmOAuth('codex')
+
+      if (!creds) {
+        return { authenticated: false }
+      }
+
+      // Check if expired (with 5-minute buffer)
+      const isExpired = creds.expiresAt && Date.now() > creds.expiresAt - 5 * 60 * 1000
+
+      return {
+        authenticated: !isExpired || !!creds.refreshToken, // Can refresh if has refresh token
+        expiresAt: creds.expiresAt,
+        hasRefreshToken: !!creds.refreshToken,
+      }
+    } catch (error) {
+      ipcLog.error('Failed to get ChatGPT auth status:', error)
+      return { authenticated: false }
+    }
+  })
+
+  // Logout from ChatGPT (clear stored tokens)
+  ipcMain.handle(IPC_CHANNELS.CHATGPT_LOGOUT, async (): Promise<{ success: boolean }> => {
+    try {
+      const credentialManager = getCredentialManager()
+      await credentialManager.deleteLlmCredentials('codex')
+      ipcLog.info('ChatGPT credentials cleared')
+      return { success: true }
+    } catch (error) {
+      ipcLog.error('Failed to clear ChatGPT credentials:', error)
+      return { success: false }
+    }
   })
 
   // ============================================================

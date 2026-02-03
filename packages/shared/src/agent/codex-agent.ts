@@ -1,0 +1,1852 @@
+/**
+ * Codex Backend (App-Server Mode)
+ *
+ * Agent backend implementation using the Codex app-server protocol.
+ * This backend spawns `codex app-server` and communicates via JSON-RPC over stdio.
+ *
+ * Key benefits over exec mode:
+ * - Pre-tool approval (blocking permission requests BEFORE execution)
+ * - Thread persistence (resume conversations across app restarts)
+ * - Built-in auth handling (OAuth flow via account/login/start)
+ * - Auto-generated types from the Rust binary
+ *
+ * The app-server handles the agent loop internally, emitting notifications
+ * for UI events and server requests for approval prompts.
+ */
+
+import type { AgentEvent } from '@craft-agent/core/types';
+import type { FileAttachment } from '../utils/files.ts';
+import type { ThinkingLevel } from './thinking-levels.ts';
+import { type PermissionMode, shouldAllowToolInMode } from './mode-manager.ts';
+import type { LoadedSource } from '../sources/types.ts';
+
+import type {
+  AgentCapabilities,
+  BackendConfig,
+  ChatOptions,
+  SdkMcpServerConfig,
+  ModelDefinition,
+  ThinkingLevelDefinition,
+} from './backend/types.ts';
+import { AbortReason } from './backend/types.ts';
+import type { Workspace } from '../config/storage.ts';
+
+// Import models from centralized registry
+import { OPENAI_MODELS, DEFAULT_CODEX_MODEL, getModelById } from '../config/models.ts';
+
+// BaseAgent provides common functionality
+import { BaseAgent } from './base-agent.ts';
+
+// App-server client
+import {
+  AppServerClient,
+  type AppServerOptions,
+  type ChatGptTokenRefreshRequestParams,
+  type ToolCallPreExecuteParams,
+  type ToolCallPreExecuteDecision,
+  type ToolCallType,
+  type PermissionPromptMetadata,
+  type PermissionPromptType,
+} from '../codex/app-server-client.ts';
+
+// ChatGPT OAuth for token refresh
+import { refreshChatGptTokens, type ChatGptTokens } from '../auth/chatgpt-oauth.ts';
+
+// Credential manager for stored tokens
+import { getCredentialManager } from '../credentials/index.ts';
+
+// Event adapter
+import { EventAdapter } from './backend/codex/event-adapter.ts';
+
+// Error parsing for typed errors
+import { parseError, type AgentError } from './errors.ts';
+
+// Session storage for plans folder path
+import { getSessionPlansPath } from '../sessions/storage.ts';
+
+// System prompt for Craft Agent context
+import { getSystemPrompt } from '../prompts/system.ts';
+
+// PreToolUse utilities
+import {
+  expandToolPaths,
+  qualifySkillName,
+  stripMcpMetadata,
+  validateConfigWrite,
+  BUILT_IN_TOOLS,
+} from './core/pre-tool-use.ts';
+
+// Import types from generated codex-types
+import type {
+  RequestId,
+  ReasoningEffort,
+} from '@craft-agent/codex-types';
+import type {
+  AskForApproval,
+  SandboxMode,
+  UserInput,
+  CommandExecutionApprovalDecision,
+  FileChangeApprovalDecision,
+  ThreadTokenUsageUpdatedNotification,
+} from '@craft-agent/codex-types/v2';
+
+// ============================================================
+// Constants
+// ============================================================
+
+// Models and DEFAULT_CODEX_MODEL imported from centralized registry (config/models.ts)
+
+/**
+ * Map thinking levels to Codex reasoning effort.
+ */
+const THINKING_TO_EFFORT: Record<ThinkingLevel, ReasoningEffort> = {
+  off: 'low',
+  think: 'medium',
+  max: 'high',
+};
+
+/**
+ * Codex thinking level definitions.
+ */
+const CODEX_THINKING_LEVELS: ThinkingLevelDefinition[] = [
+  {
+    id: 'off',
+    name: 'Off',
+    description: 'Minimal reasoning effort',
+    budget: 'low',
+  },
+  {
+    id: 'think',
+    name: 'Think',
+    description: 'Medium reasoning effort',
+    budget: 'medium',
+  },
+  {
+    id: 'max',
+    name: 'Max',
+    description: 'Maximum reasoning effort',
+    budget: 'high',
+  },
+];
+
+// ============================================================
+// CodexAgent Implementation
+// ============================================================
+
+/**
+ * Backend implementation using the Codex app-server protocol.
+ *
+ * Extends BaseAgent for common functionality (permission mode, source management,
+ * planning heuristics, config watching, usage tracking).
+ *
+ * The app-server provides a structured JSON-RPC API that:
+ * 1. Manages thread lifecycle (start, resume, archive)
+ * 2. Handles turns with proper approval workflows
+ * 3. Emits notifications for streaming events
+ * 4. Sends server requests for approval prompts
+ */
+export class CodexAgent extends BaseAgent {
+  // ============================================================
+  // Codex-specific State (not in BaseAgent)
+  // ============================================================
+
+  // App-server client
+  private client: AppServerClient | null = null;
+  private clientConnecting: Promise<void> | null = null;
+
+  // State
+  private _isProcessing: boolean = false;
+  private abortReason?: AbortReason;
+  private codexThreadId: string | null = null; // For session resume
+  private currentTurnId: string | null = null;
+
+  // Event adapter
+  private adapter: EventAdapter;
+
+  // Event queue for streaming (AsyncGenerator pattern)
+  private eventQueue: AgentEvent[] = [];
+  private eventResolvers: Array<(done: boolean) => void> = [];
+  private turnComplete: boolean = false;
+
+  // Pending approval requests (legacy approval handlers)
+  private pendingApprovals: Map<string, {
+    type: 'command' | 'fileChange';
+    command?: string; // Original command for whitelisting
+    resolve: (decision: CommandExecutionApprovalDecision | FileChangeApprovalDecision) => void;
+  }> = new Map();
+
+  // Pending permission requests for unified PreToolUse flow
+  private pendingPermissions: Map<string, {
+    resolve: (result: { allowed: boolean; acceptForSession: boolean }) => void;
+    toolName: string;
+    command?: string;
+  }> = new Map();
+
+  // Current user message (for source_activated event's originalMessage)
+  private currentUserMessage: string = '';
+
+  // Mutex for token refresh to prevent race conditions with concurrent refresh requests
+  private tokenRefreshInProgress: Promise<void> | null = null;
+
+  // ============================================================
+  // Codex-specific Callbacks
+  // ============================================================
+
+  /**
+   * Callback for when ChatGPT authentication is required.
+   * Called when:
+   * 1. No stored ChatGPT tokens exist and they're needed
+   * 2. Token refresh fails (refresh token expired)
+   *
+   * The UI should trigger the ChatGPT OAuth flow and then call
+   * `injectChatGptTokens()` with the new tokens.
+   */
+  onChatGptAuthRequired: ((reason: string) => void) | null = null;
+
+  constructor(config: BackendConfig) {
+    // Get context window from model definitions for base class
+    const modelDef = getModelById(config.model || DEFAULT_CODEX_MODEL);
+
+    // Call BaseAgent constructor - handles all core module initialization
+    super(config, DEFAULT_CODEX_MODEL, modelDef?.contextWindow);
+
+    // Codex-specific initialization
+    // Restore thread ID from previous session (for resume)
+    this.codexThreadId = config.session?.sdkSessionId || null;
+
+    // Initialize event adapter
+    this.adapter = new EventAdapter();
+
+    // Start config watcher for hot-reloading source changes (non-headless only)
+    if (!config.isHeadless) {
+      this.startConfigWatcher();
+    }
+
+    this.debug(`Codex backend initialized (app-server mode)${this.codexThreadId ? ` (will resume thread ${this.codexThreadId})` : ''}`);
+  }
+
+  /**
+   * Override debug to add Codex prefix.
+   */
+  protected override debug(message: string): void {
+    this.onDebug?.(`[Codex] ${message}`);
+  }
+
+  /**
+   * Safely respond to PreToolUse request, handling disconnection gracefully.
+   * Logs warning if disconnected instead of silently failing.
+   */
+  private async safeRespondToPreToolUse(requestId: RequestId, decision: ToolCallPreExecuteDecision): Promise<void> {
+    if (!this.client?.isConnected()) {
+      this.debug(`Cannot respond to PreToolUse (${requestId}) - client disconnected`);
+      return;
+    }
+    try {
+      await this.client.respondToToolCallPreExecute(requestId, decision);
+    } catch (err) {
+      this.debug(`Failed to respond to PreToolUse (${requestId}): ${err}`);
+    }
+  }
+
+  // ============================================================
+  // Client Management
+  // ============================================================
+
+  /**
+   * Ensure the app-server client is connected.
+   */
+  private async ensureClient(): Promise<AppServerClient> {
+    if (this.client?.isConnected()) {
+      return this.client;
+    }
+
+    // Wait if already connecting
+    if (this.clientConnecting) {
+      await this.clientConnecting;
+      if (this.client?.isConnected()) {
+        return this.client;
+      }
+    }
+
+    // Create and connect new client
+    // CRAFT AGENTS: Support custom codex binary path via environment variable
+    // Set CODEX_PATH to use the Craft Agents fork with PreToolUse support
+    // Download from: https://github.com/lukilabs/craft-agents-codex/releases
+    const codexPath = process.env.CODEX_PATH || 'codex';
+
+    // Build environment variables for the Codex process
+    // CODEX_HOME enables per-session configuration (MCP servers, etc.)
+    const env: Record<string, string> = {};
+    if (this.config.codexHome) {
+      env.CODEX_HOME = this.config.codexHome;
+      this.debug(`Using custom CODEX_HOME: ${this.config.codexHome}`);
+    }
+
+    const options: AppServerOptions = {
+      workDir: this.workingDirectory,
+      codexPath,
+      onDebug: (msg) => this.debug(msg),
+      env: Object.keys(env).length > 0 ? env : undefined,
+    };
+
+    this.client = new AppServerClient(options);
+    this.debug(`Using codex binary: ${codexPath}`);
+
+    // Set up event handlers
+    this.setupClientEventHandlers();
+
+    // Connect
+    this.clientConnecting = this.client.connect();
+    await this.clientConnecting;
+    this.clientConnecting = null;
+
+    this.debug('App-server client connected');
+    return this.client;
+  }
+
+  /**
+   * Set up event handlers for the app-server client.
+   */
+  private setupClientEventHandlers(): void {
+    if (!this.client) return;
+
+    // Thread started - capture thread ID
+    this.client.on('thread/started', (notification) => {
+      const threadId = notification.thread?.id;
+      if (threadId && threadId !== this.codexThreadId) {
+        this.codexThreadId = threadId;
+        this.debug(`Thread ID captured: ${threadId}`);
+        this.config.onSdkSessionIdUpdate?.(threadId);
+      }
+    });
+
+    // Turn started
+    this.client.on('turn/started', (notification) => {
+      this.currentTurnId = notification.turn?.id || null;
+      for (const event of this.adapter.adaptTurnStarted(notification)) {
+        this.enqueueEvent(event);
+      }
+    });
+
+    // Turn completed
+    this.client.on('turn/completed', (notification) => {
+      for (const event of this.adapter.adaptTurnCompleted(notification)) {
+        this.enqueueEvent(event);
+      }
+      this.turnComplete = true;
+      this.signalEventAvailable(true);
+    });
+
+    // Turn plan updated - Codex's native task list
+    // Emits todos_updated events for TurnCard to display progress
+    this.client.on('turn/plan/updated', (notification) => {
+      for (const event of this.adapter.adaptTurnPlanUpdated(notification)) {
+        this.enqueueEvent(event);
+      }
+    });
+
+    // Item started
+    this.client.on('item/started', (notification) => {
+      for (const event of this.adapter.adaptItemStarted(notification)) {
+        this.enqueueEvent(event);
+      }
+    });
+
+    // Item completed
+    this.client.on('item/completed', async (notification) => {
+      const events = this.adapter.adaptItemCompleted(notification);
+      for (const event of events) {
+        // Check for inactive source tool errors and attempt auto-activation
+        if (event.type === 'tool_result' && event.isError) {
+          const inactiveSourceError = this.detectInactiveSourceToolError(event);
+          if (inactiveSourceError && this.onSourceActivationRequest) {
+            const { sourceSlug, toolName } = inactiveSourceError;
+
+            this.debug(`Detected tool call to inactive source "${sourceSlug}", attempting activation...`);
+
+            try {
+              const activated = await this.onSourceActivationRequest(sourceSlug);
+
+              if (activated) {
+                this.debug(`Source "${sourceSlug}" activated successfully`);
+
+                // Emit source_activated event for UI to auto-retry
+                this.enqueueEvent({
+                  type: 'source_activated' as const,
+                  sourceSlug,
+                  originalMessage: this.currentUserMessage,
+                });
+              } else {
+                this.debug(`Failed to activate source "${sourceSlug}"`);
+              }
+            } catch (err) {
+              this.debug(`Error activating source "${sourceSlug}": ${err}`);
+            }
+          }
+        }
+        this.enqueueEvent(event);
+      }
+    });
+
+    // Agent message delta (streaming text)
+    this.client.on('item/agentMessage/delta', (notification) => {
+      for (const event of this.adapter.adaptAgentMessageDelta(notification)) {
+        this.enqueueEvent(event);
+      }
+    });
+
+    // Reasoning delta (streaming thinking)
+    this.client.on('item/reasoning/textDelta', (notification) => {
+      for (const event of this.adapter.adaptReasoningDelta(notification)) {
+        this.enqueueEvent(event);
+      }
+    });
+
+    // Command output delta (accumulate for tool result)
+    this.client.on('item/commandExecution/outputDelta', (notification) => {
+      this.adapter.adaptCommandOutputDelta(notification);
+    });
+
+    // Command execution approval request
+    this.client.on('item/commandExecution/requestApproval', async (params) => {
+      await this.handleCommandApproval(params);
+    });
+
+    // File change approval request
+    this.client.on('item/fileChange/requestApproval', async (params) => {
+      await this.handleFileChangeApproval(params);
+    });
+
+    // CRAFT AGENTS: PreToolUse hook - intercept ALL tools before execution
+    // This is the unified permission checking for Codex backend (requires fork)
+    this.client.on('item/toolCall/preExecute', async (params) => {
+      await this.handleToolCallPreExecute(params);
+    });
+
+    // Error handling - parse errors and emit typed errors when possible
+    this.client.on('error', (err) => {
+      this.debug(`Client error: ${err.message}`);
+      const typedError = this.parseCodexError(err);
+      if (typedError && typedError.code !== 'unknown_error') {
+        // Known error type - emit typed error with recovery actions
+        this.enqueueEvent({ type: 'typed_error', error: typedError });
+      } else {
+        // Unknown error - emit raw error message
+        this.enqueueEvent({ type: 'error', message: err.message });
+      }
+    });
+
+    // Disconnection
+    this.client.on('disconnected', ({ code, signal }) => {
+      this.debug(`Client disconnected: code=${code}, signal=${signal}`);
+
+      // Clear pending permissions to prevent orphaned promises
+      for (const [id, pending] of this.pendingPermissions) {
+        pending.resolve({ allowed: false, acceptForSession: false });
+      }
+      this.pendingPermissions.clear();
+
+      // Clear legacy approvals too
+      this.pendingApprovals.clear();
+
+      if (this._isProcessing) {
+        this.enqueueEvent({ type: 'error', message: 'Connection to Codex lost' });
+        this.turnComplete = true;
+        this.signalEventAvailable(true);
+      }
+    });
+
+    // ChatGPT token refresh request (chatgptAuthTokens mode)
+    // Server asks us to provide fresh tokens after receiving 401
+    this.client.on('account/chatgptAuthTokens/refresh', async (params) => {
+      await this.handleTokenRefreshRequest(params);
+    });
+
+    // Auth notifications
+    this.client.on('account/login/completed', (notification) => {
+      if (notification.success) {
+        this.debug('ChatGPT login completed successfully');
+      } else {
+        this.debug(`ChatGPT login failed: ${notification.error}`);
+      }
+    });
+
+    this.client.on('account/updated', (notification) => {
+      this.debug(`Auth mode updated: ${notification.authMode}`);
+    });
+
+    // Token usage updates for context display in UI
+    // Emits usage_update events so FreeFormInput can show "45k / 155k" context usage
+    this.client.on('thread/tokenUsage/updated', (notification: ThreadTokenUsageUpdatedNotification) => {
+      const usage = notification.tokenUsage;
+      if (usage) {
+        // total.inputTokens includes cached tokens (full context size)
+        const inputTokens = usage.total.inputTokens + usage.total.cachedInputTokens;
+        this.enqueueEvent({
+          type: 'usage_update',
+          usage: {
+            inputTokens,
+            contextWindow: usage.modelContextWindow ?? undefined,
+          },
+        });
+      }
+    });
+  }
+
+  // ============================================================
+  // Approval Handling
+  // ============================================================
+
+  /**
+   * Handle command execution approval request.
+   * This is called BEFORE the command is executed (pre-tool approval).
+   * Uses PermissionManager for permission evaluation and whitelisting.
+   */
+  private async handleCommandApproval(params: {
+    threadId: string;
+    turnId: string;
+    itemId: string;
+    reason: string | null;
+    command?: string;
+    cwd?: string;
+    requestId: RequestId;
+  }): Promise<void> {
+    const permissionMode = this.permissionManager.getPermissionMode();
+    const command = params.command || '';
+
+    // In execute mode, auto-approve
+    if (permissionMode === 'allow-all') {
+      this.debug('Auto-approving command (execute mode)');
+      this.client?.respondToCommandApproval(params.requestId, 'accept');
+      return;
+    }
+
+    // In explore mode, auto-reject write operations
+    if (permissionMode === 'safe') {
+      this.debug('Auto-rejecting command (explore mode)');
+      this.client?.respondToCommandApproval(params.requestId, 'decline');
+      return;
+    }
+
+    // In ask mode, check if command is whitelisted
+    const baseCommand = this.permissionManager.getBaseCommand(command);
+    if (this.permissionManager.isCommandWhitelisted(baseCommand)) {
+      this.debug(`Auto-approving whitelisted command: ${baseCommand}`);
+      this.client?.respondToCommandApproval(params.requestId, 'accept');
+      return;
+    }
+
+    // Check for whitelisted domain (curl, wget, ssh, etc.)
+    const domain = this.permissionManager.extractDomainFromNetworkCommand(command);
+    if (domain && this.permissionManager.isDomainWhitelisted(domain)) {
+      this.debug(`Auto-approving whitelisted domain: ${domain}`);
+      this.client?.respondToCommandApproval(params.requestId, 'accept');
+      return;
+    }
+
+    // Emit permission request and wait for user response
+    const requestId = String(params.requestId);
+    this.debug(`Requesting command approval: ${command}`);
+
+    // Emit permission request to UI
+    if (this.onPermissionRequest) {
+      this.onPermissionRequest({
+        requestId,
+        toolName: 'Bash',
+        command,
+        description: params.reason || 'Execute command',
+        type: 'bash',
+      });
+
+      // Store resolver and command info for when respondToPermission is called
+      return new Promise((resolve) => {
+        this.pendingApprovals.set(requestId, {
+          type: 'command',
+          command, // Store command for whitelisting
+          resolve: (decision: CommandExecutionApprovalDecision | FileChangeApprovalDecision) => {
+            this.client?.respondToCommandApproval(
+              params.requestId,
+              decision as CommandExecutionApprovalDecision
+            );
+            resolve();
+          },
+        });
+      });
+    }
+
+    // No permission handler - decline by default
+    this.debug('No permission handler - declining');
+    this.client?.respondToCommandApproval(params.requestId, 'decline');
+  }
+
+  /**
+   * Handle file change approval request.
+   * Uses PermissionManager for permission mode evaluation.
+   */
+  private async handleFileChangeApproval(params: {
+    threadId: string;
+    turnId: string;
+    itemId: string;
+    reason: string | null;
+    grantRoot: string | null;
+    requestId: RequestId;
+  }): Promise<void> {
+    const permissionMode = this.permissionManager.getPermissionMode();
+
+    // Expand path for display (resolve ~)
+    const displayPath = params.grantRoot
+      ? this.pathProcessor.expandTilde(params.grantRoot)
+      : '';
+
+    // In execute mode, auto-approve
+    if (permissionMode === 'allow-all') {
+      this.debug('Auto-approving file change (execute mode)');
+      this.client?.respondToFileChangeApproval(params.requestId, 'accept');
+      return;
+    }
+
+    // In explore mode, auto-reject
+    if (permissionMode === 'safe') {
+      this.debug('Auto-rejecting file change (explore mode)');
+      this.client?.respondToFileChangeApproval(params.requestId, 'decline');
+      return;
+    }
+
+    // In ask mode, emit permission request
+    const requestId = String(params.requestId);
+    this.debug(`Requesting file change approval: ${displayPath}`);
+
+    if (this.onPermissionRequest) {
+      this.onPermissionRequest({
+        requestId,
+        toolName: 'Edit',
+        command: displayPath,
+        description: params.reason || 'Modify files',
+      });
+
+      return new Promise((resolve) => {
+        this.pendingApprovals.set(requestId, {
+          type: 'fileChange',
+          resolve: (decision: CommandExecutionApprovalDecision | FileChangeApprovalDecision) => {
+            this.client?.respondToFileChangeApproval(
+              params.requestId,
+              decision as FileChangeApprovalDecision
+            );
+            resolve();
+          },
+        });
+      });
+    }
+
+    // No permission handler - decline by default
+    this.client?.respondToFileChangeApproval(params.requestId, 'decline');
+  }
+
+  /**
+   * CRAFT AGENTS: Handle PreToolUse hook request.
+   *
+   * This is called BEFORE ANY tool execution (from Codex fork).
+   * Uses the centralized shouldAllowToolInMode for permission checking,
+   * providing the same permission behavior as ClaudeAgent.
+   *
+   * Decisions:
+   * - Allow: Continue with tool execution
+   * - Block: Return error to model with reason (guides retry)
+   * - Modify: Continue with modified input (path expansion, etc.)
+   */
+  private async handleToolCallPreExecute(params: ToolCallPreExecuteParams & { requestId: RequestId }): Promise<void> {
+    const permissionMode = this.permissionManager.getPermissionMode();
+    const { toolType, toolName, input, mcpServer, mcpTool, requestId } = params;
+
+    this.debug(`PreToolUse: ${toolName} (${toolType}) - mode: ${permissionMode}`);
+
+    // Map tool type to SDK tool name for shouldAllowToolInMode
+    const sdkToolName = this.mapToolTypeToSdkName(toolType, toolName, mcpServer, mcpTool);
+
+    // Build permissions context for loading custom permissions.json files
+    const permissionsContext = {
+      workspaceRootPath: this.workingDirectory,
+      activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
+    };
+
+    // Compute plans folder path from session ID (if available)
+    const sessionId = this.config.session?.id;
+    const plansFolderPath = sessionId
+      ? getSessionPlansPath(this.config.workspace.rootPath ?? this.workingDirectory, sessionId)
+      : undefined;
+
+    // Use centralized permission checking (same logic as ClaudeAgent)
+    const result = shouldAllowToolInMode(
+      sdkToolName,
+      input,
+      permissionMode,
+      {
+        plansFolderPath,
+        permissionsContext,
+      }
+    );
+
+    if (!result.allowed) {
+      // Block the tool with the reason
+      this.debug(`PreToolUse: Blocking ${toolName} - ${result.reason}`);
+      const decision: ToolCallPreExecuteDecision = {
+        type: 'block',
+        reason: result.reason,
+      };
+      await this.safeRespondToPreToolUse(requestId, decision);
+      return;
+    }
+
+    // ============================================================
+    // ASK MODE: Prompt user for permission on potentially dangerous operations
+    // ============================================================
+    if (permissionMode === 'ask') {
+      const promptInfo = this.shouldPromptForPermission(sdkToolName, input as Record<string, unknown>);
+
+      if (promptInfo && this.onPermissionRequest) {
+        const permRequestId = String(requestId);
+        this.debug(`PreToolUse: Prompting user for ${sdkToolName} - ${promptInfo.description}`);
+
+        // Create promise for user response with timeout
+        const permissionPromise = new Promise<{ allowed: boolean; acceptForSession: boolean }>((resolve) => {
+          this.pendingPermissions.set(permRequestId, {
+            resolve,
+            toolName: sdkToolName,
+            command: promptInfo.command,
+          });
+        });
+
+        // Create timeout promise (30 seconds)
+        const timeoutPromise = new Promise<{ allowed: boolean; acceptForSession: boolean; timedOut: true }>((resolve) => {
+          setTimeout(() => {
+            resolve({ allowed: false, acceptForSession: false, timedOut: true });
+          }, 30000);
+        });
+
+        // Emit permission request to UI
+        this.onPermissionRequest({
+          requestId: permRequestId,
+          toolName: sdkToolName,
+          command: promptInfo.command,
+          description: promptInfo.description,
+          type: promptInfo.type,
+        });
+
+        // Wait for user response or timeout
+        const result = await Promise.race([permissionPromise, timeoutPromise]);
+
+        // Clean up pending permission
+        this.pendingPermissions.delete(permRequestId);
+
+        if ('timedOut' in result && result.timedOut) {
+          this.debug('PreToolUse: Permission request timed out, blocking');
+          const decision: ToolCallPreExecuteDecision = {
+            type: 'userResponse',
+            decision: 'timedOut',
+          };
+          await this.safeRespondToPreToolUse(requestId, decision);
+          return;
+        }
+
+        if (!result.allowed) {
+          this.debug('PreToolUse: User denied permission');
+          const decision: ToolCallPreExecuteDecision = {
+            type: 'userResponse',
+            decision: 'denied',
+          };
+          await this.safeRespondToPreToolUse(requestId, decision);
+          return;
+        }
+
+        // User approved - continue with tool execution
+        this.debug(`PreToolUse: User approved (acceptForSession=${result.acceptForSession})`);
+        // If acceptForSession, we could whitelist the command here
+        // For now, just continue
+      }
+    }
+
+    // Check for source blocking (MCP tools from inactive sources)
+    if (toolType === 'mcp' && mcpServer) {
+      const sourceSlug = this.extractSourceSlugFromMcpServer(mcpServer);
+      if (sourceSlug && !this.sourceManager.isSourceActive(sourceSlug)) {
+        // Source is inactive - attempt auto-activation
+        this.debug(`PreToolUse: MCP tool from inactive source "${sourceSlug}", attempting activation...`);
+
+        if (this.onSourceActivationRequest) {
+          try {
+            const activated = await this.onSourceActivationRequest(sourceSlug);
+            if (!activated) {
+              // Block if activation failed
+              const decision: ToolCallPreExecuteDecision = {
+                type: 'block',
+                reason: `Source "${sourceSlug}" is not active and could not be activated. Enable it in settings or ask the user to activate it.`,
+              };
+              await this.safeRespondToPreToolUse(requestId, decision);
+              return;
+            }
+            this.debug(`PreToolUse: Source "${sourceSlug}" activated successfully`);
+            // Emit source_activated event for UI
+            this.enqueueEvent({
+              type: 'source_activated' as const,
+              sourceSlug,
+              originalMessage: this.currentUserMessage,
+            });
+          } catch (err) {
+            this.debug(`PreToolUse: Error activating source "${sourceSlug}": ${err}`);
+            const decision: ToolCallPreExecuteDecision = {
+              type: 'block',
+              reason: `Failed to activate source "${sourceSlug}": ${err}`,
+            };
+            await this.safeRespondToPreToolUse(requestId, decision);
+            return;
+          }
+        }
+      }
+    }
+
+    // Track modifications to input
+    let modifiedInput: Record<string, unknown> | null = null;
+    const inputObj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
+
+    // ============================================================
+    // PATH EXPANSION: Expand ~ in file paths for all file tools
+    // ============================================================
+    const pathResult = expandToolPaths(sdkToolName, inputObj, (msg) => this.debug(`PreToolUse: ${msg}`));
+    if (pathResult.modified) {
+      modifiedInput = pathResult.input;
+    }
+
+    // ============================================================
+    // CONFIG FILE VALIDATION: Validate config writes before they happen
+    // ============================================================
+    const configResult = validateConfigWrite(
+      sdkToolName,
+      modifiedInput || inputObj,
+      this.workingDirectory,
+      (msg) => this.debug(`PreToolUse: ${msg}`)
+    );
+    if (!configResult.valid) {
+      const decision: ToolCallPreExecuteDecision = {
+        type: 'block',
+        reason: configResult.error ?? 'Config validation failed',
+      };
+      await this.safeRespondToPreToolUse(requestId, decision);
+      return;
+    }
+
+    // ============================================================
+    // SKILL QUALIFICATION: Ensure skill names are fully-qualified
+    // ============================================================
+    if (sdkToolName === 'Skill') {
+      const skillResult = qualifySkillName(
+        modifiedInput || inputObj,
+        this.config.workspace.id,
+        (msg) => this.debug(`PreToolUse: ${msg}`)
+      );
+      if (skillResult.modified) {
+        modifiedInput = skillResult.input;
+      }
+    }
+
+    // ============================================================
+    // MCP METADATA STRIPPING: Remove _intent/_displayName from MCP tools
+    // ============================================================
+    if (!BUILT_IN_TOOLS.has(sdkToolName)) {
+      const metadataResult = stripMcpMetadata(
+        sdkToolName,
+        modifiedInput || inputObj,
+        (msg) => this.debug(`PreToolUse: ${msg}`)
+      );
+      if (metadataResult.modified) {
+        modifiedInput = metadataResult.input;
+      }
+    }
+
+    // If any modifications were made, return modified decision
+    if (modifiedInput) {
+      this.debug(`PreToolUse: Modifying input for ${toolName}`);
+      const decision: ToolCallPreExecuteDecision = {
+        type: 'modify',
+        input: modifiedInput,
+      };
+      await this.safeRespondToPreToolUse(requestId, decision);
+      return;
+    }
+
+    // Allow the tool to proceed
+    this.debug(`PreToolUse: Allowing ${toolName}`);
+    const decision: ToolCallPreExecuteDecision = { type: 'allow' };
+    await this.safeRespondToPreToolUse(requestId, decision);
+  }
+
+  /**
+   * Map Codex tool type to SDK tool name for shouldAllowToolInMode.
+   */
+  private mapToolTypeToSdkName(
+    toolType: ToolCallType,
+    toolName: string,
+    mcpServer?: string,
+    mcpTool?: string
+  ): string {
+    switch (toolType) {
+      case 'bash':
+      case 'localShell':
+        return 'Bash';
+      case 'fileWrite':
+        return 'Write';
+      case 'fileEdit':
+        return 'Edit';
+      case 'mcp':
+        // MCP tools follow the pattern mcp__<server>__<tool>
+        if (mcpServer && mcpTool) {
+          return `mcp__${mcpServer}__${mcpTool}`;
+        }
+        return toolName;
+      case 'function':
+      case 'custom':
+      default:
+        return toolName;
+    }
+  }
+
+  /**
+   * Extract source slug from MCP server name.
+   * MCP servers in Craft Agent follow the pattern: source slug directly.
+   */
+  private extractSourceSlugFromMcpServer(mcpServer: string): string | null {
+    // In Craft Agent, the MCP server name IS the source slug
+    return mcpServer || null;
+  }
+
+  /**
+   * Determine if the tool needs a permission prompt in ask mode.
+   * Returns null if no prompt needed, otherwise returns metadata for the prompt.
+   */
+  private shouldPromptForPermission(
+    toolName: string,
+    input: Record<string, unknown>
+  ): { type: PermissionPromptType; description: string; command?: string } | null {
+    // File writes
+    if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(toolName)) {
+      const filePath = (input.file_path || input.notebook_path) as string | undefined;
+      // Check if already whitelisted (use toolName as base for file operations)
+      if (!this.permissionManager.isCommandWhitelisted(toolName)) {
+        return {
+          type: 'file_write',
+          description: filePath ? `Write to ${filePath}` : `Modify file`,
+          command: filePath,
+        };
+      }
+    }
+
+    // Bash commands
+    if (toolName === 'Bash') {
+      const command = input.command as string | undefined;
+      if (command) {
+        const baseCommand = this.permissionManager.getBaseCommand(command);
+        if (!this.permissionManager.isCommandWhitelisted(baseCommand)) {
+          return {
+            type: 'bash',
+            description: command.length > 100 ? command.slice(0, 100) + '...' : command,
+            command,
+          };
+        }
+      }
+    }
+
+    // MCP mutations (non-read-only MCP tools)
+    if (toolName.startsWith('mcp__')) {
+      // For MCP tools, check if it's whitelisted
+      if (!this.permissionManager.isCommandWhitelisted(toolName)) {
+        return {
+          type: 'mcp_mutation',
+          description: toolName.replace('mcp__', '').replace('__', ' → '),
+          command: toolName,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  // ============================================================
+  // ChatGPT Token Management
+  // ============================================================
+
+  /**
+   * Handle a token refresh request from Codex app-server.
+   *
+   * This is called when the server receives a 401 and needs fresh tokens.
+   * We attempt to refresh using the stored refresh token, and if that fails,
+   * we notify the UI that re-authentication is required.
+   *
+   * Uses a mutex to prevent race conditions when multiple concurrent requests arrive.
+   */
+  private async handleTokenRefreshRequest(params: ChatGptTokenRefreshRequestParams & { requestId: RequestId }): Promise<void> {
+    this.debug(`Token refresh requested: reason=${params.reason}`);
+
+    // Use mutex to prevent race conditions with concurrent refresh requests
+    if (this.tokenRefreshInProgress) {
+      this.debug('Token refresh already in progress, waiting...');
+      try {
+        // Add timeout to prevent indefinite hang if refresh promise never resolves
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Token refresh wait timeout (30s)')), 30000)
+        );
+        await Promise.race([this.tokenRefreshInProgress, timeoutPromise]);
+
+        // After waiting, try to get fresh tokens and respond
+        const credentialManager = getCredentialManager();
+        const storedCreds = await credentialManager.getLlmOAuth('codex');
+        if (storedCreds?.idToken && storedCreds?.accessToken) {
+          await this.client?.respondToTokenRefresh(params.requestId, {
+            idToken: storedCreds.idToken,
+            accessToken: storedCreds.accessToken,
+          });
+          this.debug('Responded with tokens from concurrent refresh');
+          return;
+        }
+      } catch (err) {
+        // Previous refresh failed or timed out, let this request try again
+        this.debug(`Token refresh wait failed: ${err}`);
+      }
+    }
+
+    // Start the actual refresh
+    this.tokenRefreshInProgress = this._doTokenRefresh(params);
+    try {
+      await this.tokenRefreshInProgress;
+    } finally {
+      this.tokenRefreshInProgress = null;
+    }
+  }
+
+  /**
+   * Internal: perform the actual token refresh.
+   * Separated to allow mutex pattern in handleTokenRefreshRequest.
+   */
+  private async _doTokenRefresh(params: ChatGptTokenRefreshRequestParams & { requestId: RequestId }): Promise<void> {
+    try {
+      // Get stored credentials
+      const credentialManager = getCredentialManager();
+      const storedCreds = await credentialManager.getLlmOAuth('codex');
+
+      if (!storedCreds?.refreshToken) {
+        this.debug('No refresh token available, requesting re-authentication');
+        this.client?.respondToTokenRefreshError(params.requestId, 'No refresh token available');
+        this.onChatGptAuthRequired?.('No refresh token - please sign in again');
+        return;
+      }
+
+      // Attempt to refresh tokens
+      this.debug('Refreshing ChatGPT tokens...');
+      const newTokens = await refreshChatGptTokens(storedCreds.refreshToken);
+
+      // Store both tokens properly - idToken and accessToken are separate!
+      // OpenAI OIDC returns both: idToken (JWT for identity) and accessToken (for API access)
+      await credentialManager.setLlmOAuth('codex', {
+        accessToken: newTokens.accessToken,  // Store actual accessToken
+        idToken: newTokens.idToken,           // Store idToken separately
+        refreshToken: newTokens.refreshToken,
+        expiresAt: newTokens.expiresAt,
+      });
+
+      // Respond to the server with fresh tokens
+      this.client?.respondToTokenRefresh(params.requestId, {
+        idToken: newTokens.idToken,
+        accessToken: newTokens.accessToken,
+      });
+
+      this.debug('Token refresh successful');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.debug(`Token refresh failed: ${message}`);
+
+      // Respond with error
+      this.client?.respondToTokenRefreshError(params.requestId, message);
+
+      // Notify UI that re-authentication is required
+      this.onChatGptAuthRequired?.(`Token refresh failed: ${message}`);
+    }
+  }
+
+  /**
+   * Inject ChatGPT tokens into the Codex app-server.
+   *
+   * Call this after completing the ChatGPT OAuth flow to authenticate
+   * with Codex using the `chatgptAuthTokens` mode.
+   *
+   * @param tokens - The tokens from the OAuth flow
+   */
+  async injectChatGptTokens(tokens: ChatGptTokens): Promise<void> {
+    const client = await this.ensureClient();
+
+    // Store both tokens properly in credential manager
+    // OpenAI OIDC returns both: idToken (JWT for identity) and accessToken (for API access)
+    const credentialManager = getCredentialManager();
+    await credentialManager.setLlmOAuth('codex', {
+      accessToken: tokens.accessToken,  // Store actual accessToken
+      idToken: tokens.idToken,           // Store idToken separately
+      refreshToken: tokens.refreshToken,
+      expiresAt: tokens.expiresAt,
+    });
+
+    // Inject into Codex
+    await client.accountLoginWithChatGptTokens({
+      idToken: tokens.idToken,
+      accessToken: tokens.accessToken,
+    });
+
+    this.debug('ChatGPT tokens injected successfully');
+  }
+
+  /**
+   * Check if we have valid ChatGPT credentials stored.
+   * Optionally injects them into Codex if available.
+   *
+   * @returns true if valid credentials exist and were injected
+   */
+  async tryInjectStoredChatGptTokens(): Promise<boolean> {
+    try {
+      const credentialManager = getCredentialManager();
+      const storedCreds = await credentialManager.getLlmOAuth('codex');
+
+      if (!storedCreds) {
+        this.debug('No stored ChatGPT credentials found');
+        return false;
+      }
+
+      // Check if expired (with 5-minute buffer)
+      if (storedCreds.expiresAt && Date.now() > storedCreds.expiresAt - 5 * 60 * 1000) {
+        // Try to refresh
+        if (storedCreds.refreshToken) {
+          this.debug('Stored tokens expired, attempting refresh...');
+          const newTokens = await refreshChatGptTokens(storedCreds.refreshToken);
+
+          // Store and inject new tokens
+          await this.injectChatGptTokens(newTokens);
+          return true;
+        }
+        this.debug('Stored tokens expired and no refresh token available');
+        return false;
+      }
+
+      // Need both idToken and accessToken to inject
+      if (!storedCreds.idToken || !storedCreds.accessToken) {
+        this.debug('Stored credentials missing idToken or accessToken');
+        return false;
+      }
+
+      // Inject stored tokens using correct fields
+      const client = await this.ensureClient();
+      await client.accountLoginWithChatGptTokens({
+        idToken: storedCreds.idToken,
+        accessToken: storedCreds.accessToken,
+      });
+
+      this.debug('Stored ChatGPT tokens injected successfully');
+      return true;
+    } catch (error) {
+      this.debug(`Failed to inject stored ChatGPT tokens: ${error}`);
+      return false;
+    }
+  }
+
+  // ============================================================
+  // Event Queue Management (AsyncGenerator Pattern)
+  // ============================================================
+
+  /**
+   * Add an event to the queue and signal waiters.
+   */
+  private enqueueEvent(event: AgentEvent): void {
+    this.eventQueue.push(event);
+    this.signalEventAvailable(false);
+  }
+
+  /**
+   * Signal that events are available.
+   */
+  private signalEventAvailable(done: boolean): void {
+    const resolvers = this.eventResolvers.splice(0);
+    for (const resolve of resolvers) {
+      resolve(done);
+    }
+  }
+
+  /**
+   * Wait for the next event.
+   */
+  private waitForEvent(): Promise<boolean> {
+    // If we have queued events, return immediately
+    if (this.eventQueue.length > 0 || this.turnComplete) {
+      return Promise.resolve(this.turnComplete && this.eventQueue.length === 0);
+    }
+
+    // Otherwise wait for signal
+    return new Promise((resolve) => {
+      this.eventResolvers.push(resolve);
+    });
+  }
+
+  // ============================================================
+  // Chat & Lifecycle
+  // ============================================================
+
+  /**
+   * Main chat method - runs the Codex agent loop via app-server.
+   */
+  async *chat(
+    message: string,
+    attachments?: FileAttachment[],
+    _options?: ChatOptions
+  ): AsyncGenerator<AgentEvent> {
+    this._isProcessing = true;
+    this.abortReason = undefined;
+    this.turnComplete = false;
+    this.eventQueue = [];
+    this.eventResolvers = [];
+    this.adapter.startTurn();
+    this.currentUserMessage = message; // Store for source_activated events
+
+    // Get centralized mini agent configuration (from BaseAgent)
+    // This ensures Claude and Codex agents use the same detection and constants
+    const miniConfig = this.getMiniAgentConfig();
+
+    // Log mini agent mode details
+    if (miniConfig.enabled) {
+      this.debug('🤖 MINI AGENT mode - optimized for quick config edits');
+      this.debug(`Mini agent optimizations: model=codex-mini, effort=low, baseInstructions=custom`);
+    }
+
+    try {
+      // Ensure client is connected
+      const client = await this.ensureClient();
+
+      // Start or resume thread
+      const permissionMode = this.permissionManager.getPermissionMode();
+
+      // Mini agent model selection: use codex-mini for faster, cheaper responses
+      const model = miniConfig.enabled ? 'codex-mini' : this._model;
+      if (this.codexThreadId) {
+        // Resume existing thread from disk
+        try {
+          await client.threadResume({
+            threadId: this.codexThreadId,
+            history: null,
+            path: null,
+            // Mini agent: use codex-mini model for resumed threads too
+            model: miniConfig.enabled ? 'codex-mini' : null,
+            modelProvider: null,
+            cwd: null,
+            approvalPolicy: null,
+            sandbox: null,
+            config: null,
+            // Inject Craft Agent system prompt on resume (mini or full)
+            baseInstructions: miniConfig.enabled
+              ? this.getMiniSystemPrompt()
+              : getSystemPrompt(
+                  undefined, // preferences formatted fresh
+                  this.config.debugMode,
+                  this.config.workspace.rootPath,
+                  this.config.session?.workingDirectory,
+                  undefined, // preset (default)
+                  'Codex' // backend name
+                ),
+            developerInstructions: null,
+            personality: null,
+          });
+          this.debug(`Resumed thread: ${this.codexThreadId}`);
+        } catch (err) {
+          // Thread not found or corrupted - fall back to new thread with recovery context
+          this.debug(
+            `Failed to resume thread ${this.codexThreadId}, starting new with recovery: ${err instanceof Error ? err.message : err}`
+          );
+
+          // Clear old session and notify
+          this.clearSessionForRecovery();
+
+          // Build recovery context from previous messages (inherited from BaseAgent)
+          const recoveryContext = this.buildRecoveryContext();
+          if (recoveryContext) {
+            // Prepend recovery context to message for injection below
+            message = recoveryContext + message;
+            this.debug('Injected recovery context into message');
+          }
+
+          const response = await client.threadStart({
+            model,
+            cwd: this.workingDirectory,
+            approvalPolicy: this.getApprovalPolicy(permissionMode),
+            sandbox: this.getSandboxMode(permissionMode),
+            // Inject Craft Agent system prompt (mini or full)
+            baseInstructions: miniConfig.enabled
+              ? this.getMiniSystemPrompt()
+              : getSystemPrompt(
+                  undefined, // preferences formatted fresh
+                  this.config.debugMode,
+                  this.config.workspace.rootPath,
+                  this.config.session?.workingDirectory,
+                  undefined, // preset (default)
+                  'Codex' // backend name
+                ),
+          });
+          this.codexThreadId = response.thread.id;
+          this.debug(`Started new thread: ${this.codexThreadId}`);
+          this.config.onSdkSessionIdUpdate?.(this.codexThreadId);
+        }
+      } else {
+        // Start new thread
+        const response = await client.threadStart({
+          model,
+          cwd: this.workingDirectory,
+          approvalPolicy: this.getApprovalPolicy(permissionMode),
+          sandbox: this.getSandboxMode(permissionMode),
+          // Inject Craft Agent system prompt (mini or full)
+          baseInstructions: miniConfig.enabled
+            ? this.getMiniSystemPrompt()
+            : getSystemPrompt(
+                undefined, // preferences formatted fresh
+                this.config.debugMode,
+                this.config.workspace.rootPath,
+                this.config.session?.workingDirectory,
+                undefined, // preset (default)
+                'Codex' // backend name
+              ),
+        });
+        this.codexThreadId = response.thread.id;
+        this.debug(`Started new thread: ${this.codexThreadId}`);
+        this.config.onSdkSessionIdUpdate?.(this.codexThreadId);
+      }
+
+      // Build user input
+      const input = this.buildUserInput(message, attachments);
+
+      // Start turn
+      this.debug(`Starting turn with input: ${message.slice(0, 100)}...`);
+      await client.turnStart({
+        threadId: this.codexThreadId!,
+        input,
+        cwd: null,
+        approvalPolicy: null,
+        sandboxPolicy: null,
+        model: null,
+        effort: this.getReasoningEffort(),
+        summary: null,
+        personality: null,
+        outputSchema: null,
+        collaborationMode: null,
+      });
+
+      // Yield events from queue until turn completes
+      while (true) {
+        const done = await this.waitForEvent();
+
+        // Yield all queued events
+        while (this.eventQueue.length > 0) {
+          const event = this.eventQueue.shift()!;
+          yield event;
+        }
+
+        if (done) {
+          break;
+        }
+      }
+
+      // Emit complete if not already emitted
+      if (!this.turnComplete) {
+        yield { type: 'complete' };
+      }
+
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('abort')) {
+        // Check abort reason
+        if (this.abortReason === AbortReason.PlanSubmitted) {
+          return;
+        }
+        if (this.abortReason === AbortReason.AuthRequest) {
+          return;
+        }
+        return;
+      }
+
+      // Parse error and emit typed error if possible
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      const typedError = this.parseCodexError(errorObj);
+
+      if (typedError.code !== 'unknown_error') {
+        // Known error type - emit typed error with recovery actions
+        yield { type: 'typed_error', error: typedError };
+      } else {
+        // Unknown error - emit raw error message
+        yield {
+          type: 'error',
+          message: errorObj.message,
+        };
+      }
+
+      // Emit complete even on error so application knows we're done
+      yield { type: 'complete' };
+    } finally {
+      this._isProcessing = false;
+    }
+  }
+
+  /**
+   * Check if a tool result error indicates a "tool not found" for an inactive source.
+   * Uses SourceManager to detect when Codex tries to call a tool from a source
+   * that exists but isn't currently active, so we can auto-activate and retry.
+   *
+   * @param event - The tool_result event to check
+   * @returns The source slug and tool name if this is an inactive source error, null otherwise
+   */
+  private detectInactiveSourceToolError(
+    event: AgentEvent
+  ): { sourceSlug: string; toolName: string } | null {
+    if (event.type !== 'tool_result' || !event.isError) return null;
+
+    const resultStr = typeof event.result === 'string' ? event.result : '';
+
+    // Use SourceManager's detection method which handles all the pattern matching
+    // and checks against allSources and activeSlugs
+    return this.sourceManager.detectInactiveSourceToolError(
+      event.toolName ?? '',
+      resultStr
+    );
+  }
+
+  /**
+   * Parse a Codex error into a typed AgentError.
+   * Uses the shared parseError function to handle common error patterns,
+   * with Codex-specific overrides for auth and rate limit errors.
+   *
+   * @param error - The error to parse
+   * @returns Typed AgentError with recovery actions
+   */
+  private parseCodexError(error: Error): AgentError {
+    const errorMessage = error.message.toLowerCase();
+
+    // Codex-specific error patterns
+    // OAuth errors (Codex uses ChatGPT Plus OAuth via app-server)
+    if (
+      errorMessage.includes('not logged in') ||
+      errorMessage.includes('login required') ||
+      errorMessage.includes('auth') && errorMessage.includes('fail')
+    ) {
+      return {
+        code: 'invalid_credentials',
+        title: 'Authentication Required',
+        message: 'You need to authenticate with your OpenAI account. Run "codex login" in terminal or check your ~/.codex/auth.json file.',
+        actions: [
+          { key: 'r', label: 'Retry', action: 'retry' },
+        ],
+        canRetry: true,
+        originalError: error.message,
+      };
+    }
+
+    // App-server connection errors
+    if (
+      errorMessage.includes('failed to connect') ||
+      errorMessage.includes('codex') && errorMessage.includes('not found') ||
+      errorMessage.includes('spawn') && errorMessage.includes('enoent')
+    ) {
+      return {
+        code: 'network_error',
+        title: 'Codex Not Found',
+        message: 'Could not start the Codex app-server. Make sure Codex is installed and accessible in your PATH.',
+        actions: [
+          { key: 'r', label: 'Retry', action: 'retry' },
+        ],
+        canRetry: true,
+        originalError: error.message,
+      };
+    }
+
+    // OpenAI rate limiting
+    if (errorMessage.includes('rate') || errorMessage.includes('429')) {
+      return {
+        code: 'rate_limited',
+        title: 'Rate Limited',
+        message: 'Too many requests to OpenAI. Please wait a moment before trying again.',
+        actions: [
+          { key: 'r', label: 'Retry', action: 'retry' },
+        ],
+        canRetry: true,
+        retryDelayMs: 5000,
+        originalError: error.message,
+      };
+    }
+
+    // Fall back to shared error parsing
+    return parseError(error);
+  }
+
+  /**
+   * Build user input from message and attachments.
+   */
+  private buildUserInput(
+    message: string,
+    attachments?: FileAttachment[]
+  ): UserInput[] {
+    const input: UserInput[] = [];
+
+    // Add text message
+    if (message) {
+      input.push({ type: 'text', text: message, text_elements: [] });
+    }
+
+    // Add image attachments
+    for (const att of attachments || []) {
+      if (att.mimeType?.startsWith('image/') && att.path) {
+        input.push({ type: 'localImage', path: att.path });
+      }
+    }
+
+    return input;
+  }
+
+  /**
+   * Get Codex approval policy from permission mode.
+   * Valid values: "untrusted" | "on-failure" | "on-request" | "never"
+   */
+  private getApprovalPolicy(mode: PermissionMode): AskForApproval {
+    switch (mode) {
+      case 'safe':
+        // Always require approval (untrusted)
+        return 'untrusted';
+      case 'ask':
+        // Ask on failure or request
+        return 'on-failure';
+      case 'allow-all':
+        // Never ask
+        return 'never';
+      default:
+        return 'on-failure';
+    }
+  }
+
+  /**
+   * Get Codex sandbox mode from permission mode.
+   * Valid values: "read-only" | "workspace-write" | "danger-full-access"
+   */
+  private getSandboxMode(mode: PermissionMode): SandboxMode {
+    switch (mode) {
+      case 'safe':
+        // Read-only
+        return 'read-only';
+      case 'ask':
+        // Workspace write with approval
+        return 'workspace-write';
+      case 'allow-all':
+        // Full access
+        return 'danger-full-access';
+      default:
+        return 'workspace-write';
+    }
+  }
+
+  /**
+   * Get reasoning effort from thinking level.
+   * Mini agents force 'low' effort for faster responses.
+   */
+  private getReasoningEffort(): ReasoningEffort {
+    // Mini agents use minimal reasoning for efficiency (quick config edits don't need deep reasoning)
+    if (this.getMiniAgentConfig().minimizeThinking) {
+      return 'low';
+    }
+    const level = this._ultrathinkOverride ? 'max' : this._thinkingLevel;
+    return THINKING_TO_EFFORT[level] || 'medium';
+  }
+
+  // ============================================================
+  // Abort & Lifecycle
+  // ============================================================
+
+  async abort(reason?: string): Promise<void> {
+    if (this.client?.isConnected() && this.codexThreadId && this.currentTurnId) {
+      try {
+        await this.client.turnInterrupt({
+          threadId: this.codexThreadId,
+          turnId: this.currentTurnId,
+        });
+      } catch (e) {
+        this.debug(`Failed to interrupt turn: ${e}`);
+      }
+    }
+    this.turnComplete = true;
+    this.signalEventAvailable(true);
+    this.debug(`Aborted: ${reason || 'user stop'}`);
+  }
+
+  forceAbort(reason: AbortReason): void {
+    this.abortReason = reason;
+    this.abort(String(reason));
+  }
+
+  /**
+   * Clean up Codex-specific resources.
+   * Calls super.destroy() for base cleanup.
+   */
+  override destroy(): void {
+    // Codex-specific cleanup
+    this.client?.disconnect().catch(() => {});
+    this.client = null;
+
+    // Clear all pending permission/approval promises
+    for (const [id, pending] of this.pendingPermissions) {
+      pending.resolve({ allowed: false, acceptForSession: false });
+    }
+    this.pendingPermissions.clear();
+    this.pendingApprovals.clear();
+
+    // Base cleanup (stops config watcher, clears whitelists, resets trackers)
+    super.destroy();
+  }
+
+  isProcessing(): boolean {
+    return this._isProcessing;
+  }
+
+  /**
+   * Reconnect to the app-server with potentially updated configuration.
+   *
+   * Use this when:
+   * - Sources are toggled (config.toml was regenerated)
+   * - CODEX_HOME contents changed
+   *
+   * The method disconnects the current client, spawns a new app-server process,
+   * and resumes the existing thread to preserve conversation context.
+   *
+   * @throws Error if called during active processing
+   */
+  async reconnect(): Promise<void> {
+    if (this._isProcessing) {
+      throw new Error('Cannot reconnect while processing - wait for turn to complete');
+    }
+
+    const threadId = this.codexThreadId;
+    this.debug(`Reconnecting app-server${threadId ? ` (will resume thread ${threadId})` : ''}`);
+
+    // Disconnect existing client
+    if (this.client) {
+      try {
+        await this.client.disconnect();
+      } catch (error) {
+        this.debug(`Disconnect error (ignoring): ${error}`);
+      }
+      this.client = null;
+      this.clientConnecting = null;
+    }
+
+    // Connect new client (will read updated config.toml)
+    const client = await this.ensureClient();
+
+    // Resume thread if we had one
+    if (threadId) {
+      try {
+        // Get mini agent config to determine which system prompt to use
+        const miniConfig = this.getMiniAgentConfig();
+
+        await client.threadResume({
+          threadId,
+          history: null,
+          path: null,
+          model: null,
+          modelProvider: null,
+          cwd: null,
+          approvalPolicy: null,
+          sandbox: null,
+          config: null,
+          // Re-inject Craft Agent system prompt after reconnect
+          baseInstructions: miniConfig.enabled
+            ? this.getMiniSystemPrompt()
+            : getSystemPrompt(
+                undefined, // preferences formatted fresh
+                this.config.debugMode,
+                this.config.workspace.rootPath,
+                this.config.session?.workingDirectory,
+                undefined, // preset (default)
+                'Codex' // backend name
+              ),
+          developerInstructions: null,
+          personality: null,
+        });
+        this.debug(`Thread ${threadId} resumed successfully`);
+      } catch (error) {
+        // Thread resume failed - might be a fresh CODEX_HOME
+        // Clear the thread ID and let the next message start a new thread
+        this.debug(`Thread resume failed (will start new thread): ${error}`);
+        this.codexThreadId = null;
+        this.config.onSdkSessionIdCleared?.();
+      }
+    }
+  }
+
+  // ============================================================
+  // Codex-specific Methods
+  // ============================================================
+
+  /**
+   * Get the list of available SDK tools.
+   * For Codex backend, tools are managed by the app-server internally.
+   * Returns empty array as tool discovery isn't exposed via the app-server API.
+   */
+  getSdkTools(): string[] {
+    // Codex app-server manages tools internally and doesn't expose them via API
+    // Return empty array for interface compatibility
+    return [];
+  }
+
+  respondToPermission(requestId: string, allowed: boolean, alwaysAllow?: boolean): void {
+    // Check unified PreToolUse permissions first
+    const unifiedPending = this.pendingPermissions.get(requestId);
+    if (unifiedPending) {
+      // Handle whitelisting for acceptForSession
+      if (allowed && alwaysAllow && unifiedPending.command) {
+        const baseCommand = this.permissionManager.getBaseCommand(unifiedPending.command);
+
+        // Check for network commands - whitelist domain instead
+        const domain = this.permissionManager.extractDomainFromNetworkCommand(unifiedPending.command);
+        if (domain) {
+          this.permissionManager.whitelistDomain(domain);
+          this.debug(`Whitelisted domain: ${domain}`);
+        } else if (!this.permissionManager.isDangerousCommand(baseCommand)) {
+          this.permissionManager.whitelistCommand(baseCommand);
+          this.debug(`Whitelisted command: ${baseCommand}`);
+        }
+      }
+
+      unifiedPending.resolve({ allowed, acceptForSession: alwaysAllow ?? false });
+      this.pendingPermissions.delete(requestId);
+      return;
+    }
+
+    // Fall back to legacy approval handlers
+    const pending = this.pendingApprovals.get(requestId);
+    if (pending) {
+      let decision: CommandExecutionApprovalDecision | FileChangeApprovalDecision;
+
+      if (allowed) {
+        decision = alwaysAllow ? 'acceptForSession' : 'accept';
+
+        // Whitelist command for future auto-approval in this session
+        if (alwaysAllow && pending.type === 'command' && pending.command) {
+          const baseCommand = this.permissionManager.getBaseCommand(pending.command);
+
+          // Check for network commands - whitelist domain instead
+          const domain = this.permissionManager.extractDomainFromNetworkCommand(pending.command);
+          if (domain) {
+            this.permissionManager.whitelistDomain(domain);
+            this.debug(`Whitelisted domain: ${domain}`);
+          } else if (!this.permissionManager.isDangerousCommand(baseCommand)) {
+            // Only whitelist non-dangerous commands
+            this.permissionManager.whitelistCommand(baseCommand);
+            this.debug(`Whitelisted command: ${baseCommand}`);
+          }
+        }
+      } else {
+        decision = 'decline';
+      }
+
+      pending.resolve(decision);
+      this.pendingApprovals.delete(requestId);
+    }
+  }
+
+  // ============================================================
+  // Capabilities & State (Codex-specific overrides)
+  // ============================================================
+
+  capabilities(): AgentCapabilities {
+    return {
+      provider: 'openai',
+      models: OPENAI_MODELS,
+      thinkingLevels: CODEX_THINKING_LEVELS,
+      supportsPermissionCallbacks: true, // Now true with app-server!
+      supportsSubagentParents: false,
+      maxContextTokens: 256_000,
+      supportsMcp: true,
+      supportsResume: true, // Thread persistence
+    };
+  }
+
+  /**
+   * Override to return Codex thread ID (used for session resume).
+   */
+  override getSessionId(): string | null {
+    return this.codexThreadId;
+  }
+
+  /**
+   * Override to set Codex thread ID.
+   */
+  override setSessionId(sessionId: string | null): void {
+    this.codexThreadId = sessionId;
+  }
+
+  /**
+   * Override to clear thread when switching workspaces.
+   */
+  override setWorkspace(workspace: Workspace): void {
+    super.setWorkspace(workspace);
+    // Clear thread when switching workspaces - caller should set session separately if needed
+    this.codexThreadId = null;
+  }
+
+  /**
+   * Override to clear Codex-specific state.
+   * Resets thread ID so next chat() starts a new thread.
+   */
+  override clearHistory(): void {
+    this.codexThreadId = null;
+    this.currentTurnId = null;
+    super.clearHistory();
+    this.debug('History cleared - next chat will start new thread');
+  }
+
+  // ============================================================
+  // Source Management (Codex-specific override)
+  // ============================================================
+
+  /**
+   * Override to add Codex-specific warnings about MCP server configuration.
+   * In app-server mode, MCP servers must be configured via ~/.codex/config.toml.
+   */
+  override setSourceServers(
+    mcpServers: Record<string, SdkMcpServerConfig>,
+    apiServers: Record<string, unknown>,
+    intendedSlugs?: string[]
+  ): void {
+    // Call base implementation for SourceManager state tracking
+    super.setSourceServers(mcpServers, apiServers, intendedSlugs);
+
+    // Note: App-server mode uses ~/.codex/config.toml for MCP server configuration
+    // Runtime injection is not supported in the same way as exec mode
+    // Users should configure MCP servers in their Codex config file
+    const mcpServerCount = Object.keys(mcpServers).length;
+    if (mcpServerCount > 0) {
+      this.debug(
+        `MCP servers (${mcpServerCount}) should be configured in ~/.codex/config.toml for app-server mode. ` +
+        `Runtime injection is not supported. Servers: ${Object.keys(mcpServers).join(', ')}`
+      );
+    }
+
+    const apiServerCount = Object.keys(apiServers).length;
+    if (apiServerCount > 0) {
+      this.debug(
+        `API servers (${apiServerCount}) are not supported in Codex backend. ` +
+        `Servers: ${Object.keys(apiServers).join(', ')}`
+      );
+    }
+  }
+}
+
+// ============================================================
+// Backward Compatibility Export
+// ============================================================
+// This alias allows gradual migration from CodexBackend to CodexAgent.
+// Once all consumers are updated, this can be removed.
+
+/** @deprecated Use CodexAgent instead */
+export { CodexAgent as CodexBackend };
