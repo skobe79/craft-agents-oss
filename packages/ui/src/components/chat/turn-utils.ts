@@ -50,6 +50,7 @@ export function storedToMessage(stored: StoredMessage): Message {
     elapsedSeconds: stored.elapsedSeconds,
     isBackground: stored.isBackground,
     attachments: stored.attachments,
+    badges: stored.badges,
     isError: stored.isError,
     isIntermediate: stored.isIntermediate,
     turnId: stored.turnId,

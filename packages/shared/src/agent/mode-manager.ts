@@ -1219,17 +1219,21 @@ export function shouldAllowToolInMode(
 
     // Handle session-scoped tools - allow read-only, block mutations
     if (toolName.startsWith('mcp__session__')) {
-      // Read-only session tools - always allowed
+      // Read-only session tools - always allowed in Explore mode
+      // These tools don't modify state, they only read/validate/invoke secondary models
       const readOnlySessionTools = [
         'mcp__session__SubmitPlan',
         'mcp__session__config_validate',
+        'mcp__session__skill_validate',
+        'mcp__session__mermaid_validate',
         'mcp__session__source_test',
+        'mcp__session__call_llm', // Invokes secondary Claude model - no side effects
       ];
       if (readOnlySessionTools.includes(toolName)) {
         return { allowed: true };
       }
 
-      // Write session tools - blocked in safe mode
+      // Write/auth session tools - blocked in Explore mode (source_oauth_trigger, source_credential_prompt, etc.)
       return {
         allowed: false,
         reason: `Session configuration changes are blocked in ${config.displayName}. Switch to Ask or Allow All mode (${config.shortcutHint}) to create, update, or delete sources and agents.`

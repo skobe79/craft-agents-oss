@@ -506,6 +506,21 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
         );
       }
 
+      // OAuth tokens cannot be used for direct API calls - Anthropic's API only accepts API keys
+      // The main agent works with OAuth because the Claude Code SDK has special internal handling,
+      // but the basic Anthropic SDK used here does not support OAuth authentication.
+      if (!apiKey && oauthToken) {
+        return errorResponse(
+          'call_llm requires an Anthropic API key.\n\n' +
+          'You are signed in with Claude OAuth (Max subscription), which works for the main agent ' +
+          'but cannot be used for secondary API calls.\n\n' +
+          'To use call_llm:\n' +
+          '1. Add an Anthropic API key in Settings → API Key\n' +
+          '2. The API key will be used only for call_llm subtasks\n\n' +
+          'Alternative: Use the Task tool to spawn subagents (works with OAuth).'
+        );
+      }
+
       // ========================================
       // PROCESS ATTACHMENTS
       // Load files/images and build message content
@@ -564,17 +579,11 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
 
       const baseUrl = getAnthropicBaseUrl();
 
-      // Build client with appropriate auth
-      const client = apiKey
-        ? new Anthropic({
-            apiKey,
-            ...(baseUrl ? { baseURL: baseUrl } : {}),
-          })
-        : new Anthropic({
-            apiKey: '', // Required but unused for OAuth
-            defaultHeaders: { 'Authorization': `Bearer ${oauthToken}` },
-            ...(baseUrl ? { baseURL: baseUrl } : {}),
-          });
+      // Build client with API key (OAuth-only case already handled above with clear error)
+      const client = new Anthropic({
+        apiKey: apiKey!,
+        ...(baseUrl ? { baseURL: baseUrl } : {}),
+      });
 
       // ========================================
       // BUILD REQUEST
@@ -695,7 +704,7 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
               break;
 
             case 401:
-              parts.push('\nAuthentication failed.\n- Check API key is valid and not expired\n- Re-authenticate OAuth if using Claude login');
+              parts.push('\nAuthentication failed.\n- Check API key is valid and not expired\n- Verify the key has not been revoked');
               break;
 
             case 403:

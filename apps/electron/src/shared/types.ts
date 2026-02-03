@@ -389,6 +389,12 @@ export interface CreateSessionOptions {
   systemPromptPreset?: 'default' | 'mini' | string
   /** When true, session won't appear in session list (e.g., mini edit sessions) */
   hidden?: boolean
+  /** Initial todo state (status) for the session */
+  todoState?: TodoState
+  /** Initial labels for the session */
+  labels?: string[]
+  /** Whether the session should be flagged */
+  isFlagged?: boolean
 }
 
 // Events sent from main to renderer

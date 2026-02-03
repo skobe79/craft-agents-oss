@@ -1406,6 +1406,9 @@ export class SessionManager {
       permissionMode: defaultPermissionMode,
       workingDirectory: resolvedWorkingDir,
       hidden: options?.hidden,
+      todoState: options?.todoState,
+      labels: options?.labels,
+      isFlagged: options?.isFlagged,
     })
 
     // Model priority: options.model > storedSession.model > workspace default
@@ -1425,7 +1428,9 @@ export class SessionManager {
       lastMessageAt: storedSession.lastMessageAt ?? storedSession.lastUsedAt,  // Fallback for sessions saved before lastMessageAt was persisted
       streamingText: '',
       processingGeneration: 0,
-      isFlagged: false,
+      isFlagged: options?.isFlagged ?? false,
+      todoState: options?.todoState,
+      labels: options?.labels,
       permissionMode: defaultPermissionMode,
       workingDirectory: resolvedWorkingDir,
       sdkCwd: storedSession.sdkCwd,
@@ -1449,9 +1454,10 @@ export class SessionManager {
       lastMessageAt: managed.lastMessageAt,
       messages: [],
       isProcessing: false,
-      isFlagged: false,
+      isFlagged: options?.isFlagged ?? false,
       permissionMode: defaultPermissionMode,
-      todoState: undefined,  // User-controlled, defaults to undefined (treated as 'todo')
+      todoState: options?.todoState,
+      labels: options?.labels,
       workingDirectory: resolvedWorkingDir,
       model: managed.model,
       thinkingLevel: defaultThinkingLevel,
