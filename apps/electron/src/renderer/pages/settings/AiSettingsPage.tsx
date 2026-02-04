@@ -15,7 +15,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
 import { routes } from '@/lib/navigate'
-import { X, MoreHorizontal, Pencil, Trash2, Star, ChevronDown, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { X, MoreHorizontal, Pencil, Trash2, Star, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle } from 'lucide-react'
+import type { CredentialHealthStatus, CredentialHealthIssue } from '../../../shared/types'
 import { Spinner, FullscreenOverlayBase } from '@craft-agent/ui'
 import { useSetAtom } from 'jotai'
 import { fullscreenOverlayOpenAtom } from '@/atoms/overlay'
@@ -51,6 +52,57 @@ export const meta: DetailsPageMeta = {
 }
 
 // ============================================
+// Credential Health Warning Banner
+// ============================================
+
+/** Get user-friendly message for credential health issue */
+function getHealthIssueMessage(issue: CredentialHealthIssue): string {
+  switch (issue.type) {
+    case 'file_corrupted':
+      return 'Credential file is corrupted. Please re-authenticate.'
+    case 'decryption_failed':
+      return 'Credentials from another machine detected. Please re-authenticate on this device.'
+    case 'no_default_credentials':
+      return 'No credentials found for your default connection.'
+    default:
+      return issue.message || 'Credential issue detected.'
+  }
+}
+
+interface CredentialHealthBannerProps {
+  issues: CredentialHealthIssue[]
+  onReauthenticate: () => void
+}
+
+function CredentialHealthBanner({ issues, onReauthenticate }: CredentialHealthBannerProps) {
+  if (issues.length === 0) return null
+
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 mb-6">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <h4 className="text-sm font-medium text-amber-700 dark:text-amber-400">
+            Credential Issue Detected
+          </h4>
+          <p className="mt-1 text-sm text-amber-600 dark:text-amber-300/80">
+            {getHealthIssueMessage(issues[0])}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onReauthenticate}
+          className="flex-shrink-0 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+        >
+          Re-authenticate
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ============================================
 // Connection Row Component
 // ============================================
 
@@ -79,12 +131,17 @@ function ConnectionRow({ connection, isLastConnection, onEdit, onDelete, onSetDe
 
     const parts: string[] = []
 
-    // Provider type
-    switch (connection.type) {
+    // Provider type (fall back to legacy 'type' field if providerType missing)
+    const provider = connection.providerType || connection.type
+    switch (provider) {
       case 'anthropic': parts.push('Anthropic API'); break
+      case 'anthropic_compat': parts.push('Anthropic Compatible'); break
       case 'openai': parts.push('OpenAI API'); break
+      case 'openai_compat':
       case 'openai-compat': parts.push('OpenAI Compatible'); break
-      default: parts.push(connection.type)
+      case 'bedrock': parts.push('AWS Bedrock'); break
+      case 'vertex': parts.push('Google Vertex'); break
+      default: parts.push(provider || 'Unknown')
     }
 
     // Default indicator
@@ -295,7 +352,9 @@ function WorkspaceOverrideCard({ workspace, llmConnections, customModel, onSetti
                   ...llmConnections.map((conn) => ({
                     value: conn.slug,
                     label: conn.name,
-                    description: conn.type === 'anthropic' ? 'Anthropic' : conn.type === 'openai' ? 'OpenAI' : conn.type,
+                    description: conn.providerType === 'anthropic' ? 'Anthropic' :
+                                 conn.providerType === 'openai' ? 'OpenAI' :
+                                 conn.providerType || 'Unknown',
                   })),
                 ]}
               />
@@ -361,7 +420,10 @@ export default function AiSettingsPage() {
     error?: string
   }>>({})
 
-  // Load workspaces and default settings
+  // Credential health state (for startup warning banner)
+  const [credentialHealthIssues, setCredentialHealthIssues] = useState<CredentialHealthIssue[]>([])
+
+  // Load workspaces, default settings, and credential health
   useEffect(() => {
     const load = async () => {
       if (!window.electronAPI) return
@@ -373,6 +435,12 @@ export default function AiSettingsPage() {
         // TODO: Add app-level default model/thinking IPC
         const model = await window.electronAPI.getModel()
         if (model) setDefaultModel(model)
+
+        // Check credential health for potential issues (corruption, machine migration)
+        const health = await window.electronAPI.getCredentialHealth()
+        if (!health.healthy) {
+          setCredentialHealthIssues(health.issues)
+        }
       } catch (error) {
         console.error('Failed to load settings:', error)
       }
@@ -412,7 +480,26 @@ export default function AiSettingsPage() {
     closeApiSetup()
     refreshLlmConnections?.()
     apiSetupOnboarding.reset()
+    // Clear any credential health issues after successful re-authentication
+    setCredentialHealthIssues([])
   }, [closeApiSetup, refreshLlmConnections, apiSetupOnboarding])
+
+  // Handler for closing the modal via X button or Escape - resets state and cancels OAuth
+  const handleCloseApiSetup = useCallback(() => {
+    closeApiSetup()
+    apiSetupOnboarding.reset()
+  }, [closeApiSetup, apiSetupOnboarding])
+
+  // Handler for re-authenticate button in credential health banner
+  const handleReauthenticate = useCallback(() => {
+    // Open API setup for the default connection (or first connection if available)
+    const defaultConn = llmConnections.find(c => c.isDefault) || llmConnections[0]
+    if (defaultConn) {
+      openApiSetup(defaultConn.slug)
+    } else {
+      openApiSetup()
+    }
+  }, [llmConnections, openApiSetup])
 
   // Connection action handlers
   const handleEditConnection = useCallback((slug: string) => {
@@ -512,8 +599,15 @@ export default function AiSettingsPage() {
       <div className="flex-1 min-h-0 mask-fade-y">
         <ScrollArea className="h-full">
           <div className="px-5 py-7 max-w-3xl mx-auto">
+            {/* Credential Health Warning Banner */}
+            <CredentialHealthBanner
+              issues={credentialHealthIssues}
+              onReauthenticate={handleReauthenticate}
+            />
+
             <div className="space-y-8">
-              {/* Default Settings */}
+              {/* Default Settings - only show if connections exist */}
+              {llmConnections.length > 0 && (
               <SettingsSection title="Default" description="Settings for new chats when no workspace override is set.">
                 <SettingsCard>
                   <SettingsMenuSelectRow
@@ -524,9 +618,12 @@ export default function AiSettingsPage() {
                     options={llmConnections.map((conn) => ({
                       value: conn.slug,
                       label: conn.name,
-                      description: conn.type === 'anthropic' ? 'Anthropic API' :
-                                   conn.type === 'openai' ? 'OpenAI API' :
-                                   conn.type === 'openai-compat' ? 'OpenAI Compatible' : conn.type,
+                      description: conn.providerType === 'anthropic' ? 'Anthropic API' :
+                                   conn.providerType === 'openai' ? 'OpenAI API' :
+                                   conn.providerType === 'openai_compat' ? 'OpenAI Compatible' :
+                                   conn.providerType === 'bedrock' ? 'AWS Bedrock' :
+                                   conn.providerType === 'vertex' ? 'Google Vertex' :
+                                   conn.providerType || 'Unknown',
                     }))}
                   />
                   {/* Only show model selector if no custom model from connection */}
@@ -563,9 +660,10 @@ export default function AiSettingsPage() {
                   />
                 </SettingsCard>
               </SettingsSection>
+              )}
 
-              {/* Workspace Overrides */}
-              {workspaces.length > 0 && (
+              {/* Workspace Overrides - only show if connections exist */}
+              {workspaces.length > 0 && llmConnections.length > 0 && (
                 <SettingsSection title="Workspace Overrides" description="Override default settings per workspace.">
                   <div className="space-y-2">
                     {workspaces.map((workspace) => (
@@ -584,36 +682,40 @@ export default function AiSettingsPage() {
               {/* Connections Management */}
               <SettingsSection title="Connections" description="Manage your AI provider connections.">
                 <SettingsCard>
-                  {llmConnections.map((conn) => (
-                    <ConnectionRow
-                      key={conn.slug}
-                      connection={conn}
-                      isLastConnection={llmConnections.length === 1}
-                      onEdit={() => handleEditConnection(conn.slug)}
-                      onDelete={() => handleDeleteConnection(conn.slug)}
-                      onSetDefault={() => handleSetDefaultConnection(conn.slug)}
-                      onValidate={() => handleValidateConnection(conn.slug)}
-                      validationState={validationStates[conn.slug]?.state || 'idle'}
-                      validationError={validationStates[conn.slug]?.error}
-                    />
-                  ))}
-                  <div className="pt-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openApiSetup()}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      + Add Connection
-                    </Button>
-                  </div>
+                  {llmConnections.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                      No connections configured. Add a connection to get started.
+                    </div>
+                  ) : (
+                    llmConnections.map((conn) => (
+                      <ConnectionRow
+                        key={conn.slug}
+                        connection={conn}
+                        isLastConnection={false}
+                        onEdit={() => handleEditConnection(conn.slug)}
+                        onDelete={() => handleDeleteConnection(conn.slug)}
+                        onSetDefault={() => handleSetDefaultConnection(conn.slug)}
+                        onValidate={() => handleValidateConnection(conn.slug)}
+                        validationState={validationStates[conn.slug]?.state || 'idle'}
+                        validationError={validationStates[conn.slug]?.error}
+                      />
+                    ))
+                  )}
                 </SettingsCard>
+                <div className="pt-0">
+                  <button
+                    onClick={() => openApiSetup()}
+                    className="inline-flex items-center h-8 px-3 text-sm rounded-lg bg-background shadow-minimal hover:bg-foreground/[0.02] transition-colors"
+                  >
+                    + Add Connection
+                  </button>
+                </div>
               </SettingsSection>
 
               {/* API Setup Fullscreen Overlay */}
               <FullscreenOverlayBase
                 isOpen={showApiSetup}
-                onClose={closeApiSetup}
+                onClose={handleCloseApiSetup}
                 className="z-splash flex flex-col bg-foreground-2"
               >
                 <OnboardingWizard
@@ -634,7 +736,7 @@ export default function AiSettingsPage() {
                   style={{ zIndex: 'var(--z-fullscreen, 350)' }}
                 >
                   <button
-                    onClick={closeApiSetup}
+                    onClick={handleCloseApiSetup}
                     className="p-1.5 rounded-[6px] transition-all bg-background shadow-minimal text-muted-foreground/50 hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     title="Close (Esc)"
                   >

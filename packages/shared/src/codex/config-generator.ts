@@ -12,6 +12,59 @@
 import type { LoadedSource } from '../sources/types.ts';
 import type { SdkMcpServerConfig } from '../agent/backend/types.ts';
 
+// ============================================================
+// Custom Model Provider Configuration
+// ============================================================
+
+/**
+ * Custom model provider preset IDs.
+ * These map to pre-configured endpoints for popular OpenAI-compatible services.
+ */
+export type ModelProviderPreset = 'openai' | 'openrouter' | 'vercel-ai' | 'custom';
+
+/**
+ * Configuration for a custom model provider in Codex.
+ * Used to route requests to OpenAI-compatible APIs.
+ */
+export interface ModelProviderConfig {
+  /** Provider ID for TOML section name */
+  id: string;
+  /** Human-readable name */
+  name: string;
+  /** Base URL for the API */
+  baseUrl: string;
+  /** Environment variable name for API key */
+  envKey: string;
+  /** Wire API format (usually 'chat' for OpenAI-compatible) */
+  wireApi?: 'chat' | 'completions' | 'responses';
+  /** Default model to use with this provider */
+  defaultModel?: string;
+}
+
+/**
+ * Pre-configured model provider presets for common services.
+ */
+export const MODEL_PROVIDER_PRESETS: Record<string, ModelProviderConfig> = {
+  // OpenRouter - aggregates multiple AI providers
+  'openrouter': {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    envKey: 'OPENROUTER_API_KEY',
+    wireApi: 'chat',
+    defaultModel: 'openai/gpt-4.1',
+  },
+  // Vercel AI Gateway - managed AI infrastructure
+  'vercel-ai': {
+    id: 'vercel-ai',
+    name: 'Vercel AI Gateway',
+    baseUrl: 'https://gateway.ai.vercel.sh/v1',
+    envKey: 'VERCEL_AI_KEY',
+    wireApi: 'chat',
+    defaultModel: 'gpt-4.1',
+  },
+};
+
 /**
  * Options for config generation
  */
@@ -50,6 +103,13 @@ export interface CodexConfigGeneratorOptions {
    * Workspace ID for credential lookups.
    */
   workspaceId?: string;
+
+  /**
+   * Custom model provider configuration.
+   * If set, generates [model_providers.*] and [profiles.*] sections.
+   * Used for OpenRouter, Vercel AI Gateway, or custom OpenAI-compatible endpoints.
+   */
+  modelProvider?: ModelProviderConfig;
 }
 
 /**
@@ -249,6 +309,36 @@ function generateBridgeServerSection(
 }
 
 /**
+ * Generate TOML sections for a custom model provider.
+ * Creates both [model_providers.*] and [profiles.*] sections.
+ *
+ * @param provider - Model provider configuration
+ * @returns TOML string with provider and profile sections
+ */
+function generateModelProviderSection(provider: ModelProviderConfig): string {
+  const lines: string[] = [];
+
+  // Model provider section
+  lines.push(`[model_providers.${provider.id}]`);
+  lines.push(`name = ${formatTomlValue(provider.name)}`);
+  lines.push(`base_url = ${formatTomlValue(provider.baseUrl)}`);
+  lines.push(`env_key = ${formatTomlValue(provider.envKey)}`);
+  if (provider.wireApi) {
+    lines.push(`wire_api = ${formatTomlValue(provider.wireApi)}`);
+  }
+  lines.push('');
+
+  // Default profile section to use this provider
+  lines.push(`[profiles.${provider.id}]`);
+  if (provider.defaultModel) {
+    lines.push(`model = ${formatTomlValue(provider.defaultModel)}`);
+  }
+  lines.push(`model_provider = ${formatTomlValue(provider.id)}`);
+
+  return lines.join('\n');
+}
+
+/**
  * Generate Codex config.toml content from sources.
  *
  * @param options - Configuration options
@@ -262,6 +352,7 @@ export function generateCodexConfig(options: CodexConfigGeneratorOptions): Codex
     bridgeConfigPath,
     sessionPath,
     workspaceId,
+    modelProvider,
   } = options;
 
   const mcpSources: string[] = [];
@@ -274,6 +365,13 @@ export function generateCodexConfig(options: CodexConfigGeneratorOptions): Codex
   sections.push(`# Generated at: ${new Date().toISOString()}`);
   sections.push('# Regenerated when sources are toggled');
   sections.push('');
+
+  // Add custom model provider if configured (OpenRouter, Vercel AI Gateway, etc.)
+  if (modelProvider) {
+    sections.push('# Custom Model Provider');
+    sections.push(generateModelProviderSection(modelProvider));
+    sections.push('');
+  }
 
   // Process each source
   for (const source of sources) {

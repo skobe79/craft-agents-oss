@@ -1,0 +1,22 @@
+{
+  "name": "@craft-agent/session-mcp-server",
+  "version": "0.3.1",
+  "license": "Apache-2.0",
+  "description": "MCP server that provides session-scoped tools (SubmitPlan, config_validate, etc.) to Codex via stdio transport",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "session-mcp-server": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir=dist --target=node",
+    "dev": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

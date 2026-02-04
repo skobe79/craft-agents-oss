@@ -6,10 +6,10 @@
  */
 
 import type { CredentialBackend } from './backends/types.ts';
-import type { CredentialId, CredentialType, StoredCredential } from './types.ts';
+import type { CredentialId, CredentialType, StoredCredential, CredentialHealthStatus, CredentialHealthIssue } from './types.ts';
+import type { LlmAuthType, LlmProviderType } from '../config/llm-connections.ts';
 import { SecureStorageBackend } from './backends/secure-storage.ts';
 import { debug } from '../utils/debug.ts';
-import { hasCodexOAuth } from '../codex/auth.ts';
 
 export class CredentialManager {
   private backends: CredentialBackend[] = [];
@@ -267,7 +267,7 @@ export class CredentialManager {
     }
   }
 
-  // Note: OpenAI API key methods removed - Codex now uses app-server OAuth (~/.codex/auth.json)
+  // Note: OpenAI API key methods removed - Codex uses native ChatGPT OAuth flow
 
   // ============================================================
   // LLM Connection Credentials
@@ -341,63 +341,196 @@ export class CredentialManager {
   async deleteLlmCredentials(connectionSlug: string): Promise<void> {
     await this.delete({ type: 'llm_api_key', connectionSlug });
     await this.delete({ type: 'llm_oauth', connectionSlug });
+    await this.delete({ type: 'llm_iam', connectionSlug });
+    await this.delete({ type: 'llm_service_account', connectionSlug });
+  }
+
+  // ============================================================
+  // IAM Credentials (AWS Bedrock)
+  // ============================================================
+
+  /**
+   * Get IAM credentials for an LLM connection.
+   * @param connectionSlug - The connection slug
+   * @returns IAM credentials or null if not found
+   */
+  async getLlmIamCredentials(connectionSlug: string): Promise<{
+    accessKeyId: string;
+    secretAccessKey: string;
+    region?: string;
+    sessionToken?: string;
+  } | null> {
+    const cred = await this.get({ type: 'llm_iam', connectionSlug });
+    if (!cred || !cred.awsAccessKeyId) return null;
+    return {
+      accessKeyId: cred.awsAccessKeyId,
+      secretAccessKey: cred.value, // Secret key stored in value field
+      region: cred.awsRegion,
+      sessionToken: cred.awsSessionToken,
+    };
   }
 
   /**
+   * Set IAM credentials for an LLM connection.
+   * @param connectionSlug - The connection slug
+   * @param credentials - IAM credentials to store
+   */
+  async setLlmIamCredentials(connectionSlug: string, credentials: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    region?: string;
+    sessionToken?: string;
+  }): Promise<void> {
+    await this.set({ type: 'llm_iam', connectionSlug }, {
+      value: credentials.secretAccessKey, // Primary secret in value field
+      awsAccessKeyId: credentials.accessKeyId,
+      awsRegion: credentials.region,
+      awsSessionToken: credentials.sessionToken,
+    });
+  }
+
+  // ============================================================
+  // Service Account Credentials (GCP Vertex)
+  // ============================================================
+
+  /**
+   * Get service account credentials for an LLM connection.
+   * @param connectionSlug - The connection slug
+   * @returns Service account JSON and metadata or null if not found
+   */
+  async getLlmServiceAccount(connectionSlug: string): Promise<{
+    serviceAccountJson: string;
+    projectId?: string;
+    region?: string;
+    email?: string;
+  } | null> {
+    const cred = await this.get({ type: 'llm_service_account', connectionSlug });
+    if (!cred) return null;
+    return {
+      serviceAccountJson: cred.value, // Full JSON stored in value field
+      projectId: cred.gcpProjectId,
+      region: cred.gcpRegion,
+      email: cred.serviceAccountEmail,
+    };
+  }
+
+  /**
+   * Set service account credentials for an LLM connection.
+   * @param connectionSlug - The connection slug
+   * @param credentials - Service account credentials to store
+   */
+  async setLlmServiceAccount(connectionSlug: string, credentials: {
+    serviceAccountJson: string;
+    projectId?: string;
+    region?: string;
+    email?: string;
+  }): Promise<void> {
+    await this.set({ type: 'llm_service_account', connectionSlug }, {
+      value: credentials.serviceAccountJson, // Full JSON in value field
+      gcpProjectId: credentials.projectId,
+      gcpRegion: credentials.region,
+      serviceAccountEmail: credentials.email,
+    });
+  }
+
+  // ============================================================
+  // Unified Credential Checking
+  // ============================================================
+
+  /**
    * Check if an LLM connection has valid credentials.
+   * Uses the new LlmAuthType system - routes by auth mechanism.
+   *
    * @param connectionSlug - The connection slug
    * @param authType - The auth type to check
+   * @param providerType - Optional provider type for OAuth routing
    * @returns true if credentials exist and are valid
    */
-  async hasLlmCredentials(connectionSlug: string, authType: 'api_key' | 'oauth' | 'codex_oauth' | 'none'): Promise<boolean> {
-    if (authType === 'none') return true;
+  async hasLlmCredentials(
+    connectionSlug: string,
+    authType: LlmAuthType,
+    providerType?: LlmProviderType
+  ): Promise<boolean> {
+    switch (authType) {
+      // No credentials needed
+      case 'none':
+      case 'environment':
+        return true;
 
-    if (authType === 'api_key') {
-      // Check connection-scoped credential first
-      const apiKey = await this.getLlmApiKey(connectionSlug);
-      if (apiKey) return true;
+      // API key variants - all use the same storage
+      case 'api_key':
+      case 'api_key_with_endpoint':
+      case 'bearer_token':
+        return this.hasLlmApiKeyCredential(connectionSlug);
 
-      // Fall back to legacy global Anthropic API key for built-in 'anthropic-api' connection
-      // This ensures backwards compatibility with credentials saved before LLM connections
-      if (connectionSlug === 'anthropic-api') {
-        const legacyKey = await this.getApiKey();
-        return !!legacyKey;
-      }
+      // OAuth - browser flow
+      case 'oauth':
+        return this.hasLlmOAuthCredential(connectionSlug, providerType);
+
+      // AWS IAM credentials
+      case 'iam_credentials':
+        return this.hasLlmIamCredential(connectionSlug);
+
+      // GCP service account
+      case 'service_account_file':
+        return this.hasLlmServiceAccountCredential(connectionSlug);
+
+      default:
+        // Exhaustive check - TypeScript will error if we miss a case
+        const _exhaustive: never = authType;
+        return false;
+    }
+  }
+
+  /**
+   * Check if connection has valid API key credential.
+   * @internal
+   */
+  private async hasLlmApiKeyCredential(connectionSlug: string): Promise<boolean> {
+    const apiKey = await this.getLlmApiKey(connectionSlug);
+    return !!apiKey;
+  }
+
+  /**
+   * Check if connection has valid OAuth credential.
+   * @internal
+   */
+  private async hasLlmOAuthCredential(
+    connectionSlug: string,
+    providerType?: LlmProviderType
+  ): Promise<boolean> {
+    const oauth = await this.getLlmOAuth(connectionSlug);
+    if (!oauth) return false;
+
+    // For OpenAI provider OAuth (Codex), we need both idToken and accessToken
+    // CodexAgent.tryInjectStoredChatGptTokens() requires both fields
+    if (providerType === 'openai' && (!oauth.idToken || !oauth.accessToken)) {
       return false;
     }
 
-    if (authType === 'oauth' || authType === 'codex_oauth') {
-      // Check connection-scoped credential first
-      const oauth = await this.getLlmOAuth(connectionSlug);
-
-      // If no connection-scoped OAuth, check legacy credentials for built-in connections
-      if (!oauth) {
-        // Fall back to legacy Claude OAuth for 'claude-max' connection
-        if (connectionSlug === 'claude-max' && authType === 'oauth') {
-          const legacyOAuth = await this.getClaudeOAuth();
-          return !!legacyOAuth;
-        }
-        // For codex connection with codex_oauth, check ~/.codex/auth.json
-        if (connectionSlug === 'codex' && authType === 'codex_oauth') {
-          return hasCodexOAuth();
-        }
-        return false;
-      }
-
-      // For codex_oauth, we need both idToken and accessToken
-      // CodexAgent.tryInjectStoredChatGptTokens() requires both fields
-      if (authType === 'codex_oauth' && !oauth.idToken) {
-        return false;
-      }
-
-      // Check if expired
-      if (oauth.expiresAt && this.isExpired({ value: oauth.accessToken, expiresAt: oauth.expiresAt })) {
-        return !!oauth.refreshToken; // Can refresh
-      }
-      return true;
+    // Check if expired
+    if (oauth.expiresAt && this.isExpired({ value: oauth.accessToken, expiresAt: oauth.expiresAt })) {
+      return !!oauth.refreshToken; // Can refresh
     }
+    return true;
+  }
 
-    return false;
+  /**
+   * Check if connection has valid IAM credential.
+   * @internal
+   */
+  private async hasLlmIamCredential(connectionSlug: string): Promise<boolean> {
+    const cred = await this.getLlmIamCredentials(connectionSlug);
+    return !!cred?.accessKeyId && !!cred?.secretAccessKey;
+  }
+
+  /**
+   * Check if connection has valid service account credential.
+   * @internal
+   */
+  private async hasLlmServiceAccountCredential(connectionSlug: string): Promise<boolean> {
+    const cred = await this.getLlmServiceAccount(connectionSlug);
+    return !!cred?.serviceAccountJson;
   }
 
   /**
@@ -426,6 +559,93 @@ export class CredentialManager {
 
     // API key without expiry - these typically don't expire
     return false;
+  }
+
+  // ============================================================
+  // Health Check
+  // ============================================================
+
+  /**
+   * Check the health of the credential store.
+   *
+   * This validates:
+   * 1. The credential file can be read and decrypted (if it exists)
+   * 2. The default LLM connection has valid credentials
+   *
+   * Use this on app startup to detect issues before users hit cryptic errors.
+   *
+   * @returns Health status with any issues found
+   */
+  async checkHealth(): Promise<CredentialHealthStatus> {
+    const issues: CredentialHealthIssue[] = [];
+
+    try {
+      await this.ensureInitialized();
+
+      // 1. Try to list credentials - this triggers decryption
+      // If file is corrupted or can't be decrypted, this will throw
+      await this.list({});
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const lowerMsg = errorMsg.toLowerCase();
+
+      // Detect decryption failures (usually means machine migration)
+      if (lowerMsg.includes('decrypt') || lowerMsg.includes('cipher') || lowerMsg.includes('authentication tag')) {
+        issues.push({
+          type: 'decryption_failed',
+          message: 'Credentials from another machine detected. Please re-authenticate.',
+          error: errorMsg,
+        });
+      } else if (lowerMsg.includes('json') || lowerMsg.includes('parse') || lowerMsg.includes('unexpected')) {
+        issues.push({
+          type: 'file_corrupted',
+          message: 'Credential file is corrupted. Please re-authenticate.',
+          error: errorMsg,
+        });
+      } else {
+        // Unknown error - treat as corruption
+        issues.push({
+          type: 'file_corrupted',
+          message: 'Failed to read credentials. Please re-authenticate.',
+          error: errorMsg,
+        });
+      }
+
+      return { healthy: false, issues };
+    }
+
+    // 2. Check if default connection has credentials
+    // Import lazily to avoid circular dependency
+    try {
+      const { getDefaultLlmConnection, getLlmConnection } = await import('../config/storage.ts');
+      const defaultSlug = getDefaultLlmConnection();
+
+      if (defaultSlug) {
+        const connection = getLlmConnection(defaultSlug);
+        if (connection && connection.authType !== 'none' && connection.authType !== 'environment') {
+          const hasCredentials = await this.hasLlmCredentials(
+            defaultSlug,
+            connection.authType,
+            connection.providerType
+          );
+          if (!hasCredentials) {
+            issues.push({
+              type: 'no_default_credentials',
+              message: `No credentials found for default connection "${connection.name}".`,
+            });
+          }
+        }
+      }
+    } catch (configError) {
+      // Config not yet initialized - skip this check
+      debug('[CredentialManager] Skipping default connection check - config not available');
+    }
+
+    return {
+      healthy: issues.length === 0,
+      issues,
+    };
   }
 }
 

@@ -7,7 +7,16 @@ import { ipcMain } from 'electron'
 import { mainLog } from './logger'
 import { getAuthState, getSetupNeeds } from '@craft-agent/shared/auth'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
-import { saveConfig, loadStoredConfig, generateWorkspaceId, type AuthType, type StoredConfig } from '@craft-agent/shared/config'
+import {
+  saveConfig,
+  loadStoredConfig,
+  generateWorkspaceId,
+  ANTHROPIC_MODELS,
+  OPENAI_MODELS,
+  type AuthType,
+  type StoredConfig,
+  type LlmConnection,
+} from '@craft-agent/shared/config'
 import { getDefaultWorkspacesDir, generateUniqueWorkspacePath } from '@craft-agent/shared/workspaces'
 import { CraftOAuth, getMcpBaseUrl } from '@craft-agent/shared/auth'
 import { validateMcpConnection } from '@craft-agent/shared/mcp'
@@ -102,25 +111,20 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
       const manager = getCredentialManager()
 
       // 1. Save billing credential if provided (only when authType is specified)
-      // Save to BOTH legacy global location AND LLM connection for backwards compatibility
       if (config.credential && config.authType) {
         mainLog.info('[Onboarding:Main] Saving credential for authType:', config.authType)
         if (config.authType === 'api_key') {
-          mainLog.info('[Onboarding:Main] Calling manager.setApiKey...')
-          // Save to legacy global location (for backwards compat)
-          await manager.setApiKey(config.credential)
-          // Also save to LLM connection (new system)
+          // Save to LLM connection (new system only - legacy migration handles old users)
           await manager.setLlmApiKey('anthropic-api', config.credential)
-          mainLog.info('[Onboarding:Main] API key saved to both legacy and LLM connection')
+          mainLog.info('[Onboarding:Main] API key saved to LLM connection')
         } else if (config.authType === 'oauth_token') {
-          // NOTE: For oauth_token, credentials are saved via ONBOARDING_EXCHANGE_CLAUDE_CODE
-          // which saves to both legacy (claude_oauth::global) and LLM connection (llm_oauth::claude-max)
-          mainLog.info('[Onboarding:Main] OAuth token auth type selected')
-          mainLog.info('[Onboarding:Main] Credentials should already be saved via native OAuth flow')
+          // OAuth credentials are saved via ONBOARDING_EXCHANGE_CLAUDE_CODE handler
+          mainLog.info('[Onboarding:Main] OAuth token auth type - credentials saved via native OAuth flow')
+        } else if (config.authType === 'codex_api_key') {
+          // Save OpenAI API key for Codex (OpenRouter, Vercel AI Gateway compatible)
+          await manager.setLlmApiKey('codex-api', config.credential)
+          mainLog.info('[Onboarding:Main] OpenAI API key saved to codex-api LLM connection')
         }
-      } else if (config.authType === 'codex_oauth') {
-        // Codex OAuth tokens are saved via CHATGPT_START_OAUTH handler to llm_oauth::codex
-        mainLog.info('[Onboarding:Main] Codex OAuth selected - credentials saved via ChatGPT OAuth flow')
       } else {
         mainLog.info('[Onboarding:Main] Skipping credential save', {
           hasCredential: !!config.credential,
@@ -150,10 +154,81 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
         // This is the authoritative setting going forward
         const connectionSlug = config.authType === 'api_key' ? 'anthropic-api' :
                                config.authType === 'oauth_token' ? 'claude-max' :
-                               config.authType === 'codex_oauth' ? 'codex' : null
+                               config.authType === 'codex_oauth' ? 'codex' :
+                               config.authType === 'codex_api_key' ? 'codex-api' : null
         if (connectionSlug) {
-          mainLog.info('[Onboarding:Main] Setting defaultLlmConnection to', connectionSlug)
-          newConfig.defaultLlmConnection = connectionSlug
+          // Only set default if none exists (don't override user's existing default)
+          if (!newConfig.defaultLlmConnection) {
+            mainLog.info('[Onboarding:Main] Setting defaultLlmConnection to', connectionSlug)
+            newConfig.defaultLlmConnection = connectionSlug
+          }
+
+          // Ensure the LLM connection entry exists (check newConfig, not disk)
+          const connectionExists = newConfig.llmConnections?.some(c => c.slug === connectionSlug)
+          if (!connectionExists) {
+            mainLog.info('[Onboarding:Main] Creating LLM connection:', connectionSlug)
+
+            // Build connection config based on authType
+            let connection: LlmConnection | null = null
+            const hasCustomEndpoint = !!config.anthropicBaseUrl
+
+            if (config.authType === 'api_key') {
+              connection = {
+                slug: 'anthropic-api',
+                name: hasCustomEndpoint ? 'Custom Anthropic-Compatible' : 'Anthropic (API Key)',
+                providerType: hasCustomEndpoint ? 'anthropic_compat' : 'anthropic',
+                authType: hasCustomEndpoint ? 'api_key_with_endpoint' : 'api_key',
+                models: ANTHROPIC_MODELS,
+                createdAt: Date.now(),
+              }
+            } else if (config.authType === 'oauth_token') {
+              connection = {
+                slug: 'claude-max',
+                name: 'Claude Max',
+                providerType: 'anthropic',
+                authType: 'oauth',
+                models: ANTHROPIC_MODELS,
+                createdAt: Date.now(),
+              }
+            } else if (config.authType === 'codex_oauth') {
+              connection = {
+                slug: 'codex',
+                name: 'Codex (ChatGPT Plus)',
+                providerType: 'openai',
+                authType: 'oauth',
+                models: OPENAI_MODELS,
+                createdAt: Date.now(),
+              }
+            } else if (config.authType === 'codex_api_key') {
+              connection = {
+                slug: 'codex-api',
+                name: hasCustomEndpoint ? 'Codex (Custom Endpoint)' : 'Codex (OpenAI API Key)',
+                providerType: 'openai',
+                authType: hasCustomEndpoint ? 'api_key_with_endpoint' : 'api_key',
+                models: OPENAI_MODELS,
+                createdAt: Date.now(),
+              }
+            }
+
+            if (connection) {
+              // Apply baseUrl if set
+              if (config.anthropicBaseUrl) {
+                connection.baseUrl = config.anthropicBaseUrl
+              }
+              // Apply customModel if set
+              if (config.customModel) {
+                connection.defaultModel = config.customModel
+              }
+
+              // Add connection directly to newConfig (not via addLlmConnection which
+              // would save separately and then get overwritten by saveConfig(newConfig))
+              if (!newConfig.llmConnections) {
+                newConfig.llmConnections = []
+              }
+              newConfig.llmConnections.push(connection)
+              mainLog.info('[Onboarding:Main] Created LLM connection:', connection.slug)
+            }
+          }
         }
       }
 
@@ -297,18 +372,10 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
         mainLog.info('[Onboarding] Claude code exchange status:', status)
       })
 
-      // Save credentials with refresh token support and source marker
+      // Save credentials with refresh token support
       const manager = getCredentialManagerFn()
 
-      // Save to legacy global location (for backwards compat)
-      await manager.setClaudeOAuthCredentials({
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: tokens.expiresAt,
-        source: 'native', // Mark as obtained from our native OAuth flow
-      })
-
-      // Also save to LLM connection (new system)
+      // Save to LLM connection (new system only - legacy migration handles old users)
       await manager.setLlmOAuth('claude-max', {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -316,7 +383,7 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
       })
 
       const expiresAtDate = tokens.expiresAt ? new Date(tokens.expiresAt).toISOString() : 'never'
-      mainLog.info(`[Onboarding] Claude OAuth saved to both legacy and LLM connection (expires: ${expiresAtDate})`)
+      mainLog.info(`[Onboarding] Claude OAuth saved to LLM connection (expires: ${expiresAtDate})`)
       return { success: true, token: tokens.accessToken }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
@@ -334,20 +401,5 @@ export function registerOnboardingHandlers(sessionManager: SessionManager): void
   ipcMain.handle(IPC_CHANNELS.ONBOARDING_CLEAR_CLAUDE_OAUTH_STATE, async () => {
     clearOAuthState()
     return { success: true }
-  })
-
-  // Check if Codex CLI auth is configured (~/.codex/auth.json)
-  ipcMain.handle(IPC_CHANNELS.ONBOARDING_CHECK_CODEX_AUTH, async () => {
-    try {
-      // Import dynamically to avoid pulling in at startup
-      const { hasCodexOAuth } = await import('@craft-agent/shared/codex')
-      const authenticated = hasCodexOAuth()
-      mainLog.info('[Onboarding] Codex auth check:', authenticated ? 'authenticated' : 'not authenticated')
-      return { authenticated }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
-      mainLog.error('[Onboarding] Codex auth check error:', message)
-      return { authenticated: false, error: message }
-    }
   })
 }

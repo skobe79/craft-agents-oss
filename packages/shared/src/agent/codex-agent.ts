@@ -1153,6 +1153,61 @@ export class CodexAgent extends BaseAgent {
   }
 
   // ============================================================
+  // OpenAI API Key Authentication
+  // ============================================================
+
+  /**
+   * Inject OpenAI API key into the Codex app-server.
+   *
+   * Alternative to OAuth flow for users with OpenAI Platform API keys.
+   * API key usage is billed through the OpenAI Platform account at standard rates.
+   *
+   * Note: Some Codex features (cloud threads) may not be available with API key auth.
+   *
+   * @param apiKey - The OpenAI API key from platform.openai.com/api-keys
+   */
+  async injectApiKey(apiKey: string): Promise<void> {
+    const client = await this.ensureClient();
+
+    // Store API key in credential manager for persistence
+    const credentialManager = getCredentialManager();
+    await credentialManager.setLlmApiKey('codex-api', apiKey);
+
+    // Inject into Codex app-server
+    await client.accountLoginWithApiKey(apiKey);
+
+    this.debug('OpenAI API key injected successfully');
+  }
+
+  /**
+   * Check if we have a stored OpenAI API key and inject it.
+   *
+   * Called on startup if the connection uses api_key auth type.
+   *
+   * @returns true if valid API key was found and injected
+   */
+  async tryInjectStoredApiKey(): Promise<boolean> {
+    try {
+      const credentialManager = getCredentialManager();
+      const apiKey = await credentialManager.getLlmApiKey('codex-api');
+
+      if (!apiKey) {
+        this.debug('No stored OpenAI API key found');
+        return false;
+      }
+
+      const client = await this.ensureClient();
+      await client.accountLoginWithApiKey(apiKey);
+
+      this.debug('Stored OpenAI API key injected successfully');
+      return true;
+    } catch (error) {
+      this.debug(`Failed to inject stored API key: ${error}`);
+      return false;
+    }
+  }
+
+  // ============================================================
   // Event Queue Management (AsyncGenerator Pattern)
   // ============================================================
 
@@ -1226,8 +1281,8 @@ export class CodexAgent extends BaseAgent {
       // Start or resume thread
       const permissionMode = this.permissionManager.getPermissionMode();
 
-      // Mini agent model selection: use codex-mini for faster, cheaper responses
-      const model = miniConfig.enabled ? 'codex-mini' : this._model;
+      // Mini agent model selection: use gpt-5.1-codex-mini for faster, cheaper responses
+      const model = miniConfig.enabled ? 'gpt-5.1-codex-mini' : this._model;
       if (this.codexThreadId) {
         // Resume existing thread from disk
         try {
@@ -1235,8 +1290,8 @@ export class CodexAgent extends BaseAgent {
             threadId: this.codexThreadId,
             history: null,
             path: null,
-            // Mini agent: use codex-mini model for resumed threads too
-            model: miniConfig.enabled ? 'codex-mini' : null,
+            // Mini agent: use gpt-5.1-codex-mini model for resumed threads too
+            model: miniConfig.enabled ? 'gpt-5.1-codex-mini' : null,
             modelProvider: null,
             cwd: null,
             approvalPolicy: null,

@@ -158,6 +158,9 @@ const api: ElectronAPI = {
   showDeleteSessionConfirmation: (name: string) => ipcRenderer.invoke(IPC_CHANNELS.SHOW_DELETE_SESSION_CONFIRMATION, name),
   logout: () => ipcRenderer.invoke(IPC_CHANNELS.LOGOUT),
 
+  // Credential health check (startup validation)
+  getCredentialHealth: () => ipcRenderer.invoke(IPC_CHANNELS.CREDENTIAL_HEALTH_CHECK),
+
   // Onboarding
   getAuthState: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_GET_AUTH_STATE).then(r => r.authState),
   getSetupNeeds: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_GET_AUTH_STATE).then(r => r.setupNeeds),
@@ -175,8 +178,6 @@ const api: ElectronAPI = {
   exchangeClaudeCode: (code: string) => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_EXCHANGE_CLAUDE_CODE, code),
   hasClaudeOAuthState: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_HAS_CLAUDE_OAUTH_STATE),
   clearClaudeOAuthState: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_CLEAR_CLAUDE_OAUTH_STATE),
-  // Codex OAuth (CLI-based, checks ~/.codex/auth.json)
-  checkCodexAuth: () => ipcRenderer.invoke(IPC_CHANNELS.ONBOARDING_CHECK_CODEX_AUTH),
 
   // ChatGPT OAuth (for Codex chatgptAuthTokens mode)
   startChatGptOAuth: () => ipcRenderer.invoke(IPC_CHANNELS.CHATGPT_START_OAUTH),
@@ -193,6 +194,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_UPDATE_API_SETUP, authType, credential, anthropicBaseUrl, customModel),
   testApiConnection: (apiKey: string, baseUrl?: string, modelName?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_TEST_API_CONNECTION, apiKey, baseUrl, modelName),
+  testOpenAiConnection: (apiKey: string, baseUrl?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_TEST_OPENAI_CONNECTION, apiKey, baseUrl),
 
   // Settings - Model (global default)
   getModel: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_MODEL),
@@ -433,6 +436,12 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.INPUT_GET_SPELL_CHECK) as Promise<boolean>,
   setSpellCheck: (enabled: boolean) =>
     ipcRenderer.invoke(IPC_CHANNELS.INPUT_SET_SPELL_CHECK, enabled),
+
+  // Power settings
+  getKeepAwakeWhileRunning: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.POWER_GET_KEEP_AWAKE) as Promise<boolean>,
+  setKeepAwakeWhileRunning: (enabled: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.POWER_SET_KEEP_AWAKE, enabled),
 
   updateBadgeCount: (count: number) =>
     ipcRenderer.invoke(IPC_CHANNELS.BADGE_UPDATE, count),

@@ -41,9 +41,12 @@ export interface ApiKeyInputProps {
   formId?: string
   /** Disable the input (e.g. during validation) */
   disabled?: boolean
+  /** Provider type determines which presets and placeholders to show */
+  providerType?: 'anthropic' | 'openai'
 }
 
-type PresetKey = 'anthropic' | 'openrouter' | 'vercel' | 'ollama' | 'custom'
+// Preset key includes both provider defaults ('anthropic', 'openai') and third-party services
+type PresetKey = 'anthropic' | 'openai' | 'openrouter' | 'vercel' | 'ollama' | 'custom'
 
 interface Preset {
   key: PresetKey
@@ -51,7 +54,8 @@ interface Preset {
   url: string
 }
 
-const PRESETS: Preset[] = [
+// Anthropic provider presets - for Claude Code backend
+const ANTHROPIC_PRESETS: Preset[] = [
   { key: 'anthropic', label: 'Anthropic', url: 'https://api.anthropic.com' },
   { key: 'openrouter', label: 'OpenRouter', url: 'https://openrouter.ai/api' },
   { key: 'vercel', label: 'Vercel AI Gateway', url: 'https://ai-gateway.vercel.sh' },
@@ -59,8 +63,21 @@ const PRESETS: Preset[] = [
   { key: 'custom', label: 'Custom', url: '' },
 ]
 
-function getPresetForUrl(url: string): PresetKey {
-  const match = PRESETS.find(p => p.key !== 'custom' && p.url === url)
+// OpenAI provider presets - for Codex backend
+// Empty URL for 'openai' means use the default OpenAI API endpoint
+const OPENAI_PRESETS: Preset[] = [
+  { key: 'openai', label: 'OpenAI', url: '' },
+  { key: 'openrouter', label: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
+  { key: 'vercel', label: 'Vercel AI Gateway', url: 'https://gateway.ai.vercel.sh/v1' },
+  { key: 'custom', label: 'Custom', url: '' },
+]
+
+function getPresetsForProvider(providerType: 'anthropic' | 'openai'): Preset[] {
+  return providerType === 'openai' ? OPENAI_PRESETS : ANTHROPIC_PRESETS
+}
+
+function getPresetForUrl(url: string, presets: Preset[]): PresetKey {
+  const match = presets.find(p => p.key !== 'custom' && p.url === url)
   return match?.key ?? 'custom'
 }
 
@@ -70,14 +87,25 @@ export function ApiKeyInput({
   onSubmit,
   formId = "api-key-form",
   disabled,
+  providerType = 'anthropic',
 }: ApiKeyInputProps) {
+  // Get presets based on provider type
+  const presets = getPresetsForProvider(providerType)
+  const defaultPreset = presets[0]
+
   const [apiKey, setApiKey] = useState('')
   const [showValue, setShowValue] = useState(false)
-  const [baseUrl, setBaseUrl] = useState(PRESETS[0].url)
-  const [activePreset, setActivePreset] = useState<PresetKey>('anthropic')
+  const [baseUrl, setBaseUrl] = useState(defaultPreset.url)
+  const [activePreset, setActivePreset] = useState<PresetKey>(defaultPreset.key)
   const [customModel, setCustomModel] = useState('')
 
   const isDisabled = disabled || status === 'validating'
+
+  // Determine if we're using the default provider preset (hide base URL field)
+  const isDefaultProviderPreset = activePreset === 'anthropic' || activePreset === 'openai'
+
+  // Provider-specific placeholders
+  const apiKeyPlaceholder = providerType === 'openai' ? 'sk-...' : 'sk-ant-...'
 
   const handlePresetSelect = (preset: Preset) => {
     setActivePreset(preset.key)
@@ -87,7 +115,7 @@ export function ApiKeyInput({
       setBaseUrl(preset.url)
     }
     // Pre-fill recommended model for Ollama; clear for all others
-    // (Anthropic hides the field entirely, others default to Claude model IDs when empty)
+    // (Default provider presets hide the field entirely, others default to provider model IDs when empty)
     if (preset.key === 'ollama') {
       setCustomModel('qwen3-coder')
     } else {
@@ -97,7 +125,7 @@ export function ApiKeyInput({
 
   const handleBaseUrlChange = (value: string) => {
     setBaseUrl(value)
-    setActivePreset(getPresetForUrl(value))
+    setActivePreset(getPresetForUrl(value, presets))
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -105,7 +133,8 @@ export function ApiKeyInput({
     // Always call onSubmit — the hook decides whether an empty key is valid
     // (custom endpoints like Ollama don't require API keys)
     const effectiveBaseUrl = baseUrl.trim()
-    const isDefault = effectiveBaseUrl === PRESETS[0].url || !effectiveBaseUrl
+    // For default provider presets, don't pass a baseUrl (use provider's default)
+    const isDefault = isDefaultProviderPreset || !effectiveBaseUrl
     onSubmit({
       apiKey: apiKey.trim(),
       baseUrl: isDefault ? undefined : effectiveBaseUrl,
@@ -127,7 +156,7 @@ export function ApiKeyInput({
             type={showValue ? 'text' : 'password'}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-ant-..."
+            placeholder={apiKeyPlaceholder}
             className={cn(
               "pr-10 border-0 bg-transparent shadow-none",
               status === 'error' && "focus-visible:ring-destructive"
@@ -150,20 +179,20 @@ export function ApiKeyInput({
         </div>
       </div>
 
-      {/* Base URL with Preset Dropdown */}
+      {/* Endpoint Preset Selector - always visible to allow switching between providers */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label htmlFor="base-url">Base URL</Label>
+          <Label htmlFor="base-url">Endpoint</Label>
           <DropdownMenu>
             <DropdownMenuTrigger
               disabled={isDisabled}
               className="flex h-6 items-center gap-1 rounded-[6px] bg-background shadow-minimal pl-2.5 pr-2 text-[12px] font-medium text-foreground/50 hover:bg-foreground/5 hover:text-foreground focus:outline-none"
             >
-              {PRESETS.find(p => p.key === activePreset)?.label}
+              {presets.find(p => p.key === activePreset)?.label}
               <ChevronDown className="size-2.5 opacity-50" />
             </DropdownMenuTrigger>
             <StyledDropdownMenuContent align="end" className="z-floating-menu">
-              {PRESETS.map((preset) => (
+              {presets.map((preset) => (
                 <StyledDropdownMenuItem
                   key={preset.key}
                   onClick={() => handlePresetSelect(preset)}
@@ -176,24 +205,27 @@ export function ApiKeyInput({
             </StyledDropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className={cn(
-          "rounded-md shadow-minimal transition-colors",
-          "bg-foreground-2 focus-within:bg-background"
-        )}>
-          <Input
-            id="base-url"
-            type="text"
-            value={baseUrl}
-            onChange={(e) => handleBaseUrlChange(e.target.value)}
-            placeholder="https://your-api-endpoint.com"
-            className="border-0 bg-transparent shadow-none"
-            disabled={isDisabled}
-          />
-        </div>
+        {/* Base URL input - hidden for default provider presets (Anthropic/OpenAI) */}
+        {!isDefaultProviderPreset && (
+          <div className={cn(
+            "rounded-md shadow-minimal transition-colors",
+            "bg-foreground-2 focus-within:bg-background"
+          )}>
+            <Input
+              id="base-url"
+              type="text"
+              value={baseUrl}
+              onChange={(e) => handleBaseUrlChange(e.target.value)}
+              placeholder="https://your-api-endpoint.com"
+              className="border-0 bg-transparent shadow-none"
+              disabled={isDisabled}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Custom Model (optional) — hidden for Anthropic since it uses its own model routing */}
-      {activePreset !== 'anthropic' && (
+      {/* Custom Model (optional) — hidden for default provider presets since they use their own model routing */}
+      {!isDefaultProviderPreset && (
         <div className="space-y-2">
           <Label htmlFor="custom-model" className="text-muted-foreground font-normal">
             Model <span className="text-foreground/30">· optional</span>
@@ -207,7 +239,7 @@ export function ApiKeyInput({
               type="text"
               value={customModel}
               onChange={(e) => setCustomModel(e.target.value)}
-              placeholder="e.g. openai/gpt-5, qwen3-coder"
+              placeholder={providerType === 'openai' ? "e.g. gpt-4.1, o3" : "e.g. openai/gpt-5, qwen3-coder"}
               className="border-0 bg-transparent shadow-none"
               disabled={isDisabled}
             />
@@ -215,7 +247,9 @@ export function ApiKeyInput({
           {/* Contextual help links for providers that need model format guidance */}
           {activePreset === 'openrouter' && (
             <p className="text-xs text-foreground/30">
-              Leave empty for Claude models. Only set for non-Claude models.
+              {providerType === 'openai'
+                ? 'Leave empty for GPT models. Only set for non-OpenAI models.'
+                : 'Leave empty for Claude models. Only set for non-Claude models.'}
               <br />
               Format: <code className="text-foreground/40">provider/model-name</code>.{' '}
               <a href="https://openrouter.ai/models" target="_blank" rel="noopener noreferrer" className="text-foreground/50 underline hover:text-foreground/70">
@@ -225,7 +259,9 @@ export function ApiKeyInput({
           )}
           {activePreset === 'vercel' && (
             <p className="text-xs text-foreground/30">
-              Leave empty for Claude models. Only set for non-Claude models.
+              {providerType === 'openai'
+                ? 'Leave empty for GPT models. Only set for non-OpenAI models.'
+                : 'Leave empty for Claude models. Only set for non-Claude models.'}
               <br />
               Format: <code className="text-foreground/40">provider/model-name</code>.{' '}
               <a href="https://vercel.com/docs/ai-gateway" target="_blank" rel="noopener noreferrer" className="text-foreground/50 underline hover:text-foreground/70">
@@ -240,7 +276,9 @@ export function ApiKeyInput({
           )}
           {(activePreset === 'custom' || !activePreset) && (
             <p className="text-xs text-foreground/30">
-              Defaults to Anthropic model names (Opus, Sonnet, Haiku) when empty
+              {providerType === 'openai'
+                ? 'Defaults to GPT model names when empty'
+                : 'Defaults to Anthropic model names (Opus, Sonnet, Haiku) when empty'}
             </p>
           )}
         </div>

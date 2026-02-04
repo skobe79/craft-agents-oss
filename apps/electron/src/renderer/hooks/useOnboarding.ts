@@ -68,12 +68,14 @@ interface UseOnboardingReturn {
   reset: () => void
 }
 
-// Map ApiSetupMethod to AuthType for backend persistence
+// Map ApiSetupMethod to AuthType for backend persistence (legacy)
+// This maps to the legacy AuthType stored in config.authType for backwards compatibility
 function apiSetupMethodToAuthType(method: ApiSetupMethod): AuthType {
   switch (method) {
-    case 'api_key': return 'api_key'
+    case 'anthropic_api_key': return 'api_key'
     case 'claude_oauth': return 'oauth_token'
-    case 'codex_oauth': return 'codex_oauth'
+    case 'chatgpt_oauth': return 'codex_oauth'
+    case 'openai_api_key': return 'codex_api_key'
   }
 }
 
@@ -214,53 +216,54 @@ export function useOnboarding({
   }, [])
 
   // Submit credential (API key + optional endpoint config)
-  // Tests the connection first via /v1/messages before saving to catch issues early
+  // Tests the connection first before saving to catch issues early
   const handleSubmitCredential = useCallback(async (data: ApiKeySubmitData) => {
     setState(s => ({ ...s, credentialStatus: 'validating', errorMessage: undefined }))
 
+    const isOpenAiFlow = state.apiSetupMethod === 'openai_api_key'
+
     try {
-      // Handle Codex OAuth (CLI-based) - check if auth file exists
-      if (state.apiSetupMethod === 'codex_oauth') {
-        const result = await window.electronAPI.checkCodexAuth()
-        if (!result.authenticated) {
+      // API key validation differs by provider:
+      // - OpenAI flow: API key is always required
+      // - Anthropic flow: API key required for hosted providers, optional for Ollama/local
+      if (isOpenAiFlow) {
+        if (!data.apiKey.trim()) {
           setState(s => ({
             ...s,
             credentialStatus: 'error',
-            errorMessage: 'Codex not authenticated. Run `codex` in your terminal to sign in.',
+            errorMessage: 'Please enter a valid OpenAI API key',
           }))
           return
         }
-
-        // Save config with codex_oauth auth type (no credential needed, reads from file)
-        await handleSaveConfig(undefined)
-
-        setState(s => ({
-          ...s,
-          credentialStatus: 'success',
-          step: 'complete',
-        }))
-        return
+      } else {
+        // Anthropic flow - key optional for custom endpoints (Ollama, local models)
+        if (!data.apiKey.trim() && !data.baseUrl) {
+          setState(s => ({
+            ...s,
+            credentialStatus: 'error',
+            errorMessage: 'Please enter a valid API key',
+          }))
+          return
+        }
       }
 
-      // Anthropic API key flow
-      // API key is required for hosted providers (Anthropic, OpenRouter, etc.)
-      // but optional for custom endpoints (Ollama, local models)
-      if (!data.apiKey.trim() && !data.baseUrl) {
-        setState(s => ({
-          ...s,
-          credentialStatus: 'error',
-          errorMessage: 'Please enter a valid API key',
-        }))
-        return
-      }
+      // Validate connection before saving using provider-specific validation
+      let testResult: { success: boolean; error?: string }
 
-      // Validate connection before saving — tests auth, endpoint reachability,
-      // model existence, and tool support in one call
-      const testResult = await window.electronAPI.testApiConnection(
-        data.apiKey,
-        data.baseUrl,
-        data.customModel,
-      )
+      if (isOpenAiFlow) {
+        // OpenAI validation - tests against /v1/models endpoint
+        testResult = await window.electronAPI.testOpenAiConnection(
+          data.apiKey,
+          data.baseUrl,
+        )
+      } else {
+        // Anthropic validation - tests auth, endpoint, model, and tool support
+        testResult = await window.electronAPI.testApiConnection(
+          data.apiKey,
+          data.baseUrl,
+          data.customModel,
+        )
+      }
 
       if (!testResult.success) {
         setState(s => ({
@@ -296,7 +299,7 @@ export function useOnboarding({
 
     try {
       // ChatGPT OAuth (single-step flow - opens browser, captures tokens automatically)
-      if (state.apiSetupMethod === 'codex_oauth') {
+      if (state.apiSetupMethod === 'chatgpt_oauth') {
         const result = await window.electronAPI.startChatGptOAuth()
 
         if (result.success) {
@@ -442,7 +445,7 @@ export function useOnboarding({
     setState(s => ({ ...s, step: 'welcome' }))
   }, [])
 
-  // Reset onboarding to initial state (used after logout)
+  // Reset onboarding to initial state (used after logout or modal close)
   const reset = useCallback(() => {
     setState({
       step: initialStep,
@@ -454,6 +457,10 @@ export function useOnboarding({
       errorMessage: undefined,
     })
     setIsWaitingForCode(false)
+    // Clean up any pending OAuth state
+    window.electronAPI.clearClaudeOAuthState().catch(() => {
+      // Ignore errors - state may not exist
+    })
   }, [])
 
   return {

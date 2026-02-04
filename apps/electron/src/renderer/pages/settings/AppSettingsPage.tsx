@@ -41,6 +41,9 @@ export default function AppSettingsPage() {
   // Notifications state
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
 
+  // Power state
+  const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(false)
+
   // Auto-update state
   const updateChecker = useUpdateChecker()
   const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false)
@@ -54,12 +57,16 @@ export default function AppSettingsPage() {
     }
   }, [updateChecker])
 
-  // Load notifications setting on mount
+  // Load settings on mount
   const loadSettings = useCallback(async () => {
     if (!window.electronAPI) return
     try {
-      const notificationsOn = await window.electronAPI.getNotificationsEnabled()
+      const [notificationsOn, keepAwakeOn] = await Promise.all([
+        window.electronAPI.getNotificationsEnabled(),
+        window.electronAPI.getKeepAwakeWhileRunning(),
+      ])
       setNotificationsEnabled(notificationsOn)
+      setKeepAwakeEnabled(keepAwakeOn)
     } catch (error) {
       console.error('Failed to load settings:', error)
     }
@@ -72,6 +79,11 @@ export default function AppSettingsPage() {
   const handleNotificationsEnabledChange = useCallback(async (enabled: boolean) => {
     setNotificationsEnabled(enabled)
     await window.electronAPI.setNotificationsEnabled(enabled)
+  }, [])
+
+  const handleKeepAwakeEnabledChange = useCallback(async (enabled: boolean) => {
+    setKeepAwakeEnabled(enabled)
+    await window.electronAPI.setKeepAwakeWhileRunning(enabled)
   }, [])
 
   return (
@@ -89,6 +101,18 @@ export default function AppSettingsPage() {
                     description="Get notified when AI finishes working in a chat."
                     checked={notificationsEnabled}
                     onCheckedChange={handleNotificationsEnabledChange}
+                  />
+                </SettingsCard>
+              </SettingsSection>
+
+              {/* Power */}
+              <SettingsSection title="Power">
+                <SettingsCard>
+                  <SettingsToggle
+                    label="Keep screen awake"
+                    description="Prevent the screen from turning off while sessions are running."
+                    checked={keepAwakeEnabled}
+                    onCheckedChange={handleKeepAwakeEnabledChange}
                   />
                 </SettingsCard>
               </SettingsSection>

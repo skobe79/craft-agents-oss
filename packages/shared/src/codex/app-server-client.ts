@@ -76,6 +76,15 @@ export interface ChatGptAuthTokensLoginParams {
 }
 
 /**
+ * API key login params for direct OpenAI API key authentication.
+ * Uses Codex's `apiKey` login mode instead of OAuth.
+ */
+export interface ApiKeyLoginParams {
+  type: 'apiKey';
+  apiKey: string;
+}
+
+/**
  * Token refresh request params from Codex app-server.
  * Sent when the server receives a 401 and needs fresh tokens.
  */
@@ -632,6 +641,24 @@ export class AppServerClient extends EventEmitter {
       type: 'chatgptAuthTokens',
       idToken: tokens.idToken,
       accessToken: tokens.accessToken,
+    };
+    return this.request<LoginAccountResponse>('account/login/start', params);
+  }
+
+  /**
+   * Login with OpenAI API key (apiKey mode).
+   *
+   * This allows using a direct OpenAI Platform API key instead of ChatGPT OAuth.
+   * API key usage is billed through the OpenAI Platform account at standard rates.
+   *
+   * Note: Some Codex features (cloud threads) may not be available with API key auth.
+   *
+   * @param apiKey - The OpenAI API key from platform.openai.com/api-keys
+   */
+  async accountLoginWithApiKey(apiKey: string): Promise<LoginAccountResponse> {
+    const params: ApiKeyLoginParams = {
+      type: 'apiKey',
+      apiKey,
     };
     return this.request<LoginAccountResponse>('account/login/start', params);
   }

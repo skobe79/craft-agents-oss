@@ -102,9 +102,10 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
 
   // ----------------------------------------
   // OpenAI Codex Models (via ChatGPT Plus)
+  // Model IDs must match actual Codex CLI model identifiers
   // ----------------------------------------
   {
-    id: 'codex',
+    id: 'gpt-5.2-codex',
     name: 'Codex',
     shortName: 'Codex',
     description: 'OpenAI reasoning model',
@@ -117,7 +118,7 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     outputCostPerM: 8.0,
   },
   {
-    id: 'codex-mini',
+    id: 'gpt-5.1-codex-mini',
     name: 'Codex Mini',
     shortName: 'Codex Mini',
     description: 'Fast OpenAI model',
@@ -163,7 +164,7 @@ export const MODELS = ANTHROPIC_MODELS;
 export const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
 
 /** Default model for Codex/OpenAI connections */
-export const DEFAULT_CODEX_MODEL = 'codex';
+export const DEFAULT_CODEX_MODEL = 'gpt-5.2-codex';
 
 /** Model for agent definition extraction (always high quality) */
 export const EXTRACTION_MODEL = 'claude-opus-4-5-20251101';
@@ -241,10 +242,11 @@ export function isClaudeModel(modelId: string): boolean {
 
 /**
  * Check if a model ID refers to a Codex/OpenAI model.
+ * Matches patterns like 'gpt-5.2-codex', 'gpt-5.1-codex-mini', etc.
  */
 export function isCodexModel(modelId: string): boolean {
   const lower = modelId.toLowerCase();
-  return lower.startsWith('codex') || lower.includes('codex');
+  return lower.includes('codex');
 }
 
 /**

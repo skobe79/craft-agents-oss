@@ -60,6 +60,7 @@ export {
   resolveSessionConnection,
   createConfigFromConnection,
   createBackendFromConnection,
+  providerTypeToAgentProvider,
 } from './factory.ts';
 
 // Agent implementations

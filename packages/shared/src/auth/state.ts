@@ -106,6 +106,14 @@ export async function performTokenRefresh(
       source: 'native',
     });
 
+    // Also save to LLM connection (dual-write for backwards compatibility)
+    // This ensures both legacy and modern auth paths have the refreshed token
+    await manager.setLlmOAuth('claude-max', {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken,
+      expiresAt: refreshed.expiresAt,
+    });
+
     return { accessToken: refreshed.accessToken };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -137,11 +145,15 @@ export async function performTokenRefresh(
       }
 
       // Clear the incompatible credentials to force fresh authentication
+      // Clear from both legacy and LLM connection locations
       await manager.setClaudeOAuthCredentials({
         accessToken: '',
         refreshToken: undefined,
         expiresAt: undefined,
       });
+
+      // Also clear from LLM connection (dual-clear for consistency)
+      await manager.deleteLlmCredentials('claude-max');
     }
 
     // Token refresh failed - return null token with optional migration info
@@ -239,19 +251,20 @@ export async function getAuthState(): Promise<AuthState> {
 
   // Get the default LLM connection to determine auth type
   const defaultConnectionSlug = getDefaultLlmConnection();
-  const connection = getLlmConnection(defaultConnectionSlug);
+  const connection = defaultConnectionSlug ? getLlmConnection(defaultConnectionSlug) : null;
 
   // Determine auth type from connection (with fallback to legacy config.authType)
   let effectiveAuthType: AuthType | null = null;
   if (connection) {
     // Map connection authType to legacy AuthType format for backwards compatibility
-    if (connection.authType === 'api_key') {
+    // New auth types (api_key, api_key_with_endpoint, bearer_token) map to 'api_key'
+    // OAuth maps to 'oauth_token'
+    if (connection.authType === 'api_key' || connection.authType === 'api_key_with_endpoint' || connection.authType === 'bearer_token') {
       effectiveAuthType = 'api_key';
     } else if (connection.authType === 'oauth') {
       effectiveAuthType = 'oauth_token';
-    } else if (connection.authType === 'codex_oauth') {
-      effectiveAuthType = 'codex_oauth';
     }
+    // Other auth types (iam_credentials, service_account_file, environment, none) don't map to legacy types
   } else {
     // Fallback to legacy config.authType
     effectiveAuthType = config?.authType ?? null;
@@ -263,42 +276,29 @@ export async function getAuthState(): Promise<AuthState> {
   let claudeOAuthToken: string | null = null;
   let migrationRequired: MigrationInfo | undefined;
 
-  if (connection) {
-    // Use LLM connection credentials (with fallback to legacy)
-    hasCredentials = await manager.hasLlmCredentials(defaultConnectionSlug, connection.authType);
+  if (connection && defaultConnectionSlug) {
+    // Use LLM connection credentials
+    // Pass providerType for OAuth routing (OpenAI OAuth needs idToken)
+    hasCredentials = await manager.hasLlmCredentials(defaultConnectionSlug, connection.authType, connection.providerType);
 
-    if (connection.authType === 'api_key') {
-      // Check connection-scoped credential first, then fallback to legacy
-      apiKey = await manager.getLlmApiKey(defaultConnectionSlug) || await manager.getApiKey();
+    if (connection.authType === 'api_key' || connection.authType === 'api_key_with_endpoint' || connection.authType === 'bearer_token') {
+      apiKey = await manager.getLlmApiKey(defaultConnectionSlug);
       // Keyless providers (Ollama) are valid when a custom base URL is configured
       if (!apiKey && connection.baseUrl) {
         hasCredentials = true;
       }
     } else if (connection.authType === 'oauth') {
-      // Check connection-scoped credential first, then fallback to legacy
       const llmOAuth = await manager.getLlmOAuth(defaultConnectionSlug);
       if (llmOAuth?.accessToken) {
         claudeOAuthToken = llmOAuth.accessToken;
-      } else {
-        // Fallback to legacy global credential
-        const tokenResult = await getValidClaudeOAuthToken();
-        claudeOAuthToken = tokenResult.accessToken;
-        migrationRequired = tokenResult.migrationRequired;
       }
     }
-    // codex_oauth credentials are handled separately by CodexAgent
+    // Other auth types (iam_credentials, service_account_file, environment, none) are handled by hasLlmCredentials
+    // OpenAI OAuth credentials are handled separately by CodexAgent
   } else {
-    // Fallback to legacy behavior when no connection is configured
-    apiKey = await manager.getApiKey();
-    const tokenResult = await getValidClaudeOAuthToken();
-    claudeOAuthToken = tokenResult.accessToken;
-    migrationRequired = tokenResult.migrationRequired;
-
-    if (effectiveAuthType === 'api_key') {
-      hasCredentials = !!apiKey || !!config?.anthropicBaseUrl;
-    } else if (effectiveAuthType === 'oauth_token') {
-      hasCredentials = !!claudeOAuthToken;
-    }
+    // No connection configured - credentials not available
+    // Legacy migration should have created a default connection
+    hasCredentials = false;
   }
 
   return {

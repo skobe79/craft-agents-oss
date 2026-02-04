@@ -10,40 +10,40 @@
  *
  * LLM Connections:
  * - Backends can be created from LLM connection configs
- * - Connection type maps to provider (anthropic, openai, openai-compat)
- * - Connection provides auth type, base URL, and model defaults
+ * - providerType determines SDK selection and credential routing
+ * - authType determines how credentials are retrieved
  */
 
-import type { AgentBackend, BackendConfig, AgentProvider } from './types.ts';
+import type { AgentBackend, BackendConfig, AgentProvider, LlmProviderType, LlmAuthType } from './types.ts';
 import { ClaudeAgent } from '../claude-agent.ts';
 import { CodexAgent } from '../codex-agent.ts';
 import {
   getLlmConnection,
   getDefaultLlmConnection,
   type LlmConnection,
-  type LlmConnectionType,
 } from '../../config/storage.ts';
+// Import deprecated type for legacy migration function only
+import type { LlmConnectionType } from '../../config/llm-connections.ts';
+// Import validation helpers for provider-auth combinations and codexPath
+import { isValidProviderAuthCombination, validateCodexPath } from '../../config/llm-connections.ts';
 
 /**
  * Detect provider from stored auth type.
  *
  * Maps authentication types to their corresponding providers:
- * - api_key, oauth_token → Anthropic (Claude)
- * - codex_oauth → OpenAI (Codex)
+ * - api_key, oauth_token → Anthropic (Claude) by default
+ *
+ * Note: Provider is now determined by LLM connection type, not auth type.
+ * This function is kept for backward compatibility.
  *
  * @param authType - The stored authentication type
  * @returns The detected provider
  */
 export function detectProvider(authType: string): AgentProvider {
   switch (authType) {
-    // Anthropic authentication types
     case 'api_key':
     case 'oauth_token':
       return 'anthropic';
-
-    // Codex authentication (ChatGPT Plus via app-server OAuth)
-    case 'codex_oauth':
-      return 'openai';
 
     // Default to Anthropic for unknown types
     default:
@@ -82,7 +82,7 @@ export function createBackend(config: BackendConfig): AgentBackend {
 
     case 'openai':
       // CodexAgent implements AgentBackend directly
-      // Auth is handled by the app-server (ChatGPT Plus OAuth or ~/.codex/auth.json)
+      // Auth is handled via ChatGPT Plus OAuth (native flow)
       return new CodexAgent(config);
 
     default:
@@ -120,9 +120,41 @@ export function isProviderAvailable(provider: AgentProvider): boolean {
 // ============================================================
 
 /**
- * Map LLM connection type to agent provider.
+ * Map LlmProviderType to AgentProvider (SDK selection).
  *
- * @param connectionType - The LLM connection type
+ * AgentProvider determines which backend class to instantiate:
+ * - 'anthropic' → ClaudeAgent
+ * - 'openai' → CodexAgent
+ *
+ * @param providerType - The full provider type from LLM connection
+ * @returns The agent provider for SDK selection
+ */
+export function providerTypeToAgentProvider(providerType: LlmProviderType): AgentProvider {
+  switch (providerType) {
+    // Anthropic SDK backends
+    case 'anthropic':
+    case 'anthropic_compat':
+    case 'bedrock':    // Bedrock uses Anthropic SDK with different auth
+    case 'vertex':     // Vertex uses Anthropic SDK with different auth
+      return 'anthropic';
+
+    // OpenAI/Codex backends
+    case 'openai':
+    case 'openai_compat':
+      return 'openai';
+
+    default:
+      // Exhaustive check
+      const _exhaustive: never = providerType;
+      return 'anthropic';
+  }
+}
+
+/**
+ * @deprecated Use providerTypeToAgentProvider instead.
+ * Map legacy LLM connection type to agent provider.
+ *
+ * @param connectionType - The legacy LLM connection type
  * @returns The corresponding agent provider
  */
 export function connectionTypeToProvider(connectionType: LlmConnectionType): AgentProvider {
@@ -138,21 +170,20 @@ export function connectionTypeToProvider(connectionType: LlmConnectionType): Age
 }
 
 /**
- * Map LLM auth type to backend auth type.
+ * @deprecated Use LlmAuthType directly - no mapping needed.
+ * Map legacy LLM auth type to backend auth type.
  *
- * @param authType - The LLM connection auth type
+ * @param authType - The legacy LLM connection auth type
  * @returns The corresponding backend auth type
  */
 export function connectionAuthTypeToBackendAuthType(
-  authType: 'api_key' | 'oauth' | 'codex_oauth' | 'none'
-): 'api_key' | 'oauth_token' | 'codex_oauth' | undefined {
+  authType: 'api_key' | 'oauth' | 'none'
+): 'api_key' | 'oauth_token' | undefined {
   switch (authType) {
     case 'api_key':
       return 'api_key';
     case 'oauth':
       return 'oauth_token';
-    case 'codex_oauth':
-      return 'codex_oauth';
     case 'none':
       return undefined;
   }
@@ -184,6 +215,7 @@ export function resolveSessionConnection(
 
   // 3. Global default
   const defaultSlug = getDefaultLlmConnection();
+  if (!defaultSlug) return null;
   return getLlmConnection(defaultSlug);
 }
 
@@ -196,12 +228,17 @@ export function resolveSessionConnection(
  */
 export function createConfigFromConnection(
   connection: LlmConnection,
-  baseConfig: Omit<BackendConfig, 'provider' | 'authType'>
+  baseConfig: Omit<BackendConfig, 'provider' | 'authType' | 'providerType'>
 ): BackendConfig {
+  // Use new providerType if available, fall back to legacy type
+  const providerType = connection.providerType || (connection.type ? connectionTypeToProvider(connection.type) as unknown as LlmProviderType : 'anthropic');
+  const provider = providerTypeToAgentProvider(providerType);
+
   return {
     ...baseConfig,
-    provider: connectionTypeToProvider(connection.type),
-    authType: connectionAuthTypeToBackendAuthType(connection.authType),
+    provider,
+    providerType,
+    authType: connection.authType,
     // Use connection's default model if no model specified in baseConfig
     model: baseConfig.model || connection.defaultModel,
   };
@@ -213,7 +250,7 @@ export function createConfigFromConnection(
  * @param connectionSlug - The LLM connection slug
  * @param baseConfig - Base backend config (workspace, session, etc.)
  * @returns An initialized AgentBackend instance
- * @throws Error if connection not found
+ * @throws Error if connection not found or has invalid provider-auth combination
  */
 export function createBackendFromConnection(
   connectionSlug: string,
@@ -222,6 +259,22 @@ export function createBackendFromConnection(
   const connection = getLlmConnection(connectionSlug);
   if (!connection) {
     throw new Error(`LLM connection not found: ${connectionSlug}`);
+  }
+
+  // Validate provider-auth combination before creating backend
+  // This catches invalid configurations early with a clear error message
+  if (!isValidProviderAuthCombination(connection.providerType, connection.authType)) {
+    throw new Error(
+      `Invalid LLM connection configuration: provider '${connection.providerType}' ` +
+      `does not support auth type '${connection.authType}'. ` +
+      `Please update the connection settings for '${connection.name}'.`
+    );
+  }
+
+  // Validate codexPath exists for OpenAI/Codex connections
+  const codexValidation = validateCodexPath(connection);
+  if (!codexValidation.isValid) {
+    throw new Error(codexValidation.error);
   }
 
   const config = createConfigFromConnection(connection, baseConfig);

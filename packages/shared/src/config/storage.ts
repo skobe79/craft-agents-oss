@@ -33,11 +33,9 @@ export type {
 import type { Workspace, AuthType } from '@craft-agent/core/types';
 
 // Import LLM connection types and constants
-import {
-  BUILT_IN_CONNECTIONS,
-  DEFAULT_LLM_CONNECTION,
-} from './llm-connections.ts';
+import { DEFAULT_LLM_CONNECTION } from './llm-connections.ts';
 import type { LlmConnection } from './llm-connections.ts';
+import { ANTHROPIC_MODELS, OPENAI_MODELS } from './models.ts';
 
 // Config stored in JSON file (credentials stored in encrypted file, not here)
 export interface StoredConfig {
@@ -68,6 +66,8 @@ export interface StoredConfig {
   // 'responses' = Custom Responses API implementation (default)
   // 'codex-sdk' = Forked @openai/codex-sdk with callback support
   openaiVariant?: 'responses' | 'codex-sdk';
+  // Power settings
+  keepAwakeWhileRunning?: boolean;  // Prevent screen sleep while sessions are running (default: false)
 }
 
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
@@ -157,19 +157,22 @@ export function loadStoredConfig(): StoredConfig | null {
 }
 
 /**
- * Get the Anthropic API key from credential store
+ * Get the Anthropic API key from credential store.
+ * Uses the new LLM connection system.
  */
 export async function getAnthropicApiKey(): Promise<string | null> {
   const manager = getCredentialManager();
-  return manager.getApiKey();
+  return manager.getLlmApiKey('anthropic-api');
 }
 
 /**
- * Get the Claude OAuth token from credential store
+ * Get the Claude OAuth token from credential store.
+ * Uses the new LLM connection system.
  */
 export async function getClaudeOAuthToken(): Promise<string | null> {
   const manager = getCredentialManager();
-  return manager.getClaudeOAuth();
+  const oauth = await manager.getLlmOAuth('claude-max');
+  return oauth?.accessToken || null;
 }
 
 
@@ -193,9 +196,9 @@ export async function updateApiKey(newApiKey: string): Promise<boolean> {
   const config = loadStoredConfig();
   if (!config) return false;
 
-  // Save API key to credential store
+  // Save API key to LLM connection credential store
   const manager = getCredentialManager();
-  await manager.setApiKey(newApiKey);
+  await manager.setLlmApiKey('anthropic-api', newApiKey);
 
   // Update auth type in config (but not the key itself)
   config.authType = 'api_key';
@@ -339,6 +342,29 @@ export function setSpellCheck(enabled: boolean): void {
   const config = loadStoredConfig();
   if (!config) return;
   config.spellCheck = enabled;
+  saveConfig(config);
+}
+
+/**
+ * Get whether screen should stay awake while sessions are running.
+ * Defaults to false if not set.
+ */
+export function getKeepAwakeWhileRunning(): boolean {
+  const config = loadStoredConfig();
+  if (config?.keepAwakeWhileRunning !== undefined) {
+    return config.keepAwakeWhileRunning;
+  }
+  const defaults = loadConfigDefaults();
+  return defaults.defaults.keepAwakeWhileRunning;
+}
+
+/**
+ * Set whether screen should stay awake while sessions are running.
+ */
+export function setKeepAwakeWhileRunning(enabled: boolean): void {
+  const config = loadStoredConfig();
+  if (!config) return;
+  config.keepAwakeWhileRunning = enabled;
   saveConfig(config);
 }
 
@@ -592,6 +618,16 @@ export async function removeWorkspace(workspaceId: string): Promise<boolean> {
   // Clean up credential store credentials for this workspace
   const manager = getCredentialManager();
   await manager.deleteWorkspaceCredentials(workspaceId);
+
+  // Delete workspace data directory (sessions, plans, etc.)
+  const workspaceDataDir = join(WORKSPACES_DIR, workspaceId);
+  if (existsSync(workspaceDataDir)) {
+    try {
+      rmSync(workspaceDataDir, { recursive: true });
+    } catch (error) {
+      console.error(`[storage] Failed to delete workspace data directory: ${workspaceDataDir}`, error);
+    }
+  }
 
   return true;
 }
@@ -1197,95 +1233,126 @@ export function resolveModelId(defaultModelId: string): string {
 // ============================================
 
 // Re-export types for convenience (imports are at top of file)
-export type { LlmConnection, LlmConnectionType, LlmAuthType, LlmConnectionWithStatus } from './llm-connections.ts';
+export type {
+  LlmConnection,
+  LlmProviderType,
+  LlmAuthType,
+  LlmConnectionWithStatus,
+} from './llm-connections.ts';
 
 /**
- * Ensure built-in LLM connections exist in config.
- * Called on config load to migrate from legacy auth fields.
+ * Migrate legacy auth config to LLM connections.
+ * Call this on app startup before any getLlmConnections() calls.
+ *
+ * This is a one-time migration that converts:
+ * - Legacy authType field → LlmConnection in llmConnections array
+ * - Legacy anthropicBaseUrl → LlmConnection.baseUrl
+ * - Legacy customModel → LlmConnection.defaultModel
+ *
+ * After migration, the legacy fields are preserved for backwards compatibility
+ * but are no longer read by the LLM connections system.
  */
-function ensureBuiltInConnections(config: StoredConfig): boolean {
-  let modified = false;
+export function migrateLegacyLlmConnectionsConfig(): void {
+  const config = loadStoredConfig();
+  if (!config) return;
 
-  // Initialize llmConnections if missing
-  if (!config.llmConnections) {
-    config.llmConnections = [...BUILT_IN_CONNECTIONS];
-    modified = true;
+  // Already migrated - llmConnections array exists
+  if (config.llmConnections !== undefined) {
+    return;
+  }
 
-    // Migrate legacy authType to defaultLlmConnection
-    if (config.authType) {
-      switch (config.authType) {
-        case 'api_key':
-          config.defaultLlmConnection = 'anthropic-api';
-          break;
-        case 'oauth_token':
-          config.defaultLlmConnection = 'claude-max';
-          break;
-        case 'codex_oauth':
-          config.defaultLlmConnection = 'codex';
-          break;
-      }
+  // Initialize empty array
+  config.llmConnections = [];
+
+  // Legacy migration: if user had authType set, create a connection for them
+  if (config.authType) {
+    let migrated: LlmConnection | null = null;
+
+    if (config.authType === 'oauth_token') {
+      // Claude Max OAuth
+      migrated = {
+        slug: 'claude-max',
+        name: 'Claude Max',
+        providerType: 'anthropic',
+        type: 'anthropic', // Legacy field for backwards compatibility
+        authType: 'oauth',
+        models: ANTHROPIC_MODELS,
+        createdAt: Date.now(),
+      };
+    } else if (config.authType === 'codex_oauth') {
+      // ChatGPT Plus OAuth (Codex)
+      migrated = {
+        slug: 'codex',
+        name: 'Codex (ChatGPT Plus)',
+        providerType: 'openai',
+        type: 'openai', // Legacy field for backwards compatibility
+        authType: 'oauth',
+        models: OPENAI_MODELS,
+        createdAt: Date.now(),
+      };
+    } else if (config.authType === 'codex_api_key') {
+      // OpenAI API Key via Codex (OpenRouter, Vercel AI Gateway compatible)
+      const hasCustomEndpoint = !!config.anthropicBaseUrl;
+      migrated = {
+        slug: 'codex-api',
+        name: hasCustomEndpoint ? 'Codex (Custom Endpoint)' : 'Codex (OpenAI API Key)',
+        providerType: 'openai',
+        type: 'openai', // Legacy field for backwards compatibility
+        authType: hasCustomEndpoint ? 'api_key_with_endpoint' : 'api_key',
+        models: OPENAI_MODELS,
+        createdAt: Date.now(),
+      };
+    } else if (config.authType === 'api_key') {
+      // Anthropic API Key - check if custom endpoint (compat mode)
+      const hasCustomEndpoint = !!config.anthropicBaseUrl;
+      migrated = {
+        slug: 'anthropic-api',
+        name: hasCustomEndpoint ? 'Custom Anthropic-Compatible' : 'Anthropic (API Key)',
+        providerType: hasCustomEndpoint ? 'anthropic_compat' : 'anthropic',
+        type: 'anthropic', // Legacy field for backwards compatibility
+        authType: hasCustomEndpoint ? 'api_key_with_endpoint' : 'api_key',
+        models: ANTHROPIC_MODELS,
+        createdAt: Date.now(),
+      };
     }
 
-    // Migrate legacy anthropicBaseUrl to the appropriate connection
-    // If using oauth_token (Claude Max), the baseUrl should go to claude-max
-    // Otherwise, it goes to anthropic-api (the default for API key users)
-    if (config.anthropicBaseUrl) {
-      const targetSlug = config.authType === 'oauth_token' ? 'claude-max' : 'anthropic-api';
-      const targetConn = config.llmConnections.find(c => c.slug === targetSlug);
-      if (targetConn) {
-        targetConn.baseUrl = config.anthropicBaseUrl;
+    if (migrated) {
+      // Apply legacy baseUrl if set
+      if (config.anthropicBaseUrl) {
+        migrated.baseUrl = config.anthropicBaseUrl;
       }
-    }
 
-    // Migrate legacy customModel to the relevant connection's defaultModel
-    // Note: This runs after authType migration, so defaultLlmConnection may be set
-    if (config.customModel) {
-      // If we have a default connection from authType, use that
-      // Otherwise, create a legacy-custom connection to preserve the model
-      if (config.defaultLlmConnection) {
-        const defaultConn = config.llmConnections.find(c => c.slug === config.defaultLlmConnection);
-        if (defaultConn) {
-          defaultConn.defaultModel = config.customModel;
-        }
-      } else {
-        // No authType set but customModel exists - create a custom connection
-        // This preserves third-party API configurations
-        const legacyCustomConnection: LlmConnection = {
-          slug: 'legacy-custom',
-          name: 'Custom API (Migrated)',
-          type: 'openai-compat',
-          baseUrl: config.anthropicBaseUrl,
-          authType: 'api_key',
-          defaultModel: config.customModel,
-          createdAt: Date.now(),
-        };
-        config.llmConnections.push(legacyCustomConnection);
-        config.defaultLlmConnection = 'legacy-custom';
+      // Apply legacy customModel if set
+      if (config.customModel) {
+        migrated.defaultModel = config.customModel;
       }
+
+      console.log(`[storage] Migrated legacy authType '${config.authType}' to LLM connection '${migrated.slug}'`);
+      config.llmConnections.push(migrated);
+      config.defaultLlmConnection = migrated.slug;
     }
   }
 
-  // Set default connection if not set
-  if (!config.defaultLlmConnection) {
-    config.defaultLlmConnection = DEFAULT_LLM_CONNECTION;
-    modified = true;
+  saveConfig(config);
+}
+
+/**
+ * Ensure default LLM connection is set correctly.
+ * Called internally by write operations to fix inconsistent state.
+ * This is NOT called on read - reads never modify config.
+ */
+function ensureDefaultLlmConnection(config: StoredConfig): boolean {
+  if (!config.llmConnections || config.llmConnections.length === 0) {
+    return false;
   }
 
-  // Ensure all built-in connections exist (in case new ones are added)
-  // Also update models field from registry if missing (migration for centralized model registry)
-  for (const builtin of BUILT_IN_CONNECTIONS) {
-    const existing = config.llmConnections.find(c => c.slug === builtin.slug);
-    if (!existing) {
-      config.llmConnections.push({ ...builtin });
-      modified = true;
-    } else if (builtin.models && !existing.models) {
-      // Migrate: Add models from built-in registry if missing
-      existing.models = builtin.models;
-      modified = true;
-    }
+  const defaultExists = config.llmConnections.some(c => c.slug === config.defaultLlmConnection);
+  if (!config.defaultLlmConnection || !defaultExists) {
+    config.defaultLlmConnection = config.llmConnections[0]!.slug;
+    return true;
   }
 
-  return modified;
+  return false;
 }
 
 /**
@@ -1298,9 +1365,13 @@ function ensureBuiltInConnections(config: StoredConfig): boolean {
  * Migration mapping:
  * - claude_oauth::global → llm_oauth::claude-max
  * - anthropic_api_key::global → llm_api_key::anthropic-api
+ *
+ * After successful migration, legacy credentials are deleted to prevent
+ * stale data and reduce credential store clutter.
  */
 export async function migrateLegacyCredentials(): Promise<void> {
   const manager = getCredentialManager();
+  const debug = (await import('../utils/debug.ts')).debug;
 
   // Migrate Claude OAuth: claude_oauth::global → llm_oauth::claude-max
   const legacyClaudeOAuth = await manager.getClaudeOAuthCredentials();
@@ -1313,7 +1384,16 @@ export async function migrateLegacyCredentials(): Promise<void> {
         refreshToken: legacyClaudeOAuth.refreshToken,
         expiresAt: legacyClaudeOAuth.expiresAt,
       });
-      // Keep legacy for backwards compatibility (don't delete)
+      debug('[storage] Migrated legacy Claude OAuth to llm_oauth::claude-max');
+
+      // Delete legacy credential after successful migration
+      // Global credentials use just the type - the key format is {type}::global
+      try {
+        await manager.delete({ type: 'claude_oauth' });
+        debug('[storage] Deleted legacy claude_oauth::global credential');
+      } catch (error) {
+        debug('[storage] Failed to delete legacy claude_oauth::global:', error);
+      }
     }
   }
 
@@ -1324,25 +1404,33 @@ export async function migrateLegacyCredentials(): Promise<void> {
     const existingLlmApiKey = await manager.getLlmApiKey('anthropic-api');
     if (!existingLlmApiKey) {
       await manager.setLlmApiKey('anthropic-api', legacyApiKey);
-      // Keep legacy for backwards compatibility (don't delete)
+      debug('[storage] Migrated legacy Anthropic API key to llm_api_key::anthropic-api');
+
+      // Delete legacy credential after successful migration
+      // Global credentials use just the type - the key format is {type}::global
+      try {
+        await manager.delete({ type: 'anthropic_api_key' });
+        debug('[storage] Deleted legacy anthropic_api_key::global credential');
+      } catch (error) {
+        debug('[storage] Failed to delete legacy anthropic_api_key::global:', error);
+      }
     }
   }
 }
 
 /**
  * Get all LLM connections.
- * Ensures built-in connections exist and returns the full list.
+ * Returns only user-added connections (no auto-populated built-ins).
+ *
+ * Note: This function is read-only and never modifies config.
+ * Call migrateLegacyLlmConnectionsConfig() on app startup to handle migration.
  */
 export function getLlmConnections(): LlmConnection[] {
   const config = loadStoredConfig();
-  if (!config) return [...BUILT_IN_CONNECTIONS];
+  if (!config) return [];
 
-  // Ensure built-ins exist (migration)
-  if (ensureBuiltInConnections(config)) {
-    saveConfig(config);
-  }
-
-  return config.llmConnections || [...BUILT_IN_CONNECTIONS];
+  // Return empty array if not migrated yet - caller should call migration on startup
+  return config.llmConnections || [];
 }
 
 /**
@@ -1364,18 +1452,24 @@ export function addLlmConnection(connection: LlmConnection): boolean {
   const config = loadStoredConfig();
   if (!config) return false;
 
-  ensureBuiltInConnections(config);
+  // Initialize array if not yet migrated (safe default for write operations)
+  if (!config.llmConnections) {
+    config.llmConnections = [];
+  }
 
   // Check for duplicate slug
-  if (config.llmConnections!.some(c => c.slug === connection.slug)) {
+  if (config.llmConnections.some(c => c.slug === connection.slug)) {
     return false;
   }
 
   // Add connection with timestamp
-  config.llmConnections!.push({
+  config.llmConnections.push({
     ...connection,
     createdAt: connection.createdAt || Date.now(),
   });
+
+  // Ensure default is set after adding first connection
+  ensureDefaultLlmConnection(config);
 
   saveConfig(config);
   return true;
@@ -1391,9 +1485,12 @@ export function updateLlmConnection(slug: string, updates: Partial<Omit<LlmConne
   const config = loadStoredConfig();
   if (!config) return false;
 
-  ensureBuiltInConnections(config);
+  // No connections means nothing to update
+  if (!config.llmConnections || config.llmConnections.length === 0) {
+    return false;
+  }
 
-  const connections = config.llmConnections!;
+  const connections = config.llmConnections;
   const index = connections.findIndex(c => c.slug === slug);
   if (index === -1) return false;
 
@@ -1402,13 +1499,20 @@ export function updateLlmConnection(slug: string, updates: Partial<Omit<LlmConne
     // Preserve required fields from existing
     slug: existing.slug,
     name: updates.name ?? existing.name,
-    type: updates.type ?? existing.type,
+    providerType: updates.providerType ?? existing.providerType,
+    type: updates.type ?? existing.type, // Legacy field
     authType: updates.authType ?? existing.authType,
     createdAt: updates.createdAt ?? existing.createdAt,
     // Optional fields from updates or existing
     baseUrl: updates.baseUrl !== undefined ? updates.baseUrl : existing.baseUrl,
     models: updates.models !== undefined ? updates.models : existing.models,
     defaultModel: updates.defaultModel !== undefined ? updates.defaultModel : existing.defaultModel,
+    codexPath: updates.codexPath !== undefined ? updates.codexPath : existing.codexPath,
+    // Cloud provider fields
+    awsRegion: updates.awsRegion !== undefined ? updates.awsRegion : existing.awsRegion,
+    gcpProjectId: updates.gcpProjectId !== undefined ? updates.gcpProjectId : existing.gcpProjectId,
+    gcpRegion: updates.gcpRegion !== undefined ? updates.gcpRegion : existing.gcpRegion,
+    // Timestamps
     lastUsedAt: updates.lastUsedAt !== undefined ? updates.lastUsedAt : existing.lastUsedAt,
   };
 
@@ -1418,30 +1522,27 @@ export function updateLlmConnection(slug: string, updates: Partial<Omit<LlmConne
 
 /**
  * Delete an LLM connection.
- * At least one connection must remain.
  * @param slug - Connection slug to delete
- * @returns true if deleted, false if not found or is last connection
+ * @returns true if deleted, false if not found
  */
 export function deleteLlmConnection(slug: string): boolean {
   const config = loadStoredConfig();
   if (!config) return false;
 
-  ensureBuiltInConnections(config);
-
-  const connections = config.llmConnections!;
-  const index = connections.findIndex(c => c.slug === slug);
-  if (index === -1) return false;
-
-  // Prevent deleting the last connection
-  if (connections.length <= 1) {
+  // No connections means nothing to delete
+  if (!config.llmConnections || config.llmConnections.length === 0) {
     return false;
   }
 
+  const connections = config.llmConnections;
+  const index = connections.findIndex(c => c.slug === slug);
+  if (index === -1) return false;
+
   connections.splice(index, 1);
 
-  // If deleted connection was the default, reset to global default
+  // If deleted connection was the default, reset to first remaining or clear
   if (config.defaultLlmConnection === slug) {
-    config.defaultLlmConnection = DEFAULT_LLM_CONNECTION;
+    config.defaultLlmConnection = connections.length > 0 ? connections[0]!.slug : undefined;
   }
 
   saveConfig(config);
@@ -1461,29 +1562,32 @@ export function deleteLlmConnection(slug: string): boolean {
   }
 
   // Clean up stored credentials for this connection (API keys, OAuth tokens)
-  try {
-    const credentialManager = getCredentialManager();
-    // Delete API key credential if exists
-    credentialManager.delete({ type: 'llm_api_key', connectionSlug: slug }).catch(() => {});
-    // Delete OAuth credential if exists
-    credentialManager.delete({ type: 'llm_oauth', connectionSlug: slug }).catch(() => {});
-  } catch (error) {
-    console.error('Failed to clean up connection credentials:', error);
-  }
+  // This is fire-and-forget but we log errors for debugging
+  const credentialManager = getCredentialManager();
+  credentialManager.delete({ type: 'llm_api_key', connectionSlug: slug }).catch((error) => {
+    console.error(`[storage] Failed to delete API key credential for connection '${slug}':`, error);
+  });
+  credentialManager.delete({ type: 'llm_oauth', connectionSlug: slug }).catch((error) => {
+    console.error(`[storage] Failed to delete OAuth credential for connection '${slug}':`, error);
+  });
 
   return true;
 }
 
 /**
  * Get the default LLM connection slug.
- * @returns Default connection slug
+ * @returns Default connection slug, or null if no connections exist
  */
-export function getDefaultLlmConnection(): string {
+export function getDefaultLlmConnection(): string | null {
   const config = loadStoredConfig();
-  if (!config) return DEFAULT_LLM_CONNECTION;
+  if (!config) return null;
 
-  ensureBuiltInConnections(config);
-  return config.defaultLlmConnection || DEFAULT_LLM_CONNECTION;
+  // If no connections, return null
+  if (!config.llmConnections || config.llmConnections.length === 0) {
+    return null;
+  }
+
+  return config.defaultLlmConnection || config.llmConnections[0]?.slug || null;
 }
 
 /**
@@ -1495,10 +1599,13 @@ export function setDefaultLlmConnection(slug: string): boolean {
   const config = loadStoredConfig();
   if (!config) return false;
 
-  ensureBuiltInConnections(config);
+  // No connections means nothing to set as default
+  if (!config.llmConnections || config.llmConnections.length === 0) {
+    return false;
+  }
 
   // Verify connection exists
-  if (!config.llmConnections!.some(c => c.slug === slug)) {
+  if (!config.llmConnections.some(c => c.slug === slug)) {
     return false;
   }
 
@@ -1515,9 +1622,10 @@ export function touchLlmConnection(slug: string): void {
   const config = loadStoredConfig();
   if (!config) return;
 
-  ensureBuiltInConnections(config);
+  // No connections means nothing to touch
+  if (!config.llmConnections) return;
 
-  const connection = config.llmConnections!.find(c => c.slug === slug);
+  const connection = config.llmConnections.find(c => c.slug === slug);
   if (connection) {
     connection.lastUsedAt = Date.now();
     saveConfig(config);

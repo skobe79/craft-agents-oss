@@ -501,6 +501,22 @@ export async function updateSessionSdkId(
 }
 
 /**
+ * Check if sdkCwd can be safely updated for a session.
+ *
+ * sdkCwd is normally immutable because the SDK stores session transcripts at
+ * ~/.claude/projects/{cwd-slugified}/. However, it's safe to update sdkCwd if
+ * no SDK interaction has occurred yet (no transcripts to preserve).
+ *
+ * @returns true if sdkCwd can be updated (no messages and no SDK session ID)
+ */
+export function canUpdateSdkCwd(session: StoredSession): boolean {
+  // Safe to update if:
+  // 1. No messages have been sent yet (no conversation to preserve)
+  // 2. No SDK session ID (no transcript exists at the sdkCwd path)
+  return session.messages.length === 0 && !session.sdkSessionId;
+}
+
+/**
  * Update session metadata
  */
 export async function updateSessionMetadata(
@@ -515,6 +531,7 @@ export async function updateSessionMetadata(
     | 'hasUnread'
     | 'enabledSourceSlugs'
     | 'workingDirectory'
+    | 'sdkCwd'
     | 'permissionMode'
     | 'sharedUrl'
     | 'sharedId'
@@ -530,6 +547,7 @@ export async function updateSessionMetadata(
   if (updates.labels !== undefined) session.labels = updates.labels;
   if (updates.enabledSourceSlugs !== undefined) session.enabledSourceSlugs = updates.enabledSourceSlugs;
   if (updates.workingDirectory !== undefined) session.workingDirectory = updates.workingDirectory;
+  if (updates.sdkCwd !== undefined) session.sdkCwd = updates.sdkCwd;
   if (updates.permissionMode !== undefined) session.permissionMode = updates.permissionMode;
   if ('lastReadMessageId' in updates) session.lastReadMessageId = updates.lastReadMessageId;
   if ('hasUnread' in updates) session.hasUnread = updates.hasUnread;

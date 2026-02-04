@@ -362,6 +362,23 @@ export abstract class BaseAgent implements AgentBackend {
     this.debug(`Working directory updated: ${path}`);
   }
 
+  /**
+   * Update the SDK cwd (used for transcript storage location).
+   *
+   * This should only be called when it's safe to update - i.e., before any
+   * SDK interaction has occurred. The SessionManager checks this condition
+   * before calling this method.
+   *
+   * This updates the session config so the agent uses the new path for
+   * SDK operations going forward.
+   */
+  updateSdkCwd(path: string): void {
+    if (this.config.session) {
+      this.config.session.sdkCwd = path;
+    }
+    this.debug(`SDK cwd updated: ${path}`);
+  }
+
   // ============================================================
   // Source Management (delegated to SourceManager)
   // ============================================================

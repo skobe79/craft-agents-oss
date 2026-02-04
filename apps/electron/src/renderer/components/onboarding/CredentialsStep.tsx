@@ -43,10 +43,13 @@ export function CredentialsStep({
   onCancelOAuth,
 }: CredentialsStepProps) {
   const isClaudeOAuth = apiSetupMethod === 'claude_oauth'
-  const isCodexOAuth = apiSetupMethod === 'codex_oauth'
+  const isChatGptOAuth = apiSetupMethod === 'chatgpt_oauth'
+  const isAnthropicApiKey = apiSetupMethod === 'anthropic_api_key'
+  const isOpenAiApiKey = apiSetupMethod === 'openai_api_key'
+  const isApiKey = isAnthropicApiKey || isOpenAiApiKey
 
-  // --- Codex OAuth flow (native browser OAuth) ---
-  if (isCodexOAuth) {
+  // --- ChatGPT OAuth flow (native browser OAuth) ---
+  if (isChatGptOAuth) {
     return (
       <StepFormLayout
         title="Connect ChatGPT"
@@ -150,10 +153,16 @@ export function CredentialsStep({
   }
 
   // --- API Key flow ---
+  // Determine provider type and description based on selected method
+  const providerType = isOpenAiApiKey ? 'openai' : 'anthropic'
+  const apiKeyDescription = isOpenAiApiKey
+    ? "Enter your OpenAI API key. Optionally configure OpenRouter or Vercel AI Gateway."
+    : "Enter your API key. Optionally configure a custom endpoint for OpenRouter, Ollama, or compatible APIs."
+
   return (
     <StepFormLayout
       title="API Configuration"
-      description="Enter your API key. Optionally configure a custom endpoint for OpenRouter, Ollama, or compatible APIs."
+      description={apiKeyDescription}
       actions={
         <>
           <BackButton onClick={onBack} disabled={status === 'validating'} />
@@ -171,6 +180,7 @@ export function CredentialsStep({
         status={status as ApiKeyStatus}
         errorMessage={errorMessage}
         onSubmit={onSubmit}
+        providerType={providerType}
       />
     </StepFormLayout>
   )

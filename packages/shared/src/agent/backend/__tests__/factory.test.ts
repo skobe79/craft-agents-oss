@@ -16,12 +16,15 @@ import {
   isProviderAvailable,
   connectionTypeToProvider,
   connectionAuthTypeToBackendAuthType,
+  providerTypeToAgentProvider,
+  createBackendFromConnection,
 } from '../factory.ts';
 import type { BackendConfig } from '../types.ts';
-import type { Workspace } from '../../../config/storage.ts';
+import type { Workspace, LlmConnection } from '../../../config/storage.ts';
 import type { SessionConfig as Session } from '../../../sessions/storage.ts';
 import { ClaudeAgent } from '../../claude-agent.ts';
 import { CodexAgent } from '../../codex-agent.ts';
+import { isValidProviderAuthCombination, validateCodexPath } from '../../../config/llm-connections.ts';
 
 // Test helpers
 function createTestWorkspace(): Workspace {
@@ -62,12 +65,6 @@ describe('detectProvider', () => {
 
     it('should return anthropic for oauth_token', () => {
       expect(detectProvider('oauth_token')).toBe('anthropic');
-    });
-  });
-
-  describe('OpenAI/Codex authentication types', () => {
-    it('should return openai for codex_oauth', () => {
-      expect(detectProvider('codex_oauth')).toBe('openai');
     });
   });
 
@@ -157,7 +154,7 @@ describe('connectionTypeToProvider', () => {
   });
 });
 
-describe('connectionAuthTypeToBackendAuthType', () => {
+describe('connectionAuthTypeToBackendAuthType (legacy)', () => {
   it('should map api_key to api_key', () => {
     expect(connectionAuthTypeToBackendAuthType('api_key')).toBe('api_key');
   });
@@ -166,12 +163,38 @@ describe('connectionAuthTypeToBackendAuthType', () => {
     expect(connectionAuthTypeToBackendAuthType('oauth')).toBe('oauth_token');
   });
 
-  it('should map codex_oauth to codex_oauth', () => {
-    expect(connectionAuthTypeToBackendAuthType('codex_oauth')).toBe('codex_oauth');
-  });
-
   it('should map none to undefined', () => {
     expect(connectionAuthTypeToBackendAuthType('none')).toBeUndefined();
+  });
+});
+
+describe('providerTypeToAgentProvider', () => {
+  describe('Anthropic SDK providers', () => {
+    it('should map anthropic to anthropic', () => {
+      expect(providerTypeToAgentProvider('anthropic')).toBe('anthropic');
+    });
+
+    it('should map anthropic_compat to anthropic', () => {
+      expect(providerTypeToAgentProvider('anthropic_compat')).toBe('anthropic');
+    });
+
+    it('should map bedrock to anthropic (uses Anthropic SDK)', () => {
+      expect(providerTypeToAgentProvider('bedrock')).toBe('anthropic');
+    });
+
+    it('should map vertex to anthropic (uses Anthropic SDK)', () => {
+      expect(providerTypeToAgentProvider('vertex')).toBe('anthropic');
+    });
+  });
+
+  describe('OpenAI SDK providers', () => {
+    it('should map openai to openai', () => {
+      expect(providerTypeToAgentProvider('openai')).toBe('openai');
+    });
+
+    it('should map openai_compat to openai', () => {
+      expect(providerTypeToAgentProvider('openai_compat')).toBe('openai');
+    });
   });
 });
 
@@ -200,5 +223,136 @@ describe('Agent capabilities', () => {
     expect(caps.supportsResume).toBe(true);
     expect(caps.models.length).toBeGreaterThan(0);
     expect(caps.thinkingLevels.length).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================
+// Provider-Auth Validation Tests
+// ============================================================
+
+describe('isValidProviderAuthCombination', () => {
+  describe('Anthropic provider', () => {
+    it('should accept api_key auth', () => {
+      expect(isValidProviderAuthCombination('anthropic', 'api_key')).toBe(true);
+    });
+
+    it('should accept oauth auth', () => {
+      expect(isValidProviderAuthCombination('anthropic', 'oauth')).toBe(true);
+    });
+
+    it('should reject api_key_with_endpoint auth', () => {
+      expect(isValidProviderAuthCombination('anthropic', 'api_key_with_endpoint')).toBe(false);
+    });
+
+    it('should reject none auth', () => {
+      expect(isValidProviderAuthCombination('anthropic', 'none')).toBe(false);
+    });
+  });
+
+  describe('Anthropic compat provider', () => {
+    it('should accept api_key_with_endpoint auth', () => {
+      expect(isValidProviderAuthCombination('anthropic_compat', 'api_key_with_endpoint')).toBe(true);
+    });
+
+    it('should reject plain api_key auth', () => {
+      expect(isValidProviderAuthCombination('anthropic_compat', 'api_key')).toBe(false);
+    });
+  });
+
+  describe('OpenAI provider', () => {
+    it('should accept api_key auth', () => {
+      expect(isValidProviderAuthCombination('openai', 'api_key')).toBe(true);
+    });
+
+    it('should accept oauth auth', () => {
+      expect(isValidProviderAuthCombination('openai', 'oauth')).toBe(true);
+    });
+
+    it('should reject none auth', () => {
+      expect(isValidProviderAuthCombination('openai', 'none')).toBe(false);
+    });
+  });
+
+  describe('OpenAI compat provider', () => {
+    it('should accept api_key_with_endpoint auth', () => {
+      expect(isValidProviderAuthCombination('openai_compat', 'api_key_with_endpoint')).toBe(true);
+    });
+
+    it('should accept none auth (for local models like Ollama)', () => {
+      expect(isValidProviderAuthCombination('openai_compat', 'none')).toBe(true);
+    });
+  });
+
+  describe('Bedrock provider', () => {
+    it('should accept bearer_token auth', () => {
+      expect(isValidProviderAuthCombination('bedrock', 'bearer_token')).toBe(true);
+    });
+
+    it('should accept iam_credentials auth', () => {
+      expect(isValidProviderAuthCombination('bedrock', 'iam_credentials')).toBe(true);
+    });
+
+    it('should accept environment auth', () => {
+      expect(isValidProviderAuthCombination('bedrock', 'environment')).toBe(true);
+    });
+  });
+
+  describe('Vertex provider', () => {
+    it('should accept oauth auth', () => {
+      expect(isValidProviderAuthCombination('vertex', 'oauth')).toBe(true);
+    });
+
+    it('should accept service_account_file auth', () => {
+      expect(isValidProviderAuthCombination('vertex', 'service_account_file')).toBe(true);
+    });
+
+    it('should accept environment auth', () => {
+      expect(isValidProviderAuthCombination('vertex', 'environment')).toBe(true);
+    });
+  });
+});
+
+describe('validateCodexPath', () => {
+  // Helper to create a test connection
+  function createTestConnection(overrides: Partial<LlmConnection> = {}): LlmConnection {
+    return {
+      slug: 'test-connection',
+      name: 'Test Connection',
+      providerType: 'openai',
+      authType: 'oauth',
+      createdAt: Date.now(),
+      ...overrides,
+    };
+  }
+
+  describe('Non-OpenAI providers', () => {
+    it('should always return valid for non-OpenAI providers', () => {
+      const connection = createTestConnection({ providerType: 'anthropic' });
+      const result = validateCodexPath(connection);
+      expect(result.isValid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+  });
+
+  describe('OpenAI provider without custom path', () => {
+    it('should return valid when no codexPath is set (uses PATH)', () => {
+      const connection = createTestConnection({ providerType: 'openai', codexPath: undefined });
+      const result = validateCodexPath(connection);
+      expect(result.isValid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+  });
+
+  describe('OpenAI provider with non-existent custom path', () => {
+    it('should return invalid when codexPath does not exist', () => {
+      const connection = createTestConnection({
+        providerType: 'openai',
+        codexPath: '/non/existent/path/to/codex',
+      });
+      const result = validateCodexPath(connection);
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain('Codex binary not found');
+      expect(result.error).toContain('/non/existent/path/to/codex');
+    });
   });
 });

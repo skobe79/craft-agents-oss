@@ -279,8 +279,13 @@ export function FreeFormInput({
       'OpenAI': [],
     }
     for (const conn of llmConnections) {
-      if (conn.type === 'anthropic') groups['Anthropic'].push(conn)
-      else if (conn.type === 'openai') groups['OpenAI'].push(conn)
+      const provider = conn.providerType || 'anthropic'
+      // Group by SDK: anthropic/anthropic_compat/bedrock/vertex use Anthropic SDK
+      if (provider === 'anthropic' || provider === 'anthropic_compat' || provider === 'bedrock' || provider === 'vertex') {
+        groups['Anthropic'].push(conn)
+      } else if (provider === 'openai' || provider === 'openai_compat') {
+        groups['OpenAI'].push(conn)
+      }
     }
     // Return only non-empty groups
     return Object.entries(groups).filter(([, conns]) => conns.length > 0)
@@ -1696,7 +1701,8 @@ export function FreeFormInput({
                       'claude-sonnet-4-5-20250929': 'Best for everyday tasks',
                       'claude-haiku-4-5-20251001': 'Fastest for quick answers',
                       'claude-3-5-haiku-latest': 'Fastest for quick answers',
-                      'codex-1': 'OpenAI Codex model',
+                      'gpt-5.2-codex': 'OpenAI Codex model',
+                      'gpt-5.1-codex-mini': 'Fast OpenAI model',
                       'o3': 'OpenAI o3 model',
                       'o4-mini': 'OpenAI o4-mini model',
                     }

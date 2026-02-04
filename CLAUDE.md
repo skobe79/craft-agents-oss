@@ -314,7 +314,7 @@ Named provider configurations for AI backends. Sessions lock to a connection aft
 | Type | Backend | Auth Types |
 |------|---------|------------|
 | `anthropic` | ClaudeAgent | `api_key`, `oauth` |
-| `openai` | CodexAgent | `codex_oauth` |
+| `openai` | CodexAgent | `oauth` |
 | `openai-compat` | (future) | `api_key`, `none` |
 
 **Built-in connections:**

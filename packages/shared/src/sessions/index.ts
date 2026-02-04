@@ -43,6 +43,7 @@ export {
   // Metadata updates
   updateSessionSdkId,
   updateSessionMetadata,
+  canUpdateSdkCwd,
   flagSession,
   unflagSession,
   setSessionTodoState,

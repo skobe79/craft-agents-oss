@@ -17,12 +17,14 @@
 
 /** Types of credentials we store */
 export type CredentialType =
-  // Global credentials
+  // Global credentials (legacy, kept for backwards compatibility)
   | 'anthropic_api_key'  // Anthropic API key for Claude
   | 'claude_oauth'       // Claude OAuth token (Max subscription)
   // LLM connection credentials (keyed by connection slug)
   | 'llm_api_key'        // API key for LLM connection
   | 'llm_oauth'          // OAuth token for LLM connection
+  | 'llm_iam'            // AWS IAM credentials (accessKeyId + secretAccessKey)
+  | 'llm_service_account' // GCP service account JSON
   // Workspace credentials
   | 'workspace_oauth'    // Workspace MCP OAuth token
   // Source credentials (stored at ~/.craft-agent/workspaces/{ws}/sources/{slug}/)
@@ -37,6 +39,8 @@ const VALID_CREDENTIAL_TYPES: readonly CredentialType[] = [
   'claude_oauth',
   'llm_api_key',
   'llm_oauth',
+  'llm_iam',
+  'llm_service_account',
   'workspace_oauth',
   'source_oauth',
   'source_bearer',
@@ -69,7 +73,7 @@ export interface CredentialId {
 /**
  * Stored credential value in encrypted file.
  *
- * This is a generic type for all credential types (OAuth, bearer tokens, API keys).
+ * This is a generic type for all credential types (OAuth, bearer tokens, API keys, IAM, service accounts).
  * All fields except `value` are optional since not all credential types use them.
  *
  * Note: `clientId` is optional here unlike `OAuthCredentials` (in storage.ts)
@@ -77,7 +81,7 @@ export interface CredentialId {
  * which don't have a clientId.
  */
 export interface StoredCredential {
-  /** The secret value (API key or access token) */
+  /** The secret value (API key, access token, or primary credential) */
   value: string;
   /** OAuth refresh token */
   refreshToken?: string;
@@ -97,6 +101,27 @@ export interface StoredCredential {
    * The `value` field stores access_token, this field stores id_token.
    */
   idToken?: string;
+
+  // --- AWS IAM credentials (for llm_iam type) ---
+
+  /** AWS Access Key ID (for IAM credentials) */
+  awsAccessKeyId?: string;
+  /** AWS Secret Access Key (for IAM credentials) - stored in `value` field */
+  // awsSecretAccessKey is stored in the `value` field
+  /** AWS Region (for IAM credentials) */
+  awsRegion?: string;
+  /** AWS Session Token (for temporary credentials) */
+  awsSessionToken?: string;
+
+  // --- GCP Service Account (for llm_service_account type) ---
+
+  /** GCP Project ID (for service account) */
+  gcpProjectId?: string;
+  /** GCP Region (for service account) */
+  gcpRegion?: string;
+  /** Service account email (for identification) */
+  serviceAccountEmail?: string;
+  // Full service account JSON is stored in the `value` field
 }
 
 // Using "::" as delimiter instead of "/" because server names and API names
@@ -115,6 +140,8 @@ const SOURCE_CREDENTIAL_TYPES = [
 const LLM_CREDENTIAL_TYPES = [
   'llm_api_key',
   'llm_oauth',
+  'llm_iam',
+  'llm_service_account',
 ] as const;
 
 /** Check if type is a source credential */
@@ -156,6 +183,33 @@ export function credentialIdToAccount(id: CredentialId): string {
 
   parts.push('global');
   return parts.join(CREDENTIAL_DELIMITER);
+}
+
+// ============================================================
+// Credential Health Check Types
+// ============================================================
+
+/** Types of credential health issues detected at startup */
+export type CredentialHealthIssueType =
+  | 'file_corrupted'         // Credential file exists but can't be parsed
+  | 'decryption_failed'      // File exists but can't be decrypted (machine migration)
+  | 'no_default_credentials' // No credentials for the default connection
+
+/** A single credential health issue */
+export interface CredentialHealthIssue {
+  type: CredentialHealthIssueType
+  /** Human-readable error message */
+  message: string
+  /** Original error if available */
+  error?: string
+}
+
+/** Result of credential store health check */
+export interface CredentialHealthStatus {
+  /** True if credential store is healthy and usable */
+  healthy: boolean
+  /** List of issues found (empty if healthy) */
+  issues: CredentialHealthIssue[]
 }
 
 /** Parse credential store account string back to CredentialId. Returns null if invalid. */

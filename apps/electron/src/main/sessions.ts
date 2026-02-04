@@ -9,7 +9,7 @@ import {
   CodexAgent,
   detectProvider,
   resolveSessionConnection,
-  connectionTypeToProvider,
+  providerTypeToAgentProvider,
   connectionAuthTypeToBackendAuthType,
 } from '@craft-agent/shared/agent/backend'
 import {
@@ -41,6 +41,7 @@ import {
   createSession as createStoredSession,
   deleteSession as deleteStoredSession,
   updateSessionMetadata,
+  canUpdateSdkCwd,
   setPendingPlanExecution as setStoredPendingPlanExecution,
   markCompactionComplete as markStoredCompactionComplete,
   clearPendingPlanExecution as clearStoredPendingPlanExecution,
@@ -676,8 +677,13 @@ export class SessionManager {
         // Broadcast to UI
         this.broadcastSourcesChanged(sources)
         // Reload sources for all sessions in this workspace
+        // Skip sessions that are currently processing to avoid interrupting tool calls
         for (const [_, managed] of this.sessions) {
           if (managed.workspace.rootPath === workspaceRootPath) {
+            if (managed.isProcessing) {
+              sessionLog.info(`Skipping source reload for session ${managed.session.id} (processing)`)
+              continue
+            }
             await this.reloadSessionSources(managed)
           }
         }
@@ -688,8 +694,13 @@ export class SessionManager {
         const sources = loadWorkspaceSources(workspaceRootPath)
         this.broadcastSourcesChanged(sources)
         // Reload sources for all sessions in this workspace
+        // Skip sessions that are currently processing to avoid interrupting tool calls
         for (const [_, managed] of this.sessions) {
           if (managed.workspace.rootPath === workspaceRootPath) {
+            if (managed.isProcessing) {
+              sessionLog.info(`Skipping source reload for session ${managed.session.id} (processing)`)
+              continue
+            }
             await this.reloadSessionSources(managed)
           }
         }
@@ -944,8 +955,7 @@ export class SessionManager {
 
         // Set credentials based on connection auth type
         if (connection.authType === 'api_key') {
-          // Check connection-scoped credential first, then fallback to legacy global
-          const apiKey = await manager.getLlmApiKey(slug) || await manager.getApiKey()
+          const apiKey = await manager.getLlmApiKey(slug)
           if (apiKey) {
             process.env.ANTHROPIC_API_KEY = apiKey
             sessionLog.info(`Set API key for connection: ${slug}`)
@@ -957,17 +967,15 @@ export class SessionManager {
             sessionLog.error(`No API key found for connection: ${slug}`)
           }
         } else if (connection.authType === 'oauth') {
-          // Check connection-scoped credential first, then fallback to legacy global
           const llmOAuth = await manager.getLlmOAuth(slug)
-          const token = llmOAuth?.accessToken || await manager.getClaudeOAuth()
-          if (token) {
-            process.env.CLAUDE_CODE_OAUTH_TOKEN = token
+          if (llmOAuth?.accessToken) {
+            process.env.CLAUDE_CODE_OAUTH_TOKEN = llmOAuth.accessToken
             sessionLog.info(`Set OAuth token for connection: ${slug}`)
           } else {
             sessionLog.error(`No OAuth token found for connection: ${slug}`)
           }
         }
-        // codex_oauth doesn't use env vars - handled by CodexAgent via tryInjectStoredChatGptTokens
+        // OpenAI OAuth doesn't use env vars - handled by CodexAgent via tryInjectStoredChatGptTokens
       }
 
       // Reset cached summarization client so it picks up new credentials/base URL
@@ -1716,25 +1724,25 @@ export class SessionManager {
 
       // Determine provider from connection or fall back to legacy authType
       let provider: 'anthropic' | 'openai'
-      let authType: 'api_key' | 'oauth_token' | 'codex_oauth' | undefined
+      let authType: 'api_key' | 'oauth_token' | undefined
 
       if (connection) {
-        provider = connectionTypeToProvider(connection.type)
+        provider = providerTypeToAgentProvider(connection.providerType || 'anthropic')
         authType = connectionAuthTypeToBackendAuthType(connection.authType)
-        sessionLog.info(`Using LLM connection "${connection.slug}" (${connection.type}) for session ${managed.id}`)
+        sessionLog.info(`Using LLM connection "${connection.slug}" (${connection.providerType}) for session ${managed.id}`)
       } else {
         // Fallback to legacy detection
         const legacyAuthType = getAuthType()
         provider = detectProvider(legacyAuthType)
-        authType = legacyAuthType as 'api_key' | 'oauth_token' | 'codex_oauth'
+        authType = legacyAuthType as 'api_key' | 'oauth_token'
         sessionLog.info(`Using legacy auth detection (${legacyAuthType}) for session ${managed.id}`)
       }
 
       // Create the appropriate backend based on provider
       if (provider === 'openai') {
         // Codex backend - uses app-server protocol
-        // Use connection's default model, or session model, or fallback to 'codex'
-        const codexModel = managed.model || connection?.defaultModel || 'codex'
+        // Use connection's default model, or session model, or fallback to gpt-5.2-codex
+        const codexModel = managed.model || connection?.defaultModel || 'gpt-5.2-codex'
 
         // Set up per-session Codex configuration (MCP servers, etc.)
         // This creates .codex-home/config.toml in the session folder
@@ -1749,7 +1757,7 @@ export class SessionManager {
 
         managed.agent = new CodexBackend({
           provider: 'openai',
-          authType: authType || 'codex_oauth',
+          authType: authType || 'oauth_token',
           workspace: managed.workspace,
           model: codexModel,
           thinkingLevel: managed.thinkingLevel,
@@ -1795,28 +1803,44 @@ export class SessionManager {
         })
         sessionLog.info(`Created Codex agent for session ${managed.id} (model: ${codexModel}, codexHome: ${codexHome})${managed.sdkSessionId ? ' (resuming)' : ''}`)
 
-        // CRITICAL: Inject stored ChatGPT OAuth tokens into Codex app-server
+        // CRITICAL: Inject stored credentials into Codex app-server
         // Without this, the app-server spawns but has no authentication, causing silent failures
         const codexAgent = managed.agent as CodexAgent
+        const codexAuthType = connection?.authType || authType
 
-        // Wire up auth callback to notify UI when re-authentication is needed
-        // Uses 'info' event with 'error' level to display a warning to the user
-        codexAgent.onChatGptAuthRequired = (reason: string) => {
-          sessionLog.warn(`ChatGPT auth required for session ${managed.id}: ${reason}`)
-          this.sendEvent({
-            type: 'info',
-            sessionId: managed.id,
-            message: `ChatGPT authentication required: ${reason}. Please check your Codex login.`,
-            level: 'error',
-          })
-        }
+        // Determine auth method based on connection authType
+        // - 'oauth' → ChatGPT Plus OAuth tokens
+        // - 'api_key' or 'api_key_with_endpoint' → OpenAI API key
+        const useApiKey = codexAuthType === 'api_key' || codexAuthType === 'api_key_with_endpoint'
 
-        // Inject stored tokens (if available) - this is async but we await it
-        const tokensInjected = await codexAgent.tryInjectStoredChatGptTokens()
-        if (tokensInjected) {
-          sessionLog.info(`ChatGPT tokens injected for Codex session ${managed.id}`)
+        if (useApiKey) {
+          // Inject stored API key (OpenAI Platform, OpenRouter, Vercel AI Gateway)
+          const apiKeyInjected = await codexAgent.tryInjectStoredApiKey()
+          if (apiKeyInjected) {
+            sessionLog.info(`OpenAI API key injected for Codex session ${managed.id}`)
+          } else {
+            sessionLog.warn(`No OpenAI API key available for Codex session ${managed.id} - user may need to configure API key`)
+          }
         } else {
-          sessionLog.warn(`No ChatGPT tokens available for Codex session ${managed.id} - user may need to authenticate`)
+          // Wire up auth callback to notify UI when re-authentication is needed (OAuth only)
+          // Uses 'info' event with 'error' level to display a warning to the user
+          codexAgent.onChatGptAuthRequired = (reason: string) => {
+            sessionLog.warn(`ChatGPT auth required for session ${managed.id}: ${reason}`)
+            this.sendEvent({
+              type: 'info',
+              sessionId: managed.id,
+              message: `ChatGPT authentication required: ${reason}. Please check your Codex login.`,
+              level: 'error',
+            })
+          }
+
+          // Inject stored OAuth tokens (if available) - this is async but we await it
+          const tokensInjected = await codexAgent.tryInjectStoredChatGptTokens()
+          if (tokensInjected) {
+            sessionLog.info(`ChatGPT tokens injected for Codex session ${managed.id}`)
+          } else {
+            sessionLog.warn(`No ChatGPT tokens available for Codex session ${managed.id} - user may need to authenticate`)
+          }
         }
       } else {
         // Claude backend - uses Anthropic SDK
@@ -2682,16 +2706,40 @@ export class SessionManager {
   }
 
   /**
-   * Update the working directory for a session
+   * Update the working directory for a session.
+   *
+   * If no messages have been sent yet (no SDK interaction), also updates sdkCwd
+   * so the SDK will use the new path for transcript storage. This prevents the
+   * confusing "bash shell runs from a different directory" warning when the user
+   * changes the working directory before their first message.
    */
   updateWorkingDirectory(sessionId: string, path: string): void {
     const managed = this.sessions.get(sessionId)
     if (managed) {
       managed.workingDirectory = path
+
+      // Check if we can also update sdkCwd (safe if no SDK interaction yet)
+      // Conditions: no messages sent AND no agent created yet (no SDK session)
+      const shouldUpdateSdkCwd =
+        managed.messages.length === 0 &&
+        !managed.sdkSessionId &&
+        !managed.agent
+
+      if (shouldUpdateSdkCwd) {
+        managed.sdkCwd = path
+        sessionLog.info(`Session ${sessionId}: sdkCwd updated to ${path} (no prior interaction)`)
+      }
+
       // Also update the agent's session config if agent exists
       if (managed.agent) {
         managed.agent.updateWorkingDirectory(path)
+        // If agent exists but conditions still allow sdkCwd update (edge case),
+        // update the agent's sdkCwd as well
+        if (shouldUpdateSdkCwd) {
+          managed.agent.updateSdkCwd(path)
+        }
       }
+
       this.persistSession(managed)
       // Notify renderer of the working directory change
       this.sendEvent({ type: 'working_directory_changed', sessionId, workingDirectory: path }, managed.workspace.id)
@@ -2932,6 +2980,11 @@ export class SessionManager {
     managed.streamingText = ''
     managed.processingGeneration++
 
+    // Notify power manager that a session started processing
+    // (may prevent display sleep if setting enabled)
+    const { onSessionStarted } = await import('./power-manager')
+    onSessionStarted()
+
     // Reset auth retry flag for this new message (allows one retry per message)
     // IMPORTANT: Skip reset if this is an auth retry call - the flag is already true
     // and resetting it would allow infinite retry loops
@@ -3167,6 +3220,10 @@ export class SessionManager {
     // but since we cleared isProcessing, onProcessingStopped won't be called again
     managed.isProcessing = false
 
+    // Notify power manager that processing was cancelled
+    const { onSessionStopped } = await import('./power-manager')
+    onSessionStopped()
+
     // Only show "Response interrupted" message when user explicitly clicked Stop
     // Silent mode is used when redirecting (sending new message while processing)
     if (!silent) {
@@ -3208,6 +3265,11 @@ export class SessionManager {
 
     // 1. Cleanup state
     managed.isProcessing = false
+
+    // Notify power manager that a session stopped processing
+    // (may allow display sleep if no other sessions are active)
+    const { onSessionStopped } = await import('./power-manager')
+    onSessionStopped()
 
     // 2. Handle unread state based on whether user is viewing this session
     //    This is the explicit state machine for NEW badge:

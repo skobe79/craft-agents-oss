@@ -273,6 +273,24 @@ app.whenReady().then(async () => {
     // Initialize auth (must happen after window creation for error reporting)
     await sessionManager.initialize()
 
+    // Run credential health check at startup to detect issues early
+    // (corruption, machine migration, missing credentials for default connection)
+    try {
+      const { getCredentialManager } = await import('@craft-agent/shared/credentials')
+      const credentialManager = getCredentialManager()
+      const health = await credentialManager.checkHealth()
+      if (!health.healthy) {
+        mainLog.warn('Credential health check failed:', health.issues)
+        // Issues will be displayed in Settings → AI when user navigates there
+      }
+    } catch (err) {
+      mainLog.error('Credential health check error:', err)
+    }
+
+    // Initialize power manager (loads setting, must happen after config is available)
+    const { initPowerManager } = await import('./power-manager')
+    await initPowerManager()
+
     // Set Sentry context tags for error grouping (no PII — just config classification).
     // Runs after init so config and auth state are available.
     try {
@@ -378,6 +396,10 @@ app.on('before-quit', async (event) => {
     }
     // Clean up SessionManager resources (file watchers, timers, etc.)
     sessionManager.cleanup()
+
+    // Clean up power manager (release power blocker)
+    const { cleanup: cleanupPowerManager } = await import('./power-manager')
+    cleanupPowerManager()
 
     // If update is in progress, let electron-updater handle the quit flow
     // Force exit breaks the NSIS installer on Windows

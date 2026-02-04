@@ -16,7 +16,6 @@ import { getSessionAttachmentsPath, validateSessionId } from '@craft-agent/share
 import { loadWorkspaceSources, getSourcesBySlugs, type LoadedSource } from '@craft-agent/shared/sources'
 import { isValidThinkingLevel } from '@craft-agent/shared/agent/thinking-levels'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
-import { hasCodexOAuth } from '@craft-agent/shared/codex/auth'
 import { MarkItDown } from 'markitdown-js'
 
 /**
@@ -1168,6 +1167,13 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     }
   })
 
+  // Credential health check - validates credential store is readable and usable
+  // Called on app startup to detect corruption, machine migration, or missing credentials
+  ipcMain.handle(IPC_CHANNELS.CREDENTIAL_HEALTH_CHECK, async () => {
+    const manager = getCredentialManager()
+    return manager.checkHealth()
+  })
+
   // ============================================================
   // Settings - API Setup
   // ============================================================
@@ -1183,16 +1189,14 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     let customModel: string | undefined
 
     if (authType === 'api_key') {
-      apiKey = await manager.getApiKey() ?? undefined
+      apiKey = await manager.getLlmApiKey('anthropic-api') ?? undefined
       anthropicBaseUrl = getAnthropicBaseUrl() ?? undefined
       customModel = getCustomModel() ?? undefined
       // Keyless providers (Ollama) are valid when a custom base URL is configured
       hasCredential = !!apiKey || !!anthropicBaseUrl
     } else if (authType === 'oauth_token') {
-      hasCredential = !!(await manager.getClaudeOAuth())
-    } else if (authType === 'codex_oauth') {
-      // Codex uses ~/.codex/auth.json managed by the CLI
-      hasCredential = hasCodexOAuth()
+      const oauth = await manager.getLlmOAuth('claude-max')
+      hasCredential = !!oauth?.accessToken
     }
 
     return {
@@ -1242,30 +1246,24 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
     }
 
-    // Store or clear credential
-    // Save to both legacy and LLM connection for backwards compatibility
+    // Store or clear credential (new system only - legacy migration handles old users)
     if (credential) {
       if (authType === 'api_key') {
-        await manager.setApiKey(credential)
         await manager.setLlmApiKey('anthropic-api', credential)
-        ipcLog.info('Saved API key to both legacy and LLM connection')
+        ipcLog.info('Saved API key to LLM connection')
       } else if (authType === 'oauth_token') {
         // Save the access token (refresh token and expiry are managed by the OAuth flow)
-        await manager.setClaudeOAuth(credential)
         await manager.setLlmOAuth('claude-max', { accessToken: credential })
-        ipcLog.info('Saved Claude OAuth access token to both legacy and LLM connection')
+        ipcLog.info('Saved Claude OAuth access token to LLM connection')
       }
     } else if (credential === '') {
       // Empty string means user explicitly cleared the credential
-      // Only clear the specific credential being referenced, not all credentials
       if (authType === 'api_key') {
-        await manager.delete({ type: 'anthropic_api_key' })
         await manager.deleteLlmCredentials('anthropic-api')
-        ipcLog.info('API key cleared from both legacy and LLM connection')
+        ipcLog.info('API key cleared from LLM connection')
       } else if (authType === 'oauth_token') {
-        await manager.delete({ type: 'claude_oauth' })
         await manager.deleteLlmCredentials('claude-max')
-        ipcLog.info('Claude OAuth cleared from both legacy and LLM connection')
+        ipcLog.info('Claude OAuth cleared from LLM connection')
       }
     }
 
@@ -1397,6 +1395,78 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
 
       // Fallback: return the raw error message
+      return { success: false, error: msg.slice(0, 300) }
+    }
+  })
+
+  // Test OpenAI API connection (validates OpenAI API key against /v1/models endpoint)
+  // Used for Codex backend which requires OpenAI-compatible API keys
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_TEST_OPENAI_CONNECTION, async (_event, apiKey: string, baseUrl?: string): Promise<{ success: boolean; error?: string }> => {
+    const trimmedKey = apiKey?.trim()
+    const trimmedUrl = baseUrl?.trim()
+
+    // Require API key for OpenAI validation
+    if (!trimmedKey) {
+      return { success: false, error: 'API key is required' }
+    }
+
+    try {
+      // Test against /v1/models endpoint - validates auth without consuming tokens
+      // For OpenAI direct: https://api.openai.com/v1/models
+      // For OpenRouter/Vercel: use their respective base URLs
+      const effectiveBaseUrl = trimmedUrl || 'https://api.openai.com'
+      const modelsUrl = `${effectiveBaseUrl.replace(/\/$/, '')}/v1/models`
+
+      ipcLog.info(`[testOpenAiConnection] Testing: ${modelsUrl}`)
+
+      const response = await fetch(modelsUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${trimmedKey}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        ipcLog.info('[testOpenAiConnection] Success')
+        return { success: true }
+      }
+
+      // Handle specific error codes
+      if (response.status === 401) {
+        return { success: false, error: 'Invalid API key' }
+      }
+
+      if (response.status === 403) {
+        return { success: false, error: 'API key does not have permission to access this resource' }
+      }
+
+      if (response.status === 404) {
+        return { success: false, error: 'API endpoint not found. Check the base URL.' }
+      }
+
+      if (response.status === 429) {
+        return { success: false, error: 'Rate limit exceeded. Please try again.' }
+      }
+
+      // Try to extract error message from response
+      try {
+        const errorData = await response.json()
+        const errorMessage = errorData?.error?.message || `API error: ${response.status}`
+        return { success: false, error: errorMessage }
+      } catch {
+        return { success: false, error: `API error: ${response.status} ${response.statusText}` }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      const lowerMsg = msg.toLowerCase()
+      ipcLog.info(`[testOpenAiConnection] Error: ${msg.slice(0, 500)}`)
+
+      // Connection errors
+      if (lowerMsg.includes('econnrefused') || lowerMsg.includes('enotfound') || lowerMsg.includes('fetch failed')) {
+        return { success: false, error: 'Cannot connect to API server. Check the URL and your network connection.' }
+      }
+
       return { success: false, error: msg.slice(0, 300) }
     }
   })
@@ -1658,40 +1728,102 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
         return { success: false, error: 'No credentials configured' }
       }
 
-      // For Codex (openai with codex_oauth), just validate OAuth tokens exist
-      // Starting the Codex app-server is heavyweight and would disrupt the user
-      if (connection.type === 'openai' && connection.authType === 'codex_oauth') {
-        ipcLog.info(`LLM connection validated (credentials only): ${slug}`)
+      // ========================================
+      // Codex/ChatGPT OAuth validation
+      // ========================================
+      const isOpenAiProvider = connection.providerType === 'openai' || connection.providerType === 'openai_compat'
+      if (isOpenAiProvider && connection.authType === 'oauth') {
+        // Get stored ChatGPT tokens
+        const oauth = await credentialManager.getLlmOAuth(slug)
+        if (!oauth?.refreshToken) {
+          return { success: false, error: 'No refresh token available. Please re-authenticate.' }
+        }
+
+        // Validate by attempting to refresh tokens
+        try {
+          const { refreshChatGptTokens } = await import('@craft-agent/shared/auth/chatgpt-oauth')
+          const refreshed = await refreshChatGptTokens(oauth.refreshToken)
+
+          // Store the refreshed tokens
+          await credentialManager.setLlmOAuth(slug, {
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken,
+            expiresAt: refreshed.expiresAt,
+            idToken: refreshed.idToken,
+          })
+
+          ipcLog.info(`LLM connection validated (ChatGPT OAuth refreshed): ${slug}`)
+          touchLlmConnection(slug)
+          return { success: true }
+        } catch (refreshError) {
+          const msg = refreshError instanceof Error ? refreshError.message : String(refreshError)
+          ipcLog.info(`[LLM_CONNECTION_TEST] ChatGPT OAuth refresh failed for ${slug}: ${msg}`)
+          return { success: false, error: 'ChatGPT authentication expired. Please re-authenticate.' }
+        }
+      }
+
+      // ========================================
+      // Claude Max OAuth validation (token refresh only)
+      // ========================================
+      // NOTE: The standard Anthropic API doesn't support OAuth - only the Claude Code SDK
+      // has special internal handling for it. So we validate by ensuring the token can be
+      // refreshed successfully, without making an API call.
+      const isAnthropicProvider = connection.providerType === 'anthropic' || connection.providerType === 'anthropic_compat'
+      if (isAnthropicProvider && connection.authType === 'oauth') {
+        const { getValidClaudeOAuthToken } = await import('@craft-agent/shared/auth/state')
+        const tokenResult = await getValidClaudeOAuthToken()
+
+        if (!tokenResult.accessToken) {
+          const errorMsg = tokenResult.migrationRequired?.message || 'OAuth token expired. Please re-authenticate.'
+          return { success: false, error: errorMsg }
+        }
+
+        // Token is valid (refreshed if needed) - connection is working
+        ipcLog.info(`LLM connection validated (OAuth token valid): ${slug}`)
         touchLlmConnection(slug)
         return { success: true }
       }
 
-      // For Anthropic and OpenAI-compatible, make an actual API call
-      if (connection.type === 'anthropic' || connection.type === 'openai-compat') {
+      // ========================================
+      // Anthropic API Key / OpenAI-compatible validation
+      // ========================================
+      // Handles anthropic, anthropic_compat, bedrock, vertex providers (all use Anthropic SDK)
+      const usesAnthropicSdk = connection.providerType === 'anthropic' ||
+                               connection.providerType === 'anthropic_compat' ||
+                               connection.providerType === 'bedrock' ||
+                               connection.providerType === 'vertex'
+      if (usesAnthropicSdk) {
+        // Skip validation for auth types that require cloud SDK integration (not yet implemented)
+        if (connection.authType === 'iam_credentials') {
+          ipcLog.info(`LLM connection skipped validation (AWS IAM not implemented): ${slug}`)
+          touchLlmConnection(slug)
+          return { success: true }
+        }
+        if (connection.authType === 'service_account_file') {
+          ipcLog.info(`LLM connection skipped validation (GCP service account not implemented): ${slug}`)
+          touchLlmConnection(slug)
+          return { success: true }
+        }
+
         const Anthropic = (await import('@anthropic-ai/sdk')).default
 
         // Get the appropriate credential based on auth type
         let authKey: string | null = null
-        if (connection.authType === 'api_key') {
-          authKey = await credentialManager.getLlmApiKey(slug)
-          // Fall back to legacy global API key for built-in 'anthropic-api' connection
-          if (!authKey && slug === 'anthropic-api') {
-            authKey = await credentialManager.getApiKey()
-          }
-        } else if (connection.authType === 'oauth') {
-          const oauth = await credentialManager.getLlmOAuth(slug)
-          if (!oauth) {
-            // Fall back to legacy Claude OAuth for 'claude-max' connection
-            if (slug === 'claude-max') {
-              authKey = await credentialManager.getClaudeOAuth()
-            }
-          } else {
-            authKey = oauth.accessToken
-          }
-        }
+        let useBearer = false // Whether to use Bearer token (authToken) vs x-api-key header
 
-        // For 'none' auth type (e.g., local Ollama), use a dummy token
-        if (connection.authType === 'none') {
+        if (connection.authType === 'api_key' || connection.authType === 'api_key_with_endpoint') {
+          authKey = await credentialManager.getLlmApiKey(slug)
+        } else if (connection.authType === 'bearer_token') {
+          authKey = await credentialManager.getLlmApiKey(slug) // Same storage, different header
+          useBearer = true
+        } else if (connection.authType === 'environment') {
+          // Use environment variable (ANTHROPIC_API_KEY)
+          authKey = process.env.ANTHROPIC_API_KEY || null
+          if (!authKey) {
+            return { success: false, error: 'ANTHROPIC_API_KEY environment variable not set' }
+          }
+        } else if (connection.authType === 'none') {
+          // For 'none' auth type (e.g., local Ollama), use a dummy token
           authKey = 'ollama'
         }
 
@@ -1703,13 +1835,16 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
         const baseUrl = connection.baseUrl
         const isCustomUrl = !!baseUrl
 
+        // Determine auth header type:
+        // - Bearer token: explicit bearer_token auth type OR custom URL (OpenAI-compatible endpoints)
+        // - x-api-key: standard Anthropic API
+        const useBearerAuth = useBearer || isCustomUrl
+
         const client = new Anthropic({
           ...(isCustomUrl ? { baseURL: baseUrl } : {}),
-          ...(isCustomUrl
+          ...(useBearerAuth
             ? { authToken: authKey || 'ollama', apiKey: null }  // Bearer for custom URLs
-            : connection.authType === 'oauth'
-              ? { authToken: authKey, apiKey: null }            // Bearer for Claude Max OAuth
-              : { apiKey: authKey, authToken: null }            // x-api-key for Anthropic API
+            : { apiKey: authKey, authToken: null }              // x-api-key for Anthropic API
           ),
         })
 
@@ -2902,6 +3037,22 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   ipcMain.handle(IPC_CHANNELS.INPUT_SET_SPELL_CHECK, async (_event, enabled: boolean) => {
     const { setSpellCheck } = await import('@craft-agent/shared/config/storage')
     setSpellCheck(enabled)
+  })
+
+  // Get keep awake while running setting
+  ipcMain.handle(IPC_CHANNELS.POWER_GET_KEEP_AWAKE, async () => {
+    const { getKeepAwakeWhileRunning } = await import('@craft-agent/shared/config/storage')
+    return getKeepAwakeWhileRunning()
+  })
+
+  // Set keep awake while running setting
+  ipcMain.handle(IPC_CHANNELS.POWER_SET_KEEP_AWAKE, async (_event, enabled: boolean) => {
+    const { setKeepAwakeWhileRunning } = await import('@craft-agent/shared/config/storage')
+    const { setKeepAwakeSetting } = await import('./power-manager')
+    // Save to config
+    setKeepAwakeWhileRunning(enabled)
+    // Update the power manager's cached value and power state
+    setKeepAwakeSetting(enabled)
   })
 
   // Update app badge count

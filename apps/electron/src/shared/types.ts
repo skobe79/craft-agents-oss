@@ -42,6 +42,10 @@ import type { AuthState, SetupNeeds } from '@craft-agent/shared/auth/types';
 import type { AuthType } from '@craft-agent/shared/config/types';
 export type { AuthState, SetupNeeds, AuthType };
 
+// Import and re-export credential health types
+import type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType } from '@craft-agent/shared/credentials/types';
+export type { CredentialHealthStatus, CredentialHealthIssue, CredentialHealthIssueType };
+
 // Import source types for session source selection
 import type { LoadedSource, FolderSourceConfig, SourceConnectionStatus } from '@craft-agent/shared/sources/types';
 export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
@@ -55,8 +59,8 @@ import type { AgentCapabilities } from '@craft-agent/shared/agent/backend';
 export type { AgentCapabilities };
 
 // Import LLM connection types
-import type { LlmConnection, LlmConnectionWithStatus, LlmAuthType } from '@craft-agent/shared/config';
-export type { LlmConnection, LlmConnectionWithStatus, LlmAuthType };
+import type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType } from '@craft-agent/shared/config';
+export type { LlmConnection, LlmConnectionWithStatus, LlmAuthType, LlmProviderType };
 
 
 /**
@@ -628,6 +632,9 @@ export const IPC_CHANNELS = {
   SHOW_LOGOUT_CONFIRMATION: 'auth:showLogoutConfirmation',
   SHOW_DELETE_SESSION_CONFIRMATION: 'auth:showDeleteSessionConfirmation',
 
+  // Credential health check (startup validation)
+  CREDENTIAL_HEALTH_CHECK: 'credentials:healthCheck',
+
   // Onboarding
   ONBOARDING_GET_AUTH_STATE: 'onboarding:getAuthState',
   ONBOARDING_VALIDATE_MCP: 'onboarding:validateMcp',
@@ -638,8 +645,6 @@ export const IPC_CHANNELS = {
   ONBOARDING_EXCHANGE_CLAUDE_CODE: 'onboarding:exchangeClaudeCode',
   ONBOARDING_HAS_CLAUDE_OAUTH_STATE: 'onboarding:hasClaudeOAuthState',
   ONBOARDING_CLEAR_CLAUDE_OAUTH_STATE: 'onboarding:clearClaudeOAuthState',
-  // Codex OAuth (CLI-based, checks ~/.codex/auth.json)
-  ONBOARDING_CHECK_CODEX_AUTH: 'onboarding:checkCodexAuth',
 
   // Backend capabilities (for capabilities-driven UI)
   GET_BACKEND_CAPABILITIES: 'backend:getCapabilities',
@@ -664,6 +669,7 @@ export const IPC_CHANNELS = {
   SETTINGS_GET_API_SETUP: 'settings:getApiSetup',
   SETTINGS_UPDATE_API_SETUP: 'settings:updateApiSetup',
   SETTINGS_TEST_API_CONNECTION: 'settings:testApiConnection',
+  SETTINGS_TEST_OPENAI_CONNECTION: 'settings:testOpenAiConnection',
 
   // Settings - Model
   SETTINGS_GET_MODEL: 'settings:getModel',
@@ -775,6 +781,10 @@ export const IPC_CHANNELS = {
   INPUT_SET_SEND_MESSAGE_KEY: 'input:setSendMessageKey',
   INPUT_GET_SPELL_CHECK: 'input:getSpellCheck',
   INPUT_SET_SPELL_CHECK: 'input:setSpellCheck',
+
+  // Power settings
+  POWER_GET_KEEP_AWAKE: 'power:getKeepAwake',
+  POWER_SET_KEEP_AWAKE: 'power:setKeepAwake',
 
   BADGE_UPDATE: 'badge:update',
   BADGE_CLEAR: 'badge:clear',
@@ -914,6 +924,9 @@ export interface ElectronAPI {
   showDeleteSessionConfirmation(name: string): Promise<boolean>
   logout(): Promise<void>
 
+  // Credential health check (startup validation)
+  getCredentialHealth(): Promise<CredentialHealthStatus>
+
   // Onboarding
   getAuthState(): Promise<AuthState>
   getSetupNeeds(): Promise<SetupNeeds>
@@ -931,8 +944,6 @@ export interface ElectronAPI {
   exchangeClaudeCode(code: string): Promise<ClaudeOAuthResult>
   hasClaudeOAuthState(): Promise<boolean>
   clearClaudeOAuthState(): Promise<{ success: boolean }>
-  // Codex OAuth (CLI-based, checks ~/.codex/auth.json)
-  checkCodexAuth(): Promise<{ authenticated: boolean; error?: string }>
 
   // ChatGPT OAuth (for Codex chatgptAuthTokens mode)
   // Note: startChatGptOAuth opens browser and completes full OAuth flow internally
@@ -1065,6 +1076,10 @@ export interface ElectronAPI {
   setSendMessageKey(key: 'enter' | 'cmd-enter'): Promise<void>
   getSpellCheck(): Promise<boolean>
   setSpellCheck(enabled: boolean): Promise<void>
+
+  // Power settings
+  getKeepAwakeWhileRunning(): Promise<boolean>
+  setKeepAwakeWhileRunning(enabled: boolean): Promise<void>
 
   updateBadgeCount(count: number): Promise<void>
   clearBadgeCount(): Promise<void>

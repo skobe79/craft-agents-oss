@@ -29,6 +29,10 @@ export { AbortReason, type RecoveryMessage };
 import type { ModelDefinition, ModelProvider } from '../../config/models.ts';
 export type { ModelDefinition } from '../../config/models.ts';
 
+// Import LLM connection types for auth
+import type { LlmAuthType, LlmProviderType } from '../../config/llm-connections.ts';
+export type { LlmAuthType, LlmProviderType } from '../../config/llm-connections.ts';
+
 /**
  * Provider identifier for AI backends.
  * @deprecated Use ModelProvider from config/models.ts instead
@@ -327,18 +331,31 @@ export interface AgentBackend {
  * Configuration for creating a backend.
  */
 export interface BackendConfig {
-  /** Provider to use */
+  /**
+   * Provider/SDK to use for this backend.
+   * Determines which agent class is instantiated:
+   * - 'anthropic' → ClaudeAgent (Anthropic SDK)
+   * - 'openai' → CodexAgent (OpenAI via app-server)
+   */
   provider: AgentProvider;
 
   /**
-   * Authentication type that determines credential source.
-   * - api_key: Anthropic API key (Claude)
-   * - oauth_token: Claude Max OAuth (Anthropic)
-   * - codex_oauth: ChatGPT Plus OAuth via Codex app-server (~/.codex/auth.json)
-   *
-   * Note: OpenAI API key auth is deprecated - use Codex app-server OAuth instead.
+   * Full provider type from LLM connection.
+   * Includes compat variants and cloud providers.
+   * Used for routing validation, credential lookup, etc.
    */
-  authType?: 'api_key' | 'oauth_token' | 'codex_oauth';
+  providerType?: LlmProviderType;
+
+  /**
+   * Authentication mechanism from LLM connection.
+   * Determines how credentials are retrieved and passed to the backend.
+   */
+  authType?: LlmAuthType;
+
+  /**
+   * @deprecated Use authType instead. Kept for backwards compatibility.
+   */
+  legacyAuthType?: 'api_key' | 'oauth_token';
 
   /** Workspace configuration */
   workspace: Workspace;
