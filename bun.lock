@@ -70,6 +70,7 @@
         "eslint": "^9.39.2",
         "eslint-plugin-react": "^7.37.5",
         "eslint-plugin-react-hooks": "^7.0.1",
+        "husky": "^9.1.7",
         "postcss": "^8.5.6",
         "react-devtools-core": "^6.1.1",
         "tailwindcss": "^4.1.18",
@@ -80,7 +81,7 @@
     },
     "apps/electron": {
       "name": "@craft-agent/electron",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "dependencies": {
         "@craft-agent/core": "workspace:*",
         "@craft-agent/shared": "workspace:*",
@@ -119,7 +120,7 @@
     },
     "apps/marketing": {
       "name": "@craft-agent/marketing",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "dependencies": {
         "@craft-agent/ui": "workspace:*",
         "@paper-design/shaders-react": "^0.0.70",
@@ -142,7 +143,7 @@
     },
     "apps/viewer": {
       "name": "@craft-agent/viewer",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "dependencies": {
         "@craft-agent/core": "workspace:*",
         "@craft-agent/ui": "workspace:*",
@@ -169,7 +170,7 @@
     },
     "packages/core": {
       "name": "@craft-agent/core",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "devDependencies": {
         "@types/uuid": "^11.0.0",
       },
@@ -181,7 +182,7 @@
     },
     "packages/mermaid": {
       "name": "@craft-agent/mermaid",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "dependencies": {
         "@dagrejs/dagre": "^1.1.8",
       },
@@ -191,7 +192,7 @@
     },
     "packages/shared": {
       "name": "@craft-agent/shared",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "dependencies": {
         "@craft-agent/core": "workspace:*",
         "@craft-agent/mermaid": "workspace:*",
@@ -216,7 +217,7 @@
     },
     "packages/ui": {
       "name": "@craft-agent/ui",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "dependencies": {
         "@craft-agent/core": "workspace:*",
         "@craft-agent/mermaid": "workspace:*",
@@ -1813,6 +1814,8 @@
     "http2-wrapper": ["http2-wrapper@2.2.1", "", { "dependencies": { "quick-lru": "^5.1.1", "resolve-alpn": "^1.2.0" } }, "sha512-V5nVw1PAOgfI3Lmeaj2Exmeg7fenjhRUgz1lPSezy1CuhPYbgQtbQj4jZfEAEMlaL+vupsvhjqCyjzob0yxsmQ=="],
 
     "https-proxy-agent": ["https-proxy-agent@7.0.6", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "4" } }, "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw=="],
+
+    "husky": ["husky@9.1.7", "", { "bin": { "husky": "bin.js" } }, "sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA=="],
 
     "iconv-corefoundation": ["iconv-corefoundation@1.1.7", "", { "dependencies": { "cli-truncate": "^2.1.0", "node-addon-api": "^1.6.3" }, "os": "darwin" }, "sha512-T10qvkw0zz4wnm560lOEg0PovVqUXuOFhhHAkixw8/sycy7TJt7v/RrkEKEQnAw2viPSJu6iAkErxnzR0g8PpQ=="],
 
