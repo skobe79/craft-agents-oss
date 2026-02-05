@@ -11,6 +11,7 @@ import {
   resolveSessionConnection,
   providerTypeToAgentProvider,
   connectionAuthTypeToBackendAuthType,
+  getStaticCapabilities,
   type LlmAuthType,
 } from '@craft-agent/shared/agent/backend'
 import {
@@ -2473,6 +2474,13 @@ export class SessionManager {
     this.persistSession(managed)
     await this.flushSession(managed.id)
     sessionLog.info(`Set LLM connection for session ${sessionId} to ${connectionSlug}`)
+
+    // Notify UI that connection changed (triggers capabilities refresh)
+    this.sendEvent({
+      type: 'connection_changed',
+      sessionId,
+      connectionSlug,
+    }, managed.workspace.id)
   }
 
   // ============================================
@@ -4545,8 +4553,18 @@ To view this task's output:
     // If sessionId provided, return capabilities for that specific session
     if (sessionId) {
       const managed = this.sessions.get(sessionId)
-      if (managed?.agent) {
-        return managed.agent.capabilities()
+      if (managed) {
+        // If agent exists, use its capabilities (most accurate)
+        if (managed.agent) {
+          return managed.agent.capabilities()
+        }
+        // No agent yet - derive capabilities from session's LLM connection
+        if (managed.llmConnection) {
+          const connection = getLlmConnection(managed.llmConnection)
+          if (connection) {
+            return getStaticCapabilities(connection.providerType)
+          }
+        }
       }
     }
     // Fallback: return capabilities from any active session (for backward compat)

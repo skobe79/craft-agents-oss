@@ -589,6 +589,11 @@ export default function App() {
         }))
       }
 
+      // Refresh capabilities when LLM connection changes for current session
+      if (event.type === 'connection_changed' && sessionId === sessionSelection.selected) {
+        window.electronAPI.getBackendCapabilities(sessionId).then(setCapabilities)
+      }
+
       // Check if session is currently streaming (atom is source of truth)
       const atomSession = store.get(sessionAtomFamily(sessionId))
       const isStreaming = atomSession?.isProcessing === true

@@ -63,6 +63,8 @@ export {
   createConfigFromConnection,
   createBackendFromConnection,
   providerTypeToAgentProvider,
+  // Static capabilities (for sessions without agents)
+  getStaticCapabilities,
 } from './factory.ts';
 
 // Agent implementations

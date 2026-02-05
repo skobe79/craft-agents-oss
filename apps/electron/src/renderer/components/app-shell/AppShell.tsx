@@ -1078,7 +1078,7 @@ function AppShellContent({
       const meta = sessionMetaMap.get(session.selected)
       return meta?.isProcessing ?? false
     }
-  })
+  }, [session, handleEscapePress])
 
   // Theme toggle (CMD+SHIFT+A)
   useAction('app.toggleTheme', () => setMode(resolvedMode === 'dark' ? 'light' : 'dark'))

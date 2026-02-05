@@ -79,12 +79,15 @@ export function CodePreviewOverlay({
     >
       {/* Show command if present (Codex reads via shell commands) */}
       {command && (
-        <ContentFrame title="Command" fitContent minWidth={850}>
-          <div className="font-mono text-sm bg-background/50 p-3 rounded-md border overflow-x-auto">
-            <span className="text-muted-foreground select-none">$ </span>
-            <span className="text-foreground">{command}</span>
+        <div className="w-full max-w-[850px] mx-auto px-6 mb-4">
+          <div className="bg-background shadow-minimal rounded-[8px] px-4 py-3 font-mono">
+            <div className="text-xs font-semibold text-muted-foreground/70 mb-1">Command</div>
+            <div className="text-sm text-foreground overflow-x-auto">
+              <span className="text-muted-foreground select-none">$ </span>
+              <span>{command}</span>
+            </div>
           </div>
-        </ContentFrame>
+        </div>
       )}
 
       <ContentFrame title="Code" fitContent minWidth={850}>

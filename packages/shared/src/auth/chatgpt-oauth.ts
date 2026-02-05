@@ -17,6 +17,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { CHATGPT_OAUTH_CONFIG } from './chatgpt-oauth-config.ts';
 import { openUrl } from '../utils/open-url.ts';
+import { generateCallbackPage } from './callback-page.ts';
 
 // OAuth configuration from shared config
 const CLIENT_ID = CHATGPT_OAUTH_CONFIG.CLIENT_ID;
@@ -92,64 +93,39 @@ function startCallbackServer(
         res.writeHead(200, { 'Content-Type': 'text/html' });
 
         if (error) {
-          res.end(`
-            <!DOCTYPE html>
-            <html>
-              <head><title>Authentication Failed</title></head>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1>Authentication Failed</h1>
-                <p>${errorDescription || error}</p>
-                <p>You can close this window.</p>
-              </body>
-            </html>
-          `);
+          res.end(generateCallbackPage({
+            title: 'ChatGPT',
+            isSuccess: false,
+            errorDetail: errorDescription || error,
+          }));
           onError(new Error(errorDescription || error));
           return;
         }
 
         if (!code || !state) {
-          res.end(`
-            <!DOCTYPE html>
-            <html>
-              <head><title>Authentication Failed</title></head>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1>Authentication Failed</h1>
-                <p>Missing authorization code or state parameter.</p>
-                <p>You can close this window.</p>
-              </body>
-            </html>
-          `);
+          res.end(generateCallbackPage({
+            title: 'ChatGPT',
+            isSuccess: false,
+            errorDetail: 'Missing authorization code or state parameter',
+          }));
           onError(new Error('Missing authorization code or state'));
           return;
         }
 
         if (state !== expectedState) {
-          res.end(`
-            <!DOCTYPE html>
-            <html>
-              <head><title>Authentication Failed</title></head>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1>Authentication Failed</h1>
-                <p>Invalid state parameter. This may be a security issue.</p>
-                <p>You can close this window.</p>
-              </body>
-            </html>
-          `);
+          res.end(generateCallbackPage({
+            title: 'ChatGPT',
+            isSuccess: false,
+            errorDetail: 'Invalid state parameter. This may be a security issue.',
+          }));
           onError(new Error('Invalid state parameter - possible CSRF attack'));
           return;
         }
 
-        res.end(`
-          <!DOCTYPE html>
-          <html>
-            <head><title>Authentication Successful</title></head>
-            <body style="font-family: system-ui; padding: 40px; text-align: center;">
-              <h1>Authentication Successful</h1>
-              <p>You can close this window and return to Craft Agent.</p>
-              <script>window.close();</script>
-            </body>
-          </html>
-        `);
+        res.end(generateCallbackPage({
+          title: 'ChatGPT',
+          isSuccess: true,
+        }));
 
         onCode(code);
       } else {
