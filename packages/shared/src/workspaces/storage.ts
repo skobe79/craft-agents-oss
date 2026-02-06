@@ -23,7 +23,6 @@ import { atomicWriteFileSync } from '../utils/files.ts';
 import { getDefaultStatusConfig, saveStatusConfig, ensureDefaultIconFiles } from '../statuses/storage.ts';
 import { getDefaultLabelConfig, saveLabelConfig } from '../labels/storage.ts';
 import { loadConfigDefaults } from '../config/storage.ts';
-import { DEFAULT_MODEL } from '../config/models.ts';
 import type {
   WorkspaceConfig,
   CreateWorkspaceInput,
@@ -278,7 +277,7 @@ export function createWorkspaceAtPath(
 
   // Merge global defaults with provided defaults
   const workspaceDefaults: WorkspaceConfig['defaults'] = {
-    model: DEFAULT_MODEL,
+    model: undefined, // Resolved at session time based on active LLM connection's provider
     permissionMode: globalDefaults.workspaceDefaults.permissionMode,
     cyclablePermissionModes: globalDefaults.workspaceDefaults.cyclablePermissionModes,
     thinkingLevel: globalDefaults.workspaceDefaults.thinkingLevel,

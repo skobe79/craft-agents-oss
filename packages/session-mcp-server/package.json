@@ -9,7 +9,7 @@
     "session-mcp-server": "./dist/index.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir=dist --target=node",
+    "build": "bun build src/index.ts --outdir=dist --target=node --format=esm",
     "dev": "bun run src/index.ts"
   },
   "dependencies": {

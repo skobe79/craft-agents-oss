@@ -38,7 +38,6 @@ interface ApiSetupOption {
   name: string
   description: string
   icon: React.ReactNode
-  recommended?: boolean
   providerType: LlmProviderType
 }
 
@@ -48,7 +47,6 @@ const API_SETUP_OPTIONS: ApiSetupOption[] = [
     name: 'Claude Pro/Max',
     description: 'Use your Claude subscription for unlimited access.',
     icon: <CreditCard className="size-4" />,
-    recommended: true,
     providerType: 'anthropic',
   },
   {
@@ -63,14 +61,6 @@ const API_SETUP_OPTIONS: ApiSetupOption[] = [
     name: 'Codex · ChatGPT Plus/Pro',
     description: 'Use your ChatGPT Plus or Pro subscription with Codex.',
     icon: <Cpu className="size-4" />,
-    recommended: true,
-    providerType: 'openai',
-  },
-  {
-    id: 'openai_api_key',
-    name: 'Codex · OpenAI API Key',
-    description: 'Pay-as-you-go via OpenAI Platform, OpenRouter, or Vercel AI Gateway.',
-    icon: <Key className="size-4" />,
     providerType: 'openai',
   },
 ]
@@ -120,11 +110,6 @@ function OptionButton({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm">{option.name}</span>
-          {option.recommended && (
-            <span className="rounded-[4px] bg-background shadow-minimal px-2 py-0.5 text-[11px] font-medium text-foreground/70">
-              Recommended
-            </span>
-          )}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {option.description}

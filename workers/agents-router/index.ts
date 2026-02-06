@@ -4,6 +4,7 @@
  * Routes:
  * - /electron/* → R2 bucket (installers, manifests)
  * - /cli/* → R2 bucket (CLI binaries, install script)
+ * - /codex-beta/* → R2 bucket (Codex beta builds)
  * - /install-app.sh → R2 bucket (macOS/Linux install script)
  * - /install-app.ps1 → R2 bucket (Windows install script)
  * - /docs/* → Mintlify documentation site
@@ -22,8 +23,8 @@ export default {
     const path = url.pathname;
 
     // R2 paths: serve from bucket
-    if (path.startsWith('/electron/') || path.startsWith('/cli/') || path === '/install-app.sh' || path === '/install-app.ps1') {
-      const key = path.slice(1);
+    if (path.startsWith('/electron/') || path.startsWith('/cli/') || path.startsWith('/codex-beta/') || path === '/install-app.sh' || path === '/install-app.ps1') {
+      const key = decodeURIComponent(path.slice(1));
       const object = await env.DOWNLOADS.get(key);
 
       if (!object) {

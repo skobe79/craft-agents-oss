@@ -76,7 +76,8 @@ import { registerIpcHandlers } from './ipc'
 import { createApplicationMenu } from './menu'
 import { WindowManager } from './window-manager'
 import { loadWindowState, saveWindowState } from './window-state'
-import { getWorkspaces, loadStoredConfig } from '@craft-agent/shared/config'
+import { getWorkspaces, loadStoredConfig, addWorkspace, saveConfig } from '@craft-agent/shared/config'
+import { getDefaultWorkspacesDir } from '@craft-agent/shared/workspaces'
 import { initializeDocs } from '@craft-agent/shared/docs'
 import { ensureDefaultPermissions } from '@craft-agent/shared/agent/permissions-config'
 import { ensureToolIcons } from '@craft-agent/shared/config'
@@ -176,14 +177,21 @@ async function createInitialWindows(): Promise<void> {
 
   // Load saved window state
   const savedState = loadWindowState()
-  const workspaces = getWorkspaces()
-  const validWorkspaceIds = workspaces.map(ws => ws.id)
+  let workspaces = getWorkspaces()
 
+  // If no workspaces exist, create default "My Workspace" on first run
   if (workspaces.length === 0) {
-    // No workspaces configured - create window without workspace (will show onboarding)
-    windowManager.createWindow({ workspaceId: '' })
-    return
+    // Ensure config file exists (addWorkspace requires it)
+    if (!loadStoredConfig()) {
+      saveConfig({ workspaces: [], activeWorkspaceId: null })
+    }
+    const defaultPath = join(getDefaultWorkspacesDir(), 'my-workspace')
+    addWorkspace({ rootPath: defaultPath, name: 'My Workspace' })
+    workspaces = getWorkspaces() // Refresh after creation
+    mainLog.info('Created default workspace on first run')
   }
+
+  const validWorkspaceIds = workspaces.map(ws => ws.id)
 
   if (savedState?.windows.length) {
     // Restore windows from saved state

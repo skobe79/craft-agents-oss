@@ -73,7 +73,7 @@ import { type Session, type Message, type SessionEvent, type FileAttachment, typ
 import { generateSessionTitle, regenerateSessionTitle, formatPathsToRelative, formatToolInputPaths, perf, encodeIconToDataUrl, getEmojiIcon, resetSummarizationClient, resolveToolIcon, type TitleGeneratorOptions } from '@craft-agent/shared/utils'
 import { loadWorkspaceSkills, type LoadedSkill } from '@craft-agent/shared/skills'
 import type { ToolDisplayMeta } from '@craft-agent/core/types'
-import { DEFAULT_MODEL, DEFAULT_CODEX_MODEL, getToolIconsDir } from '@craft-agent/shared/config'
+import { DEFAULT_MODEL, DEFAULT_CODEX_MODEL, getToolIconsDir, isCodexModel } from '@craft-agent/shared/config'
 import { type ThinkingLevel, DEFAULT_THINKING_LEVEL } from '@craft-agent/shared/agent/thinking-levels'
 import { evaluateAutoLabels } from '@craft-agent/shared/labels/auto'
 import { listLabels } from '@craft-agent/shared/labels/storage'
@@ -1672,8 +1672,24 @@ export class SessionManager {
       isFlagged: options?.isFlagged,
     })
 
+    // Resolve connection to determine provider for model compatibility check
+    const sessionConnection = resolveSessionConnection(
+      options?.llmConnection,
+      wsConfig?.defaults?.defaultLlmConnection
+    )
+    const sessionProvider = sessionConnection
+      ? providerTypeToAgentProvider(sessionConnection.providerType || 'anthropic')
+      : 'anthropic'
+
     // Model priority: options.model > storedSession.model > workspace default
-    const resolvedModel = options?.model || storedSession.model || defaultModel
+    let resolvedModel = options?.model || storedSession.model || defaultModel
+
+    // Ensure model matches the connection's provider (e.g. don't send Claude model to Codex)
+    if (resolvedModel && sessionProvider === 'openai' && !isCodexModel(resolvedModel)) {
+      resolvedModel = DEFAULT_CODEX_MODEL
+    } else if (resolvedModel && sessionProvider === 'anthropic' && isCodexModel(resolvedModel)) {
+      resolvedModel = DEFAULT_MODEL
+    }
 
     // Log mini agent session creation
     if (options?.systemPromptPreset === 'mini' || options?.model) {
@@ -1957,7 +1973,6 @@ export class SessionManager {
       // Auto-detect provider from model if it's a Codex model
       // This ensures Codex models (gpt-5.x-codex) always use the OpenAI/Codex backend
       // even if the connection is set to Anthropic
-      const { isCodexModel } = await import('@craft-agent/shared/config/models')
       if (managed.model && isCodexModel(managed.model) && provider !== 'openai') {
         sessionLog.info(`Auto-switching to OpenAI provider for Codex model "${managed.model}" (was: ${provider})`)
         provider = 'openai'
@@ -1967,7 +1982,9 @@ export class SessionManager {
       if (provider === 'openai') {
         // Codex backend - uses app-server protocol
         // Use connection's default model, or session model, or fallback to DEFAULT_CODEX_MODEL
-        const codexModel = managed.model || connection?.defaultModel || DEFAULT_CODEX_MODEL
+        // Safety: ensure the resolved model is actually a Codex model (not a Claude model from stale config)
+        const rawCodexModel = managed.model || connection?.defaultModel || DEFAULT_CODEX_MODEL
+        const codexModel = isCodexModel(rawCodexModel) ? rawCodexModel : DEFAULT_CODEX_MODEL
 
         // Set up per-session Codex configuration (MCP servers, etc.)
         // This creates .codex-home/config.toml in the session folder

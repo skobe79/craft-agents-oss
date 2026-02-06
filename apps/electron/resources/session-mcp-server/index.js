@@ -1061,12 +1061,12 @@ var require_util = __commonJS((exports) => {
   }
   exports.alwaysValidSchema = alwaysValidSchema;
   function checkUnknownRules(it, schema = it.schema) {
-    const { opts, self } = it;
+    const { opts, self: self2 } = it;
     if (!opts.strictSchema)
       return;
     if (typeof schema === "boolean")
       return;
-    const rules = self.RULES.keywords;
+    const rules = self2.RULES.keywords;
     for (const key in schema) {
       if (!rules[key])
         checkStrictMode(it, `unknown keyword: "${key}"`);
@@ -1425,8 +1425,8 @@ var require_rules = __commonJS((exports) => {
 var require_applicability = __commonJS((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = undefined;
-  function schemaHasRulesForType({ schema, self }, type) {
-    const group = self.RULES.types[type];
+  function schemaHasRulesForType({ schema, self: self2 }, type) {
+    const group = self2.RULES.types[type];
     return group && group !== true && shouldUseGroup(schema, group);
   }
   exports.schemaHasRulesForType = schemaHasRulesForType;
@@ -1878,7 +1878,7 @@ var require_keyword = __commonJS((exports) => {
     return !schemaType.length || schemaType.some((st) => st === "array" ? Array.isArray(schema) : st === "object" ? schema && typeof schema == "object" && !Array.isArray(schema) : typeof schema == st || allowUndefined && typeof schema == "undefined");
   }
   exports.validSchemaType = validSchemaType;
-  function validateKeywordUsage({ schema, opts, self, errSchemaPath }, def, keyword) {
+  function validateKeywordUsage({ schema, opts, self: self2, errSchemaPath }, def, keyword) {
     if (Array.isArray(def.keyword) ? !def.keyword.includes(keyword) : def.keyword !== keyword) {
       throw new Error("ajv implementation error");
     }
@@ -1889,9 +1889,9 @@ var require_keyword = __commonJS((exports) => {
     if (def.validateSchema) {
       const valid = def.validateSchema(schema[keyword]);
       if (!valid) {
-        const msg = `keyword "${keyword}" value is invalid at path "${errSchemaPath}": ` + self.errorsText(def.validateSchema.errors);
+        const msg = `keyword "${keyword}" value is invalid at path "${errSchemaPath}": ` + self2.errorsText(def.validateSchema.errors);
         if (opts.validateSchema === "log")
-          self.logger.error(msg);
+          self2.logger.error(msg);
         else
           throw new Error(msg);
       }
@@ -2351,11 +2351,11 @@ var require_validate = __commonJS((exports) => {
     }
     (0, boolSchema_1.boolOrEmptySchema)(it, valid);
   }
-  function schemaCxtHasRules({ schema, self }) {
+  function schemaCxtHasRules({ schema, self: self2 }) {
     if (typeof schema == "boolean")
       return !schema;
     for (const key in schema)
-      if (self.RULES.all[key])
+      if (self2.RULES.all[key])
         return true;
     return false;
   }
@@ -2384,9 +2384,9 @@ var require_validate = __commonJS((exports) => {
     schemaKeywords(it, types, !checkedTypes, errsCount);
   }
   function checkRefsAndKeywords(it) {
-    const { schema, errSchemaPath, opts, self } = it;
-    if (schema.$ref && opts.ignoreKeywordsWithRef && (0, util_1.schemaHasRulesButRef)(schema, self.RULES)) {
-      self.logger.warn(`$ref: keywords ignored in schema at path "${errSchemaPath}"`);
+    const { schema, errSchemaPath, opts, self: self2 } = it;
+    if (schema.$ref && opts.ignoreKeywordsWithRef && (0, util_1.schemaHasRulesButRef)(schema, self2.RULES)) {
+      self2.logger.warn(`$ref: keywords ignored in schema at path "${errSchemaPath}"`);
     }
   }
   function checkNoDefault(it) {
@@ -2432,8 +2432,8 @@ var require_validate = __commonJS((exports) => {
       gen.assign((0, codegen_1._)`${evaluated}.items`, items);
   }
   function schemaKeywords(it, types, typeErrors, errsCount) {
-    const { gen, schema, data, allErrors, opts, self } = it;
-    const { RULES } = self;
+    const { gen, schema, data, allErrors, opts, self: self2 } = it;
+    const { RULES } = self2;
     if (schema.$ref && (opts.ignoreKeywordsWithRef || !(0, util_1.schemaHasRulesButRef)(schema, RULES))) {
       gen.block(() => keywordCode(it, "$ref", RULES.all.$ref.definition));
       return;
@@ -4338,11 +4338,11 @@ var require_ref = __commonJS((exports) => {
     schemaType: "string",
     code(cxt) {
       const { gen, schema: $ref, it } = cxt;
-      const { baseId, schemaEnv: env, validateName, opts, self } = it;
+      const { baseId, schemaEnv: env, validateName, opts, self: self2 } = it;
       const { root } = env;
       if (($ref === "#" || $ref === "#/") && baseId === root.baseId)
         return callRootRef();
-      const schOrEnv = compile_1.resolveRef.call(self, root, baseId, $ref);
+      const schOrEnv = compile_1.resolveRef.call(self2, root, baseId, $ref);
       if (schOrEnv === undefined)
         throw new ref_error_1.default(it.opts.uriResolver, baseId, $ref);
       if (schOrEnv instanceof compile_1.SchemaEnv)
@@ -5752,7 +5752,7 @@ var require_format = __commonJS((exports) => {
     error: error2,
     code(cxt, ruleType) {
       const { gen, data, $data, schema, schemaCode, it } = cxt;
-      const { opts, errSchemaPath, schemaEnv, self } = it;
+      const { opts, errSchemaPath, schemaEnv, self: self2 } = it;
       if (!opts.validateFormats)
         return;
       if ($data)
@@ -5761,7 +5761,7 @@ var require_format = __commonJS((exports) => {
         validateFormat();
       function validate$DataFormat() {
         const fmts = gen.scopeValue("formats", {
-          ref: self.formats,
+          ref: self2.formats,
           code: opts.code.formats
         });
         const fDef = gen.const("fDef", (0, codegen_1._)`${fmts}[${schemaCode}]`);
@@ -5781,7 +5781,7 @@ var require_format = __commonJS((exports) => {
         }
       }
       function validateFormat() {
-        const formatDef = self.formats[schema];
+        const formatDef = self2.formats[schema];
         if (!formatDef) {
           unknownFormat();
           return;
@@ -5793,7 +5793,7 @@ var require_format = __commonJS((exports) => {
           cxt.pass(validCondition());
         function unknownFormat() {
           if (opts.strictSchema === false) {
-            self.logger.warn(unknownMsg());
+            self2.logger.warn(unknownMsg());
             return;
           }
           throw new Error(unknownMsg());
@@ -6278,7 +6278,7 @@ var require_formats = __commonJS((exports) => {
   }
   var TIME = /^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)?$/i;
   function getTime(strictTimeZone) {
-    return function time(str2) {
+    return function time3(str2) {
       const matches = TIME.exec(str2);
       if (!matches)
         return false;
@@ -7416,12 +7416,12 @@ var require_util2 = __commonJS((exports) => {
   }
   exports.alwaysValidSchema = alwaysValidSchema;
   function checkUnknownRules(it, schema = it.schema) {
-    const { opts, self } = it;
+    const { opts, self: self2 } = it;
     if (!opts.strictSchema)
       return;
     if (typeof schema === "boolean")
       return;
-    const rules = self.RULES.keywords;
+    const rules = self2.RULES.keywords;
     for (const key in schema) {
       if (!rules[key])
         checkStrictMode(it, `unknown keyword: "${key}"`);
@@ -7780,8 +7780,8 @@ var require_rules2 = __commonJS((exports) => {
 var require_applicability2 = __commonJS((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = undefined;
-  function schemaHasRulesForType({ schema, self }, type) {
-    const group = self.RULES.types[type];
+  function schemaHasRulesForType({ schema, self: self2 }, type) {
+    const group = self2.RULES.types[type];
     return group && group !== true && shouldUseGroup(schema, group);
   }
   exports.schemaHasRulesForType = schemaHasRulesForType;
@@ -8233,7 +8233,7 @@ var require_keyword2 = __commonJS((exports) => {
     return !schemaType.length || schemaType.some((st) => st === "array" ? Array.isArray(schema) : st === "object" ? schema && typeof schema == "object" && !Array.isArray(schema) : typeof schema == st || allowUndefined && typeof schema == "undefined");
   }
   exports.validSchemaType = validSchemaType;
-  function validateKeywordUsage({ schema, opts, self, errSchemaPath }, def, keyword) {
+  function validateKeywordUsage({ schema, opts, self: self2, errSchemaPath }, def, keyword) {
     if (Array.isArray(def.keyword) ? !def.keyword.includes(keyword) : def.keyword !== keyword) {
       throw new Error("ajv implementation error");
     }
@@ -8244,9 +8244,9 @@ var require_keyword2 = __commonJS((exports) => {
     if (def.validateSchema) {
       const valid = def.validateSchema(schema[keyword]);
       if (!valid) {
-        const msg = `keyword "${keyword}" value is invalid at path "${errSchemaPath}": ` + self.errorsText(def.validateSchema.errors);
+        const msg = `keyword "${keyword}" value is invalid at path "${errSchemaPath}": ` + self2.errorsText(def.validateSchema.errors);
         if (opts.validateSchema === "log")
-          self.logger.error(msg);
+          self2.logger.error(msg);
         else
           throw new Error(msg);
       }
@@ -8664,11 +8664,11 @@ var require_validate2 = __commonJS((exports) => {
     }
     (0, boolSchema_1.boolOrEmptySchema)(it, valid);
   }
-  function schemaCxtHasRules({ schema, self }) {
+  function schemaCxtHasRules({ schema, self: self2 }) {
     if (typeof schema == "boolean")
       return !schema;
     for (const key in schema)
-      if (self.RULES.all[key])
+      if (self2.RULES.all[key])
         return true;
     return false;
   }
@@ -8697,9 +8697,9 @@ var require_validate2 = __commonJS((exports) => {
     schemaKeywords(it, types, !checkedTypes, errsCount);
   }
   function checkRefsAndKeywords(it) {
-    const { schema, errSchemaPath, opts, self } = it;
-    if (schema.$ref && opts.ignoreKeywordsWithRef && (0, util_1.schemaHasRulesButRef)(schema, self.RULES)) {
-      self.logger.warn(`$ref: keywords ignored in schema at path "${errSchemaPath}"`);
+    const { schema, errSchemaPath, opts, self: self2 } = it;
+    if (schema.$ref && opts.ignoreKeywordsWithRef && (0, util_1.schemaHasRulesButRef)(schema, self2.RULES)) {
+      self2.logger.warn(`$ref: keywords ignored in schema at path "${errSchemaPath}"`);
     }
   }
   function checkNoDefault(it) {
@@ -8745,8 +8745,8 @@ var require_validate2 = __commonJS((exports) => {
       gen.assign((0, codegen_1._)`${evaluated}.items`, items);
   }
   function schemaKeywords(it, types, typeErrors, errsCount) {
-    const { gen, schema, data, allErrors, opts, self } = it;
-    const { RULES } = self;
+    const { gen, schema, data, allErrors, opts, self: self2 } = it;
+    const { RULES } = self2;
     if (schema.$ref && (opts.ignoreKeywordsWithRef || !(0, util_1.schemaHasRulesButRef)(schema, RULES))) {
       gen.block(() => keywordCode(it, "$ref", RULES.all.$ref.definition));
       return;
@@ -9971,11 +9971,11 @@ var require_ref2 = __commonJS((exports) => {
     schemaType: "string",
     code(cxt) {
       const { gen, schema: $ref, it } = cxt;
-      const { baseId, schemaEnv: env, validateName, opts, self } = it;
+      const { baseId, schemaEnv: env, validateName, opts, self: self2 } = it;
       const { root } = env;
       if (($ref === "#" || $ref === "#/") && baseId === root.baseId)
         return callRootRef();
-      const schOrEnv = compile_1.resolveRef.call(self, root, baseId, $ref);
+      const schOrEnv = compile_1.resolveRef.call(self2, root, baseId, $ref);
       if (schOrEnv === undefined)
         throw new ref_error_1.default(it.opts.uriResolver, baseId, $ref);
       if (schOrEnv instanceof compile_1.SchemaEnv)
@@ -11385,7 +11385,7 @@ var require_format3 = __commonJS((exports) => {
     error: error2,
     code(cxt, ruleType) {
       const { gen, data, $data, schema, schemaCode, it } = cxt;
-      const { opts, errSchemaPath, schemaEnv, self } = it;
+      const { opts, errSchemaPath, schemaEnv, self: self2 } = it;
       if (!opts.validateFormats)
         return;
       if ($data)
@@ -11394,7 +11394,7 @@ var require_format3 = __commonJS((exports) => {
         validateFormat();
       function validate$DataFormat() {
         const fmts = gen.scopeValue("formats", {
-          ref: self.formats,
+          ref: self2.formats,
           code: opts.code.formats
         });
         const fDef = gen.const("fDef", (0, codegen_1._)`${fmts}[${schemaCode}]`);
@@ -11414,7 +11414,7 @@ var require_format3 = __commonJS((exports) => {
         }
       }
       function validateFormat() {
-        const formatDef = self.formats[schema];
+        const formatDef = self2.formats[schema];
         if (!formatDef) {
           unknownFormat();
           return;
@@ -11426,7 +11426,7 @@ var require_format3 = __commonJS((exports) => {
           cxt.pass(validCondition());
         function unknownFormat() {
           if (opts.strictSchema === false) {
-            self.logger.warn(unknownMsg());
+            self2.logger.warn(unknownMsg());
             return;
           }
           throw new Error(unknownMsg());
@@ -11864,17 +11864,17 @@ var require_limit = __commonJS((exports) => {
     error: error2,
     code(cxt) {
       const { gen, data, schemaCode, keyword, it } = cxt;
-      const { opts, self } = it;
+      const { opts, self: self2 } = it;
       if (!opts.validateFormats)
         return;
-      const fCxt = new ajv_1.KeywordCxt(it, self.RULES.all.format.definition, "format");
+      const fCxt = new ajv_1.KeywordCxt(it, self2.RULES.all.format.definition, "format");
       if (fCxt.$data)
         validate$DataFormat();
       else
         validateFormat();
       function validate$DataFormat() {
         const fmts = gen.scopeValue("formats", {
-          ref: self.formats,
+          ref: self2.formats,
           code: opts.code.formats
         });
         const fmt = gen.const("fmt", (0, codegen_1._)`${fmts}[${fCxt.schemaCode}]`);
@@ -11882,7 +11882,7 @@ var require_limit = __commonJS((exports) => {
       }
       function validateFormat() {
         const format = fCxt.schema;
-        const fmtDef = self.formats[format];
+        const fmtDef = self2.formats[format];
         if (!fmtDef || fmtDef === true)
           return;
         if (typeof fmtDef != "object" || fmtDef instanceof RegExp || typeof fmtDef.compare != "function") {
@@ -11947,7 +11947,7 @@ var require_dist = __commonJS((exports, module) => {
   exports.default = formatsPlugin;
 });
 
-// node_modules/.pnpm/kind-of@6.0.3/node_modules/kind-of/index.js
+// node_modules/kind-of/index.js
 var require_kind_of = __commonJS((exports, module) => {
   var toString = Object.prototype.toString;
   module.exports = function kindOf(val) {
@@ -12076,7 +12076,7 @@ var require_kind_of = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/.pnpm/is-extendable@0.1.1/node_modules/is-extendable/index.js
+// node_modules/is-extendable/index.js
 var require_is_extendable = __commonJS((exports, module) => {
   /*!
    * is-extendable <https://github.com/jonschlinkert/is-extendable>
@@ -12089,10 +12089,10 @@ var require_is_extendable = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/.pnpm/extend-shallow@2.0.1/node_modules/extend-shallow/index.js
+// node_modules/extend-shallow/index.js
 var require_extend_shallow = __commonJS((exports, module) => {
   var isObject2 = require_is_extendable();
-  module.exports = function extend(o) {
+  module.exports = function extend2(o) {
     if (!isObject2(o)) {
       o = {};
     }
@@ -12117,7 +12117,7 @@ var require_extend_shallow = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/.pnpm/section-matter@1.0.0/node_modules/section-matter/index.js
+// node_modules/section-matter/index.js
 var require_section_matter = __commonJS((exports, module) => {
   var typeOf = require_kind_of();
   var extend2 = require_extend_shallow();
@@ -12226,7 +12226,7 @@ var require_section_matter = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/common.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/common.js
 var require_common = __commonJS((exports, module) => {
   function isNothing(subject) {
     return typeof subject === "undefined" || subject === null;
@@ -12270,7 +12270,7 @@ var require_common = __commonJS((exports, module) => {
   exports.extend = extend2;
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/exception.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/exception.js
 var require_exception = __commonJS((exports, module) => {
   function YAMLException(reason, mark) {
     Error.call(this);
@@ -12297,7 +12297,7 @@ var require_exception = __commonJS((exports, module) => {
   module.exports = YAMLException;
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/mark.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/mark.js
 var require_mark = __commonJS((exports, module) => {
   var common = require_common();
   function Mark(name, buffer, position, line, column) {
@@ -12357,7 +12357,7 @@ var require_mark = __commonJS((exports, module) => {
   module.exports = Mark;
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type.js
 var require_type = __commonJS((exports, module) => {
   var YAMLException = require_exception();
   var TYPE_CONSTRUCTOR_OPTIONS = [
@@ -12413,7 +12413,7 @@ var require_type = __commonJS((exports, module) => {
   module.exports = Type;
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema.js
 var require_schema = __commonJS((exports, module) => {
   var common = require_common();
   var YAMLException = require_exception();
@@ -12498,7 +12498,7 @@ var require_schema = __commonJS((exports, module) => {
   module.exports = Schema;
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/str.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/str.js
 var require_str = __commonJS((exports, module) => {
   var Type = require_type();
   module.exports = new Type("tag:yaml.org,2002:str", {
@@ -12509,7 +12509,7 @@ var require_str = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/seq.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/seq.js
 var require_seq = __commonJS((exports, module) => {
   var Type = require_type();
   module.exports = new Type("tag:yaml.org,2002:seq", {
@@ -12520,7 +12520,7 @@ var require_seq = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/map.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/map.js
 var require_map = __commonJS((exports, module) => {
   var Type = require_type();
   module.exports = new Type("tag:yaml.org,2002:map", {
@@ -12531,7 +12531,7 @@ var require_map = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/failsafe.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/failsafe.js
 var require_failsafe = __commonJS((exports, module) => {
   var Schema = require_schema();
   module.exports = new Schema({
@@ -12543,7 +12543,7 @@ var require_failsafe = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/null.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/null.js
 var require_null = __commonJS((exports, module) => {
   var Type = require_type();
   function resolveYamlNull(data) {
@@ -12581,7 +12581,7 @@ var require_null = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/bool.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/bool.js
 var require_bool = __commonJS((exports, module) => {
   var Type = require_type();
   function resolveYamlBoolean(data) {
@@ -12616,7 +12616,7 @@ var require_bool = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/int.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/int.js
 var require_int = __commonJS((exports, module) => {
   var common = require_common();
   var Type = require_type();
@@ -12763,7 +12763,7 @@ var require_int = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/float.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/float.js
 var require_float = __commonJS((exports, module) => {
   var common = require_common();
   var Type = require_type();
@@ -12851,7 +12851,7 @@ var require_float = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/json.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/json.js
 var require_json = __commonJS((exports, module) => {
   var Schema = require_schema();
   module.exports = new Schema({
@@ -12867,7 +12867,7 @@ var require_json = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/core.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/core.js
 var require_core5 = __commonJS((exports, module) => {
   var Schema = require_schema();
   module.exports = new Schema({
@@ -12877,7 +12877,7 @@ var require_core5 = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/timestamp.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/timestamp.js
 var require_timestamp = __commonJS((exports, module) => {
   var Type = require_type();
   var YAML_DATE_REGEXP = new RegExp("^([0-9][0-9][0-9][0-9])" + "-([0-9][0-9])" + "-([0-9][0-9])$");
@@ -12938,7 +12938,7 @@ var require_timestamp = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/merge.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/merge.js
 var require_merge = __commonJS((exports, module) => {
   var Type = require_type();
   function resolveYamlMerge(data) {
@@ -12950,7 +12950,7 @@ var require_merge = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/binary.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/binary.js
 var require_binary = __commonJS((exports, module) => {
   var NodeBuffer;
   try {
@@ -13043,7 +13043,7 @@ var require_binary = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/omap.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/omap.js
 var require_omap = __commonJS((exports, module) => {
   var Type = require_type();
   var _hasOwnProperty = Object.prototype.hasOwnProperty;
@@ -13084,7 +13084,7 @@ var require_omap = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/pairs.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/pairs.js
 var require_pairs = __commonJS((exports, module) => {
   var Type = require_type();
   var _toString = Object.prototype.toString;
@@ -13123,7 +13123,7 @@ var require_pairs = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/set.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/set.js
 var require_set = __commonJS((exports, module) => {
   var Type = require_type();
   var _hasOwnProperty = Object.prototype.hasOwnProperty;
@@ -13149,7 +13149,7 @@ var require_set = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/default_safe.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/default_safe.js
 var require_default_safe = __commonJS((exports, module) => {
   var Schema = require_schema();
   module.exports = new Schema({
@@ -13169,7 +13169,7 @@ var require_default_safe = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/js/undefined.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/js/undefined.js
 var require_undefined = __commonJS((exports, module) => {
   var Type = require_type();
   function resolveJavascriptUndefined() {
@@ -13193,7 +13193,7 @@ var require_undefined = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/js/regexp.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/js/regexp.js
 var require_regexp = __commonJS((exports, module) => {
   var Type = require_type();
   function resolveJavascriptRegExp(data) {
@@ -13243,7 +13243,7 @@ var require_regexp = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/js/function.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/type/js/function.js
 var require_function = __commonJS((exports, module) => {
   var esprima;
   try {
@@ -13297,7 +13297,7 @@ var require_function = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/default_full.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/schema/default_full.js
 var require_default_full = __commonJS((exports, module) => {
   var Schema = require_schema();
   module.exports = Schema.DEFAULT = new Schema({
@@ -13312,7 +13312,7 @@ var require_default_full = __commonJS((exports, module) => {
   });
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/loader.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/loader.js
 var require_loader = __commonJS((exports, module) => {
   var common = require_common();
   var YAMLException = require_exception();
@@ -14436,7 +14436,7 @@ var require_loader = __commonJS((exports, module) => {
   exports.safeLoad = safeLoad;
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/dumper.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml/dumper.js
 var require_dumper = __commonJS((exports, module) => {
   var common = require_common();
   var YAMLException = require_exception();
@@ -15005,7 +15005,7 @@ var require_dumper = __commonJS((exports, module) => {
   exports.safeDump = safeDump;
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml.js
+// node_modules/gray-matter/node_modules/js-yaml/lib/js-yaml.js
 var require_js_yaml = __commonJS((exports, module) => {
   var loader = require_loader();
   var dumper = require_dumper();
@@ -15037,13 +15037,13 @@ var require_js_yaml = __commonJS((exports, module) => {
   exports.addConstructor = deprecated("addConstructor");
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/node_modules/js-yaml/index.js
+// node_modules/gray-matter/node_modules/js-yaml/index.js
 var require_js_yaml2 = __commonJS((exports, module) => {
   var yaml = require_js_yaml();
   module.exports = yaml;
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/lib/engines.js
+// node_modules/gray-matter/lib/engines.js
 var require_engines = __commonJS((exports, module) => {
   var yaml = require_js_yaml2();
   var engines = exports = module.exports;
@@ -15080,7 +15080,7 @@ return ` + str.trim() + `;
   };
 });
 
-// node_modules/.pnpm/strip-bom-string@1.0.0/node_modules/strip-bom-string/index.js
+// node_modules/strip-bom-string/index.js
 var require_strip_bom_string = __commonJS((exports, module) => {
   /*!
    * strip-bom-string <https://github.com/jonschlinkert/strip-bom-string>
@@ -15096,7 +15096,7 @@ var require_strip_bom_string = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/lib/utils.js
+// node_modules/gray-matter/lib/utils.js
 var require_utils2 = __commonJS((exports) => {
   var stripBom = require_strip_bom_string();
   var typeOf = require_kind_of();
@@ -15135,7 +15135,7 @@ var require_utils2 = __commonJS((exports) => {
   };
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/lib/defaults.js
+// node_modules/gray-matter/lib/defaults.js
 var require_defaults3 = __commonJS((exports, module) => {
   var engines = require_engines();
   var utils = require_utils2();
@@ -15151,7 +15151,7 @@ var require_defaults3 = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/lib/engine.js
+// node_modules/gray-matter/lib/engine.js
 var require_engine = __commonJS((exports, module) => {
   module.exports = function(name, options2) {
     let engine = options2.engines[name] || options2.engines[aliase(name)];
@@ -15182,7 +15182,7 @@ var require_engine = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/lib/stringify.js
+// node_modules/gray-matter/lib/stringify.js
 var require_stringify = __commonJS((exports, module) => {
   var typeOf = require_kind_of();
   var getEngine = require_engine();
@@ -15235,7 +15235,7 @@ var require_stringify = __commonJS((exports, module) => {
   }
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/lib/excerpt.js
+// node_modules/gray-matter/lib/excerpt.js
 var require_excerpt = __commonJS((exports, module) => {
   var defaults = require_defaults3();
   module.exports = function(file, options2) {
@@ -15259,7 +15259,7 @@ var require_excerpt = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/lib/to-file.js
+// node_modules/gray-matter/lib/to-file.js
 var require_to_file = __commonJS((exports, module) => {
   var typeOf = require_kind_of();
   var stringify = require_stringify();
@@ -15290,7 +15290,7 @@ var require_to_file = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/lib/parse.js
+// node_modules/gray-matter/lib/parse.js
 var require_parse = __commonJS((exports, module) => {
   var getEngine = require_engine();
   var defaults = require_defaults3();
@@ -15304,7 +15304,7 @@ var require_parse = __commonJS((exports, module) => {
   };
 });
 
-// node_modules/.pnpm/gray-matter@4.0.3/node_modules/gray-matter/index.js
+// node_modules/gray-matter/index.js
 var require_gray_matter = __commonJS((exports, module) => {
   var fs = __require("fs");
   var sections = require_section_matter();
@@ -15418,6 +15418,3085 @@ var require_gray_matter = __commonJS((exports, module) => {
     matter.cache = {};
   };
   module.exports = matter;
+});
+
+// node_modules/@dagrejs/dagre/dist/dagre.js
+var require_dagre = __commonJS((exports, module) => {
+  (function(f) {
+    if (typeof exports === "object" && typeof module !== "undefined") {
+      module.exports = f();
+    } else if (typeof define === "function" && define.amd) {
+      define([], f);
+    } else {
+      var g;
+      if (typeof window !== "undefined") {
+        g = window;
+      } else if (typeof global !== "undefined") {
+        g = global;
+      } else if (typeof self !== "undefined") {
+        g = self;
+      } else {
+        g = this;
+      }
+      g.dagre = f();
+    }
+  })(function() {
+    var define2, module2, exports2;
+    return function() {
+      function r(e, n, t) {
+        function o(i2, f) {
+          if (!n[i2]) {
+            if (!e[i2]) {
+              var c = __require;
+              if (!f && c)
+                return c(i2, true);
+              if (u)
+                return u(i2, true);
+              var a = new Error("Cannot find module '" + i2 + "'");
+              throw a.code = "MODULE_NOT_FOUND", a;
+            }
+            var p = n[i2] = { exports: {} };
+            e[i2][0].call(p.exports, function(r2) {
+              var n2 = e[i2][1][r2];
+              return o(n2 || r2);
+            }, p, p.exports, r, e, n, t);
+          }
+          return n[i2].exports;
+        }
+        for (var u = __require, i = 0;i < t.length; i++)
+          o(t[i]);
+        return o;
+      }
+      return r;
+    }()({ 1: [function(require2, module3, exports3) {
+      module3.exports = {
+        graphlib: require2("@dagrejs/graphlib"),
+        layout: require2("./lib/layout"),
+        debug: require2("./lib/debug"),
+        util: {
+          time: require2("./lib/util").time,
+          notime: require2("./lib/util").notime
+        },
+        version: require2("./lib/version")
+      };
+    }, { "./lib/debug": 6, "./lib/layout": 8, "./lib/util": 27, "./lib/version": 28, "@dagrejs/graphlib": 29 }], 2: [function(require2, module3, exports3) {
+      let greedyFAS = require2("./greedy-fas");
+      let uniqueId = require2("./util").uniqueId;
+      module3.exports = {
+        run,
+        undo
+      };
+      function run(g) {
+        let fas = g.graph().acyclicer === "greedy" ? greedyFAS(g, weightFn(g)) : dfsFAS(g);
+        fas.forEach((e) => {
+          let label = g.edge(e);
+          g.removeEdge(e);
+          label.forwardName = e.name;
+          label.reversed = true;
+          g.setEdge(e.w, e.v, label, uniqueId("rev"));
+        });
+        function weightFn(g2) {
+          return (e) => {
+            return g2.edge(e).weight;
+          };
+        }
+      }
+      function dfsFAS(g) {
+        let fas = [];
+        let stack = {};
+        let visited = {};
+        function dfs(v) {
+          if (Object.hasOwn(visited, v)) {
+            return;
+          }
+          visited[v] = true;
+          stack[v] = true;
+          g.outEdges(v).forEach((e) => {
+            if (Object.hasOwn(stack, e.w)) {
+              fas.push(e);
+            } else {
+              dfs(e.w);
+            }
+          });
+          delete stack[v];
+        }
+        g.nodes().forEach(dfs);
+        return fas;
+      }
+      function undo(g) {
+        g.edges().forEach((e) => {
+          let label = g.edge(e);
+          if (label.reversed) {
+            g.removeEdge(e);
+            let forwardName = label.forwardName;
+            delete label.reversed;
+            delete label.forwardName;
+            g.setEdge(e.w, e.v, label, forwardName);
+          }
+        });
+      }
+    }, { "./greedy-fas": 7, "./util": 27 }], 3: [function(require2, module3, exports3) {
+      let util3 = require2("./util");
+      module3.exports = addBorderSegments;
+      function addBorderSegments(g) {
+        function dfs(v) {
+          let children = g.children(v);
+          let node = g.node(v);
+          if (children.length) {
+            children.forEach(dfs);
+          }
+          if (Object.hasOwn(node, "minRank")) {
+            node.borderLeft = [];
+            node.borderRight = [];
+            for (let rank = node.minRank, maxRank = node.maxRank + 1;rank < maxRank; ++rank) {
+              addBorderNode(g, "borderLeft", "_bl", v, node, rank);
+              addBorderNode(g, "borderRight", "_br", v, node, rank);
+            }
+          }
+        }
+        g.children().forEach(dfs);
+      }
+      function addBorderNode(g, prop, prefix, sg, sgNode, rank) {
+        let label = { width: 0, height: 0, rank, borderType: prop };
+        let prev = sgNode[prop][rank - 1];
+        let curr = util3.addDummyNode(g, "border", label, prefix);
+        sgNode[prop][rank] = curr;
+        g.setParent(curr, sg);
+        if (prev) {
+          g.setEdge(prev, curr, { weight: 1 });
+        }
+      }
+    }, { "./util": 27 }], 4: [function(require2, module3, exports3) {
+      module3.exports = {
+        adjust,
+        undo
+      };
+      function adjust(g) {
+        let rankDir = g.graph().rankdir.toLowerCase();
+        if (rankDir === "lr" || rankDir === "rl") {
+          swapWidthHeight(g);
+        }
+      }
+      function undo(g) {
+        let rankDir = g.graph().rankdir.toLowerCase();
+        if (rankDir === "bt" || rankDir === "rl") {
+          reverseY(g);
+        }
+        if (rankDir === "lr" || rankDir === "rl") {
+          swapXY(g);
+          swapWidthHeight(g);
+        }
+      }
+      function swapWidthHeight(g) {
+        g.nodes().forEach((v) => swapWidthHeightOne(g.node(v)));
+        g.edges().forEach((e) => swapWidthHeightOne(g.edge(e)));
+      }
+      function swapWidthHeightOne(attrs) {
+        let w = attrs.width;
+        attrs.width = attrs.height;
+        attrs.height = w;
+      }
+      function reverseY(g) {
+        g.nodes().forEach((v) => reverseYOne(g.node(v)));
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          edge.points.forEach(reverseYOne);
+          if (Object.hasOwn(edge, "y")) {
+            reverseYOne(edge);
+          }
+        });
+      }
+      function reverseYOne(attrs) {
+        attrs.y = -attrs.y;
+      }
+      function swapXY(g) {
+        g.nodes().forEach((v) => swapXYOne(g.node(v)));
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          edge.points.forEach(swapXYOne);
+          if (Object.hasOwn(edge, "x")) {
+            swapXYOne(edge);
+          }
+        });
+      }
+      function swapXYOne(attrs) {
+        let x = attrs.x;
+        attrs.x = attrs.y;
+        attrs.y = x;
+      }
+    }, {}], 5: [function(require2, module3, exports3) {
+
+      class List {
+        constructor() {
+          let sentinel = {};
+          sentinel._next = sentinel._prev = sentinel;
+          this._sentinel = sentinel;
+        }
+        dequeue() {
+          let sentinel = this._sentinel;
+          let entry = sentinel._prev;
+          if (entry !== sentinel) {
+            unlink(entry);
+            return entry;
+          }
+        }
+        enqueue(entry) {
+          let sentinel = this._sentinel;
+          if (entry._prev && entry._next) {
+            unlink(entry);
+          }
+          entry._next = sentinel._next;
+          sentinel._next._prev = entry;
+          sentinel._next = entry;
+          entry._prev = sentinel;
+        }
+        toString() {
+          let strs = [];
+          let sentinel = this._sentinel;
+          let curr = sentinel._prev;
+          while (curr !== sentinel) {
+            strs.push(JSON.stringify(curr, filterOutLinks));
+            curr = curr._prev;
+          }
+          return "[" + strs.join(", ") + "]";
+        }
+      }
+      function unlink(entry) {
+        entry._prev._next = entry._next;
+        entry._next._prev = entry._prev;
+        delete entry._next;
+        delete entry._prev;
+      }
+      function filterOutLinks(k, v) {
+        if (k !== "_next" && k !== "_prev") {
+          return v;
+        }
+      }
+      module3.exports = List;
+    }, {}], 6: [function(require2, module3, exports3) {
+      let util3 = require2("./util");
+      let Graph = require2("@dagrejs/graphlib").Graph;
+      module3.exports = {
+        debugOrdering
+      };
+      function debugOrdering(g) {
+        let layerMatrix = util3.buildLayerMatrix(g);
+        let h = new Graph({ compound: true, multigraph: true }).setGraph({});
+        g.nodes().forEach((v) => {
+          h.setNode(v, { label: v });
+          h.setParent(v, "layer" + g.node(v).rank);
+        });
+        g.edges().forEach((e) => h.setEdge(e.v, e.w, {}, e.name));
+        layerMatrix.forEach((layer, i) => {
+          let layerV = "layer" + i;
+          h.setNode(layerV, { rank: "same" });
+          layer.reduce((u, v) => {
+            h.setEdge(u, v, { style: "invis" });
+            return v;
+          });
+        });
+        return h;
+      }
+    }, { "./util": 27, "@dagrejs/graphlib": 29 }], 7: [function(require2, module3, exports3) {
+      let Graph = require2("@dagrejs/graphlib").Graph;
+      let List = require2("./data/list");
+      module3.exports = greedyFAS;
+      let DEFAULT_WEIGHT_FN = () => 1;
+      function greedyFAS(g, weightFn) {
+        if (g.nodeCount() <= 1) {
+          return [];
+        }
+        let state = buildState(g, weightFn || DEFAULT_WEIGHT_FN);
+        let results = doGreedyFAS(state.graph, state.buckets, state.zeroIdx);
+        return results.flatMap((e) => g.outEdges(e.v, e.w));
+      }
+      function doGreedyFAS(g, buckets, zeroIdx) {
+        let results = [];
+        let sources = buckets[buckets.length - 1];
+        let sinks = buckets[0];
+        let entry;
+        while (g.nodeCount()) {
+          while (entry = sinks.dequeue()) {
+            removeNode(g, buckets, zeroIdx, entry);
+          }
+          while (entry = sources.dequeue()) {
+            removeNode(g, buckets, zeroIdx, entry);
+          }
+          if (g.nodeCount()) {
+            for (let i = buckets.length - 2;i > 0; --i) {
+              entry = buckets[i].dequeue();
+              if (entry) {
+                results = results.concat(removeNode(g, buckets, zeroIdx, entry, true));
+                break;
+              }
+            }
+          }
+        }
+        return results;
+      }
+      function removeNode(g, buckets, zeroIdx, entry, collectPredecessors) {
+        let results = collectPredecessors ? [] : undefined;
+        g.inEdges(entry.v).forEach((edge) => {
+          let weight = g.edge(edge);
+          let uEntry = g.node(edge.v);
+          if (collectPredecessors) {
+            results.push({ v: edge.v, w: edge.w });
+          }
+          uEntry.out -= weight;
+          assignBucket(buckets, zeroIdx, uEntry);
+        });
+        g.outEdges(entry.v).forEach((edge) => {
+          let weight = g.edge(edge);
+          let w = edge.w;
+          let wEntry = g.node(w);
+          wEntry["in"] -= weight;
+          assignBucket(buckets, zeroIdx, wEntry);
+        });
+        g.removeNode(entry.v);
+        return results;
+      }
+      function buildState(g, weightFn) {
+        let fasGraph = new Graph;
+        let maxIn = 0;
+        let maxOut = 0;
+        g.nodes().forEach((v) => {
+          fasGraph.setNode(v, { v, in: 0, out: 0 });
+        });
+        g.edges().forEach((e) => {
+          let prevWeight = fasGraph.edge(e.v, e.w) || 0;
+          let weight = weightFn(e);
+          let edgeWeight = prevWeight + weight;
+          fasGraph.setEdge(e.v, e.w, edgeWeight);
+          maxOut = Math.max(maxOut, fasGraph.node(e.v).out += weight);
+          maxIn = Math.max(maxIn, fasGraph.node(e.w)["in"] += weight);
+        });
+        let buckets = range(maxOut + maxIn + 3).map(() => new List);
+        let zeroIdx = maxIn + 1;
+        fasGraph.nodes().forEach((v) => {
+          assignBucket(buckets, zeroIdx, fasGraph.node(v));
+        });
+        return { graph: fasGraph, buckets, zeroIdx };
+      }
+      function assignBucket(buckets, zeroIdx, entry) {
+        if (!entry.out) {
+          buckets[0].enqueue(entry);
+        } else if (!entry["in"]) {
+          buckets[buckets.length - 1].enqueue(entry);
+        } else {
+          buckets[entry.out - entry["in"] + zeroIdx].enqueue(entry);
+        }
+      }
+      function range(limit) {
+        const range2 = [];
+        for (let i = 0;i < limit; i++) {
+          range2.push(i);
+        }
+        return range2;
+      }
+    }, { "./data/list": 5, "@dagrejs/graphlib": 29 }], 8: [function(require2, module3, exports3) {
+      let acyclic = require2("./acyclic");
+      let normalize = require2("./normalize");
+      let rank = require2("./rank");
+      let normalizeRanks = require2("./util").normalizeRanks;
+      let parentDummyChains = require2("./parent-dummy-chains");
+      let removeEmptyRanks = require2("./util").removeEmptyRanks;
+      let nestingGraph = require2("./nesting-graph");
+      let addBorderSegments = require2("./add-border-segments");
+      let coordinateSystem = require2("./coordinate-system");
+      let order = require2("./order");
+      let position = require2("./position");
+      let util3 = require2("./util");
+      let Graph = require2("@dagrejs/graphlib").Graph;
+      module3.exports = layout;
+      function layout(g, opts) {
+        let time3 = opts && opts.debugTiming ? util3.time : util3.notime;
+        time3("layout", () => {
+          let layoutGraph = time3("  buildLayoutGraph", () => buildLayoutGraph(g));
+          time3("  runLayout", () => runLayout(layoutGraph, time3, opts));
+          time3("  updateInputGraph", () => updateInputGraph(g, layoutGraph));
+        });
+      }
+      function runLayout(g, time3, opts) {
+        time3("    makeSpaceForEdgeLabels", () => makeSpaceForEdgeLabels(g));
+        time3("    removeSelfEdges", () => removeSelfEdges(g));
+        time3("    acyclic", () => acyclic.run(g));
+        time3("    nestingGraph.run", () => nestingGraph.run(g));
+        time3("    rank", () => rank(util3.asNonCompoundGraph(g)));
+        time3("    injectEdgeLabelProxies", () => injectEdgeLabelProxies(g));
+        time3("    removeEmptyRanks", () => removeEmptyRanks(g));
+        time3("    nestingGraph.cleanup", () => nestingGraph.cleanup(g));
+        time3("    normalizeRanks", () => normalizeRanks(g));
+        time3("    assignRankMinMax", () => assignRankMinMax(g));
+        time3("    removeEdgeLabelProxies", () => removeEdgeLabelProxies(g));
+        time3("    normalize.run", () => normalize.run(g));
+        time3("    parentDummyChains", () => parentDummyChains(g));
+        time3("    addBorderSegments", () => addBorderSegments(g));
+        time3("    order", () => order(g, opts));
+        time3("    insertSelfEdges", () => insertSelfEdges(g));
+        time3("    adjustCoordinateSystem", () => coordinateSystem.adjust(g));
+        time3("    position", () => position(g));
+        time3("    positionSelfEdges", () => positionSelfEdges(g));
+        time3("    removeBorderNodes", () => removeBorderNodes(g));
+        time3("    normalize.undo", () => normalize.undo(g));
+        time3("    fixupEdgeLabelCoords", () => fixupEdgeLabelCoords(g));
+        time3("    undoCoordinateSystem", () => coordinateSystem.undo(g));
+        time3("    translateGraph", () => translateGraph(g));
+        time3("    assignNodeIntersects", () => assignNodeIntersects(g));
+        time3("    reversePoints", () => reversePointsForReversedEdges(g));
+        time3("    acyclic.undo", () => acyclic.undo(g));
+      }
+      function updateInputGraph(inputGraph, layoutGraph) {
+        inputGraph.nodes().forEach((v) => {
+          let inputLabel = inputGraph.node(v);
+          let layoutLabel = layoutGraph.node(v);
+          if (inputLabel) {
+            inputLabel.x = layoutLabel.x;
+            inputLabel.y = layoutLabel.y;
+            inputLabel.rank = layoutLabel.rank;
+            if (layoutGraph.children(v).length) {
+              inputLabel.width = layoutLabel.width;
+              inputLabel.height = layoutLabel.height;
+            }
+          }
+        });
+        inputGraph.edges().forEach((e) => {
+          let inputLabel = inputGraph.edge(e);
+          let layoutLabel = layoutGraph.edge(e);
+          inputLabel.points = layoutLabel.points;
+          if (Object.hasOwn(layoutLabel, "x")) {
+            inputLabel.x = layoutLabel.x;
+            inputLabel.y = layoutLabel.y;
+          }
+        });
+        inputGraph.graph().width = layoutGraph.graph().width;
+        inputGraph.graph().height = layoutGraph.graph().height;
+      }
+      let graphNumAttrs = ["nodesep", "edgesep", "ranksep", "marginx", "marginy"];
+      let graphDefaults = { ranksep: 50, edgesep: 20, nodesep: 50, rankdir: "tb" };
+      let graphAttrs = ["acyclicer", "ranker", "rankdir", "align"];
+      let nodeNumAttrs = ["width", "height", "rank"];
+      let nodeDefaults = { width: 0, height: 0 };
+      let edgeNumAttrs = ["minlen", "weight", "width", "height", "labeloffset"];
+      let edgeDefaults = {
+        minlen: 1,
+        weight: 1,
+        width: 0,
+        height: 0,
+        labeloffset: 10,
+        labelpos: "r"
+      };
+      let edgeAttrs = ["labelpos"];
+      function buildLayoutGraph(inputGraph) {
+        let g = new Graph({ multigraph: true, compound: true });
+        let graph = canonicalize(inputGraph.graph());
+        g.setGraph(Object.assign({}, graphDefaults, selectNumberAttrs(graph, graphNumAttrs), util3.pick(graph, graphAttrs)));
+        inputGraph.nodes().forEach((v) => {
+          let node = canonicalize(inputGraph.node(v));
+          const newNode = selectNumberAttrs(node, nodeNumAttrs);
+          Object.keys(nodeDefaults).forEach((k) => {
+            if (newNode[k] === undefined) {
+              newNode[k] = nodeDefaults[k];
+            }
+          });
+          g.setNode(v, newNode);
+          g.setParent(v, inputGraph.parent(v));
+        });
+        inputGraph.edges().forEach((e) => {
+          let edge = canonicalize(inputGraph.edge(e));
+          g.setEdge(e, Object.assign({}, edgeDefaults, selectNumberAttrs(edge, edgeNumAttrs), util3.pick(edge, edgeAttrs)));
+        });
+        return g;
+      }
+      function makeSpaceForEdgeLabels(g) {
+        let graph = g.graph();
+        graph.ranksep /= 2;
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          edge.minlen *= 2;
+          if (edge.labelpos.toLowerCase() !== "c") {
+            if (graph.rankdir === "TB" || graph.rankdir === "BT") {
+              edge.width += edge.labeloffset;
+            } else {
+              edge.height += edge.labeloffset;
+            }
+          }
+        });
+      }
+      function injectEdgeLabelProxies(g) {
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          if (edge.width && edge.height) {
+            let v = g.node(e.v);
+            let w = g.node(e.w);
+            let label = { rank: (w.rank - v.rank) / 2 + v.rank, e };
+            util3.addDummyNode(g, "edge-proxy", label, "_ep");
+          }
+        });
+      }
+      function assignRankMinMax(g) {
+        let maxRank = 0;
+        g.nodes().forEach((v) => {
+          let node = g.node(v);
+          if (node.borderTop) {
+            node.minRank = g.node(node.borderTop).rank;
+            node.maxRank = g.node(node.borderBottom).rank;
+            maxRank = Math.max(maxRank, node.maxRank);
+          }
+        });
+        g.graph().maxRank = maxRank;
+      }
+      function removeEdgeLabelProxies(g) {
+        g.nodes().forEach((v) => {
+          let node = g.node(v);
+          if (node.dummy === "edge-proxy") {
+            g.edge(node.e).labelRank = node.rank;
+            g.removeNode(v);
+          }
+        });
+      }
+      function translateGraph(g) {
+        let minX = Number.POSITIVE_INFINITY;
+        let maxX = 0;
+        let minY = Number.POSITIVE_INFINITY;
+        let maxY = 0;
+        let graphLabel = g.graph();
+        let marginX = graphLabel.marginx || 0;
+        let marginY = graphLabel.marginy || 0;
+        function getExtremes(attrs) {
+          let x = attrs.x;
+          let y = attrs.y;
+          let w = attrs.width;
+          let h = attrs.height;
+          minX = Math.min(minX, x - w / 2);
+          maxX = Math.max(maxX, x + w / 2);
+          minY = Math.min(minY, y - h / 2);
+          maxY = Math.max(maxY, y + h / 2);
+        }
+        g.nodes().forEach((v) => getExtremes(g.node(v)));
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          if (Object.hasOwn(edge, "x")) {
+            getExtremes(edge);
+          }
+        });
+        minX -= marginX;
+        minY -= marginY;
+        g.nodes().forEach((v) => {
+          let node = g.node(v);
+          node.x -= minX;
+          node.y -= minY;
+        });
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          edge.points.forEach((p) => {
+            p.x -= minX;
+            p.y -= minY;
+          });
+          if (Object.hasOwn(edge, "x")) {
+            edge.x -= minX;
+          }
+          if (Object.hasOwn(edge, "y")) {
+            edge.y -= minY;
+          }
+        });
+        graphLabel.width = maxX - minX + marginX;
+        graphLabel.height = maxY - minY + marginY;
+      }
+      function assignNodeIntersects(g) {
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          let nodeV = g.node(e.v);
+          let nodeW = g.node(e.w);
+          let p1, p2;
+          if (!edge.points) {
+            edge.points = [];
+            p1 = nodeW;
+            p2 = nodeV;
+          } else {
+            p1 = edge.points[0];
+            p2 = edge.points[edge.points.length - 1];
+          }
+          edge.points.unshift(util3.intersectRect(nodeV, p1));
+          edge.points.push(util3.intersectRect(nodeW, p2));
+        });
+      }
+      function fixupEdgeLabelCoords(g) {
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          if (Object.hasOwn(edge, "x")) {
+            if (edge.labelpos === "l" || edge.labelpos === "r") {
+              edge.width -= edge.labeloffset;
+            }
+            switch (edge.labelpos) {
+              case "l":
+                edge.x -= edge.width / 2 + edge.labeloffset;
+                break;
+              case "r":
+                edge.x += edge.width / 2 + edge.labeloffset;
+                break;
+            }
+          }
+        });
+      }
+      function reversePointsForReversedEdges(g) {
+        g.edges().forEach((e) => {
+          let edge = g.edge(e);
+          if (edge.reversed) {
+            edge.points.reverse();
+          }
+        });
+      }
+      function removeBorderNodes(g) {
+        g.nodes().forEach((v) => {
+          if (g.children(v).length) {
+            let node = g.node(v);
+            let t = g.node(node.borderTop);
+            let b = g.node(node.borderBottom);
+            let l = g.node(node.borderLeft[node.borderLeft.length - 1]);
+            let r = g.node(node.borderRight[node.borderRight.length - 1]);
+            node.width = Math.abs(r.x - l.x);
+            node.height = Math.abs(b.y - t.y);
+            node.x = l.x + node.width / 2;
+            node.y = t.y + node.height / 2;
+          }
+        });
+        g.nodes().forEach((v) => {
+          if (g.node(v).dummy === "border") {
+            g.removeNode(v);
+          }
+        });
+      }
+      function removeSelfEdges(g) {
+        g.edges().forEach((e) => {
+          if (e.v === e.w) {
+            var node = g.node(e.v);
+            if (!node.selfEdges) {
+              node.selfEdges = [];
+            }
+            node.selfEdges.push({ e, label: g.edge(e) });
+            g.removeEdge(e);
+          }
+        });
+      }
+      function insertSelfEdges(g) {
+        var layers = util3.buildLayerMatrix(g);
+        layers.forEach((layer) => {
+          var orderShift = 0;
+          layer.forEach((v, i) => {
+            var node = g.node(v);
+            node.order = i + orderShift;
+            (node.selfEdges || []).forEach((selfEdge) => {
+              util3.addDummyNode(g, "selfedge", {
+                width: selfEdge.label.width,
+                height: selfEdge.label.height,
+                rank: node.rank,
+                order: i + ++orderShift,
+                e: selfEdge.e,
+                label: selfEdge.label
+              }, "_se");
+            });
+            delete node.selfEdges;
+          });
+        });
+      }
+      function positionSelfEdges(g) {
+        g.nodes().forEach((v) => {
+          var node = g.node(v);
+          if (node.dummy === "selfedge") {
+            var selfNode = g.node(node.e.v);
+            var x = selfNode.x + selfNode.width / 2;
+            var y = selfNode.y;
+            var dx = node.x - x;
+            var dy = selfNode.height / 2;
+            g.setEdge(node.e, node.label);
+            g.removeNode(v);
+            node.label.points = [
+              { x: x + 2 * dx / 3, y: y - dy },
+              { x: x + 5 * dx / 6, y: y - dy },
+              { x: x + dx, y },
+              { x: x + 5 * dx / 6, y: y + dy },
+              { x: x + 2 * dx / 3, y: y + dy }
+            ];
+            node.label.x = node.x;
+            node.label.y = node.y;
+          }
+        });
+      }
+      function selectNumberAttrs(obj, attrs) {
+        return util3.mapValues(util3.pick(obj, attrs), Number);
+      }
+      function canonicalize(attrs) {
+        var newAttrs = {};
+        if (attrs) {
+          Object.entries(attrs).forEach(([k, v]) => {
+            if (typeof k === "string") {
+              k = k.toLowerCase();
+            }
+            newAttrs[k] = v;
+          });
+        }
+        return newAttrs;
+      }
+    }, { "./acyclic": 2, "./add-border-segments": 3, "./coordinate-system": 4, "./nesting-graph": 9, "./normalize": 10, "./order": 15, "./parent-dummy-chains": 20, "./position": 22, "./rank": 24, "./util": 27, "@dagrejs/graphlib": 29 }], 9: [function(require2, module3, exports3) {
+      let util3 = require2("./util");
+      module3.exports = {
+        run,
+        cleanup
+      };
+      function run(g) {
+        let root = util3.addDummyNode(g, "root", {}, "_root");
+        let depths = treeDepths(g);
+        let depthsArr = Object.values(depths);
+        let height = util3.applyWithChunking(Math.max, depthsArr) - 1;
+        let nodeSep = 2 * height + 1;
+        g.graph().nestingRoot = root;
+        g.edges().forEach((e) => g.edge(e).minlen *= nodeSep);
+        let weight = sumWeights(g) + 1;
+        g.children().forEach((child) => dfs(g, root, nodeSep, weight, height, depths, child));
+        g.graph().nodeRankFactor = nodeSep;
+      }
+      function dfs(g, root, nodeSep, weight, height, depths, v) {
+        let children = g.children(v);
+        if (!children.length) {
+          if (v !== root) {
+            g.setEdge(root, v, { weight: 0, minlen: nodeSep });
+          }
+          return;
+        }
+        let top = util3.addBorderNode(g, "_bt");
+        let bottom = util3.addBorderNode(g, "_bb");
+        let label = g.node(v);
+        g.setParent(top, v);
+        label.borderTop = top;
+        g.setParent(bottom, v);
+        label.borderBottom = bottom;
+        children.forEach((child) => {
+          dfs(g, root, nodeSep, weight, height, depths, child);
+          let childNode = g.node(child);
+          let childTop = childNode.borderTop ? childNode.borderTop : child;
+          let childBottom = childNode.borderBottom ? childNode.borderBottom : child;
+          let thisWeight = childNode.borderTop ? weight : 2 * weight;
+          let minlen = childTop !== childBottom ? 1 : height - depths[v] + 1;
+          g.setEdge(top, childTop, {
+            weight: thisWeight,
+            minlen,
+            nestingEdge: true
+          });
+          g.setEdge(childBottom, bottom, {
+            weight: thisWeight,
+            minlen,
+            nestingEdge: true
+          });
+        });
+        if (!g.parent(v)) {
+          g.setEdge(root, top, { weight: 0, minlen: height + depths[v] });
+        }
+      }
+      function treeDepths(g) {
+        var depths = {};
+        function dfs2(v, depth) {
+          var children = g.children(v);
+          if (children && children.length) {
+            children.forEach((child) => dfs2(child, depth + 1));
+          }
+          depths[v] = depth;
+        }
+        g.children().forEach((v) => dfs2(v, 1));
+        return depths;
+      }
+      function sumWeights(g) {
+        return g.edges().reduce((acc, e) => acc + g.edge(e).weight, 0);
+      }
+      function cleanup(g) {
+        var graphLabel = g.graph();
+        g.removeNode(graphLabel.nestingRoot);
+        delete graphLabel.nestingRoot;
+        g.edges().forEach((e) => {
+          var edge = g.edge(e);
+          if (edge.nestingEdge) {
+            g.removeEdge(e);
+          }
+        });
+      }
+    }, { "./util": 27 }], 10: [function(require2, module3, exports3) {
+      let util3 = require2("./util");
+      module3.exports = {
+        run,
+        undo
+      };
+      function run(g) {
+        g.graph().dummyChains = [];
+        g.edges().forEach((edge) => normalizeEdge(g, edge));
+      }
+      function normalizeEdge(g, e) {
+        let v = e.v;
+        let vRank = g.node(v).rank;
+        let w = e.w;
+        let wRank = g.node(w).rank;
+        let name = e.name;
+        let edgeLabel = g.edge(e);
+        let labelRank = edgeLabel.labelRank;
+        if (wRank === vRank + 1)
+          return;
+        g.removeEdge(e);
+        let dummy, attrs, i;
+        for (i = 0, ++vRank;vRank < wRank; ++i, ++vRank) {
+          edgeLabel.points = [];
+          attrs = {
+            width: 0,
+            height: 0,
+            edgeLabel,
+            edgeObj: e,
+            rank: vRank
+          };
+          dummy = util3.addDummyNode(g, "edge", attrs, "_d");
+          if (vRank === labelRank) {
+            attrs.width = edgeLabel.width;
+            attrs.height = edgeLabel.height;
+            attrs.dummy = "edge-label";
+            attrs.labelpos = edgeLabel.labelpos;
+          }
+          g.setEdge(v, dummy, { weight: edgeLabel.weight }, name);
+          if (i === 0) {
+            g.graph().dummyChains.push(dummy);
+          }
+          v = dummy;
+        }
+        g.setEdge(v, w, { weight: edgeLabel.weight }, name);
+      }
+      function undo(g) {
+        g.graph().dummyChains.forEach((v) => {
+          let node = g.node(v);
+          let origLabel = node.edgeLabel;
+          let w;
+          g.setEdge(node.edgeObj, origLabel);
+          while (node.dummy) {
+            w = g.successors(v)[0];
+            g.removeNode(v);
+            origLabel.points.push({ x: node.x, y: node.y });
+            if (node.dummy === "edge-label") {
+              origLabel.x = node.x;
+              origLabel.y = node.y;
+              origLabel.width = node.width;
+              origLabel.height = node.height;
+            }
+            v = w;
+            node = g.node(v);
+          }
+        });
+      }
+    }, { "./util": 27 }], 11: [function(require2, module3, exports3) {
+      module3.exports = addSubgraphConstraints;
+      function addSubgraphConstraints(g, cg, vs) {
+        let prev = {}, rootPrev;
+        vs.forEach((v) => {
+          let child = g.parent(v), parent, prevChild;
+          while (child) {
+            parent = g.parent(child);
+            if (parent) {
+              prevChild = prev[parent];
+              prev[parent] = child;
+            } else {
+              prevChild = rootPrev;
+              rootPrev = child;
+            }
+            if (prevChild && prevChild !== child) {
+              cg.setEdge(prevChild, child);
+              return;
+            }
+            child = parent;
+          }
+        });
+      }
+    }, {}], 12: [function(require2, module3, exports3) {
+      module3.exports = barycenter;
+      function barycenter(g, movable = []) {
+        return movable.map((v) => {
+          let inV = g.inEdges(v);
+          if (!inV.length) {
+            return { v };
+          } else {
+            let result = inV.reduce((acc, e) => {
+              let edge = g.edge(e), nodeU = g.node(e.v);
+              return {
+                sum: acc.sum + edge.weight * nodeU.order,
+                weight: acc.weight + edge.weight
+              };
+            }, { sum: 0, weight: 0 });
+            return {
+              v,
+              barycenter: result.sum / result.weight,
+              weight: result.weight
+            };
+          }
+        });
+      }
+    }, {}], 13: [function(require2, module3, exports3) {
+      let Graph = require2("@dagrejs/graphlib").Graph;
+      let util3 = require2("../util");
+      module3.exports = buildLayerGraph;
+      function buildLayerGraph(g, rank, relationship, nodesWithRank) {
+        if (!nodesWithRank) {
+          nodesWithRank = g.nodes();
+        }
+        let root = createRootNode(g), result = new Graph({ compound: true }).setGraph({ root }).setDefaultNodeLabel((v) => g.node(v));
+        nodesWithRank.forEach((v) => {
+          let node = g.node(v), parent = g.parent(v);
+          if (node.rank === rank || node.minRank <= rank && rank <= node.maxRank) {
+            result.setNode(v);
+            result.setParent(v, parent || root);
+            g[relationship](v).forEach((e) => {
+              let u = e.v === v ? e.w : e.v, edge = result.edge(u, v), weight = edge !== undefined ? edge.weight : 0;
+              result.setEdge(u, v, { weight: g.edge(e).weight + weight });
+            });
+            if (Object.hasOwn(node, "minRank")) {
+              result.setNode(v, {
+                borderLeft: node.borderLeft[rank],
+                borderRight: node.borderRight[rank]
+              });
+            }
+          }
+        });
+        return result;
+      }
+      function createRootNode(g) {
+        var v;
+        while (g.hasNode(v = util3.uniqueId("_root")))
+          ;
+        return v;
+      }
+    }, { "../util": 27, "@dagrejs/graphlib": 29 }], 14: [function(require2, module3, exports3) {
+      let zipObject = require2("../util").zipObject;
+      module3.exports = crossCount;
+      function crossCount(g, layering) {
+        let cc = 0;
+        for (let i = 1;i < layering.length; ++i) {
+          cc += twoLayerCrossCount(g, layering[i - 1], layering[i]);
+        }
+        return cc;
+      }
+      function twoLayerCrossCount(g, northLayer, southLayer) {
+        let southPos = zipObject(southLayer, southLayer.map((v, i) => i));
+        let southEntries = northLayer.flatMap((v) => {
+          return g.outEdges(v).map((e) => {
+            return { pos: southPos[e.w], weight: g.edge(e).weight };
+          }).sort((a, b) => a.pos - b.pos);
+        });
+        let firstIndex = 1;
+        while (firstIndex < southLayer.length)
+          firstIndex <<= 1;
+        let treeSize = 2 * firstIndex - 1;
+        firstIndex -= 1;
+        let tree = new Array(treeSize).fill(0);
+        let cc = 0;
+        southEntries.forEach((entry) => {
+          let index = entry.pos + firstIndex;
+          tree[index] += entry.weight;
+          let weightSum = 0;
+          while (index > 0) {
+            if (index % 2) {
+              weightSum += tree[index + 1];
+            }
+            index = index - 1 >> 1;
+            tree[index] += entry.weight;
+          }
+          cc += entry.weight * weightSum;
+        });
+        return cc;
+      }
+    }, { "../util": 27 }], 15: [function(require2, module3, exports3) {
+      let initOrder = require2("./init-order");
+      let crossCount = require2("./cross-count");
+      let sortSubgraph = require2("./sort-subgraph");
+      let buildLayerGraph = require2("./build-layer-graph");
+      let addSubgraphConstraints = require2("./add-subgraph-constraints");
+      let Graph = require2("@dagrejs/graphlib").Graph;
+      let util3 = require2("../util");
+      module3.exports = order;
+      function order(g, opts) {
+        if (opts && typeof opts.customOrder === "function") {
+          opts.customOrder(g, order);
+          return;
+        }
+        let maxRank = util3.maxRank(g), downLayerGraphs = buildLayerGraphs(g, util3.range(1, maxRank + 1), "inEdges"), upLayerGraphs = buildLayerGraphs(g, util3.range(maxRank - 1, -1, -1), "outEdges");
+        let layering = initOrder(g);
+        assignOrder(g, layering);
+        if (opts && opts.disableOptimalOrderHeuristic) {
+          return;
+        }
+        let bestCC = Number.POSITIVE_INFINITY, best;
+        for (let i = 0, lastBest = 0;lastBest < 4; ++i, ++lastBest) {
+          sweepLayerGraphs(i % 2 ? downLayerGraphs : upLayerGraphs, i % 4 >= 2);
+          layering = util3.buildLayerMatrix(g);
+          let cc = crossCount(g, layering);
+          if (cc < bestCC) {
+            lastBest = 0;
+            best = Object.assign({}, layering);
+            bestCC = cc;
+          }
+        }
+        assignOrder(g, best);
+      }
+      function buildLayerGraphs(g, ranks, relationship) {
+        const nodesByRank = new Map;
+        const addNodeToRank = (rank, node) => {
+          if (!nodesByRank.has(rank)) {
+            nodesByRank.set(rank, []);
+          }
+          nodesByRank.get(rank).push(node);
+        };
+        for (const v of g.nodes()) {
+          const node = g.node(v);
+          if (typeof node.rank === "number") {
+            addNodeToRank(node.rank, v);
+          }
+          if (typeof node.minRank === "number" && typeof node.maxRank === "number") {
+            for (let r = node.minRank;r <= node.maxRank; r++) {
+              if (r !== node.rank) {
+                addNodeToRank(r, v);
+              }
+            }
+          }
+        }
+        return ranks.map(function(rank) {
+          return buildLayerGraph(g, rank, relationship, nodesByRank.get(rank) || []);
+        });
+      }
+      function sweepLayerGraphs(layerGraphs, biasRight) {
+        let cg = new Graph;
+        layerGraphs.forEach(function(lg) {
+          let root = lg.graph().root;
+          let sorted = sortSubgraph(lg, root, cg, biasRight);
+          sorted.vs.forEach((v, i) => lg.node(v).order = i);
+          addSubgraphConstraints(lg, cg, sorted.vs);
+        });
+      }
+      function assignOrder(g, layering) {
+        Object.values(layering).forEach((layer) => layer.forEach((v, i) => g.node(v).order = i));
+      }
+    }, { "../util": 27, "./add-subgraph-constraints": 11, "./build-layer-graph": 13, "./cross-count": 14, "./init-order": 16, "./sort-subgraph": 18, "@dagrejs/graphlib": 29 }], 16: [function(require2, module3, exports3) {
+      let util3 = require2("../util");
+      module3.exports = initOrder;
+      function initOrder(g) {
+        let visited = {};
+        let simpleNodes = g.nodes().filter((v) => !g.children(v).length);
+        let simpleNodesRanks = simpleNodes.map((v) => g.node(v).rank);
+        let maxRank = util3.applyWithChunking(Math.max, simpleNodesRanks);
+        let layers = util3.range(maxRank + 1).map(() => []);
+        function dfs(v) {
+          if (visited[v])
+            return;
+          visited[v] = true;
+          let node = g.node(v);
+          layers[node.rank].push(v);
+          g.successors(v).forEach(dfs);
+        }
+        let orderedVs = simpleNodes.sort((a, b) => g.node(a).rank - g.node(b).rank);
+        orderedVs.forEach(dfs);
+        return layers;
+      }
+    }, { "../util": 27 }], 17: [function(require2, module3, exports3) {
+      let util3 = require2("../util");
+      module3.exports = resolveConflicts;
+      function resolveConflicts(entries, cg) {
+        let mappedEntries = {};
+        entries.forEach((entry, i) => {
+          let tmp = mappedEntries[entry.v] = {
+            indegree: 0,
+            in: [],
+            out: [],
+            vs: [entry.v],
+            i
+          };
+          if (entry.barycenter !== undefined) {
+            tmp.barycenter = entry.barycenter;
+            tmp.weight = entry.weight;
+          }
+        });
+        cg.edges().forEach((e) => {
+          let entryV = mappedEntries[e.v];
+          let entryW = mappedEntries[e.w];
+          if (entryV !== undefined && entryW !== undefined) {
+            entryW.indegree++;
+            entryV.out.push(mappedEntries[e.w]);
+          }
+        });
+        let sourceSet = Object.values(mappedEntries).filter((entry) => !entry.indegree);
+        return doResolveConflicts(sourceSet);
+      }
+      function doResolveConflicts(sourceSet) {
+        let entries = [];
+        function handleIn(vEntry) {
+          return (uEntry) => {
+            if (uEntry.merged) {
+              return;
+            }
+            if (uEntry.barycenter === undefined || vEntry.barycenter === undefined || uEntry.barycenter >= vEntry.barycenter) {
+              mergeEntries(vEntry, uEntry);
+            }
+          };
+        }
+        function handleOut(vEntry) {
+          return (wEntry) => {
+            wEntry["in"].push(vEntry);
+            if (--wEntry.indegree === 0) {
+              sourceSet.push(wEntry);
+            }
+          };
+        }
+        while (sourceSet.length) {
+          let entry = sourceSet.pop();
+          entries.push(entry);
+          entry["in"].reverse().forEach(handleIn(entry));
+          entry.out.forEach(handleOut(entry));
+        }
+        return entries.filter((entry) => !entry.merged).map((entry) => {
+          return util3.pick(entry, ["vs", "i", "barycenter", "weight"]);
+        });
+      }
+      function mergeEntries(target, source) {
+        let sum = 0;
+        let weight = 0;
+        if (target.weight) {
+          sum += target.barycenter * target.weight;
+          weight += target.weight;
+        }
+        if (source.weight) {
+          sum += source.barycenter * source.weight;
+          weight += source.weight;
+        }
+        target.vs = source.vs.concat(target.vs);
+        target.barycenter = sum / weight;
+        target.weight = weight;
+        target.i = Math.min(source.i, target.i);
+        source.merged = true;
+      }
+    }, { "../util": 27 }], 18: [function(require2, module3, exports3) {
+      let barycenter = require2("./barycenter");
+      let resolveConflicts = require2("./resolve-conflicts");
+      let sort = require2("./sort");
+      module3.exports = sortSubgraph;
+      function sortSubgraph(g, v, cg, biasRight) {
+        let movable = g.children(v);
+        let node = g.node(v);
+        let bl = node ? node.borderLeft : undefined;
+        let br = node ? node.borderRight : undefined;
+        let subgraphs = {};
+        if (bl) {
+          movable = movable.filter((w) => w !== bl && w !== br);
+        }
+        let barycenters = barycenter(g, movable);
+        barycenters.forEach((entry) => {
+          if (g.children(entry.v).length) {
+            let subgraphResult = sortSubgraph(g, entry.v, cg, biasRight);
+            subgraphs[entry.v] = subgraphResult;
+            if (Object.hasOwn(subgraphResult, "barycenter")) {
+              mergeBarycenters(entry, subgraphResult);
+            }
+          }
+        });
+        let entries = resolveConflicts(barycenters, cg);
+        expandSubgraphs(entries, subgraphs);
+        let result = sort(entries, biasRight);
+        if (bl) {
+          result.vs = [bl, result.vs, br].flat(true);
+          if (g.predecessors(bl).length) {
+            let blPred = g.node(g.predecessors(bl)[0]), brPred = g.node(g.predecessors(br)[0]);
+            if (!Object.hasOwn(result, "barycenter")) {
+              result.barycenter = 0;
+              result.weight = 0;
+            }
+            result.barycenter = (result.barycenter * result.weight + blPred.order + brPred.order) / (result.weight + 2);
+            result.weight += 2;
+          }
+        }
+        return result;
+      }
+      function expandSubgraphs(entries, subgraphs) {
+        entries.forEach((entry) => {
+          entry.vs = entry.vs.flatMap((v) => {
+            if (subgraphs[v]) {
+              return subgraphs[v].vs;
+            }
+            return v;
+          });
+        });
+      }
+      function mergeBarycenters(target, other) {
+        if (target.barycenter !== undefined) {
+          target.barycenter = (target.barycenter * target.weight + other.barycenter * other.weight) / (target.weight + other.weight);
+          target.weight += other.weight;
+        } else {
+          target.barycenter = other.barycenter;
+          target.weight = other.weight;
+        }
+      }
+    }, { "./barycenter": 12, "./resolve-conflicts": 17, "./sort": 19 }], 19: [function(require2, module3, exports3) {
+      let util3 = require2("../util");
+      module3.exports = sort;
+      function sort(entries, biasRight) {
+        let parts = util3.partition(entries, (entry) => {
+          return Object.hasOwn(entry, "barycenter");
+        });
+        let sortable = parts.lhs, unsortable = parts.rhs.sort((a, b) => b.i - a.i), vs = [], sum = 0, weight = 0, vsIndex = 0;
+        sortable.sort(compareWithBias(!!biasRight));
+        vsIndex = consumeUnsortable(vs, unsortable, vsIndex);
+        sortable.forEach((entry) => {
+          vsIndex += entry.vs.length;
+          vs.push(entry.vs);
+          sum += entry.barycenter * entry.weight;
+          weight += entry.weight;
+          vsIndex = consumeUnsortable(vs, unsortable, vsIndex);
+        });
+        let result = { vs: vs.flat(true) };
+        if (weight) {
+          result.barycenter = sum / weight;
+          result.weight = weight;
+        }
+        return result;
+      }
+      function consumeUnsortable(vs, unsortable, index) {
+        let last;
+        while (unsortable.length && (last = unsortable[unsortable.length - 1]).i <= index) {
+          unsortable.pop();
+          vs.push(last.vs);
+          index++;
+        }
+        return index;
+      }
+      function compareWithBias(bias) {
+        return (entryV, entryW) => {
+          if (entryV.barycenter < entryW.barycenter) {
+            return -1;
+          } else if (entryV.barycenter > entryW.barycenter) {
+            return 1;
+          }
+          return !bias ? entryV.i - entryW.i : entryW.i - entryV.i;
+        };
+      }
+    }, { "../util": 27 }], 20: [function(require2, module3, exports3) {
+      module3.exports = parentDummyChains;
+      function parentDummyChains(g) {
+        let postorderNums = postorder(g);
+        g.graph().dummyChains.forEach((v) => {
+          let node = g.node(v);
+          let edgeObj = node.edgeObj;
+          let pathData = findPath(g, postorderNums, edgeObj.v, edgeObj.w);
+          let path2 = pathData.path;
+          let lca = pathData.lca;
+          let pathIdx = 0;
+          let pathV = path2[pathIdx];
+          let ascending = true;
+          while (v !== edgeObj.w) {
+            node = g.node(v);
+            if (ascending) {
+              while ((pathV = path2[pathIdx]) !== lca && g.node(pathV).maxRank < node.rank) {
+                pathIdx++;
+              }
+              if (pathV === lca) {
+                ascending = false;
+              }
+            }
+            if (!ascending) {
+              while (pathIdx < path2.length - 1 && g.node(pathV = path2[pathIdx + 1]).minRank <= node.rank) {
+                pathIdx++;
+              }
+              pathV = path2[pathIdx];
+            }
+            g.setParent(v, pathV);
+            v = g.successors(v)[0];
+          }
+        });
+      }
+      function findPath(g, postorderNums, v, w) {
+        let vPath = [];
+        let wPath = [];
+        let low = Math.min(postorderNums[v].low, postorderNums[w].low);
+        let lim = Math.max(postorderNums[v].lim, postorderNums[w].lim);
+        let parent;
+        let lca;
+        parent = v;
+        do {
+          parent = g.parent(parent);
+          vPath.push(parent);
+        } while (parent && (postorderNums[parent].low > low || lim > postorderNums[parent].lim));
+        lca = parent;
+        parent = w;
+        while ((parent = g.parent(parent)) !== lca) {
+          wPath.push(parent);
+        }
+        return { path: vPath.concat(wPath.reverse()), lca };
+      }
+      function postorder(g) {
+        let result = {};
+        let lim = 0;
+        function dfs(v) {
+          let low = lim;
+          g.children(v).forEach(dfs);
+          result[v] = { low, lim: lim++ };
+        }
+        g.children().forEach(dfs);
+        return result;
+      }
+    }, {}], 21: [function(require2, module3, exports3) {
+      let Graph = require2("@dagrejs/graphlib").Graph;
+      let util3 = require2("../util");
+      module3.exports = {
+        positionX,
+        findType1Conflicts,
+        findType2Conflicts,
+        addConflict,
+        hasConflict,
+        verticalAlignment,
+        horizontalCompaction,
+        alignCoordinates,
+        findSmallestWidthAlignment,
+        balance
+      };
+      function findType1Conflicts(g, layering) {
+        let conflicts = {};
+        function visitLayer(prevLayer, layer) {
+          let k0 = 0, scanPos = 0, prevLayerLength = prevLayer.length, lastNode = layer[layer.length - 1];
+          layer.forEach((v, i) => {
+            let w = findOtherInnerSegmentNode(g, v), k1 = w ? g.node(w).order : prevLayerLength;
+            if (w || v === lastNode) {
+              layer.slice(scanPos, i + 1).forEach((scanNode) => {
+                g.predecessors(scanNode).forEach((u) => {
+                  let uLabel = g.node(u), uPos = uLabel.order;
+                  if ((uPos < k0 || k1 < uPos) && !(uLabel.dummy && g.node(scanNode).dummy)) {
+                    addConflict(conflicts, u, scanNode);
+                  }
+                });
+              });
+              scanPos = i + 1;
+              k0 = k1;
+            }
+          });
+          return layer;
+        }
+        layering.length && layering.reduce(visitLayer);
+        return conflicts;
+      }
+      function findType2Conflicts(g, layering) {
+        let conflicts = {};
+        function scan(south, southPos, southEnd, prevNorthBorder, nextNorthBorder) {
+          let v;
+          util3.range(southPos, southEnd).forEach((i) => {
+            v = south[i];
+            if (g.node(v).dummy) {
+              g.predecessors(v).forEach((u) => {
+                let uNode = g.node(u);
+                if (uNode.dummy && (uNode.order < prevNorthBorder || uNode.order > nextNorthBorder)) {
+                  addConflict(conflicts, u, v);
+                }
+              });
+            }
+          });
+        }
+        function visitLayer(north, south) {
+          let prevNorthPos = -1, nextNorthPos, southPos = 0;
+          south.forEach((v, southLookahead) => {
+            if (g.node(v).dummy === "border") {
+              let predecessors = g.predecessors(v);
+              if (predecessors.length) {
+                nextNorthPos = g.node(predecessors[0]).order;
+                scan(south, southPos, southLookahead, prevNorthPos, nextNorthPos);
+                southPos = southLookahead;
+                prevNorthPos = nextNorthPos;
+              }
+            }
+            scan(south, southPos, south.length, nextNorthPos, north.length);
+          });
+          return south;
+        }
+        layering.length && layering.reduce(visitLayer);
+        return conflicts;
+      }
+      function findOtherInnerSegmentNode(g, v) {
+        if (g.node(v).dummy) {
+          return g.predecessors(v).find((u) => g.node(u).dummy);
+        }
+      }
+      function addConflict(conflicts, v, w) {
+        if (v > w) {
+          let tmp = v;
+          v = w;
+          w = tmp;
+        }
+        let conflictsV = conflicts[v];
+        if (!conflictsV) {
+          conflicts[v] = conflictsV = {};
+        }
+        conflictsV[w] = true;
+      }
+      function hasConflict(conflicts, v, w) {
+        if (v > w) {
+          let tmp = v;
+          v = w;
+          w = tmp;
+        }
+        return !!conflicts[v] && Object.hasOwn(conflicts[v], w);
+      }
+      function verticalAlignment(g, layering, conflicts, neighborFn) {
+        let root = {}, align = {}, pos = {};
+        layering.forEach((layer) => {
+          layer.forEach((v, order) => {
+            root[v] = v;
+            align[v] = v;
+            pos[v] = order;
+          });
+        });
+        layering.forEach((layer) => {
+          let prevIdx = -1;
+          layer.forEach((v) => {
+            let ws = neighborFn(v);
+            if (ws.length) {
+              ws = ws.sort((a, b) => pos[a] - pos[b]);
+              let mp = (ws.length - 1) / 2;
+              for (let i = Math.floor(mp), il = Math.ceil(mp);i <= il; ++i) {
+                let w = ws[i];
+                if (align[v] === v && prevIdx < pos[w] && !hasConflict(conflicts, v, w)) {
+                  align[w] = v;
+                  align[v] = root[v] = root[w];
+                  prevIdx = pos[w];
+                }
+              }
+            }
+          });
+        });
+        return { root, align };
+      }
+      function horizontalCompaction(g, layering, root, align, reverseSep) {
+        let xs = {}, blockG = buildBlockGraph(g, layering, root, reverseSep), borderType = reverseSep ? "borderLeft" : "borderRight";
+        function iterate(setXsFunc, nextNodesFunc) {
+          let stack = blockG.nodes();
+          let elem = stack.pop();
+          let visited = {};
+          while (elem) {
+            if (visited[elem]) {
+              setXsFunc(elem);
+            } else {
+              visited[elem] = true;
+              stack.push(elem);
+              stack = stack.concat(nextNodesFunc(elem));
+            }
+            elem = stack.pop();
+          }
+        }
+        function pass1(elem) {
+          xs[elem] = blockG.inEdges(elem).reduce((acc, e) => {
+            return Math.max(acc, xs[e.v] + blockG.edge(e));
+          }, 0);
+        }
+        function pass2(elem) {
+          let min = blockG.outEdges(elem).reduce((acc, e) => {
+            return Math.min(acc, xs[e.w] - blockG.edge(e));
+          }, Number.POSITIVE_INFINITY);
+          let node = g.node(elem);
+          if (min !== Number.POSITIVE_INFINITY && node.borderType !== borderType) {
+            xs[elem] = Math.max(xs[elem], min);
+          }
+        }
+        iterate(pass1, blockG.predecessors.bind(blockG));
+        iterate(pass2, blockG.successors.bind(blockG));
+        Object.keys(align).forEach((v) => xs[v] = xs[root[v]]);
+        return xs;
+      }
+      function buildBlockGraph(g, layering, root, reverseSep) {
+        let blockGraph = new Graph, graphLabel = g.graph(), sepFn = sep(graphLabel.nodesep, graphLabel.edgesep, reverseSep);
+        layering.forEach((layer) => {
+          let u;
+          layer.forEach((v) => {
+            let vRoot = root[v];
+            blockGraph.setNode(vRoot);
+            if (u) {
+              var uRoot = root[u], prevMax = blockGraph.edge(uRoot, vRoot);
+              blockGraph.setEdge(uRoot, vRoot, Math.max(sepFn(g, v, u), prevMax || 0));
+            }
+            u = v;
+          });
+        });
+        return blockGraph;
+      }
+      function findSmallestWidthAlignment(g, xss) {
+        return Object.values(xss).reduce((currentMinAndXs, xs) => {
+          let max = Number.NEGATIVE_INFINITY;
+          let min = Number.POSITIVE_INFINITY;
+          Object.entries(xs).forEach(([v, x]) => {
+            let halfWidth = width(g, v) / 2;
+            max = Math.max(x + halfWidth, max);
+            min = Math.min(x - halfWidth, min);
+          });
+          const newMin = max - min;
+          if (newMin < currentMinAndXs[0]) {
+            currentMinAndXs = [newMin, xs];
+          }
+          return currentMinAndXs;
+        }, [Number.POSITIVE_INFINITY, null])[1];
+      }
+      function alignCoordinates(xss, alignTo) {
+        let alignToVals = Object.values(alignTo), alignToMin = util3.applyWithChunking(Math.min, alignToVals), alignToMax = util3.applyWithChunking(Math.max, alignToVals);
+        ["u", "d"].forEach((vert) => {
+          ["l", "r"].forEach((horiz) => {
+            let alignment = vert + horiz, xs = xss[alignment];
+            if (xs === alignTo)
+              return;
+            let xsVals = Object.values(xs);
+            let delta = alignToMin - util3.applyWithChunking(Math.min, xsVals);
+            if (horiz !== "l") {
+              delta = alignToMax - util3.applyWithChunking(Math.max, xsVals);
+            }
+            if (delta) {
+              xss[alignment] = util3.mapValues(xs, (x) => x + delta);
+            }
+          });
+        });
+      }
+      function balance(xss, align) {
+        return util3.mapValues(xss.ul, (num, v) => {
+          if (align) {
+            return xss[align.toLowerCase()][v];
+          } else {
+            let xs = Object.values(xss).map((xs2) => xs2[v]).sort((a, b) => a - b);
+            return (xs[1] + xs[2]) / 2;
+          }
+        });
+      }
+      function positionX(g) {
+        let layering = util3.buildLayerMatrix(g);
+        let conflicts = Object.assign(findType1Conflicts(g, layering), findType2Conflicts(g, layering));
+        let xss = {};
+        let adjustedLayering;
+        ["u", "d"].forEach((vert) => {
+          adjustedLayering = vert === "u" ? layering : Object.values(layering).reverse();
+          ["l", "r"].forEach((horiz) => {
+            if (horiz === "r") {
+              adjustedLayering = adjustedLayering.map((inner) => {
+                return Object.values(inner).reverse();
+              });
+            }
+            let neighborFn = (vert === "u" ? g.predecessors : g.successors).bind(g);
+            let align = verticalAlignment(g, adjustedLayering, conflicts, neighborFn);
+            let xs = horizontalCompaction(g, adjustedLayering, align.root, align.align, horiz === "r");
+            if (horiz === "r") {
+              xs = util3.mapValues(xs, (x) => -x);
+            }
+            xss[vert + horiz] = xs;
+          });
+        });
+        let smallestWidth = findSmallestWidthAlignment(g, xss);
+        alignCoordinates(xss, smallestWidth);
+        return balance(xss, g.graph().align);
+      }
+      function sep(nodeSep, edgeSep, reverseSep) {
+        return (g, v, w) => {
+          let vLabel = g.node(v);
+          let wLabel = g.node(w);
+          let sum = 0;
+          let delta;
+          sum += vLabel.width / 2;
+          if (Object.hasOwn(vLabel, "labelpos")) {
+            switch (vLabel.labelpos.toLowerCase()) {
+              case "l":
+                delta = -vLabel.width / 2;
+                break;
+              case "r":
+                delta = vLabel.width / 2;
+                break;
+            }
+          }
+          if (delta) {
+            sum += reverseSep ? delta : -delta;
+          }
+          delta = 0;
+          sum += (vLabel.dummy ? edgeSep : nodeSep) / 2;
+          sum += (wLabel.dummy ? edgeSep : nodeSep) / 2;
+          sum += wLabel.width / 2;
+          if (Object.hasOwn(wLabel, "labelpos")) {
+            switch (wLabel.labelpos.toLowerCase()) {
+              case "l":
+                delta = wLabel.width / 2;
+                break;
+              case "r":
+                delta = -wLabel.width / 2;
+                break;
+            }
+          }
+          if (delta) {
+            sum += reverseSep ? delta : -delta;
+          }
+          delta = 0;
+          return sum;
+        };
+      }
+      function width(g, v) {
+        return g.node(v).width;
+      }
+    }, { "../util": 27, "@dagrejs/graphlib": 29 }], 22: [function(require2, module3, exports3) {
+      let util3 = require2("../util");
+      let positionX = require2("./bk").positionX;
+      module3.exports = position;
+      function position(g) {
+        g = util3.asNonCompoundGraph(g);
+        positionY(g);
+        Object.entries(positionX(g)).forEach(([v, x]) => g.node(v).x = x);
+      }
+      function positionY(g) {
+        let layering = util3.buildLayerMatrix(g);
+        let rankSep = g.graph().ranksep;
+        let prevY = 0;
+        layering.forEach((layer) => {
+          const maxHeight = layer.reduce((acc, v) => {
+            const height = g.node(v).height;
+            if (acc > height) {
+              return acc;
+            } else {
+              return height;
+            }
+          }, 0);
+          layer.forEach((v) => g.node(v).y = prevY + maxHeight / 2);
+          prevY += maxHeight + rankSep;
+        });
+      }
+    }, { "../util": 27, "./bk": 21 }], 23: [function(require2, module3, exports3) {
+      var Graph = require2("@dagrejs/graphlib").Graph;
+      var slack = require2("./util").slack;
+      module3.exports = feasibleTree;
+      function feasibleTree(g) {
+        var t = new Graph({ directed: false });
+        var start = g.nodes()[0];
+        var size = g.nodeCount();
+        t.setNode(start, {});
+        var edge, delta;
+        while (tightTree(t, g) < size) {
+          edge = findMinSlackEdge(t, g);
+          delta = t.hasNode(edge.v) ? slack(g, edge) : -slack(g, edge);
+          shiftRanks(t, g, delta);
+        }
+        return t;
+      }
+      function tightTree(t, g) {
+        function dfs(v) {
+          g.nodeEdges(v).forEach((e) => {
+            var edgeV = e.v, w = v === edgeV ? e.w : edgeV;
+            if (!t.hasNode(w) && !slack(g, e)) {
+              t.setNode(w, {});
+              t.setEdge(v, w, {});
+              dfs(w);
+            }
+          });
+        }
+        t.nodes().forEach(dfs);
+        return t.nodeCount();
+      }
+      function findMinSlackEdge(t, g) {
+        const edges = g.edges();
+        return edges.reduce((acc, edge) => {
+          let edgeSlack = Number.POSITIVE_INFINITY;
+          if (t.hasNode(edge.v) !== t.hasNode(edge.w)) {
+            edgeSlack = slack(g, edge);
+          }
+          if (edgeSlack < acc[0]) {
+            return [edgeSlack, edge];
+          }
+          return acc;
+        }, [Number.POSITIVE_INFINITY, null])[1];
+      }
+      function shiftRanks(t, g, delta) {
+        t.nodes().forEach((v) => g.node(v).rank += delta);
+      }
+    }, { "./util": 26, "@dagrejs/graphlib": 29 }], 24: [function(require2, module3, exports3) {
+      var rankUtil = require2("./util");
+      var longestPath = rankUtil.longestPath;
+      var feasibleTree = require2("./feasible-tree");
+      var networkSimplex = require2("./network-simplex");
+      module3.exports = rank;
+      function rank(g) {
+        var ranker = g.graph().ranker;
+        if (ranker instanceof Function) {
+          return ranker(g);
+        }
+        switch (g.graph().ranker) {
+          case "network-simplex":
+            networkSimplexRanker(g);
+            break;
+          case "tight-tree":
+            tightTreeRanker(g);
+            break;
+          case "longest-path":
+            longestPathRanker(g);
+            break;
+          case "none":
+            break;
+          default:
+            networkSimplexRanker(g);
+        }
+      }
+      var longestPathRanker = longestPath;
+      function tightTreeRanker(g) {
+        longestPath(g);
+        feasibleTree(g);
+      }
+      function networkSimplexRanker(g) {
+        networkSimplex(g);
+      }
+    }, { "./feasible-tree": 23, "./network-simplex": 25, "./util": 26 }], 25: [function(require2, module3, exports3) {
+      var feasibleTree = require2("./feasible-tree");
+      var slack = require2("./util").slack;
+      var initRank = require2("./util").longestPath;
+      var preorder = require2("@dagrejs/graphlib").alg.preorder;
+      var postorder = require2("@dagrejs/graphlib").alg.postorder;
+      var simplify = require2("../util").simplify;
+      module3.exports = networkSimplex;
+      networkSimplex.initLowLimValues = initLowLimValues;
+      networkSimplex.initCutValues = initCutValues;
+      networkSimplex.calcCutValue = calcCutValue;
+      networkSimplex.leaveEdge = leaveEdge;
+      networkSimplex.enterEdge = enterEdge;
+      networkSimplex.exchangeEdges = exchangeEdges;
+      function networkSimplex(g) {
+        g = simplify(g);
+        initRank(g);
+        var t = feasibleTree(g);
+        initLowLimValues(t);
+        initCutValues(t, g);
+        var e, f;
+        while (e = leaveEdge(t)) {
+          f = enterEdge(t, g, e);
+          exchangeEdges(t, g, e, f);
+        }
+      }
+      function initCutValues(t, g) {
+        var vs = postorder(t, t.nodes());
+        vs = vs.slice(0, vs.length - 1);
+        vs.forEach((v) => assignCutValue(t, g, v));
+      }
+      function assignCutValue(t, g, child) {
+        var childLab = t.node(child);
+        var parent = childLab.parent;
+        t.edge(child, parent).cutvalue = calcCutValue(t, g, child);
+      }
+      function calcCutValue(t, g, child) {
+        var childLab = t.node(child);
+        var parent = childLab.parent;
+        var childIsTail = true;
+        var graphEdge = g.edge(child, parent);
+        var cutValue = 0;
+        if (!graphEdge) {
+          childIsTail = false;
+          graphEdge = g.edge(parent, child);
+        }
+        cutValue = graphEdge.weight;
+        g.nodeEdges(child).forEach((e) => {
+          var isOutEdge = e.v === child, other = isOutEdge ? e.w : e.v;
+          if (other !== parent) {
+            var pointsToHead = isOutEdge === childIsTail, otherWeight = g.edge(e).weight;
+            cutValue += pointsToHead ? otherWeight : -otherWeight;
+            if (isTreeEdge(t, child, other)) {
+              var otherCutValue = t.edge(child, other).cutvalue;
+              cutValue += pointsToHead ? -otherCutValue : otherCutValue;
+            }
+          }
+        });
+        return cutValue;
+      }
+      function initLowLimValues(tree, root) {
+        if (arguments.length < 2) {
+          root = tree.nodes()[0];
+        }
+        dfsAssignLowLim(tree, {}, 1, root);
+      }
+      function dfsAssignLowLim(tree, visited, nextLim, v, parent) {
+        var low = nextLim;
+        var label = tree.node(v);
+        visited[v] = true;
+        tree.neighbors(v).forEach((w) => {
+          if (!Object.hasOwn(visited, w)) {
+            nextLim = dfsAssignLowLim(tree, visited, nextLim, w, v);
+          }
+        });
+        label.low = low;
+        label.lim = nextLim++;
+        if (parent) {
+          label.parent = parent;
+        } else {
+          delete label.parent;
+        }
+        return nextLim;
+      }
+      function leaveEdge(tree) {
+        return tree.edges().find((e) => tree.edge(e).cutvalue < 0);
+      }
+      function enterEdge(t, g, edge) {
+        var v = edge.v;
+        var w = edge.w;
+        if (!g.hasEdge(v, w)) {
+          v = edge.w;
+          w = edge.v;
+        }
+        var vLabel = t.node(v);
+        var wLabel = t.node(w);
+        var tailLabel = vLabel;
+        var flip = false;
+        if (vLabel.lim > wLabel.lim) {
+          tailLabel = wLabel;
+          flip = true;
+        }
+        var candidates = g.edges().filter((edge2) => {
+          return flip === isDescendant(t, t.node(edge2.v), tailLabel) && flip !== isDescendant(t, t.node(edge2.w), tailLabel);
+        });
+        return candidates.reduce((acc, edge2) => {
+          if (slack(g, edge2) < slack(g, acc)) {
+            return edge2;
+          }
+          return acc;
+        });
+      }
+      function exchangeEdges(t, g, e, f) {
+        var v = e.v;
+        var w = e.w;
+        t.removeEdge(v, w);
+        t.setEdge(f.v, f.w, {});
+        initLowLimValues(t);
+        initCutValues(t, g);
+        updateRanks(t, g);
+      }
+      function updateRanks(t, g) {
+        var root = t.nodes().find((v) => !g.node(v).parent);
+        var vs = preorder(t, root);
+        vs = vs.slice(1);
+        vs.forEach((v) => {
+          var parent = t.node(v).parent, edge = g.edge(v, parent), flipped = false;
+          if (!edge) {
+            edge = g.edge(parent, v);
+            flipped = true;
+          }
+          g.node(v).rank = g.node(parent).rank + (flipped ? edge.minlen : -edge.minlen);
+        });
+      }
+      function isTreeEdge(tree, u, v) {
+        return tree.hasEdge(u, v);
+      }
+      function isDescendant(tree, vLabel, rootLabel) {
+        return rootLabel.low <= vLabel.lim && vLabel.lim <= rootLabel.lim;
+      }
+    }, { "../util": 27, "./feasible-tree": 23, "./util": 26, "@dagrejs/graphlib": 29 }], 26: [function(require2, module3, exports3) {
+      const { applyWithChunking } = require2("../util");
+      module3.exports = {
+        longestPath,
+        slack
+      };
+      function longestPath(g) {
+        var visited = {};
+        function dfs(v) {
+          var label = g.node(v);
+          if (Object.hasOwn(visited, v)) {
+            return label.rank;
+          }
+          visited[v] = true;
+          let outEdgesMinLens = g.outEdges(v).map((e) => {
+            if (e == null) {
+              return Number.POSITIVE_INFINITY;
+            }
+            return dfs(e.w) - g.edge(e).minlen;
+          });
+          var rank = applyWithChunking(Math.min, outEdgesMinLens);
+          if (rank === Number.POSITIVE_INFINITY) {
+            rank = 0;
+          }
+          return label.rank = rank;
+        }
+        g.sources().forEach(dfs);
+      }
+      function slack(g, e) {
+        return g.node(e.w).rank - g.node(e.v).rank - g.edge(e).minlen;
+      }
+    }, { "../util": 27 }], 27: [function(require2, module3, exports3) {
+      let Graph = require2("@dagrejs/graphlib").Graph;
+      module3.exports = {
+        addBorderNode,
+        addDummyNode,
+        applyWithChunking,
+        asNonCompoundGraph,
+        buildLayerMatrix,
+        intersectRect,
+        mapValues,
+        maxRank,
+        normalizeRanks,
+        notime,
+        partition: partition2,
+        pick: pick2,
+        predecessorWeights,
+        range,
+        removeEmptyRanks,
+        simplify,
+        successorWeights,
+        time: time3,
+        uniqueId,
+        zipObject
+      };
+      function addDummyNode(g, type, attrs, name) {
+        var v = name;
+        while (g.hasNode(v)) {
+          v = uniqueId(name);
+        }
+        attrs.dummy = type;
+        g.setNode(v, attrs);
+        return v;
+      }
+      function simplify(g) {
+        let simplified = new Graph().setGraph(g.graph());
+        g.nodes().forEach((v) => simplified.setNode(v, g.node(v)));
+        g.edges().forEach((e) => {
+          let simpleLabel = simplified.edge(e.v, e.w) || { weight: 0, minlen: 1 };
+          let label = g.edge(e);
+          simplified.setEdge(e.v, e.w, {
+            weight: simpleLabel.weight + label.weight,
+            minlen: Math.max(simpleLabel.minlen, label.minlen)
+          });
+        });
+        return simplified;
+      }
+      function asNonCompoundGraph(g) {
+        let simplified = new Graph({ multigraph: g.isMultigraph() }).setGraph(g.graph());
+        g.nodes().forEach((v) => {
+          if (!g.children(v).length) {
+            simplified.setNode(v, g.node(v));
+          }
+        });
+        g.edges().forEach((e) => {
+          simplified.setEdge(e, g.edge(e));
+        });
+        return simplified;
+      }
+      function successorWeights(g) {
+        let weightMap = g.nodes().map((v) => {
+          let sucs = {};
+          g.outEdges(v).forEach((e) => {
+            sucs[e.w] = (sucs[e.w] || 0) + g.edge(e).weight;
+          });
+          return sucs;
+        });
+        return zipObject(g.nodes(), weightMap);
+      }
+      function predecessorWeights(g) {
+        let weightMap = g.nodes().map((v) => {
+          let preds = {};
+          g.inEdges(v).forEach((e) => {
+            preds[e.v] = (preds[e.v] || 0) + g.edge(e).weight;
+          });
+          return preds;
+        });
+        return zipObject(g.nodes(), weightMap);
+      }
+      function intersectRect(rect, point) {
+        let x = rect.x;
+        let y = rect.y;
+        let dx = point.x - x;
+        let dy = point.y - y;
+        let w = rect.width / 2;
+        let h = rect.height / 2;
+        if (!dx && !dy) {
+          throw new Error("Not possible to find intersection inside of the rectangle");
+        }
+        let sx, sy;
+        if (Math.abs(dy) * w > Math.abs(dx) * h) {
+          if (dy < 0) {
+            h = -h;
+          }
+          sx = h * dx / dy;
+          sy = h;
+        } else {
+          if (dx < 0) {
+            w = -w;
+          }
+          sx = w;
+          sy = w * dy / dx;
+        }
+        return { x: x + sx, y: y + sy };
+      }
+      function buildLayerMatrix(g) {
+        let layering = range(maxRank(g) + 1).map(() => []);
+        g.nodes().forEach((v) => {
+          let node = g.node(v);
+          let rank = node.rank;
+          if (rank !== undefined) {
+            layering[rank][node.order] = v;
+          }
+        });
+        return layering;
+      }
+      function normalizeRanks(g) {
+        let nodeRanks = g.nodes().map((v) => {
+          let rank = g.node(v).rank;
+          if (rank === undefined) {
+            return Number.MAX_VALUE;
+          }
+          return rank;
+        });
+        let min = applyWithChunking(Math.min, nodeRanks);
+        g.nodes().forEach((v) => {
+          let node = g.node(v);
+          if (Object.hasOwn(node, "rank")) {
+            node.rank -= min;
+          }
+        });
+      }
+      function removeEmptyRanks(g) {
+        let nodeRanks = g.nodes().map((v) => g.node(v).rank);
+        let offset = applyWithChunking(Math.min, nodeRanks);
+        let layers = [];
+        g.nodes().forEach((v) => {
+          let rank = g.node(v).rank - offset;
+          if (!layers[rank]) {
+            layers[rank] = [];
+          }
+          layers[rank].push(v);
+        });
+        let delta = 0;
+        let nodeRankFactor = g.graph().nodeRankFactor;
+        Array.from(layers).forEach((vs, i) => {
+          if (vs === undefined && i % nodeRankFactor !== 0) {
+            --delta;
+          } else if (vs !== undefined && delta) {
+            vs.forEach((v) => g.node(v).rank += delta);
+          }
+        });
+      }
+      function addBorderNode(g, prefix, rank, order) {
+        let node = {
+          width: 0,
+          height: 0
+        };
+        if (arguments.length >= 4) {
+          node.rank = rank;
+          node.order = order;
+        }
+        return addDummyNode(g, "border", node, prefix);
+      }
+      function splitToChunks(array3, chunkSize = CHUNKING_THRESHOLD) {
+        const chunks = [];
+        for (let i = 0;i < array3.length; i += chunkSize) {
+          const chunk = array3.slice(i, i + chunkSize);
+          chunks.push(chunk);
+        }
+        return chunks;
+      }
+      const CHUNKING_THRESHOLD = 65535;
+      function applyWithChunking(fn, argsArray) {
+        if (argsArray.length > CHUNKING_THRESHOLD) {
+          const chunks = splitToChunks(argsArray);
+          return fn.apply(null, chunks.map((chunk) => fn.apply(null, chunk)));
+        } else {
+          return fn.apply(null, argsArray);
+        }
+      }
+      function maxRank(g) {
+        const nodes = g.nodes();
+        const nodeRanks = nodes.map((v) => {
+          let rank = g.node(v).rank;
+          if (rank === undefined) {
+            return Number.MIN_VALUE;
+          }
+          return rank;
+        });
+        return applyWithChunking(Math.max, nodeRanks);
+      }
+      function partition2(collection, fn) {
+        let result = { lhs: [], rhs: [] };
+        collection.forEach((value) => {
+          if (fn(value)) {
+            result.lhs.push(value);
+          } else {
+            result.rhs.push(value);
+          }
+        });
+        return result;
+      }
+      function time3(name, fn) {
+        let start = Date.now();
+        try {
+          return fn();
+        } finally {
+          console.log(name + " time: " + (Date.now() - start) + "ms");
+        }
+      }
+      function notime(name, fn) {
+        return fn();
+      }
+      let idCounter = 0;
+      function uniqueId(prefix) {
+        var id = ++idCounter;
+        return prefix + ("" + id);
+      }
+      function range(start, limit, step = 1) {
+        if (limit == null) {
+          limit = start;
+          start = 0;
+        }
+        let endCon = (i) => i < limit;
+        if (step < 0) {
+          endCon = (i) => limit < i;
+        }
+        const range2 = [];
+        for (let i = start;endCon(i); i += step) {
+          range2.push(i);
+        }
+        return range2;
+      }
+      function pick2(source, keys) {
+        const dest = {};
+        for (const key of keys) {
+          if (source[key] !== undefined) {
+            dest[key] = source[key];
+          }
+        }
+        return dest;
+      }
+      function mapValues(obj, funcOrProp) {
+        let func = funcOrProp;
+        if (typeof funcOrProp === "string") {
+          func = (val) => val[funcOrProp];
+        }
+        return Object.entries(obj).reduce((acc, [k, v]) => {
+          acc[k] = func(v, k);
+          return acc;
+        }, {});
+      }
+      function zipObject(props, values) {
+        return props.reduce((acc, key, i) => {
+          acc[key] = values[i];
+          return acc;
+        }, {});
+      }
+    }, { "@dagrejs/graphlib": 29 }], 28: [function(require2, module3, exports3) {
+      module3.exports = "1.1.8";
+    }, {}], 29: [function(require2, module3, exports3) {
+      var lib = require2("./lib");
+      module3.exports = {
+        Graph: lib.Graph,
+        json: require2("./lib/json"),
+        alg: require2("./lib/alg"),
+        version: lib.version
+      };
+    }, { "./lib": 45, "./lib/alg": 36, "./lib/json": 46 }], 30: [function(require2, module3, exports3) {
+      module3.exports = components;
+      function components(g) {
+        var visited = {};
+        var cmpts = [];
+        var cmpt;
+        function dfs(v) {
+          if (Object.hasOwn(visited, v))
+            return;
+          visited[v] = true;
+          cmpt.push(v);
+          g.successors(v).forEach(dfs);
+          g.predecessors(v).forEach(dfs);
+        }
+        g.nodes().forEach(function(v) {
+          cmpt = [];
+          dfs(v);
+          if (cmpt.length) {
+            cmpts.push(cmpt);
+          }
+        });
+        return cmpts;
+      }
+    }, {}], 31: [function(require2, module3, exports3) {
+      module3.exports = dfs;
+      function dfs(g, vs, order) {
+        if (!Array.isArray(vs)) {
+          vs = [vs];
+        }
+        var navigation = g.isDirected() ? (v) => g.successors(v) : (v) => g.neighbors(v);
+        var orderFunc = order === "post" ? postOrderDfs : preOrderDfs;
+        var acc = [];
+        var visited = {};
+        vs.forEach((v) => {
+          if (!g.hasNode(v)) {
+            throw new Error("Graph does not have node: " + v);
+          }
+          orderFunc(v, navigation, visited, acc);
+        });
+        return acc;
+      }
+      function postOrderDfs(v, navigation, visited, acc) {
+        var stack = [[v, false]];
+        while (stack.length > 0) {
+          var curr = stack.pop();
+          if (curr[1]) {
+            acc.push(curr[0]);
+          } else {
+            if (!Object.hasOwn(visited, curr[0])) {
+              visited[curr[0]] = true;
+              stack.push([curr[0], true]);
+              forEachRight(navigation(curr[0]), (w) => stack.push([w, false]));
+            }
+          }
+        }
+      }
+      function preOrderDfs(v, navigation, visited, acc) {
+        var stack = [v];
+        while (stack.length > 0) {
+          var curr = stack.pop();
+          if (!Object.hasOwn(visited, curr)) {
+            visited[curr] = true;
+            acc.push(curr);
+            forEachRight(navigation(curr), (w) => stack.push(w));
+          }
+        }
+      }
+      function forEachRight(array3, iteratee) {
+        var length = array3.length;
+        while (length--) {
+          iteratee(array3[length], length, array3);
+        }
+        return array3;
+      }
+    }, {}], 32: [function(require2, module3, exports3) {
+      var dijkstra = require2("./dijkstra");
+      module3.exports = dijkstraAll;
+      function dijkstraAll(g, weightFunc, edgeFunc) {
+        return g.nodes().reduce(function(acc, v) {
+          acc[v] = dijkstra(g, v, weightFunc, edgeFunc);
+          return acc;
+        }, {});
+      }
+    }, { "./dijkstra": 33 }], 33: [function(require2, module3, exports3) {
+      var PriorityQueue = require2("../data/priority-queue");
+      module3.exports = dijkstra;
+      var DEFAULT_WEIGHT_FUNC = () => 1;
+      function dijkstra(g, source, weightFn, edgeFn) {
+        return runDijkstra(g, String(source), weightFn || DEFAULT_WEIGHT_FUNC, edgeFn || function(v) {
+          return g.outEdges(v);
+        });
+      }
+      function runDijkstra(g, source, weightFn, edgeFn) {
+        var results = {};
+        var pq = new PriorityQueue;
+        var v, vEntry;
+        var updateNeighbors = function(edge) {
+          var w = edge.v !== v ? edge.v : edge.w;
+          var wEntry = results[w];
+          var weight = weightFn(edge);
+          var distance = vEntry.distance + weight;
+          if (weight < 0) {
+            throw new Error("dijkstra does not allow negative edge weights. " + "Bad edge: " + edge + " Weight: " + weight);
+          }
+          if (distance < wEntry.distance) {
+            wEntry.distance = distance;
+            wEntry.predecessor = v;
+            pq.decrease(w, distance);
+          }
+        };
+        g.nodes().forEach(function(v2) {
+          var distance = v2 === source ? 0 : Number.POSITIVE_INFINITY;
+          results[v2] = { distance };
+          pq.add(v2, distance);
+        });
+        while (pq.size() > 0) {
+          v = pq.removeMin();
+          vEntry = results[v];
+          if (vEntry.distance === Number.POSITIVE_INFINITY) {
+            break;
+          }
+          edgeFn(v).forEach(updateNeighbors);
+        }
+        return results;
+      }
+    }, { "../data/priority-queue": 43 }], 34: [function(require2, module3, exports3) {
+      var tarjan = require2("./tarjan");
+      module3.exports = findCycles;
+      function findCycles(g) {
+        return tarjan(g).filter(function(cmpt) {
+          return cmpt.length > 1 || cmpt.length === 1 && g.hasEdge(cmpt[0], cmpt[0]);
+        });
+      }
+    }, { "./tarjan": 41 }], 35: [function(require2, module3, exports3) {
+      module3.exports = floydWarshall;
+      var DEFAULT_WEIGHT_FUNC = () => 1;
+      function floydWarshall(g, weightFn, edgeFn) {
+        return runFloydWarshall(g, weightFn || DEFAULT_WEIGHT_FUNC, edgeFn || function(v) {
+          return g.outEdges(v);
+        });
+      }
+      function runFloydWarshall(g, weightFn, edgeFn) {
+        var results = {};
+        var nodes = g.nodes();
+        nodes.forEach(function(v) {
+          results[v] = {};
+          results[v][v] = { distance: 0 };
+          nodes.forEach(function(w) {
+            if (v !== w) {
+              results[v][w] = { distance: Number.POSITIVE_INFINITY };
+            }
+          });
+          edgeFn(v).forEach(function(edge) {
+            var w = edge.v === v ? edge.w : edge.v;
+            var d = weightFn(edge);
+            results[v][w] = { distance: d, predecessor: v };
+          });
+        });
+        nodes.forEach(function(k) {
+          var rowK = results[k];
+          nodes.forEach(function(i) {
+            var rowI = results[i];
+            nodes.forEach(function(j) {
+              var ik = rowI[k];
+              var kj = rowK[j];
+              var ij = rowI[j];
+              var altDistance = ik.distance + kj.distance;
+              if (altDistance < ij.distance) {
+                ij.distance = altDistance;
+                ij.predecessor = kj.predecessor;
+              }
+            });
+          });
+        });
+        return results;
+      }
+    }, {}], 36: [function(require2, module3, exports3) {
+      module3.exports = {
+        components: require2("./components"),
+        dijkstra: require2("./dijkstra"),
+        dijkstraAll: require2("./dijkstra-all"),
+        findCycles: require2("./find-cycles"),
+        floydWarshall: require2("./floyd-warshall"),
+        isAcyclic: require2("./is-acyclic"),
+        postorder: require2("./postorder"),
+        preorder: require2("./preorder"),
+        prim: require2("./prim"),
+        tarjan: require2("./tarjan"),
+        topsort: require2("./topsort")
+      };
+    }, { "./components": 30, "./dijkstra": 33, "./dijkstra-all": 32, "./find-cycles": 34, "./floyd-warshall": 35, "./is-acyclic": 37, "./postorder": 38, "./preorder": 39, "./prim": 40, "./tarjan": 41, "./topsort": 42 }], 37: [function(require2, module3, exports3) {
+      var topsort = require2("./topsort");
+      module3.exports = isAcyclic;
+      function isAcyclic(g) {
+        try {
+          topsort(g);
+        } catch (e) {
+          if (e instanceof topsort.CycleException) {
+            return false;
+          }
+          throw e;
+        }
+        return true;
+      }
+    }, { "./topsort": 42 }], 38: [function(require2, module3, exports3) {
+      var dfs = require2("./dfs");
+      module3.exports = postorder;
+      function postorder(g, vs) {
+        return dfs(g, vs, "post");
+      }
+    }, { "./dfs": 31 }], 39: [function(require2, module3, exports3) {
+      var dfs = require2("./dfs");
+      module3.exports = preorder;
+      function preorder(g, vs) {
+        return dfs(g, vs, "pre");
+      }
+    }, { "./dfs": 31 }], 40: [function(require2, module3, exports3) {
+      var Graph = require2("../graph");
+      var PriorityQueue = require2("../data/priority-queue");
+      module3.exports = prim;
+      function prim(g, weightFunc) {
+        var result = new Graph;
+        var parents = {};
+        var pq = new PriorityQueue;
+        var v;
+        function updateNeighbors(edge) {
+          var w = edge.v === v ? edge.w : edge.v;
+          var pri = pq.priority(w);
+          if (pri !== undefined) {
+            var edgeWeight = weightFunc(edge);
+            if (edgeWeight < pri) {
+              parents[w] = v;
+              pq.decrease(w, edgeWeight);
+            }
+          }
+        }
+        if (g.nodeCount() === 0) {
+          return result;
+        }
+        g.nodes().forEach(function(v2) {
+          pq.add(v2, Number.POSITIVE_INFINITY);
+          result.setNode(v2);
+        });
+        pq.decrease(g.nodes()[0], 0);
+        var init = false;
+        while (pq.size() > 0) {
+          v = pq.removeMin();
+          if (Object.hasOwn(parents, v)) {
+            result.setEdge(v, parents[v]);
+          } else if (init) {
+            throw new Error("Input graph is not connected: " + g);
+          } else {
+            init = true;
+          }
+          g.nodeEdges(v).forEach(updateNeighbors);
+        }
+        return result;
+      }
+    }, { "../data/priority-queue": 43, "../graph": 44 }], 41: [function(require2, module3, exports3) {
+      module3.exports = tarjan;
+      function tarjan(g) {
+        var index = 0;
+        var stack = [];
+        var visited = {};
+        var results = [];
+        function dfs(v) {
+          var entry = visited[v] = {
+            onStack: true,
+            lowlink: index,
+            index: index++
+          };
+          stack.push(v);
+          g.successors(v).forEach(function(w2) {
+            if (!Object.hasOwn(visited, w2)) {
+              dfs(w2);
+              entry.lowlink = Math.min(entry.lowlink, visited[w2].lowlink);
+            } else if (visited[w2].onStack) {
+              entry.lowlink = Math.min(entry.lowlink, visited[w2].index);
+            }
+          });
+          if (entry.lowlink === entry.index) {
+            var cmpt = [];
+            var w;
+            do {
+              w = stack.pop();
+              visited[w].onStack = false;
+              cmpt.push(w);
+            } while (v !== w);
+            results.push(cmpt);
+          }
+        }
+        g.nodes().forEach(function(v) {
+          if (!Object.hasOwn(visited, v)) {
+            dfs(v);
+          }
+        });
+        return results;
+      }
+    }, {}], 42: [function(require2, module3, exports3) {
+      function topsort(g) {
+        var visited = {};
+        var stack = {};
+        var results = [];
+        function visit(node) {
+          if (Object.hasOwn(stack, node)) {
+            throw new CycleException;
+          }
+          if (!Object.hasOwn(visited, node)) {
+            stack[node] = true;
+            visited[node] = true;
+            g.predecessors(node).forEach(visit);
+            delete stack[node];
+            results.push(node);
+          }
+        }
+        g.sinks().forEach(visit);
+        if (Object.keys(visited).length !== g.nodeCount()) {
+          throw new CycleException;
+        }
+        return results;
+      }
+
+      class CycleException extends Error {
+        constructor() {
+          super(...arguments);
+        }
+      }
+      module3.exports = topsort;
+      topsort.CycleException = CycleException;
+    }, {}], 43: [function(require2, module3, exports3) {
+
+      class PriorityQueue {
+        _arr = [];
+        _keyIndices = {};
+        size() {
+          return this._arr.length;
+        }
+        keys() {
+          return this._arr.map(function(x) {
+            return x.key;
+          });
+        }
+        has(key) {
+          return Object.hasOwn(this._keyIndices, key);
+        }
+        priority(key) {
+          var index = this._keyIndices[key];
+          if (index !== undefined) {
+            return this._arr[index].priority;
+          }
+        }
+        min() {
+          if (this.size() === 0) {
+            throw new Error("Queue underflow");
+          }
+          return this._arr[0].key;
+        }
+        add(key, priority) {
+          var keyIndices = this._keyIndices;
+          key = String(key);
+          if (!Object.hasOwn(keyIndices, key)) {
+            var arr = this._arr;
+            var index = arr.length;
+            keyIndices[key] = index;
+            arr.push({ key, priority });
+            this._decrease(index);
+            return true;
+          }
+          return false;
+        }
+        removeMin() {
+          this._swap(0, this._arr.length - 1);
+          var min = this._arr.pop();
+          delete this._keyIndices[min.key];
+          this._heapify(0);
+          return min.key;
+        }
+        decrease(key, priority) {
+          var index = this._keyIndices[key];
+          if (priority > this._arr[index].priority) {
+            throw new Error("New priority is greater than current priority. " + "Key: " + key + " Old: " + this._arr[index].priority + " New: " + priority);
+          }
+          this._arr[index].priority = priority;
+          this._decrease(index);
+        }
+        _heapify(i) {
+          var arr = this._arr;
+          var l = 2 * i;
+          var r = l + 1;
+          var largest = i;
+          if (l < arr.length) {
+            largest = arr[l].priority < arr[largest].priority ? l : largest;
+            if (r < arr.length) {
+              largest = arr[r].priority < arr[largest].priority ? r : largest;
+            }
+            if (largest !== i) {
+              this._swap(i, largest);
+              this._heapify(largest);
+            }
+          }
+        }
+        _decrease(index) {
+          var arr = this._arr;
+          var priority = arr[index].priority;
+          var parent;
+          while (index !== 0) {
+            parent = index >> 1;
+            if (arr[parent].priority < priority) {
+              break;
+            }
+            this._swap(index, parent);
+            index = parent;
+          }
+        }
+        _swap(i, j) {
+          var arr = this._arr;
+          var keyIndices = this._keyIndices;
+          var origArrI = arr[i];
+          var origArrJ = arr[j];
+          arr[i] = origArrJ;
+          arr[j] = origArrI;
+          keyIndices[origArrJ.key] = i;
+          keyIndices[origArrI.key] = j;
+        }
+      }
+      module3.exports = PriorityQueue;
+    }, {}], 44: [function(require2, module3, exports3) {
+      var DEFAULT_EDGE_NAME = "\x00";
+      var GRAPH_NODE = "\x00";
+      var EDGE_KEY_DELIM = "\x01";
+
+      class Graph {
+        _isDirected = true;
+        _isMultigraph = false;
+        _isCompound = false;
+        _label;
+        _defaultNodeLabelFn = () => {
+          return;
+        };
+        _defaultEdgeLabelFn = () => {
+          return;
+        };
+        _nodes = {};
+        _in = {};
+        _preds = {};
+        _out = {};
+        _sucs = {};
+        _edgeObjs = {};
+        _edgeLabels = {};
+        _nodeCount = 0;
+        _edgeCount = 0;
+        _parent;
+        _children;
+        constructor(opts) {
+          if (opts) {
+            this._isDirected = Object.hasOwn(opts, "directed") ? opts.directed : true;
+            this._isMultigraph = Object.hasOwn(opts, "multigraph") ? opts.multigraph : false;
+            this._isCompound = Object.hasOwn(opts, "compound") ? opts.compound : false;
+          }
+          if (this._isCompound) {
+            this._parent = {};
+            this._children = {};
+            this._children[GRAPH_NODE] = {};
+          }
+        }
+        isDirected() {
+          return this._isDirected;
+        }
+        isMultigraph() {
+          return this._isMultigraph;
+        }
+        isCompound() {
+          return this._isCompound;
+        }
+        setGraph(label) {
+          this._label = label;
+          return this;
+        }
+        graph() {
+          return this._label;
+        }
+        setDefaultNodeLabel(newDefault) {
+          this._defaultNodeLabelFn = newDefault;
+          if (typeof newDefault !== "function") {
+            this._defaultNodeLabelFn = () => newDefault;
+          }
+          return this;
+        }
+        nodeCount() {
+          return this._nodeCount;
+        }
+        nodes() {
+          return Object.keys(this._nodes);
+        }
+        sources() {
+          var self2 = this;
+          return this.nodes().filter((v) => Object.keys(self2._in[v]).length === 0);
+        }
+        sinks() {
+          var self2 = this;
+          return this.nodes().filter((v) => Object.keys(self2._out[v]).length === 0);
+        }
+        setNodes(vs, value) {
+          var args = arguments;
+          var self2 = this;
+          vs.forEach(function(v) {
+            if (args.length > 1) {
+              self2.setNode(v, value);
+            } else {
+              self2.setNode(v);
+            }
+          });
+          return this;
+        }
+        setNode(v, value) {
+          if (Object.hasOwn(this._nodes, v)) {
+            if (arguments.length > 1) {
+              this._nodes[v] = value;
+            }
+            return this;
+          }
+          this._nodes[v] = arguments.length > 1 ? value : this._defaultNodeLabelFn(v);
+          if (this._isCompound) {
+            this._parent[v] = GRAPH_NODE;
+            this._children[v] = {};
+            this._children[GRAPH_NODE][v] = true;
+          }
+          this._in[v] = {};
+          this._preds[v] = {};
+          this._out[v] = {};
+          this._sucs[v] = {};
+          ++this._nodeCount;
+          return this;
+        }
+        node(v) {
+          return this._nodes[v];
+        }
+        hasNode(v) {
+          return Object.hasOwn(this._nodes, v);
+        }
+        removeNode(v) {
+          var self2 = this;
+          if (Object.hasOwn(this._nodes, v)) {
+            var removeEdge = (e) => self2.removeEdge(self2._edgeObjs[e]);
+            delete this._nodes[v];
+            if (this._isCompound) {
+              this._removeFromParentsChildList(v);
+              delete this._parent[v];
+              this.children(v).forEach(function(child) {
+                self2.setParent(child);
+              });
+              delete this._children[v];
+            }
+            Object.keys(this._in[v]).forEach(removeEdge);
+            delete this._in[v];
+            delete this._preds[v];
+            Object.keys(this._out[v]).forEach(removeEdge);
+            delete this._out[v];
+            delete this._sucs[v];
+            --this._nodeCount;
+          }
+          return this;
+        }
+        setParent(v, parent) {
+          if (!this._isCompound) {
+            throw new Error("Cannot set parent in a non-compound graph");
+          }
+          if (parent === undefined) {
+            parent = GRAPH_NODE;
+          } else {
+            parent += "";
+            for (var ancestor = parent;ancestor !== undefined; ancestor = this.parent(ancestor)) {
+              if (ancestor === v) {
+                throw new Error("Setting " + parent + " as parent of " + v + " would create a cycle");
+              }
+            }
+            this.setNode(parent);
+          }
+          this.setNode(v);
+          this._removeFromParentsChildList(v);
+          this._parent[v] = parent;
+          this._children[parent][v] = true;
+          return this;
+        }
+        _removeFromParentsChildList(v) {
+          delete this._children[this._parent[v]][v];
+        }
+        parent(v) {
+          if (this._isCompound) {
+            var parent = this._parent[v];
+            if (parent !== GRAPH_NODE) {
+              return parent;
+            }
+          }
+        }
+        children(v = GRAPH_NODE) {
+          if (this._isCompound) {
+            var children = this._children[v];
+            if (children) {
+              return Object.keys(children);
+            }
+          } else if (v === GRAPH_NODE) {
+            return this.nodes();
+          } else if (this.hasNode(v)) {
+            return [];
+          }
+        }
+        predecessors(v) {
+          var predsV = this._preds[v];
+          if (predsV) {
+            return Object.keys(predsV);
+          }
+        }
+        successors(v) {
+          var sucsV = this._sucs[v];
+          if (sucsV) {
+            return Object.keys(sucsV);
+          }
+        }
+        neighbors(v) {
+          var preds = this.predecessors(v);
+          if (preds) {
+            const union3 = new Set(preds);
+            for (var succ of this.successors(v)) {
+              union3.add(succ);
+            }
+            return Array.from(union3.values());
+          }
+        }
+        isLeaf(v) {
+          var neighbors;
+          if (this.isDirected()) {
+            neighbors = this.successors(v);
+          } else {
+            neighbors = this.neighbors(v);
+          }
+          return neighbors.length === 0;
+        }
+        filterNodes(filter) {
+          var copy = new this.constructor({
+            directed: this._isDirected,
+            multigraph: this._isMultigraph,
+            compound: this._isCompound
+          });
+          copy.setGraph(this.graph());
+          var self2 = this;
+          Object.entries(this._nodes).forEach(function([v, value]) {
+            if (filter(v)) {
+              copy.setNode(v, value);
+            }
+          });
+          Object.values(this._edgeObjs).forEach(function(e) {
+            if (copy.hasNode(e.v) && copy.hasNode(e.w)) {
+              copy.setEdge(e, self2.edge(e));
+            }
+          });
+          var parents = {};
+          function findParent(v) {
+            var parent = self2.parent(v);
+            if (parent === undefined || copy.hasNode(parent)) {
+              parents[v] = parent;
+              return parent;
+            } else if (parent in parents) {
+              return parents[parent];
+            } else {
+              return findParent(parent);
+            }
+          }
+          if (this._isCompound) {
+            copy.nodes().forEach((v) => copy.setParent(v, findParent(v)));
+          }
+          return copy;
+        }
+        setDefaultEdgeLabel(newDefault) {
+          this._defaultEdgeLabelFn = newDefault;
+          if (typeof newDefault !== "function") {
+            this._defaultEdgeLabelFn = () => newDefault;
+          }
+          return this;
+        }
+        edgeCount() {
+          return this._edgeCount;
+        }
+        edges() {
+          return Object.values(this._edgeObjs);
+        }
+        setPath(vs, value) {
+          var self2 = this;
+          var args = arguments;
+          vs.reduce(function(v, w) {
+            if (args.length > 1) {
+              self2.setEdge(v, w, value);
+            } else {
+              self2.setEdge(v, w);
+            }
+            return w;
+          });
+          return this;
+        }
+        setEdge() {
+          var v, w, name, value;
+          var valueSpecified = false;
+          var arg0 = arguments[0];
+          if (typeof arg0 === "object" && arg0 !== null && "v" in arg0) {
+            v = arg0.v;
+            w = arg0.w;
+            name = arg0.name;
+            if (arguments.length === 2) {
+              value = arguments[1];
+              valueSpecified = true;
+            }
+          } else {
+            v = arg0;
+            w = arguments[1];
+            name = arguments[3];
+            if (arguments.length > 2) {
+              value = arguments[2];
+              valueSpecified = true;
+            }
+          }
+          v = "" + v;
+          w = "" + w;
+          if (name !== undefined) {
+            name = "" + name;
+          }
+          var e = edgeArgsToId(this._isDirected, v, w, name);
+          if (Object.hasOwn(this._edgeLabels, e)) {
+            if (valueSpecified) {
+              this._edgeLabels[e] = value;
+            }
+            return this;
+          }
+          if (name !== undefined && !this._isMultigraph) {
+            throw new Error("Cannot set a named edge when isMultigraph = false");
+          }
+          this.setNode(v);
+          this.setNode(w);
+          this._edgeLabels[e] = valueSpecified ? value : this._defaultEdgeLabelFn(v, w, name);
+          var edgeObj = edgeArgsToObj(this._isDirected, v, w, name);
+          v = edgeObj.v;
+          w = edgeObj.w;
+          Object.freeze(edgeObj);
+          this._edgeObjs[e] = edgeObj;
+          incrementOrInitEntry(this._preds[w], v);
+          incrementOrInitEntry(this._sucs[v], w);
+          this._in[w][e] = edgeObj;
+          this._out[v][e] = edgeObj;
+          this._edgeCount++;
+          return this;
+        }
+        edge(v, w, name) {
+          var e = arguments.length === 1 ? edgeObjToId(this._isDirected, arguments[0]) : edgeArgsToId(this._isDirected, v, w, name);
+          return this._edgeLabels[e];
+        }
+        edgeAsObj() {
+          const edge = this.edge(...arguments);
+          if (typeof edge !== "object") {
+            return { label: edge };
+          }
+          return edge;
+        }
+        hasEdge(v, w, name) {
+          var e = arguments.length === 1 ? edgeObjToId(this._isDirected, arguments[0]) : edgeArgsToId(this._isDirected, v, w, name);
+          return Object.hasOwn(this._edgeLabels, e);
+        }
+        removeEdge(v, w, name) {
+          var e = arguments.length === 1 ? edgeObjToId(this._isDirected, arguments[0]) : edgeArgsToId(this._isDirected, v, w, name);
+          var edge = this._edgeObjs[e];
+          if (edge) {
+            v = edge.v;
+            w = edge.w;
+            delete this._edgeLabels[e];
+            delete this._edgeObjs[e];
+            decrementOrRemoveEntry(this._preds[w], v);
+            decrementOrRemoveEntry(this._sucs[v], w);
+            delete this._in[w][e];
+            delete this._out[v][e];
+            this._edgeCount--;
+          }
+          return this;
+        }
+        inEdges(v, u) {
+          var inV = this._in[v];
+          if (inV) {
+            var edges = Object.values(inV);
+            if (!u) {
+              return edges;
+            }
+            return edges.filter((edge) => edge.v === u);
+          }
+        }
+        outEdges(v, w) {
+          var outV = this._out[v];
+          if (outV) {
+            var edges = Object.values(outV);
+            if (!w) {
+              return edges;
+            }
+            return edges.filter((edge) => edge.w === w);
+          }
+        }
+        nodeEdges(v, w) {
+          var inEdges = this.inEdges(v, w);
+          if (inEdges) {
+            return inEdges.concat(this.outEdges(v, w));
+          }
+        }
+      }
+      function incrementOrInitEntry(map2, k) {
+        if (map2[k]) {
+          map2[k]++;
+        } else {
+          map2[k] = 1;
+        }
+      }
+      function decrementOrRemoveEntry(map2, k) {
+        if (!--map2[k]) {
+          delete map2[k];
+        }
+      }
+      function edgeArgsToId(isDirected, v_, w_, name) {
+        var v = "" + v_;
+        var w = "" + w_;
+        if (!isDirected && v > w) {
+          var tmp = v;
+          v = w;
+          w = tmp;
+        }
+        return v + EDGE_KEY_DELIM + w + EDGE_KEY_DELIM + (name === undefined ? DEFAULT_EDGE_NAME : name);
+      }
+      function edgeArgsToObj(isDirected, v_, w_, name) {
+        var v = "" + v_;
+        var w = "" + w_;
+        if (!isDirected && v > w) {
+          var tmp = v;
+          v = w;
+          w = tmp;
+        }
+        var edgeObj = { v, w };
+        if (name) {
+          edgeObj.name = name;
+        }
+        return edgeObj;
+      }
+      function edgeObjToId(isDirected, edgeObj) {
+        return edgeArgsToId(isDirected, edgeObj.v, edgeObj.w, edgeObj.name);
+      }
+      module3.exports = Graph;
+    }, {}], 45: [function(require2, module3, exports3) {
+      module3.exports = {
+        Graph: require2("./graph"),
+        version: require2("./version")
+      };
+    }, { "./graph": 44, "./version": 47 }], 46: [function(require2, module3, exports3) {
+      var Graph = require2("./graph");
+      module3.exports = {
+        write,
+        read
+      };
+      function write(g) {
+        var json = {
+          options: {
+            directed: g.isDirected(),
+            multigraph: g.isMultigraph(),
+            compound: g.isCompound()
+          },
+          nodes: writeNodes(g),
+          edges: writeEdges(g)
+        };
+        if (g.graph() !== undefined) {
+          json.value = structuredClone(g.graph());
+        }
+        return json;
+      }
+      function writeNodes(g) {
+        return g.nodes().map(function(v) {
+          var nodeValue = g.node(v);
+          var parent = g.parent(v);
+          var node = { v };
+          if (nodeValue !== undefined) {
+            node.value = nodeValue;
+          }
+          if (parent !== undefined) {
+            node.parent = parent;
+          }
+          return node;
+        });
+      }
+      function writeEdges(g) {
+        return g.edges().map(function(e) {
+          var edgeValue = g.edge(e);
+          var edge = { v: e.v, w: e.w };
+          if (e.name !== undefined) {
+            edge.name = e.name;
+          }
+          if (edgeValue !== undefined) {
+            edge.value = edgeValue;
+          }
+          return edge;
+        });
+      }
+      function read(json) {
+        var g = new Graph(json.options).setGraph(json.value);
+        json.nodes.forEach(function(entry) {
+          g.setNode(entry.v, entry.value);
+          if (entry.parent) {
+            g.setParent(entry.v, entry.parent);
+          }
+        });
+        json.edges.forEach(function(entry) {
+          g.setEdge({ v: entry.v, w: entry.w, name: entry.name }, entry.value);
+        });
+        return g;
+      }
+    }, { "./graph": 44 }], 47: [function(require2, module3, exports3) {
+      module3.exports = "2.2.4";
+    }, {}] }, {}, [1])(1);
+  });
 });
 
 // node_modules/@modelcontextprotocol/sdk/node_modules/zod/v4/core/core.js
@@ -22100,11 +25179,11 @@ class Stream {
     ];
   }
   toReadableStream() {
-    const self = this;
+    const self2 = this;
     let iter;
     return makeReadableStream({
       async start() {
-        iter = self[Symbol.asyncIterator]();
+        iter = self2[Symbol.asyncIterator]();
       },
       async pull(ctrl) {
         try {
@@ -22550,13 +25629,13 @@ var createPathTagFunction = (pathEncoder = encodeURIPath) => function path(stati
   if (statics.length === 1)
     return statics[0];
   let postPath = false;
-  const path = statics.reduce((previousValue, currentValue, index) => {
+  const path2 = statics.reduce((previousValue, currentValue, index) => {
     if (/[?#]/.test(currentValue)) {
       postPath = true;
     }
     return previousValue + currentValue + (index === params.length ? "" : (postPath ? encodeURIComponent : pathEncoder)(String(params[index])));
   }, "");
-  const pathOnly = path.split(/[?#]/, 1)[0];
+  const pathOnly = path2.split(/[?#]/, 1)[0];
   const invalidSegments = [];
   const invalidSegmentPattern = /(?<=^|\/)(?:\.|%2e){1,2}(?=\/|$)/gi;
   let match;
@@ -22575,10 +25654,10 @@ var createPathTagFunction = (pathEncoder = encodeURIPath) => function path(stati
       return acc + spaces + arrows;
     }, "");
     throw new AnthropicError(`Path parameters result in path with invalid segments:
-${path}
+${path2}
 ${underline}`);
   }
-  return path;
+  return path2;
 };
 var path = createPathTagFunction(encodeURIPath);
 
@@ -23188,12 +26267,12 @@ class BetaMessageStream {
     }
     __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_endRequest).call(this);
   }
-  [(_BetaMessageStream_currentMessageSnapshot = new WeakMap, _BetaMessageStream_connectedPromise = new WeakMap, _BetaMessageStream_resolveConnectedPromise = new WeakMap, _BetaMessageStream_rejectConnectedPromise = new WeakMap, _BetaMessageStream_endPromise = new WeakMap, _BetaMessageStream_resolveEndPromise = new WeakMap, _BetaMessageStream_rejectEndPromise = new WeakMap, _BetaMessageStream_listeners = new WeakMap, _BetaMessageStream_ended = new WeakMap, _BetaMessageStream_errored = new WeakMap, _BetaMessageStream_aborted = new WeakMap, _BetaMessageStream_catchingPromiseCreated = new WeakMap, _BetaMessageStream_response = new WeakMap, _BetaMessageStream_request_id = new WeakMap, _BetaMessageStream_handleError = new WeakMap, _BetaMessageStream_instances = new WeakSet, _BetaMessageStream_getFinalMessage = function _BetaMessageStream_getFinalMessage() {
+  [(_BetaMessageStream_currentMessageSnapshot = new WeakMap, _BetaMessageStream_connectedPromise = new WeakMap, _BetaMessageStream_resolveConnectedPromise = new WeakMap, _BetaMessageStream_rejectConnectedPromise = new WeakMap, _BetaMessageStream_endPromise = new WeakMap, _BetaMessageStream_resolveEndPromise = new WeakMap, _BetaMessageStream_rejectEndPromise = new WeakMap, _BetaMessageStream_listeners = new WeakMap, _BetaMessageStream_ended = new WeakMap, _BetaMessageStream_errored = new WeakMap, _BetaMessageStream_aborted = new WeakMap, _BetaMessageStream_catchingPromiseCreated = new WeakMap, _BetaMessageStream_response = new WeakMap, _BetaMessageStream_request_id = new WeakMap, _BetaMessageStream_handleError = new WeakMap, _BetaMessageStream_instances = new WeakSet, _BetaMessageStream_getFinalMessage = function _BetaMessageStream_getFinalMessage2() {
     if (this.receivedMessages.length === 0) {
       throw new AnthropicError("stream ended without producing a Message with role=assistant");
     }
     return this.receivedMessages.at(-1);
-  }, _BetaMessageStream_getFinalText = function _BetaMessageStream_getFinalText() {
+  }, _BetaMessageStream_getFinalText = function _BetaMessageStream_getFinalText2() {
     if (this.receivedMessages.length === 0) {
       throw new AnthropicError("stream ended without producing a Message with role=assistant");
     }
@@ -23202,11 +26281,11 @@ class BetaMessageStream {
       throw new AnthropicError("stream ended without producing a content block with type=text");
     }
     return textBlocks.join(" ");
-  }, _BetaMessageStream_beginRequest = function _BetaMessageStream_beginRequest() {
+  }, _BetaMessageStream_beginRequest = function _BetaMessageStream_beginRequest2() {
     if (this.ended)
       return;
     __classPrivateFieldSet(this, _BetaMessageStream_currentMessageSnapshot, undefined, "f");
-  }, _BetaMessageStream_addStreamEvent = function _BetaMessageStream_addStreamEvent(event) {
+  }, _BetaMessageStream_addStreamEvent = function _BetaMessageStream_addStreamEvent2(event) {
     if (this.ended)
       return;
     const messageSnapshot = __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_accumulateMessage).call(this, event);
@@ -23267,7 +26346,7 @@ class BetaMessageStream {
       case "message_delta":
         break;
     }
-  }, _BetaMessageStream_endRequest = function _BetaMessageStream_endRequest() {
+  }, _BetaMessageStream_endRequest = function _BetaMessageStream_endRequest2() {
     if (this.ended) {
       throw new AnthropicError(`stream has ended, this shouldn't happen`);
     }
@@ -23277,7 +26356,7 @@ class BetaMessageStream {
     }
     __classPrivateFieldSet(this, _BetaMessageStream_currentMessageSnapshot, undefined, "f");
     return snapshot;
-  }, _BetaMessageStream_accumulateMessage = function _BetaMessageStream_accumulateMessage(event) {
+  }, _BetaMessageStream_accumulateMessage = function _BetaMessageStream_accumulateMessage2(event) {
     let snapshot = __classPrivateFieldGet(this, _BetaMessageStream_currentMessageSnapshot, "f");
     if (event.type === "message_start") {
       if (snapshot) {
@@ -23783,12 +26862,12 @@ class MessageStream {
     }
     __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_endRequest).call(this);
   }
-  [(_MessageStream_currentMessageSnapshot = new WeakMap, _MessageStream_connectedPromise = new WeakMap, _MessageStream_resolveConnectedPromise = new WeakMap, _MessageStream_rejectConnectedPromise = new WeakMap, _MessageStream_endPromise = new WeakMap, _MessageStream_resolveEndPromise = new WeakMap, _MessageStream_rejectEndPromise = new WeakMap, _MessageStream_listeners = new WeakMap, _MessageStream_ended = new WeakMap, _MessageStream_errored = new WeakMap, _MessageStream_aborted = new WeakMap, _MessageStream_catchingPromiseCreated = new WeakMap, _MessageStream_response = new WeakMap, _MessageStream_request_id = new WeakMap, _MessageStream_handleError = new WeakMap, _MessageStream_instances = new WeakSet, _MessageStream_getFinalMessage = function _MessageStream_getFinalMessage() {
+  [(_MessageStream_currentMessageSnapshot = new WeakMap, _MessageStream_connectedPromise = new WeakMap, _MessageStream_resolveConnectedPromise = new WeakMap, _MessageStream_rejectConnectedPromise = new WeakMap, _MessageStream_endPromise = new WeakMap, _MessageStream_resolveEndPromise = new WeakMap, _MessageStream_rejectEndPromise = new WeakMap, _MessageStream_listeners = new WeakMap, _MessageStream_ended = new WeakMap, _MessageStream_errored = new WeakMap, _MessageStream_aborted = new WeakMap, _MessageStream_catchingPromiseCreated = new WeakMap, _MessageStream_response = new WeakMap, _MessageStream_request_id = new WeakMap, _MessageStream_handleError = new WeakMap, _MessageStream_instances = new WeakSet, _MessageStream_getFinalMessage = function _MessageStream_getFinalMessage2() {
     if (this.receivedMessages.length === 0) {
       throw new AnthropicError("stream ended without producing a Message with role=assistant");
     }
     return this.receivedMessages.at(-1);
-  }, _MessageStream_getFinalText = function _MessageStream_getFinalText() {
+  }, _MessageStream_getFinalText = function _MessageStream_getFinalText2() {
     if (this.receivedMessages.length === 0) {
       throw new AnthropicError("stream ended without producing a Message with role=assistant");
     }
@@ -23797,11 +26876,11 @@ class MessageStream {
       throw new AnthropicError("stream ended without producing a content block with type=text");
     }
     return textBlocks.join(" ");
-  }, _MessageStream_beginRequest = function _MessageStream_beginRequest() {
+  }, _MessageStream_beginRequest = function _MessageStream_beginRequest2() {
     if (this.ended)
       return;
     __classPrivateFieldSet(this, _MessageStream_currentMessageSnapshot, undefined, "f");
-  }, _MessageStream_addStreamEvent = function _MessageStream_addStreamEvent(event) {
+  }, _MessageStream_addStreamEvent = function _MessageStream_addStreamEvent2(event) {
     if (this.ended)
       return;
     const messageSnapshot = __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_accumulateMessage).call(this, event);
@@ -23862,7 +26941,7 @@ class MessageStream {
       case "message_delta":
         break;
     }
-  }, _MessageStream_endRequest = function _MessageStream_endRequest() {
+  }, _MessageStream_endRequest = function _MessageStream_endRequest2() {
     if (this.ended) {
       throw new AnthropicError(`stream has ended, this shouldn't happen`);
     }
@@ -23872,7 +26951,7 @@ class MessageStream {
     }
     __classPrivateFieldSet(this, _MessageStream_currentMessageSnapshot, undefined, "f");
     return snapshot;
-  }, _MessageStream_accumulateMessage = function _MessageStream_accumulateMessage(event) {
+  }, _MessageStream_accumulateMessage = function _MessageStream_accumulateMessage2(event) {
     let snapshot = __classPrivateFieldGet(this, _MessageStream_currentMessageSnapshot, "f");
     if (event.type === "message_start") {
       if (snapshot) {
@@ -24503,20 +27582,22 @@ Anthropic.Completions = Completions;
 Anthropic.Messages = Messages2;
 Anthropic.Models = Models2;
 Anthropic.Beta = Beta;
-// packages/session-tools-core/dist/response.js
+// packages/session-tools-core/src/response.ts
 function successResponse(text) {
   return {
     content: [{ type: "text", text }],
+    structuredContent: {},
     isError: false
   };
 }
 function errorResponse(message) {
   return {
     content: [{ type: "text", text: message }],
+    structuredContent: {},
     isError: true
   };
 }
-// packages/session-tools-core/dist/source-helpers.js
+// packages/session-tools-core/src/source-helpers.ts
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 function getSourcePath(workspaceRootPath, sourceSlug) {
@@ -28529,7 +31610,7 @@ var coerce = {
   date: (arg) => ZodDate.create({ ...arg, coerce: true })
 };
 var NEVER2 = INVALID;
-// packages/session-tools-core/dist/validation.js
+// packages/session-tools-core/src/validation.ts
 var import_gray_matter = __toESM(require_gray_matter(), 1);
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 function validResult() {
@@ -28667,51 +31748,6 @@ function validateSkillContent(markdownContent, slug) {
     warnings
   };
 }
-var MERMAID_DIAGRAM_TYPES = [
-  "graph",
-  "flowchart",
-  "sequenceDiagram",
-  "classDiagram",
-  "stateDiagram",
-  "erDiagram",
-  "gantt",
-  "pie",
-  "mindmap",
-  "timeline",
-  "gitGraph",
-  "C4Context",
-  "sankey"
-];
-function validateMermaidSyntax(code) {
-  const lines = code.trim().split(`
-`);
-  const firstLine = lines[0]?.trim() ?? "";
-  const hasValidType = MERMAID_DIAGRAM_TYPES.some((type) => firstLine.startsWith(type) || firstLine.startsWith(`${type}-v2`));
-  if (!hasValidType) {
-    return invalidResult("diagram", `Unknown diagram type. First line should start with one of: ${MERMAID_DIAGRAM_TYPES.join(", ")}`, "Check the diagram type declaration");
-  }
-  const brackets = { "[": 0, "{": 0, "(": 0 };
-  for (const char of code) {
-    if (char === "[")
-      brackets["["]++;
-    if (char === "]")
-      brackets["["]--;
-    if (char === "{")
-      brackets["{"]++;
-    if (char === "}")
-      brackets["{"]--;
-    if (char === "(")
-      brackets["("]++;
-    if (char === ")")
-      brackets["("]--;
-  }
-  const unbalanced = Object.entries(brackets).filter(([, count]) => count !== 0);
-  if (unbalanced.length > 0) {
-    const issues = unbalanced.map(([b, c]) => `${b}: ${c > 0 ? "missing closing" : "extra closing"}`).join(", ");
-    return invalidResult("syntax", `Unbalanced brackets: ${issues}`, "Check bracket matching in the diagram");
-  }
-  return validResult();
-}
 var SOURCE_CONFIG_REQUIRED_FIELDS = ["slug", "name", "type"];
 var SOURCE_TYPES = ["mcp", "api", "local"];
 function validateSourceConfigBasic(config2) {
@@ -28744,7 +31780,7 @@ function validateSourceConfigBasic(config2) {
     warnings: []
   };
 }
-// packages/session-tools-core/dist/handlers/submit-plan.js
+// packages/session-tools-core/src/handlers/submit-plan.ts
 async function handleSubmitPlan(ctx, args) {
   const { planPath } = args;
   if (!ctx.fs.exists(planPath)) {
@@ -28758,7 +31794,7 @@ async function handleSubmitPlan(ctx, args) {
   ctx.callbacks.onPlanSubmitted(planPath);
   return successResponse("Plan submitted for review. Waiting for user feedback.");
 }
-// packages/session-tools-core/dist/handlers/config-validate.js
+// packages/session-tools-core/src/handlers/config-validate.ts
 import { join as join2 } from "node:path";
 import { homedir } from "node:os";
 async function handleConfigValidate(ctx, args) {
@@ -28863,7 +31899,7 @@ async function handleConfigValidate(ctx, args) {
       return errorResponse(`Unknown validation target: ${target}. Valid targets: config, sources, statuses, preferences, permissions, tool-icons, all`);
   }
 }
-// packages/session-tools-core/dist/handlers/skill-validate.js
+// packages/session-tools-core/src/handlers/skill-validate.ts
 async function handleSkillValidate(ctx, args) {
   const { skillSlug } = args;
   const slugResult = validateSlug(skillSlug);
@@ -28889,59 +31925,421 @@ async function handleSkillValidate(ctx, args) {
     isError: !result.valid
   };
 }
-// packages/session-tools-core/dist/handlers/mermaid-validate.js
-async function handleMermaidValidate(ctx, args) {
-  const { code, render = true } = args;
-  if (render && ctx.renderMermaid) {
-    const renderResult = await ctx.renderMermaid(code);
-    if (renderResult.success) {
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            valid: true,
-            message: "Diagram syntax is valid and renders successfully"
-          }, null, 2)
-        }]
-      };
+// packages/mermaid/src/parser.ts
+function parseMermaid(text) {
+  const lines = text.split(`
+`).map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith("%%"));
+  if (lines.length === 0) {
+    throw new Error("Empty mermaid diagram");
+  }
+  const header = lines[0];
+  if (/^stateDiagram(-v2)?\s*$/i.test(header)) {
+    return parseStateDiagram(lines);
+  }
+  return parseFlowchart(lines);
+}
+function parseFlowchart(lines) {
+  const headerMatch = lines[0].match(/^(?:graph|flowchart)\s+(TD|TB|LR|BT|RL)\s*$/i);
+  if (!headerMatch) {
+    throw new Error(`Invalid mermaid header: "${lines[0]}". Expected "graph TD", "flowchart LR", "stateDiagram-v2", etc.`);
+  }
+  const direction = headerMatch[1].toUpperCase();
+  const graph = {
+    direction,
+    nodes: new Map,
+    edges: [],
+    subgraphs: [],
+    classDefs: new Map,
+    classAssignments: new Map,
+    nodeStyles: new Map
+  };
+  const subgraphStack = [];
+  for (let i = 1;i < lines.length; i++) {
+    const line = lines[i];
+    const classDefMatch = line.match(/^classDef\s+(\w+)\s+(.+)$/);
+    if (classDefMatch) {
+      const name = classDefMatch[1];
+      const propsStr = classDefMatch[2];
+      const props = parseStyleProps(propsStr);
+      graph.classDefs.set(name, props);
+      continue;
     }
+    const classAssignMatch = line.match(/^class\s+([\w,-]+)\s+(\w+)$/);
+    if (classAssignMatch) {
+      const nodeIds = classAssignMatch[1].split(",").map((s) => s.trim());
+      const className = classAssignMatch[2];
+      for (const id of nodeIds) {
+        graph.classAssignments.set(id, className);
+      }
+      continue;
+    }
+    const styleMatch = line.match(/^style\s+([\w,-]+)\s+(.+)$/);
+    if (styleMatch) {
+      const nodeIds = styleMatch[1].split(",").map((s) => s.trim());
+      const props = parseStyleProps(styleMatch[2]);
+      for (const id of nodeIds) {
+        graph.nodeStyles.set(id, { ...graph.nodeStyles.get(id), ...props });
+      }
+      continue;
+    }
+    const dirMatch = line.match(/^direction\s+(TD|TB|LR|BT|RL)\s*$/i);
+    if (dirMatch && subgraphStack.length > 0) {
+      subgraphStack[subgraphStack.length - 1].direction = dirMatch[1].toUpperCase();
+      continue;
+    }
+    const subgraphMatch = line.match(/^subgraph\s+(.+)$/);
+    if (subgraphMatch) {
+      const rest = subgraphMatch[1].trim();
+      const bracketMatch = rest.match(/^([\w-]+)\s*\[(.+)\]$/);
+      let id;
+      let label;
+      if (bracketMatch) {
+        id = bracketMatch[1];
+        label = bracketMatch[2];
+      } else {
+        label = rest;
+        id = rest.replace(/\s+/g, "_").replace(/[^\w]/g, "");
+      }
+      const sg = { id, label, nodeIds: [], children: [] };
+      subgraphStack.push(sg);
+      continue;
+    }
+    if (line === "end") {
+      const completed = subgraphStack.pop();
+      if (completed) {
+        if (subgraphStack.length > 0) {
+          subgraphStack[subgraphStack.length - 1].children.push(completed);
+        } else {
+          graph.subgraphs.push(completed);
+        }
+      }
+      continue;
+    }
+    parseEdgeLine(line, graph, subgraphStack);
+  }
+  return graph;
+}
+function parseStateDiagram(lines) {
+  const graph = {
+    direction: "TD",
+    nodes: new Map,
+    edges: [],
+    subgraphs: [],
+    classDefs: new Map,
+    classAssignments: new Map,
+    nodeStyles: new Map
+  };
+  const compositeStack = [];
+  let startCount = 0;
+  let endCount = 0;
+  for (let i = 1;i < lines.length; i++) {
+    const line = lines[i];
+    const dirMatch = line.match(/^direction\s+(TD|TB|LR|BT|RL)\s*$/i);
+    if (dirMatch) {
+      if (compositeStack.length > 0) {
+        compositeStack[compositeStack.length - 1].direction = dirMatch[1].toUpperCase();
+      } else {
+        graph.direction = dirMatch[1].toUpperCase();
+      }
+      continue;
+    }
+    const compositeMatch = line.match(/^state\s+(?:"([^"]+)"\s+as\s+)?(\w+)\s*\{$/);
+    if (compositeMatch) {
+      const label = compositeMatch[1] ?? compositeMatch[2];
+      const id = compositeMatch[2];
+      const sg = { id, label, nodeIds: [], children: [] };
+      compositeStack.push(sg);
+      continue;
+    }
+    if (line === "}") {
+      const completed = compositeStack.pop();
+      if (completed) {
+        if (compositeStack.length > 0) {
+          compositeStack[compositeStack.length - 1].children.push(completed);
+        } else {
+          graph.subgraphs.push(completed);
+        }
+      }
+      continue;
+    }
+    const stateAliasMatch = line.match(/^state\s+"([^"]+)"\s+as\s+(\w+)\s*$/);
+    if (stateAliasMatch) {
+      const label = stateAliasMatch[1];
+      const id = stateAliasMatch[2];
+      registerStateNode(graph, compositeStack, { id, label, shape: "rounded" });
+      continue;
+    }
+    const transitionMatch = line.match(/^(\[\*\]|[\w-]+)\s*(-->)\s*(\[\*\]|[\w-]+)(?:\s*:\s*(.+))?$/);
+    if (transitionMatch) {
+      let sourceId = transitionMatch[1];
+      let targetId = transitionMatch[3];
+      const edgeLabel = transitionMatch[4]?.trim() || undefined;
+      if (sourceId === "[*]") {
+        startCount++;
+        sourceId = `_start${startCount > 1 ? startCount : ""}`;
+        registerStateNode(graph, compositeStack, { id: sourceId, label: "", shape: "state-start" });
+      } else {
+        ensureStateNode(graph, compositeStack, sourceId);
+      }
+      if (targetId === "[*]") {
+        endCount++;
+        targetId = `_end${endCount > 1 ? endCount : ""}`;
+        registerStateNode(graph, compositeStack, { id: targetId, label: "", shape: "state-end" });
+      } else {
+        ensureStateNode(graph, compositeStack, targetId);
+      }
+      graph.edges.push({
+        source: sourceId,
+        target: targetId,
+        label: edgeLabel,
+        style: "solid",
+        hasArrowStart: false,
+        hasArrowEnd: true
+      });
+      continue;
+    }
+    const stateDescMatch = line.match(/^([\w-]+)\s*:\s*(.+)$/);
+    if (stateDescMatch) {
+      const id = stateDescMatch[1];
+      const label = stateDescMatch[2].trim();
+      registerStateNode(graph, compositeStack, { id, label, shape: "rounded" });
+      continue;
+    }
+  }
+  return graph;
+}
+function registerStateNode(graph, compositeStack, node) {
+  const isNew = !graph.nodes.has(node.id);
+  if (isNew) {
+    graph.nodes.set(node.id, node);
+  }
+  if (compositeStack.length > 0) {
+    const current = compositeStack[compositeStack.length - 1];
+    if (!current.nodeIds.includes(node.id)) {
+      current.nodeIds.push(node.id);
+    }
+  }
+}
+function ensureStateNode(graph, compositeStack, id) {
+  if (!graph.nodes.has(id)) {
+    registerStateNode(graph, compositeStack, { id, label: id, shape: "rounded" });
+  } else {
+    if (compositeStack.length > 0) {
+      const current = compositeStack[compositeStack.length - 1];
+      if (!current.nodeIds.includes(id)) {
+        current.nodeIds.push(id);
+      }
+    }
+  }
+}
+function parseStyleProps(propsStr) {
+  const props = {};
+  for (const pair of propsStr.split(",")) {
+    const colonIdx = pair.indexOf(":");
+    if (colonIdx > 0) {
+      const key = pair.slice(0, colonIdx).trim();
+      const val = pair.slice(colonIdx + 1).trim();
+      if (key && val) {
+        props[key] = val;
+      }
+    }
+  }
+  return props;
+}
+var ARROW_REGEX = /^(<)?(-->|-.->|==>|---|-\.-|===)(?:\|([^|]*)\|)?/;
+var NODE_PATTERNS = [
+  { regex: /^([\w-]+)\(\(\((.+?)\)\)\)/, shape: "doublecircle" },
+  { regex: /^([\w-]+)\(\[(.+?)\]\)/, shape: "stadium" },
+  { regex: /^([\w-]+)\(\((.+?)\)\)/, shape: "circle" },
+  { regex: /^([\w-]+)\[\[(.+?)\]\]/, shape: "subroutine" },
+  { regex: /^([\w-]+)\[\((.+?)\)\]/, shape: "cylinder" },
+  { regex: /^([\w-]+)\[\/(.+?)\\\]/, shape: "trapezoid" },
+  { regex: /^([\w-]+)\[\\(.+?)\/\]/, shape: "trapezoid-alt" },
+  { regex: /^([\w-]+)>(.+?)\]/, shape: "asymmetric" },
+  { regex: /^([\w-]+)\{\{(.+?)\}\}/, shape: "hexagon" },
+  { regex: /^([\w-]+)\[(.+?)\]/, shape: "rectangle" },
+  { regex: /^([\w-]+)\((.+?)\)/, shape: "rounded" },
+  { regex: /^([\w-]+)\{(.+?)\}/, shape: "diamond" }
+];
+var BARE_NODE_REGEX = /^([\w-]+)/;
+var CLASS_SHORTHAND_REGEX = /^:::([\w][\w-]*)/;
+function parseEdgeLine(line, graph, subgraphStack) {
+  let remaining = line.trim();
+  const firstGroup = consumeNodeGroup(remaining, graph, subgraphStack);
+  if (!firstGroup || firstGroup.ids.length === 0)
+    return;
+  remaining = firstGroup.remaining.trim();
+  let prevGroupIds = firstGroup.ids;
+  while (remaining.length > 0) {
+    const arrowMatch = remaining.match(ARROW_REGEX);
+    if (!arrowMatch)
+      break;
+    const hasArrowStart = Boolean(arrowMatch[1]);
+    const arrowOp = arrowMatch[2];
+    const edgeLabel = arrowMatch[3]?.trim() || undefined;
+    remaining = remaining.slice(arrowMatch[0].length).trim();
+    const style = arrowStyleFromOp(arrowOp);
+    const hasArrowEnd = arrowOp.endsWith(">");
+    const nextGroup = consumeNodeGroup(remaining, graph, subgraphStack);
+    if (!nextGroup || nextGroup.ids.length === 0)
+      break;
+    remaining = nextGroup.remaining.trim();
+    for (const sourceId of prevGroupIds) {
+      for (const targetId of nextGroup.ids) {
+        graph.edges.push({
+          source: sourceId,
+          target: targetId,
+          label: edgeLabel,
+          style,
+          hasArrowStart,
+          hasArrowEnd
+        });
+      }
+    }
+    prevGroupIds = nextGroup.ids;
+  }
+}
+function consumeNodeGroup(text, graph, subgraphStack) {
+  const first = consumeNode(text, graph, subgraphStack);
+  if (!first)
+    return null;
+  const ids = [first.id];
+  let remaining = first.remaining.trim();
+  while (remaining.startsWith("&")) {
+    remaining = remaining.slice(1).trim();
+    const next = consumeNode(remaining, graph, subgraphStack);
+    if (!next)
+      break;
+    ids.push(next.id);
+    remaining = next.remaining.trim();
+  }
+  return { ids, remaining };
+}
+function consumeNode(text, graph, subgraphStack) {
+  let id = null;
+  let remaining = text;
+  for (const { regex, shape } of NODE_PATTERNS) {
+    const match = text.match(regex);
+    if (match) {
+      id = match[1];
+      const label = match[2];
+      registerNode(graph, subgraphStack, { id, label, shape });
+      remaining = text.slice(match[0].length);
+      break;
+    }
+  }
+  if (id === null) {
+    const bareMatch = text.match(BARE_NODE_REGEX);
+    if (bareMatch) {
+      id = bareMatch[1];
+      if (!graph.nodes.has(id)) {
+        registerNode(graph, subgraphStack, { id, label: id, shape: "rectangle" });
+      } else {
+        trackInSubgraph(subgraphStack, id);
+      }
+      remaining = text.slice(bareMatch[0].length);
+    }
+  }
+  if (id === null)
+    return null;
+  const classMatch = remaining.match(CLASS_SHORTHAND_REGEX);
+  if (classMatch) {
+    graph.classAssignments.set(id, classMatch[1]);
+    remaining = remaining.slice(classMatch[0].length);
+  }
+  return { id, remaining };
+}
+function registerNode(graph, subgraphStack, node) {
+  const isNew = !graph.nodes.has(node.id);
+  if (isNew) {
+    graph.nodes.set(node.id, node);
+  }
+  trackInSubgraph(subgraphStack, node.id);
+}
+function trackInSubgraph(subgraphStack, nodeId) {
+  if (subgraphStack.length > 0) {
+    const current = subgraphStack[subgraphStack.length - 1];
+    if (!current.nodeIds.includes(nodeId)) {
+      current.nodeIds.push(nodeId);
+    }
+  }
+}
+function arrowStyleFromOp(op) {
+  if (op === "-.->")
+    return "dotted";
+  if (op === "-.-")
+    return "dotted";
+  if (op === "==>")
+    return "thick";
+  if (op === "===")
+    return "thick";
+  return "solid";
+}
+// packages/mermaid/src/ascii/canvas.ts
+var JUNCTION_CHARS = new Set([
+  "─",
+  "│",
+  "┌",
+  "┐",
+  "└",
+  "┘",
+  "├",
+  "┤",
+  "┬",
+  "┴",
+  "┼",
+  "╴",
+  "╵",
+  "╶",
+  "╷"
+]);
+// packages/mermaid/src/layout.ts
+var import_dagre = __toESM(require_dagre(), 1);
+
+// packages/mermaid/src/styles.ts
+var MONO_FONT = "'JetBrains Mono'";
+var MONO_FONT_STACK = `${MONO_FONT}, 'SF Mono', 'Fira Code', ui-monospace, monospace`;
+
+// packages/mermaid/src/layout.ts
+var CIRCULAR_SHAPES = new Set(["circle", "doublecircle", "state-start", "state-end"]);
+var NON_RECT_SHAPES = new Set(["diamond", "circle", "doublecircle", "state-start", "state-end"]);
+
+// packages/mermaid/src/class/layout.ts
+var import_dagre2 = __toESM(require_dagre(), 1);
+
+// packages/mermaid/src/er/layout.ts
+var import_dagre3 = __toESM(require_dagre(), 1);
+
+// packages/session-tools-core/src/handlers/mermaid-validate.ts
+async function handleMermaidValidate(_ctx, args) {
+  const { code } = args;
+  try {
+    parseMermaid(code);
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          valid: true,
+          message: "Diagram syntax is valid"
+        }, null, 2)
+      }]
+    };
+  } catch (error3) {
+    const errorMessage = error3 instanceof Error ? error3.message : "Unknown parse error";
     return {
       content: [{
         type: "text",
         text: JSON.stringify({
           valid: false,
-          error: renderResult.error || "Unknown render error",
+          error: errorMessage,
           suggestion: "Check the syntax against ~/.craft-agent/docs/mermaid.md"
         }, null, 2)
       }],
       isError: true
     };
   }
-  const result = validateMermaidSyntax(code);
-  if (result.valid) {
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          valid: true,
-          message: "Diagram syntax appears valid (basic validation only)"
-        }, null, 2)
-      }]
-    };
-  }
-  return {
-    content: [{
-      type: "text",
-      text: JSON.stringify({
-        valid: false,
-        error: result.errors[0]?.message ?? "Unknown validation error",
-        suggestion: result.errors[0]?.suggestion
-      }, null, 2)
-    }],
-    isError: true
-  };
 }
-// packages/session-tools-core/dist/handlers/source-test.js
+// packages/session-tools-core/src/handlers/source-test.ts
 import { join as join3 } from "node:path";
 async function handleSourceTest(ctx, args) {
   const { sourceSlug } = args;
@@ -29441,7 +32839,7 @@ async function checkAuthStatus(ctx, source, sourceSlug) {
   }
   return { lines, hasWarning };
 }
-// packages/session-tools-core/dist/handlers/source-oauth.js
+// packages/session-tools-core/src/handlers/source-oauth.ts
 async function handleSourceOAuthTrigger(ctx, args) {
   const { sourceSlug } = args;
   const source = ctx.loadSourceConfig(sourceSlug);
@@ -29624,7 +33022,7 @@ async function handleMicrosoftOAuthTrigger(ctx, args) {
   ctx.callbacks.onAuthRequest(authRequest);
   return successResponse(`Microsoft OAuth requested for '${source.name}'. Opening browser for authentication.`);
 }
-// packages/session-tools-core/dist/handlers/credential-prompt.js
+// packages/session-tools-core/src/handlers/credential-prompt.ts
 async function handleCredentialPrompt(ctx, args) {
   const { sourceSlug, mode, labels, description, hint, passwordRequired } = args;
   if (passwordRequired !== undefined && mode !== "basic") {
@@ -29651,7 +33049,7 @@ async function handleCredentialPrompt(ctx, args) {
   ctx.callbacks.onAuthRequest(authRequest);
   return successResponse(`Authentication requested for '${source.name}'. Waiting for user input.`);
 }
-// packages/session-tools-core/dist/handlers/call-llm.js
+// packages/session-tools-core/src/handlers/call-llm.ts
 async function handleCallLlm(ctx, args) {
   if (!ctx.callLlm) {
     return errorResponse(`call_llm is not available in this context.
@@ -29779,7 +33177,7 @@ ${finalContent}
         }
       }
       messageContent.push({ type: "text", text: params.prompt });
-      const model = params.model || "claude-haiku-4-5-latest";
+      const model = params.model || "claude-haiku-4-5-20251001";
       const maxTokens = params.maxTokens || 4096;
       const request = {
         model,
@@ -29987,17 +33385,14 @@ Checks slug format, SKILL.md existence, YAML frontmatter, and required fields.`,
       name: "mermaid_validate",
       description: `Validate Mermaid diagram syntax before outputting.
 
-Use this when creating complex diagrams or debugging render issues.`,
+Use this when creating complex diagrams or debugging syntax issues.
+Uses @craft-agent/mermaid parser for accurate validation.`,
       inputSchema: {
         type: "object",
         properties: {
           code: {
             type: "string",
             description: "The mermaid diagram code to validate"
-          },
-          render: {
-            type: "boolean",
-            description: "Also attempt to render (catches layout errors). Default: true"
           }
         },
         required: ["code"]
@@ -30175,8 +33570,8 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
           },
           model: {
             type: "string",
-            enum: ["claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-latest"],
-            description: "Model to use. Defaults to claude-haiku-4-5-latest"
+            enum: ["claude-opus-4-6", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"],
+            description: "Model to use. Defaults to Haiku (fastest, most cost-effective)"
           },
           systemPrompt: {
             type: "string",

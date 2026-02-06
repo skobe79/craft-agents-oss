@@ -19,6 +19,7 @@ export interface BuildConfig {
   rootDir: string;
   electronDir: string;
   codexVersion: string;
+  localCodex: boolean;
 }
 
 /**
@@ -252,23 +253,67 @@ export async function downloadCodex(config: BuildConfig): Promise<void> {
 }
 
 /**
+ * Verify that a local Codex binary exists and is executable.
+ * Used when --local-codex flag is specified instead of downloading.
+ */
+export function verifyLocalCodex(config: BuildConfig): void {
+  const { platform, arch, electronDir } = config;
+  const isWindows = platform === 'win32';
+  const codexBinary = isWindows ? 'codex.exe' : 'codex';
+  const vendorDir = join(electronDir, 'vendor', 'codex', `${platform}-${arch}`);
+  const binaryPath = join(vendorDir, codexBinary);
+
+  console.log(`Verifying local Codex binary at ${binaryPath}...`);
+
+  if (!existsSync(binaryPath)) {
+    throw new Error(
+      `Local Codex binary not found!\n\n` +
+      `Expected path: ${binaryPath}\n\n` +
+      `To use --local-codex, first copy your Codex binary:\n` +
+      `  mkdir -p ${vendorDir}\n` +
+      `  cp /path/to/your/codex ${binaryPath}\n` +
+      `  chmod +x ${binaryPath}`
+    );
+  }
+
+  console.log(`  Local Codex binary found ✓`);
+}
+
+/**
  * Clean previous build artifacts
  */
 export function cleanBuildArtifacts(config: BuildConfig): void {
-  const { electronDir } = config;
+  const { electronDir, localCodex } = config;
 
   console.log('Cleaning previous builds...');
 
-  const foldersToClean = [
-    join(electronDir, 'vendor'),
-    join(electronDir, 'node_modules', '@anthropic-ai'),
-    join(electronDir, 'packages'),
-    join(electronDir, 'release'),
-  ];
+  // When using local Codex, preserve vendor/codex but clean vendor/bun
+  if (localCodex) {
+    const foldersToClean = [
+      join(electronDir, 'vendor', 'bun'),
+      join(electronDir, 'node_modules', '@anthropic-ai'),
+      join(electronDir, 'packages'),
+      join(electronDir, 'release'),
+    ];
 
-  for (const folder of foldersToClean) {
-    if (existsSync(folder)) {
-      rmSync(folder, { recursive: true, force: true });
+    for (const folder of foldersToClean) {
+      if (existsSync(folder)) {
+        rmSync(folder, { recursive: true, force: true });
+      }
+    }
+    console.log('  Preserved vendor/codex (--local-codex mode)');
+  } else {
+    const foldersToClean = [
+      join(electronDir, 'vendor'),
+      join(electronDir, 'node_modules', '@anthropic-ai'),
+      join(electronDir, 'packages'),
+      join(electronDir, 'release'),
+    ];
+
+    for (const folder of foldersToClean) {
+      if (existsSync(folder)) {
+        rmSync(folder, { recursive: true, force: true });
+      }
     }
   }
 }
