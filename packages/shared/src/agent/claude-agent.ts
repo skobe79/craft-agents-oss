@@ -730,7 +730,6 @@ export class ClaudeAgent extends BaseAgent {
       // Detect if resolved model is Claude — non-Claude models (via OpenRouter/Ollama) don't
       // support Anthropic-specific betas or extended thinking parameters
       const isClaude = isClaudeModel(model);
-      const useAnthropicBetas = isClaude;
 
       // Log mini agent mode details (using centralized config)
       if (miniConfig.enabled) {
@@ -759,9 +758,6 @@ export class ClaudeAgent extends BaseAgent {
             this.lastStderrOutput.shift();
           }
         },
-        // Beta features (only when using direct Anthropic API, not OpenRouter/etc.)
-        // - advanced-tool-use-2025-11-20: Enhanced tool use capabilities
-        ...(useAnthropicBetas ? { betas: ['advanced-tool-use-2025-11-20'] as any } : {}),
         // Extended thinking: tokens based on effective thinking level (session level + ultrathink override)
         // Non-Claude models don't support extended thinking, so pass 0 to disable
         // Mini agents also disable thinking for efficiency (quick config edits don't need deep reasoning)

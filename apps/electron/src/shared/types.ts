@@ -54,6 +54,9 @@ export type { LoadedSource, FolderSourceConfig, SourceConnectionStatus };
 import type { LoadedSkill, SkillMetadata } from '@craft-agent/shared/skills/types';
 export type { LoadedSkill, SkillMetadata };
 
+// Import session types from shared (for SessionFamily - different from core SessionMetadata)
+import type { SessionMetadata as SharedSessionMetadata } from '@craft-agent/shared/sessions/types';
+
 // Import backend capabilities type
 import type { AgentCapabilities } from '@craft-agent/shared/agent/backend';
 export type { AgentCapabilities };
@@ -556,11 +559,12 @@ export type SessionCommand =
 
 /**
  * Session family information (parent + siblings)
+ * Uses SharedSessionMetadata from @craft-agent/shared (not core SessionMetadata)
  */
 export interface SessionFamily {
-  parent: SessionMeta
-  siblings: SessionMeta[]
-  self: SessionMeta
+  parent: SharedSessionMetadata
+  siblings: SharedSessionMetadata[]
+  self: SharedSessionMetadata
 }
 
 /**
@@ -1005,6 +1009,9 @@ export interface ElectronAPI {
   // Session-specific model (overrides global)
   getSessionModel(sessionId: string, workspaceId: string): Promise<string | null>
   setSessionModel(sessionId: string, workspaceId: string, model: string | null, connection?: string): Promise<void>
+  // Model defaults per provider
+  getModelDefaults(): Promise<{ anthropic?: string; openai?: string } | null>
+  setModelDefault(provider: 'anthropic' | 'openai', model: string): Promise<void>
 
   // Workspace Settings (per-workspace configuration)
   getWorkspaceSettings(workspaceId: string): Promise<WorkspaceSettings | null>

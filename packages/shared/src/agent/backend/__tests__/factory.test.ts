@@ -159,8 +159,8 @@ describe('connectionAuthTypeToBackendAuthType (legacy)', () => {
     expect(connectionAuthTypeToBackendAuthType('api_key')).toBe('api_key');
   });
 
-  it('should map oauth to oauth_token', () => {
-    expect(connectionAuthTypeToBackendAuthType('oauth')).toBe('oauth_token');
+  it('should pass through oauth', () => {
+    expect(connectionAuthTypeToBackendAuthType('oauth')).toBe('oauth');
   });
 
   it('should map none to undefined', () => {

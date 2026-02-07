@@ -1032,7 +1032,7 @@ function AppShellContent({
   useAction('app.keyboardShortcuts', onOpenKeyboardShortcuts)
 
   // New window
-  useAction('app.newWindow', () => window.electronAPI.newWindow())
+  useAction('app.newWindow', () => window.electronAPI.menuNewWindow())
 
   // Quit (note: also handled by native menu on macOS)
   useAction('app.quit', () => window.electronAPI.menuQuit())

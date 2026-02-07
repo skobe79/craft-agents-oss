@@ -186,12 +186,12 @@ describe('SessionLifecycleManager', () => {
 
 describe('AbortReason enum', () => {
   it('should have expected values', () => {
-    expect(AbortReason.UserStop).toBe('user_stop');
-    expect(AbortReason.PlanSubmitted).toBe('plan_submitted');
-    expect(AbortReason.AuthRequest).toBe('auth_request');
-    expect(AbortReason.Redirect).toBe('redirect');
-    expect(AbortReason.SourceActivated).toBe('source_activated');
-    expect(AbortReason.Timeout).toBe('timeout');
-    expect(AbortReason.InternalError).toBe('internal_error');
+    expect(AbortReason.UserStop as string).toBe('user_stop');
+    expect(AbortReason.PlanSubmitted as string).toBe('plan_submitted');
+    expect(AbortReason.AuthRequest as string).toBe('auth_request');
+    expect(AbortReason.Redirect as string).toBe('redirect');
+    expect(AbortReason.SourceActivated as string).toBe('source_activated');
+    expect(AbortReason.Timeout as string).toBe('timeout');
+    expect(AbortReason.InternalError as string).toBe('internal_error');
   });
 });

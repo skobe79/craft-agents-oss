@@ -51,6 +51,7 @@ export type {
   CredentialInputMode,
   AuthRequestType,
   AuthRequest,
+  AuthResult,
   CredentialAuthRequest,
   McpOAuthAuthRequest,
   GoogleOAuthAuthRequest,
@@ -260,7 +261,7 @@ Returns structured validation results with errors, warnings, and suggestions.
 - \`tool-icons\`: Validates ~/.craft-agent/tool-icons/tool-icons.json
 - \`all\`: Validates all configuration files
 
-**Reference:** ${DOC_REFS.SOURCES}`,
+**Reference:** ${DOC_REFS.sources}`,
 
   skill_validate: `Validate a skill's SKILL.md file.
 
@@ -271,7 +272,7 @@ Checks:
 - Content is non-empty after frontmatter
 - Icon format if present (svg/png/jpg)
 
-**Reference:** ${DOC_REFS.SKILLS}`,
+**Reference:** ${DOC_REFS.skills}`,
 
   mermaid_validate: `Validate Mermaid diagram syntax before outputting.
 
@@ -282,7 +283,7 @@ Use this when:
 
 Returns validation result with specific error messages if invalid.
 
-**Reference:** ${DOC_REFS.MERMAID}`,
+**Reference:** ${DOC_REFS.mermaid}`,
 
   source_test: `Validate and test a source configuration.
 
@@ -293,7 +294,7 @@ Returns validation result with specific error messages if invalid.
 4. **Connection test**: Tests if the source is reachable
 5. **Auth status**: Checks if source is authenticated
 
-**Reference:** ${DOC_REFS.SOURCES}`,
+**Reference:** ${DOC_REFS.sources}`,
 
   source_oauth_trigger: `Start OAuth authentication for an MCP source.
 

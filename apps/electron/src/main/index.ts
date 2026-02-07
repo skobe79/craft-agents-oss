@@ -183,7 +183,7 @@ async function createInitialWindows(): Promise<void> {
   if (workspaces.length === 0) {
     // Ensure config file exists (addWorkspace requires it)
     if (!loadStoredConfig()) {
-      saveConfig({ workspaces: [], activeWorkspaceId: null })
+      saveConfig({ workspaces: [], activeWorkspaceId: null, activeSessionId: null })
     }
     const defaultPath = join(getDefaultWorkspacesDir(), 'my-workspace')
     addWorkspace({ rootPath: defaultPath, name: 'My Workspace' })

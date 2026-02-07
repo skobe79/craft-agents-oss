@@ -220,7 +220,8 @@ ${this.config.prompt}
 
       if (policy === 'allow-safe') {
         // Extract base command (first word)
-        const baseCommand = request.command.trim().split(/\s+/)[0] || '';
+        const command = request.command ?? '';
+        const baseCommand = command.trim().split(/\s+/)[0] || '';
         const allowed = SAFE_COMMANDS.has(baseCommand);
         debug('[HeadlessRunner] Safe check:', baseCommand, 'allowed:', allowed);
         this.agent!.respondToPermission(request.requestId, allowed, false);

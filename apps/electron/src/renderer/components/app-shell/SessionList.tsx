@@ -429,12 +429,12 @@ function SessionItem({
 
   const handleArchiveFromMenu = () => {
     setTodoMenuOpen(false)
-    onArchive(item.id)
+    onArchive?.(item.id)
   }
 
   const handleUnarchiveFromMenu = () => {
     setTodoMenuOpen(false)
-    onUnarchive(item.id)
+    onUnarchive?.(item.id)
   }
 
   return (
@@ -668,10 +668,11 @@ function SessionItem({
                       </StyledDropdownMenuItem>
                       <StyledDropdownMenuItem onClick={async () => {
                         const result = await window.electronAPI.sessionCommand(item.id, { type: 'updateShare' })
-                        if (result?.success) {
+                        if (result && 'success' in result && result.success) {
                           toast.success('Share updated')
                         } else {
-                          toast.error('Failed to update share', { description: result?.error })
+                          const errorMsg = result && 'error' in result ? result.error : undefined
+                          toast.error('Failed to update share', { description: errorMsg })
                         }
                       }}>
                         <RefreshCw />
@@ -680,10 +681,11 @@ function SessionItem({
                       <StyledDropdownMenuSeparator />
                       <StyledDropdownMenuItem onClick={async () => {
                         const result = await window.electronAPI.sessionCommand(item.id, { type: 'revokeShare' })
-                        if (result?.success) {
+                        if (result && 'success' in result && result.success) {
                           toast.success('Sharing stopped')
                         } else {
-                          toast.error('Failed to stop sharing', { description: result?.error })
+                          const errorMsg = result && 'error' in result ? result.error : undefined
+                          toast.error('Failed to stop sharing', { description: errorMsg })
                         }
                       }} variant="destructive">
                         <Link2Off />

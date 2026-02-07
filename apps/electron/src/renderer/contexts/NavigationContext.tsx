@@ -410,7 +410,7 @@ export function NavigationProvider({
         if (firstSessionId) {
           const stateWithSelection: NavigationState = {
             ...newState,
-            details: { type: 'chat', sessionId: firstSessionId },
+            details: { type: 'session', sessionId: firstSessionId },
           }
           setSession({ selected: firstSessionId })
           setNavigationState(stateWithSelection)

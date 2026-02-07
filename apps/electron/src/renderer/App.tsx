@@ -581,6 +581,9 @@ export default function App() {
     }
 
     const cleanup = window.electronAPI.onSessionEvent((event: SessionEvent) => {
+      // Some events don't have sessionId (e.g., sessions_reordered)
+      if (!('sessionId' in event)) return
+
       const sessionId = event.sessionId
       const workspaceId = windowWorkspaceId ?? ''
       const agentEvent = event as unknown as AgentEvent

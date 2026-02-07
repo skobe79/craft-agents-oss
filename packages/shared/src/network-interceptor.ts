@@ -11,7 +11,7 @@
  *   (extracted into toolMetadataStore for UI consumption by tool-matching.ts)
  */
 
-import { existsSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, appendFileSync, mkdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +32,21 @@ try {
   }
 } catch {
   // Ignore - logging will silently fail if dir can't be created
+}
+
+// Rotate log file if older than 1 day
+const MAX_LOG_AGE_MS = 24 * 60 * 60 * 1000;
+try {
+  if (existsSync(LOG_FILE)) {
+    const stat = statSync(LOG_FILE);
+    if (Date.now() - stat.mtimeMs > MAX_LOG_AGE_MS) {
+      // Keep one previous log for debugging, overwrite any older backup
+      const prevLog = LOG_FILE + '.prev';
+      renameSync(LOG_FILE, prevLog);
+    }
+  }
+} catch {
+  // Ignore — rotation is best-effort
 }
 
 /**
@@ -121,89 +136,107 @@ export interface ToolMetadata {
 }
 
 /**
- * File-based metadata store for cross-process sharing.
+ * Session-scoped, file-based metadata store for cross-process sharing.
  *
  * The interceptor runs in the SDK subprocess (via --preload), while
  * tool-matching.ts runs in the Electron main process. These are separate
  * OS processes — globalThis, module-level Maps, etc. are NOT shared.
  *
- * Solution: same file-based pattern used by LastApiError above.
- * - set() writes to both in-memory Map AND a per-toolUseId file
- * - get() checks in-memory Map first (same-process), then falls back to file
- * - No pop semantics: the SDK reads metadata twice per tool (stream + assistant),
- *   so files must persist across reads. Periodic cleanup prevents accumulation.
+ * Solution: a single `tool-metadata.json` file in the session directory.
+ * - set() writes to both in-memory Map AND merges into {sessionDir}/tool-metadata.json
+ * - get() checks in-memory Map first (same-process), then reads from file
+ * - No cleanup needed: file lives with the session, deleted when session is deleted
+ * - Survives subprocess restarts (session resume) via file persistence
+ *
+ * The session directory is determined by:
+ * - SDK subprocess: CRAFT_SESSION_DIR env var (set by main process before spawn)
+ * - Main process: toolMetadataStore.setSessionDir(path) called during agent creation
  */
-const METADATA_DIR = join(homedir(), '.craft-agent', 'tool-metadata');
-const METADATA_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 
-// Ensure metadata dir exists at module load
-try {
-  if (!existsSync(METADATA_DIR)) {
-    mkdirSync(METADATA_DIR, { recursive: true });
-  }
-} catch {
-  // Ignore — file ops will silently fail
+// Session directory — set by env var (subprocess) or setSessionDir() (main process)
+let _sessionDir: string | null = process.env.CRAFT_SESSION_DIR || null;
+
+function getMetadataFilePath(): string | null {
+  return _sessionDir ? join(_sessionDir, 'tool-metadata.json') : null;
 }
 
 // In-memory Map for same-process lookups (tests, Codex backend, etc.)
 const _metadataMap = new Map<string, ToolMetadata>();
 
-// Periodic file cleanup — delete metadata files older than 5 minutes.
-// Runs in whichever process loaded this module (subprocess or main).
-let _lastCleanup = Date.now();
-function maybeCleanupMetadataFiles(): void {
-  const now = Date.now();
-  if (now - _lastCleanup < METADATA_MAX_AGE_MS) return;
-  _lastCleanup = now;
+// File cache — shadows what's been written to disk by this process.
+// Avoids redundant readFileSync on every set() call (subprocess is sole writer).
+// Reset on setSessionDir() so the main process loads fresh data per session.
+let _fileCache: Record<string, ToolMetadata> | null = null;
+
+/** Read the entire metadata file from disk, returning a Record keyed by toolUseId */
+function readMetadataFile(): Record<string, ToolMetadata> {
+  const filePath = getMetadataFilePath();
+  if (!filePath) return {};
   try {
-    for (const file of readdirSync(METADATA_DIR)) {
-      if (!file.endsWith('.json')) continue;
-      try {
-        const filePath = join(METADATA_DIR, file);
-        const stat = statSync(filePath);
-        if (now - stat.mtimeMs > METADATA_MAX_AGE_MS) {
-          unlinkSync(filePath);
-        }
-      } catch { /* ignore individual file errors */ }
-    }
-  } catch { /* ignore cleanup errors */ }
+    const data = readFileSync(filePath, 'utf-8');
+    return JSON.parse(data) as Record<string, ToolMetadata>;
+  } catch {
+    return {};
+  }
+}
+
+/** Write the entire metadata object to the session file (atomic via temp+rename) */
+function writeMetadataFile(allMetadata: Record<string, ToolMetadata>): void {
+  const filePath = getMetadataFilePath();
+  if (!filePath) return;
+  try {
+    const tmpPath = filePath + '.tmp';
+    writeFileSync(tmpPath, JSON.stringify(allMetadata));
+    renameSync(tmpPath, filePath);
+  } catch {
+    // Ignore write errors — in-memory still works for same-process
+  }
 }
 
 export const toolMetadataStore = {
-  /** Store metadata — writes to both in-memory Map AND file (cross-process) */
-  set(toolUseId: string, metadata: ToolMetadata): void {
-    _metadataMap.set(toolUseId, metadata);
-    try {
-      const filePath = join(METADATA_DIR, `${toolUseId}.json`);
-      writeFileSync(filePath, JSON.stringify(metadata));
-    } catch {
-      // Ignore write errors — in-memory still works for same-process
+  /**
+   * Set session directory and pre-populate in-memory map from file.
+   * Called by main process (where set() is never called) so all subsequent
+   * get() calls are O(1) memory lookups instead of file reads.
+   */
+  setSessionDir(dir: string): void {
+    _sessionDir = dir;
+    _fileCache = null; // Reset file cache for new session
+    // Pre-populate in-memory map from file (enables O(1) get() in main process)
+    _metadataMap.clear();
+    const all = readMetadataFile();
+    for (const [id, meta] of Object.entries(all)) {
+      _metadataMap.set(id, meta);
     }
-    // Piggyback cleanup on writes (runs at most once per 5 min)
-    maybeCleanupMetadataFiles();
   },
 
-  /** Read metadata — checks in-memory first, then file. No pop semantics. */
+  /** Store metadata — writes to in-memory Map + cached file (write-only, no redundant reads) */
+  set(toolUseId: string, metadata: ToolMetadata): void {
+    _metadataMap.set(toolUseId, metadata);
+    // Initialize file cache once (picks up pre-existing data on session resume), then write-only
+    if (!_fileCache) _fileCache = readMetadataFile();
+    _fileCache[toolUseId] = metadata;
+    writeMetadataFile(_fileCache);
+  },
+
+  /** Read metadata — checks in-memory first, then session file. No pop semantics. */
   get(toolUseId: string): ToolMetadata | undefined {
-    // 1. Same-process: check in-memory Map
+    // 1. Same-process: check in-memory Map (always hits after setSessionDir or set)
     const inMemory = _metadataMap.get(toolUseId);
     if (inMemory) {
       return inMemory;
     }
 
-    // 2. Cross-process: check file (written by interceptor subprocess)
-    try {
-      const filePath = join(METADATA_DIR, `${toolUseId}.json`);
-      const data = readFileSync(filePath, 'utf-8');
-      return JSON.parse(data) as ToolMetadata;
-    } catch {
-      return undefined;
-    }
+    // 2. Cross-process fallback: check session file (only needed if setSessionDir wasn't called)
+    const all = readMetadataFile();
+    return all[toolUseId];
   },
 
   delete(toolUseId: string): void {
     _metadataMap.delete(toolUseId);
-    try { unlinkSync(join(METADATA_DIR, `${toolUseId}.json`)); } catch { /* ignore */ }
+    if (!_fileCache) _fileCache = readMetadataFile();
+    delete _fileCache[toolUseId];
+    writeMetadataFile(_fileCache);
   },
 
   get size(): number {
@@ -322,6 +355,65 @@ function addMetadataToAllTools(body: Record<string, unknown>): Record<string, un
 }
 
 /**
+ * Re-inject stored _intent/_displayName metadata into tool_use blocks in conversation history.
+ *
+ * The SSE stripping stream removes metadata from responses before the SDK stores them,
+ * so conversation history sent in subsequent API calls lacks _intent/_displayName.
+ * Claude follows its own example from history, so if previous tool calls lack these fields,
+ * Claude stops including them — creating a self-defeating feedback loop.
+ *
+ * This function walks the outbound messages array and injects stored metadata back into
+ * assistant tool_use blocks, so Claude sees its previous calls WITH metadata and continues
+ * to include the fields consistently.
+ */
+function injectMetadataIntoHistory(body: Record<string, unknown>): Record<string, unknown> {
+  const messages = body.messages as Array<{
+    role?: string;
+    content?: Array<{
+      type?: string;
+      id?: string;
+      input?: Record<string, unknown>;
+    }>;
+  }> | undefined;
+
+  if (!messages) return body;
+
+  let injectedCount = 0;
+  // Lazy file read: only load from disk once if any block misses the in-memory map
+  // (normally all entries are in _metadataMap; file fallback only matters on session resume)
+  let fileMetadata: Record<string, ToolMetadata> | null = null;
+
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue;
+
+    for (const block of message.content) {
+      if (block.type !== 'tool_use' || !block.id || !block.input) continue;
+
+      // Skip if already has metadata (e.g., first few calls before stripping takes effect)
+      if ('_intent' in block.input || '_displayName' in block.input) continue;
+
+      // Look up stored metadata: in-memory Map first, then single file read fallback
+      let stored = _metadataMap.get(block.id);
+      if (!stored) {
+        if (!fileMetadata) fileMetadata = readMetadataFile();
+        stored = fileMetadata[block.id];
+      }
+      if (stored) {
+        if (stored.intent) block.input._intent = stored.intent;
+        if (stored.displayName) block.input._displayName = stored.displayName;
+        injectedCount++;
+      }
+    }
+  }
+
+  if (injectedCount > 0) {
+    debugLog(`[History Inject] Re-injected metadata into ${injectedCount} tool_use blocks`);
+  }
+
+  return body;
+}
+
+/**
  * Check if URL should have API errors captured.
  * Uses the configured base URL so error capture works with any provider.
  */
@@ -364,7 +456,10 @@ function createSseMetadataStrippingStream(): TransformStream<Uint8Array, Uint8Ar
   let currentEventType = '';
   let currentData = '';
 
+  let eventCount = 0;
+
   function processEvent(eventType: string, dataStr: string, controller: TransformStreamDefaultController<Uint8Array>): void {
+    eventCount++;
     let data: Record<string, unknown>;
     try {
       data = JSON.parse(dataStr);
@@ -433,7 +528,9 @@ function createSseMetadataStrippingStream(): TransformStream<Uint8Array, Uint8Ar
     index: number,
     controller: TransformStreamDefaultController<Uint8Array>,
   ): void {
-    if (!block.bufferedJson) return;
+    if (!block.bufferedJson) {
+      return;
+    }
 
     try {
       const parsed = JSON.parse(block.bufferedJson);
@@ -563,6 +660,7 @@ function createSseMetadataStrippingStream(): TransformStream<Uint8Array, Uint8Ar
       }
       trackedBlocks.clear();
       lineBuffer = '';
+      debugLog(`[SSE] Stream flush complete. Total events processed: ${eventCount}`);
     },
   });
 }
@@ -575,9 +673,11 @@ function stripMetadataFromResponse(response: Response): Response {
   const contentType = response.headers.get('content-type') ?? '';
 
   if (!contentType.includes('text/event-stream') || !response.body) {
+    debugLog(`[SSE Strip] Skipping non-SSE response: content-type=${contentType}, hasBody=${!!response.body}`);
     return response;
   }
 
+  debugLog(`[SSE Strip] Creating stripping stream for SSE response`);
   const strippingStream = createSseMetadataStrippingStream();
   const transformedBody = response.body.pipeThrough(strippingStream);
 
@@ -756,6 +856,8 @@ async function interceptedFetch(
 
         // Add _intent and _displayName to all tool schemas (REQUEST modification)
         parsed = addMetadataToAllTools(parsed);
+        // Re-inject stored metadata into tool_use history so Claude keeps including fields
+        parsed = injectMetadataIntoHistory(parsed);
 
         const modifiedInit = {
           ...init,

@@ -67,6 +67,7 @@ import { loadWorkspaceSources, loadAllSources, getSourcesBySlugs, isSourceUsable
 import { ConfigWatcher, type ConfigWatcherCallbacks } from '@craft-agent/shared/config'
 import { getAuthState } from '@craft-agent/shared/auth'
 import { setAnthropicOptionsEnv, setPathToClaudeCodeExecutable, setInterceptorPath, setExecutable } from '@craft-agent/shared/agent'
+import { toolMetadataStore } from '@craft-agent/shared/network-interceptor'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { CraftMcpClient } from '@craft-agent/shared/mcp'
 import { type Session, type Message, type SessionEvent, type FileAttachment, type StoredAttachment, type SendMessageOptions, IPC_CHANNELS, generateMessageId } from '../shared/types'
@@ -353,7 +354,14 @@ function resolveToolDisplayMeta(
   if (toolName.startsWith('mcp__')) {
     const parts = toolName.split('__')
     if (parts.length >= 2) {
-      const sourceSlug = parts[1]
+      let sourceSlug = parts[1]
+
+      // Special case: api-bridge server embeds source slug in tool name as "api_{slug}"
+      // e.g., mcp__api-bridge__api_stripe → sourceSlug = "stripe"
+      if (sourceSlug === 'api-bridge' && parts[2]?.startsWith('api_')) {
+        sourceSlug = parts[2].slice(4)
+      }
+
       const source = sources.find(s => s.config.slug === sourceSlug)
       if (source) {
         // Try file-based icon first, fall back to emoji icon from config
@@ -2007,6 +2015,13 @@ export class SessionManager {
         provider = 'openai'
       }
 
+      // Set session directory for tool metadata cross-process sharing.
+      // The SDK subprocess reads CRAFT_SESSION_DIR to write tool-metadata.json;
+      // the main process reads it via toolMetadataStore.setSessionDir().
+      const sessionDirForMetadata = getSessionStoragePath(managed.workspace.rootPath, managed.id)
+      process.env.CRAFT_SESSION_DIR = sessionDirForMetadata
+      toolMetadataStore.setSessionDir(sessionDirForMetadata)
+
       // Create the appropriate backend based on provider
       if (provider === 'openai') {
         // Codex backend - uses app-server protocol
@@ -3435,6 +3450,11 @@ export class SessionManager {
       // The UI layer (extractBadges in mentions.ts) injects fully-qualified names
       // in the rawText, and canUseTool in craft-agent.ts provides a fallback
       // to qualify short names. No transformation needed here.
+
+      // Ensure main process reads tool metadata from the correct session directory.
+      // This must be set before each chat() call since multiple sessions share the process.
+      const chatSessionDir = getSessionStoragePath(workspaceRootPath, sessionId)
+      toolMetadataStore.setSessionDir(chatSessionDir)
 
       sendSpan.mark('chat.starting')
       const chatIterator = agent.chat(message, attachments)

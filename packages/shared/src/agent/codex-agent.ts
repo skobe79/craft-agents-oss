@@ -318,6 +318,31 @@ export class CodexAgent extends BaseAgent {
     this.clientConnecting = null;
 
     this.debug('App-server client connected');
+
+    // Inject auth tokens for the new client to avoid 401 errors after interrupts
+    // This mirrors the token injection in reconnect() but is needed whenever
+    // a fresh client is created (e.g., after forceAbort with UserStop)
+    const normalizedAuthType =
+      this.config.authType ??
+      (this.config.legacyAuthType === 'api_key'
+        ? 'api_key'
+        : this.config.legacyAuthType === 'oauth_token'
+          ? 'oauth'
+          : undefined);
+
+    if (normalizedAuthType === 'oauth') {
+      this.debug('Injecting stored ChatGPT tokens for new client...');
+      const injected = await this.tryInjectStoredChatGptTokens();
+      if (!injected) {
+        this.debug('No stored ChatGPT tokens available - auth may be required');
+        // Don't throw here - let the chat() method handle auth requirements
+        // via the onChatGptAuthRequired callback when the server responds with 401
+      }
+    } else if (normalizedAuthType === 'api_key' || normalizedAuthType === 'api_key_with_endpoint') {
+      this.debug('Injecting stored API key for new client...');
+      await this.tryInjectStoredApiKey();
+    }
+
     return this.client;
   }
 

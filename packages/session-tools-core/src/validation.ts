@@ -283,7 +283,7 @@ export function validateMermaidSyntax(code: string): ValidationResult {
   }
 
   // Check for unbalanced brackets
-  const brackets: Record<string, number> = { '[': 0, '{': 0, '(': 0 };
+  const brackets = { '[': 0, '{': 0, '(': 0 };
   for (const char of code) {
     if (char === '[') brackets['[']++;
     if (char === ']') brackets['[']--;

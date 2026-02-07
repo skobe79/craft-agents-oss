@@ -35,7 +35,7 @@ export function useAction(
     return register({
       actionId,
       handler: () => handlerRef.current(),
-      enabled: optionsRef.current?.enabled ? () => optionsRef.current?.enabled?.() : undefined,
+      enabled: optionsRef.current?.enabled ? () => optionsRef.current?.enabled?.() ?? false : undefined,
     })
   }, [actionId, register])
 }

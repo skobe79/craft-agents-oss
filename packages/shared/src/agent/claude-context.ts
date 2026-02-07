@@ -54,7 +54,7 @@ import {
   saveSourceConfig as saveSourceConfigImpl,
   getSourcePath,
 } from '../sources/storage.ts';
-import type { FolderSourceConfig, LoadedSource as SharedLoadedSource } from '../sources/types.ts';
+import type { FolderSourceConfig, LoadedSource as SharedLoadedSource, SourceGuide } from '../sources/types.ts';
 import { getSourceCredentialManager } from '../sources/index.ts';
 import {
   inferGoogleServiceFromUrl,
@@ -143,10 +143,10 @@ export function createClaudeContext(options: ClaudeContextOptions): SessionToolC
   const credentialManager: CredentialManagerInterface = {
     hasValidCredentials: async (source: LoadedSource): Promise<boolean> => {
       const mgr = getSourceCredentialManager();
-      // Convert to shared type
+      // Convert to shared type (guide: string → SourceGuide)
       const sharedSource: SharedLoadedSource = {
         config: source.config as unknown as FolderSourceConfig,
-        guide: source.guide,
+        guide: source.guide ? { raw: source.guide } as SourceGuide : null,
         folderPath: source.folderPath,
         workspaceRootPath: source.workspaceRootPath,
         workspaceId: source.workspaceId,
@@ -158,7 +158,7 @@ export function createClaudeContext(options: ClaudeContextOptions): SessionToolC
       const mgr = getSourceCredentialManager();
       const sharedSource: SharedLoadedSource = {
         config: source.config as unknown as FolderSourceConfig,
-        guide: source.guide,
+        guide: source.guide ? { raw: source.guide } as SourceGuide : null,
         folderPath: source.folderPath,
         workspaceRootPath: source.workspaceRootPath,
         workspaceId: source.workspaceId,
@@ -169,7 +169,7 @@ export function createClaudeContext(options: ClaudeContextOptions): SessionToolC
       const mgr = getSourceCredentialManager();
       const sharedSource: SharedLoadedSource = {
         config: source.config as unknown as FolderSourceConfig,
-        guide: source.guide,
+        guide: source.guide ? { raw: source.guide } as SourceGuide : null,
         folderPath: source.folderPath,
         workspaceRootPath: source.workspaceRootPath,
         workspaceId: source.workspaceId,
@@ -299,12 +299,12 @@ export function createClaudeContext(options: ClaudeContextOptions): SessionToolC
     try {
       const result = await validateStdioMcpConnectionImpl(config);
       return {
-        success: result.valid,
-        error: result.errors?.[0]?.message,
-        toolCount: result.toolCount,
-        toolNames: result.toolNames,
-        serverName: result.serverName,
-        serverVersion: result.serverVersion,
+        success: result.success,
+        error: result.error,
+        toolCount: result.tools?.length,
+        toolNames: result.tools,
+        serverName: result.serverInfo?.name,
+        serverVersion: result.serverInfo?.version,
       };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Validation failed' };
@@ -320,15 +320,19 @@ export function createClaudeContext(options: ClaudeContextOptions): SessionToolC
         return { success: false, error: 'No Claude API key or OAuth token configured' };
       }
 
-      const result = await validateMcpConnectionImpl(config.url, apiKey || undefined, oauthToken || undefined);
+      const result = await validateMcpConnectionImpl({
+        mcpUrl: config.url,
+        claudeApiKey: apiKey || undefined,
+        claudeOAuthToken: oauthToken || undefined,
+      });
       return {
-        success: result.valid,
-        error: result.errors?.[0]?.message,
-        needsAuth: result.needsAuth,
-        toolCount: result.toolCount,
-        toolNames: result.toolNames,
-        serverName: result.serverName,
-        serverVersion: result.serverVersion,
+        success: result.success,
+        error: result.error,
+        needsAuth: result.errorType === 'needs-auth',
+        toolCount: result.tools?.length,
+        toolNames: result.tools,
+        serverName: result.serverInfo?.name,
+        serverVersion: result.serverInfo?.version,
       };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Validation failed' };

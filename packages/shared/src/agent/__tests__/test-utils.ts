@@ -148,6 +148,8 @@ export class TestAgent extends BaseAgent {
         {
           id: 'test-model',
           name: 'Test Model',
+          shortName: 'Test',
+          description: 'A test model for unit tests',
           provider: 'anthropic',
           contextWindow: 100_000,
           supportsThinking: true,

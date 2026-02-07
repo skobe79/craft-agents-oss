@@ -136,7 +136,7 @@ describe('Codex Reconnect Flow (Integration)', () => {
 
       // Verify thread/resume was called with correct ID
       expect(mockClient.threadResumeCalls).toHaveLength(1);
-      expect(mockClient.threadResumeCalls[0].threadId).toBe(existingThreadId);
+      expect(mockClient.threadResumeCalls[0]!.threadId).toBe(existingThreadId);
       expect(result.threadId).toBe(existingThreadId);
     });
 
@@ -305,11 +305,11 @@ describe('Codex Reconnect Flow (Integration)', () => {
       await client2.threadResume({ threadId: session2ThreadId });
 
       // Each client has its own thread resume
-      expect(client1.threadResumeCalls[0].threadId).toBe(session1ThreadId);
-      expect(client2.threadResumeCalls[0].threadId).toBe(session2ThreadId);
+      expect(client1.threadResumeCalls[0]!.threadId).toBe(session1ThreadId);
+      expect(client2.threadResumeCalls[0]!.threadId).toBe(session2ThreadId);
 
       // Threads are independent
-      expect(client1.threadResumeCalls[0].threadId).not.toBe(client2.threadResumeCalls[0].threadId);
+      expect(client1.threadResumeCalls[0]!.threadId).not.toBe(client2.threadResumeCalls[0]!.threadId);
     });
   });
 });

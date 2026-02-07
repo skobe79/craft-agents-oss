@@ -8,8 +8,6 @@ export * from './options.ts';
 
 // Export session-scoped-tools - tools scoped to a specific session
 export {
-  // Tool factories (creates session-scoped tools)
-  createSubmitPlanTool,
   // Session-scoped tools provider
   getSessionScopedTools,
   cleanupSessionScopedTools,

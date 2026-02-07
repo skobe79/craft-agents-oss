@@ -306,7 +306,7 @@ export function extractToolResults(
  * 3. Bash description field — fallback for intent on Bash tools
  */
 function extractToolMetadata(toolBlock: ToolUseBlock): { intent?: string; displayName?: string } {
-  // 1. Check the metadata store first (populated by SSE interceptor, pop semantics)
+  // 1. Check the metadata store first (populated by SSE interceptor)
   const stored = toolMetadataStore.get(toolBlock.id);
   if (stored) {
     let intent = stored.intent;
@@ -319,6 +319,9 @@ function extractToolMetadata(toolBlock: ToolUseBlock): { intent?: string; displa
 
     return { intent, displayName };
   }
+
+  // Log when metadata store misses — helps diagnose cross-process sync issues
+  log.debug(`extractToolMetadata: store miss for ${toolBlock.name} (${toolBlock.id})`);
 
   // 2. Fallback: read directly from tool input (Codex backend, non-streaming, etc.)
   let intent = toolBlock.input._intent as string | undefined;

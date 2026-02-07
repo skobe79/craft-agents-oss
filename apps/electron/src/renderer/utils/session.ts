@@ -1,4 +1,4 @@
-import type { Session } from "../../shared/types"
+import type { Session, Message } from "../../shared/types"
 import type { SessionMeta } from "../atoms/sessions"
 
 /** Common session fields used by getSessionTitle */

@@ -139,19 +139,21 @@ export function SessionMenu({
 
   const handleUpdateShare = async () => {
     const result = await window.electronAPI.sessionCommand(sessionId, { type: 'updateShare' })
-    if (result?.success) {
+    if (result && 'success' in result && result.success) {
       toast.success('Share updated')
     } else {
-      toast.error('Failed to update share', { description: result?.error })
+      const errorMsg = result && 'error' in result ? result.error : undefined
+      toast.error('Failed to update share', { description: errorMsg })
     }
   }
 
   const handleRevokeShare = async () => {
     const result = await window.electronAPI.sessionCommand(sessionId, { type: 'revokeShare' })
-    if (result?.success) {
+    if (result && 'success' in result && result.success) {
       toast.success('Sharing stopped')
     } else {
-      toast.error('Failed to stop sharing', { description: result?.error })
+      const errorMsg = result && 'error' in result ? result.error : undefined
+      toast.error('Failed to stop sharing', { description: errorMsg })
     }
   }
 
