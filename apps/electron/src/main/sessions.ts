@@ -2216,6 +2216,16 @@ export class SessionManager {
           // Read the plan file content
           const planContent = await readFile(planPath, 'utf-8')
 
+          // Mark the SubmitPlan tool message as completed (it won't get a tool_result due to forceAbort)
+          const submitPlanMsg = managed.messages.find(
+            m => m.toolName?.includes('SubmitPlan') && m.toolStatus === 'executing'
+          )
+          if (submitPlanMsg) {
+            submitPlanMsg.toolStatus = 'completed'
+            submitPlanMsg.content = 'Plan submitted for review'
+            submitPlanMsg.toolResult = 'Plan submitted for review'
+          }
+
           // Create a plan message
           const planMessage = {
             id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

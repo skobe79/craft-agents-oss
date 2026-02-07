@@ -80,12 +80,13 @@ export interface SessionMeta {
 }
 
 /**
- * Find the last final (non-intermediate) assistant message ID
+ * Find the last final (non-intermediate) assistant or plan message ID
  */
 function findLastFinalMessageId(messages: Message[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (msg.role === 'assistant' && !msg.isIntermediate) {
+    // Include plan messages as final responses (they're AI-generated content)
+    if ((msg.role === 'assistant' || msg.role === 'plan') && !msg.isIntermediate) {
       return msg.id
     }
   }

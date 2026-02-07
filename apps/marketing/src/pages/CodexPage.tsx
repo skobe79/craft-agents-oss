@@ -4,15 +4,9 @@ import agentsLogo from '../assets/agents_logo.svg'
 export default function CodexPage() {
   return (
     <main className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 pt-[80px] pb-[128px]">
-      {/* Logo with Codex badge */}
+      {/* Logo */}
       <div className="flex flex-col items-center gap-3 mb-[48px]">
         <img src={agentsLogo} alt="Craft Agents" className="w-[224px]" />
-        <div className="flex items-center gap-2">
-          <span className="text-2xl font-bold text-foreground">with Codex</span>
-          <span className="bg-[#6B3F9D] text-white text-[11px] font-semibold px-2 py-[3px] rounded-[6px] shadow-tinted uppercase tracking-wide">
-            beta
-          </span>
-        </div>
       </div>
 
       {/* Hero header */}
@@ -26,7 +20,7 @@ export default function CodexPage() {
       </div>
 
       {/* Download button */}
-      <div className="flex flex-col items-center gap-3 mb-[60px]">
+      <div className="flex flex-col items-center gap-4 mb-[60px]">
         <a
           href="https://agents.craft.do/codex-beta/Craft Agents.dmg"
           className="bg-foreground text-background rounded-[12px] shadow-strong py-3 px-6 text-center text-[14px] font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"

@@ -223,7 +223,7 @@ export default function HomePage() {
       </div>
 
       {/* Action buttons */}
-      <div className="flex flex-wrap justify-center gap-3 max-w-4xl w-full mb-[60px]">
+      <div className="flex flex-wrap justify-center gap-3 max-w-4xl w-full mb-[48px]">
         {/* Download dropdown */}
         <div ref={dropdownRef} className="relative">
           <button

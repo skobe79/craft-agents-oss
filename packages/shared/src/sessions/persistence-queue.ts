@@ -72,10 +72,12 @@ class SessionPersistenceQueue {
       }
 
       // Create JSONL content: header + messages (one per line)
+      // Filter out intermediate messages - they're transient streaming status updates
       const header = createSessionHeader(storageSession)
+      const persistableMessages = storageSession.messages.filter(m => !m.isIntermediate)
       const lines = [
         JSON.stringify(header),
-        ...storageSession.messages.map(m => JSON.stringify(m)),
+        ...persistableMessages.map(m => JSON.stringify(m)),
       ]
 
       // Atomic write: write to .tmp then rename over the real file.
