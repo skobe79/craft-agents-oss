@@ -1029,6 +1029,8 @@ export function isReadOnlyBashCommand(command: string): boolean {
  * - Direct redirects: `echo "x" > /path/file`
  * - Codex subshell pattern: `/bin/zsh -lc "cat <<'EOF' > /path/file\n...\nEOF"`
  * - sh/bash -c variants: `bash -c "echo x > /path/file"`
+ * - PowerShell Out-File: `@(...) | Out-File -FilePath 'path'`
+ * - PowerShell Set-Content/Add-Content: `'...' | Set-Content -Path 'path'`
  */
 export function extractBashWriteTarget(command: string): string | null {
   // Pattern 1: Quoted path after redirect (handles Codex's escaped quotes)
@@ -1053,7 +1055,37 @@ export function extractBashWriteTarget(command: string): string | null {
     return directRedirectMatch[1];
   }
 
+  // Pattern 4: PowerShell Out-File with -FilePath or -Path parameter
+  // Matches: | Out-File -FilePath 'path' or | Out-File -Path "path"
+  const outFileParamMatch = command.match(/Out-File\s+-(?:File)?Path\s+['"]([^'"]+)['"]/i);
+  if (outFileParamMatch?.[1]) {
+    return outFileParamMatch[1];
+  }
+
+  // Pattern 5: PowerShell Out-File with positional path (no -FilePath flag)
+  // Matches: | Out-File 'path' or | Out-File "path"
+  // Must not match -FilePath or -Encoding etc.
+  const outFilePosMatch = command.match(/Out-File\s+['"]([^'"]+)['"]/i);
+  if (outFilePosMatch?.[1] && !command.match(/Out-File\s+-\w/i)) {
+    return outFilePosMatch[1];
+  }
+
+  // Pattern 6: PowerShell Set-Content or Add-Content with -Path parameter
+  // Matches: | Set-Content -Path 'path' or | Add-Content -Path "path"
+  const setContentMatch = command.match(/(?:Set|Add)-Content\s+-Path\s+['"]([^'"]+)['"]/i);
+  if (setContentMatch?.[1]) {
+    return setContentMatch[1];
+  }
+
   return null;
+}
+
+/**
+ * Check if a command looks like it might be trying to write files.
+ * Used to provide better error messages when write detection fails.
+ */
+export function looksLikePotentialWrite(command: string): boolean {
+  return /Out-File|Set-Content|Add-Content|>\s*[^&]|>>/i.test(command);
 }
 
 /**
@@ -1209,6 +1241,27 @@ export function shouldAllowToolInMode(
             debug(`[Mode] Allowing Bash write to plans folder: ${targetPath}`);
             return { allowed: true };
           }
+          // Target path extracted but not in plans folder - give specific error
+          debug(`[Mode] Bash write target "${targetPath}" is not in plans folder "${options.plansFolderPath}"`);
+          return {
+            allowed: false,
+            reason: `Bash command writes to "${targetPath}" which is outside the plans folder.\n\n` +
+                    `In Explore mode, you can only write to the plans folder:\n` +
+                    `  ${options.plansFolderPath}\n\n` +
+                    `Switch to Ask or Execute mode (${config.shortcutHint}) to write elsewhere.`,
+          };
+        }
+        // Check if this looks like a write attempt but we couldn't extract the path
+        if (looksLikePotentialWrite(command)) {
+          debug(`[Mode] Bash command looks like a write but path extraction failed`);
+          return {
+            allowed: false,
+            reason: `Bash command appears to write files but the target path couldn't be detected.\n\n` +
+                    `If writing to plans folder, use one of these patterns:\n` +
+                    `  Unix:       printf '...' > "${options.plansFolderPath}/plan.md"\n` +
+                    `  PowerShell: @(...) | Out-File -FilePath '${options.plansFolderPath.replace(/\//g, '\\\\')}\\\\plan.md' -Encoding utf8\n\n` +
+                    `Or switch to Ask or Execute mode (${config.shortcutHint}).`,
+          };
         }
       }
 

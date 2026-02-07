@@ -14,6 +14,7 @@ import {
   formatBashRejectionMessage,
   shouldAllowToolInMode,
   extractBashWriteTarget,
+  looksLikePotentialWrite,
   SAFE_MODE_CONFIG,
   type CompiledBashPattern,
 } from '../src/agent/mode-manager.ts';
@@ -1275,6 +1276,77 @@ describe('extractBashWriteTarget', () => {
       expect(extractBashWriteTarget('ls > /dev/null')).toBeNull();
     });
   });
+
+  describe('PowerShell Out-File pattern', () => {
+    it('should extract path from Out-File -FilePath with single quotes', () => {
+      const cmd = `@('# Plan') | Out-File -FilePath 'C:\\Users\\test\\.craft-agent\\plans\\plan.md' -Encoding utf8`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\Users\\test\\.craft-agent\\plans\\plan.md');
+    });
+
+    it('should extract path from Out-File -FilePath with double quotes', () => {
+      const cmd = `@("# Plan") | Out-File -FilePath "C:\\plans\\plan.md" -Encoding utf8`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
+    });
+
+    it('should extract path from Out-File -Path', () => {
+      const cmd = `@('# Plan') | Out-File -Path 'C:\\plans\\plan.md'`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
+    });
+
+    it('should be case insensitive for Out-File', () => {
+      const cmd = `@('# Plan') | out-file -filepath 'C:\\plans\\plan.md'`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
+    });
+  });
+
+  describe('PowerShell Set-Content/Add-Content pattern', () => {
+    it('should extract path from Set-Content -Path', () => {
+      const cmd = `'content' | Set-Content -Path 'C:\\plans\\plan.md'`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
+    });
+
+    it('should extract path from Add-Content -Path', () => {
+      const cmd = `'more content' | Add-Content -Path 'C:\\plans\\plan.md'`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
+    });
+  });
+});
+
+// ============================================================
+// looksLikePotentialWrite Tests
+// ============================================================
+
+describe('looksLikePotentialWrite', () => {
+  it('should detect PowerShell Out-File', () => {
+    expect(looksLikePotentialWrite(`@('# Plan') | Out-File 'path'`)).toBe(true);
+  });
+
+  it('should detect PowerShell Set-Content', () => {
+    expect(looksLikePotentialWrite(`'content' | Set-Content 'path'`)).toBe(true);
+  });
+
+  it('should detect PowerShell Add-Content', () => {
+    expect(looksLikePotentialWrite(`'content' | Add-Content 'path'`)).toBe(true);
+  });
+
+  it('should detect bash redirect', () => {
+    expect(looksLikePotentialWrite(`echo "content" > file.txt`)).toBe(true);
+  });
+
+  it('should detect bash append redirect', () => {
+    expect(looksLikePotentialWrite(`echo "content" >> file.txt`)).toBe(true);
+  });
+
+  it('should not detect read-only commands', () => {
+    expect(looksLikePotentialWrite(`ls -la`)).toBe(false);
+    expect(looksLikePotentialWrite(`git status`)).toBe(false);
+    expect(looksLikePotentialWrite(`cat file.txt`)).toBe(false);
+  });
+
+  it('should be case insensitive', () => {
+    expect(looksLikePotentialWrite(`out-file`)).toBe(true);
+    expect(looksLikePotentialWrite(`OUT-FILE`)).toBe(true);
+  });
 });
 
 // ============================================================
@@ -1303,6 +1375,30 @@ describe('shouldAllowToolInMode - Bash plans folder exception', () => {
         { command },
         'safe',
         { plansFolderPath }
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should allow PowerShell Out-File to plans folder', () => {
+      const windowsPlansFolderPath = 'C:\\Users\\test\\.craft-agent\\workspaces\\ws\\sessions\\s1\\plans';
+      const command = `@('# Plan', '', '## Steps', '1. Do thing') | Out-File -FilePath '${windowsPlansFolderPath}\\plan.md' -Encoding utf8`;
+      const result = shouldAllowToolInMode(
+        'Bash',
+        { command },
+        'safe',
+        { plansFolderPath: windowsPlansFolderPath }
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should allow PowerShell Set-Content to plans folder', () => {
+      const windowsPlansFolderPath = 'C:\\Users\\test\\.craft-agent\\workspaces\\ws\\sessions\\s1\\plans';
+      const command = `'# Plan content' | Set-Content -Path '${windowsPlansFolderPath}\\plan.md'`;
+      const result = shouldAllowToolInMode(
+        'Bash',
+        { command },
+        'safe',
+        { plansFolderPath: windowsPlansFolderPath }
       );
       expect(result.allowed).toBe(true);
     });
