@@ -7,12 +7,11 @@
  * Features:
  * - Captures API errors for error handler (4xx/5xx responses)
  * - Adds _intent and _displayName metadata to all tool schemas (request)
- *
- * Note: Metadata (_intent/_displayName) flows through to the SDK in responses.
- * It's extracted by tool-matching.ts and stripped by pre-tool-use.ts before execution.
+ * - Strips _intent/_displayName from SSE response stream before SDK processes it
+ *   (extracted into toolMetadataStore for UI consumption by tool-matching.ts)
  */
 
-import { existsSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -108,12 +107,12 @@ export function clearLastApiError(): void {
 }
 
 // ============================================================================
-// TOOL METADATA STORE (DEPRECATED - kept for backwards compatibility)
+// TOOL METADATA STORE
 // ============================================================================
 
 /**
- * @deprecated Metadata is no longer stored separately. It flows through in tool input
- * and is read directly by tool-matching.ts, then stripped by pre-tool-use.ts.
+ * Metadata extracted from tool_use inputs by the SSE stripping stream.
+ * Keyed by tool_use_id, consumed by tool-matching.ts.
  */
 export interface ToolMetadata {
   intent?: string;
@@ -122,25 +121,93 @@ export interface ToolMetadata {
 }
 
 /**
- * @deprecated No-op stub for backwards compatibility.
- * Metadata is now read directly from tool input in tool-matching.ts.
+ * File-based metadata store for cross-process sharing.
+ *
+ * The interceptor runs in the SDK subprocess (via --preload), while
+ * tool-matching.ts runs in the Electron main process. These are separate
+ * OS processes — globalThis, module-level Maps, etc. are NOT shared.
+ *
+ * Solution: same file-based pattern used by LastApiError above.
+ * - set() writes to both in-memory Map AND a per-toolUseId file
+ * - get() checks in-memory Map first (same-process), then falls back to file
+ * - No pop semantics: the SDK reads metadata twice per tool (stream + assistant),
+ *   so files must persist across reads. Periodic cleanup prevents accumulation.
  */
+const METADATA_DIR = join(homedir(), '.craft-agent', 'tool-metadata');
+const METADATA_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+
+// Ensure metadata dir exists at module load
+try {
+  if (!existsSync(METADATA_DIR)) {
+    mkdirSync(METADATA_DIR, { recursive: true });
+  }
+} catch {
+  // Ignore — file ops will silently fail
+}
+
+// In-memory Map for same-process lookups (tests, Codex backend, etc.)
+const _metadataMap = new Map<string, ToolMetadata>();
+
+// Periodic file cleanup — delete metadata files older than 5 minutes.
+// Runs in whichever process loaded this module (subprocess or main).
+let _lastCleanup = Date.now();
+function maybeCleanupMetadataFiles(): void {
+  const now = Date.now();
+  if (now - _lastCleanup < METADATA_MAX_AGE_MS) return;
+  _lastCleanup = now;
+  try {
+    for (const file of readdirSync(METADATA_DIR)) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const filePath = join(METADATA_DIR, file);
+        const stat = statSync(filePath);
+        if (now - stat.mtimeMs > METADATA_MAX_AGE_MS) {
+          unlinkSync(filePath);
+        }
+      } catch { /* ignore individual file errors */ }
+    }
+  } catch { /* ignore cleanup errors */ }
+}
+
 export const toolMetadataStore = {
-  set(_toolUseId: string, _metadata: ToolMetadata): void {
-    // No-op: metadata flows through in tool input now
+  /** Store metadata — writes to both in-memory Map AND file (cross-process) */
+  set(toolUseId: string, metadata: ToolMetadata): void {
+    _metadataMap.set(toolUseId, metadata);
+    try {
+      const filePath = join(METADATA_DIR, `${toolUseId}.json`);
+      writeFileSync(filePath, JSON.stringify(metadata));
+    } catch {
+      // Ignore write errors — in-memory still works for same-process
+    }
+    // Piggyback cleanup on writes (runs at most once per 5 min)
+    maybeCleanupMetadataFiles();
   },
 
-  get(_toolUseId: string): ToolMetadata | undefined {
-    // No-op: metadata is read from tool input in tool-matching.ts
-    return undefined;
+  /** Read metadata — checks in-memory first, then file. No pop semantics. */
+  get(toolUseId: string): ToolMetadata | undefined {
+    // 1. Same-process: check in-memory Map
+    const inMemory = _metadataMap.get(toolUseId);
+    if (inMemory) {
+      return inMemory;
+    }
+
+    // 2. Cross-process: check file (written by interceptor subprocess)
+    try {
+      const filePath = join(METADATA_DIR, `${toolUseId}.json`);
+      const data = readFileSync(filePath, 'utf-8');
+      return JSON.parse(data) as ToolMetadata;
+    } catch {
+      return undefined;
+    }
   },
 
-  delete(_toolUseId: string): void {
-    // No-op
+  delete(toolUseId: string): void {
+    _metadataMap.delete(toolUseId);
+    try { unlinkSync(join(METADATA_DIR, `${toolUseId}.json`)); } catch { /* ignore */ }
   },
 
   get size(): number {
-    return 0;
+    return _metadataMap.size;
   },
 };
 
@@ -260,6 +327,265 @@ function addMetadataToAllTools(body: Record<string, unknown>): Record<string, un
  */
 function shouldCaptureApiErrors(url: string): boolean {
   return isApiMessagesUrl(url);
+}
+
+// ============================================================================
+// SSE METADATA STRIPPING
+// ============================================================================
+
+/** State for a tracked tool_use block during SSE streaming */
+interface TrackedToolBlock {
+  id: string;
+  name: string;
+  index: number;
+  bufferedJson: string;
+}
+
+const SSE_EVENT_RE = /^event:\s*(.+)$/;
+const SSE_DATA_RE = /^data:\s*(.+)$/;
+
+/**
+ * Creates a TransformStream that intercepts SSE events from the Anthropic API,
+ * buffers tool_use input deltas, extracts _intent/_displayName into the metadata
+ * store, and re-emits clean events without those fields.
+ *
+ * This prevents the SDK from seeing metadata fields in built-in tool inputs,
+ * avoiding InputValidationError from the SDK's schema validation.
+ */
+function createSseMetadataStrippingStream(): TransformStream<Uint8Array, Uint8Array> {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  // Track active tool_use blocks by their content block index
+  const trackedBlocks = new Map<number, TrackedToolBlock>();
+  // Buffer for incomplete SSE data across chunk boundaries
+  let lineBuffer = '';
+  // Persist SSE event/data across chunk boundaries (event: and data: may be in different chunks)
+  let currentEventType = '';
+  let currentData = '';
+
+  function processEvent(eventType: string, dataStr: string, controller: TransformStreamDefaultController<Uint8Array>): void {
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(dataStr);
+    } catch {
+      // Not valid JSON, pass through
+      emitSseEvent(eventType, dataStr, controller);
+      return;
+    }
+
+    // content_block_start with tool_use: start tracking
+    if (eventType === 'content_block_start') {
+      const contentBlock = data.content_block as { type?: string; id?: string; name?: string } | undefined;
+      if (contentBlock?.type === 'tool_use' && contentBlock.id && contentBlock.name != null) {
+        const index = data.index as number;
+        trackedBlocks.set(index, {
+          id: contentBlock.id,
+          name: contentBlock.name,
+          index,
+          bufferedJson: '',
+        });
+      }
+      // Pass through unchanged
+      emitSseEvent(eventType, dataStr, controller);
+      return;
+    }
+
+    // content_block_delta with input_json_delta for a tracked block: buffer and suppress
+    if (eventType === 'content_block_delta') {
+      const index = data.index as number;
+      const delta = data.delta as { type?: string; partial_json?: string } | undefined;
+
+      if (delta?.type === 'input_json_delta' && trackedBlocks.has(index)) {
+        const block = trackedBlocks.get(index)!;
+        block.bufferedJson += delta.partial_json ?? '';
+        // Suppress this event — we'll re-emit clean content at block_stop
+        return;
+      }
+      // Not a tracked block, pass through
+      emitSseEvent(eventType, dataStr, controller);
+      return;
+    }
+
+    // content_block_stop for a tracked block: process buffered JSON
+    if (eventType === 'content_block_stop') {
+      const index = data.index as number;
+      const block = trackedBlocks.get(index);
+
+      if (block) {
+        trackedBlocks.delete(index);
+        emitBufferedBlock(block, index, controller);
+        // Then emit the stop event
+        emitSseEvent(eventType, dataStr, controller);
+        return;
+      }
+      // Not tracked, pass through
+      emitSseEvent(eventType, dataStr, controller);
+      return;
+    }
+
+    // All other events pass through unchanged
+    emitSseEvent(eventType, dataStr, controller);
+  }
+
+  function emitBufferedBlock(
+    block: TrackedToolBlock,
+    index: number,
+    controller: TransformStreamDefaultController<Uint8Array>,
+  ): void {
+    if (!block.bufferedJson) return;
+
+    try {
+      const parsed = JSON.parse(block.bufferedJson);
+
+      // Extract metadata
+      const intent = typeof parsed._intent === 'string' ? parsed._intent : undefined;
+      const displayName = typeof parsed._displayName === 'string' ? parsed._displayName : undefined;
+
+      if (intent || displayName) {
+        toolMetadataStore.set(block.id, {
+          intent,
+          displayName,
+          timestamp: Date.now(),
+        });
+        debugLog(`[SSE Strip] Stored metadata for ${block.name} (${block.id}): intent=${!!intent}, displayName=${!!displayName}`);
+      }
+
+      // Remove metadata fields
+      delete parsed._intent;
+      delete parsed._displayName;
+
+      const cleanJson = JSON.stringify(parsed);
+
+      // Re-emit as a single input_json_delta event
+      const deltaEvent = {
+        type: 'content_block_delta',
+        index,
+        delta: {
+          type: 'input_json_delta',
+          partial_json: cleanJson,
+        },
+      };
+      emitSseEvent('content_block_delta', JSON.stringify(deltaEvent), controller);
+    } catch {
+      // Parse failed — emit original buffered content unchanged as safety fallback
+      debugLog(`[SSE Strip] Failed to parse buffered JSON for ${block.name} (${block.id}), passing through`);
+      const deltaEvent = {
+        type: 'content_block_delta',
+        index,
+        delta: {
+          type: 'input_json_delta',
+          partial_json: block.bufferedJson,
+        },
+      };
+      emitSseEvent('content_block_delta', JSON.stringify(deltaEvent), controller);
+    }
+  }
+
+  function emitSseEvent(
+    eventType: string,
+    dataStr: string,
+    controller: TransformStreamDefaultController<Uint8Array>,
+  ): void {
+    const sseText = `event: ${eventType}\ndata: ${dataStr}\n\n`;
+    controller.enqueue(encoder.encode(sseText));
+  }
+
+  return new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      const text = lineBuffer + decoder.decode(chunk, { stream: true });
+      // Split into lines; SSE events are separated by double newlines
+      const lines = text.split('\n');
+      // Last element may be incomplete — buffer it
+      lineBuffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+
+        if (trimmed === '') {
+          // Empty line = end of SSE event
+          if (currentEventType && currentData) {
+            processEvent(currentEventType, currentData, controller);
+          }
+          currentEventType = '';
+          currentData = '';
+          continue;
+        }
+
+        const eventMatch = trimmed.match(SSE_EVENT_RE);
+        if (eventMatch) {
+          currentEventType = eventMatch[1]!.trim();
+          continue;
+        }
+
+        const dataMatch = trimmed.match(SSE_DATA_RE);
+        if (dataMatch) {
+          currentData = dataMatch[1]!;
+          continue;
+        }
+      }
+    },
+
+    flush(controller) {
+      // Process any remaining buffered line data
+      if (lineBuffer.trim()) {
+        const lines = lineBuffer.split('\n');
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed === '') {
+            if (currentEventType && currentData) {
+              processEvent(currentEventType, currentData, controller);
+            }
+            currentEventType = '';
+            currentData = '';
+            continue;
+          }
+          const eventMatch = trimmed.match(SSE_EVENT_RE);
+          if (eventMatch) {
+            currentEventType = eventMatch[1]!.trim();
+            continue;
+          }
+          const dataMatch = trimmed.match(SSE_DATA_RE);
+          if (dataMatch) {
+            currentData = dataMatch[1]!;
+          }
+        }
+
+        if (currentEventType && currentData) {
+          processEvent(currentEventType, currentData, controller);
+        }
+      }
+
+      // Emit any remaining buffered blocks
+      for (const [index, block] of trackedBlocks) {
+        emitBufferedBlock(block, index, controller);
+      }
+      trackedBlocks.clear();
+      lineBuffer = '';
+    },
+  });
+}
+
+/**
+ * Strip _intent/_displayName metadata from SSE response streams.
+ * Non-streaming and error responses pass through unchanged.
+ */
+function stripMetadataFromResponse(response: Response): Response {
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (!contentType.includes('text/event-stream') || !response.body) {
+    return response;
+  }
+
+  const strippingStream = createSseMetadataStrippingStream();
+  const transformedBody = response.body.pipeThrough(strippingStream);
+
+  return new Response(transformedBody, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 const originalFetch = globalThis.fetch.bind(globalThis);
@@ -436,10 +762,10 @@ async function interceptedFetch(
           body: JSON.stringify(parsed),
         };
 
-        // Response passes through unchanged - metadata (_intent/_displayName) flows
-        // to SDK and is extracted by tool-matching.ts, stripped by pre-tool-use.ts
+        // Strip _intent/_displayName from SSE response before SDK sees it
         const response = await originalFetch(url, modifiedInit);
-        return logResponse(response, url, startTime);
+        const strippedResponse = stripMetadataFromResponse(response);
+        return logResponse(strippedResponse, url, startTime);
       }
     } catch (e) {
       debugLog('FETCH modification failed:', e);

@@ -15,6 +15,7 @@
  */
 
 import type { AgentEvent } from '@craft-agent/core/types';
+import { toolMetadataStore } from '../network-interceptor.ts';
 import { createLogger } from '../utils/debug.ts';
 
 const log = createLogger('tool-matching');
@@ -297,22 +298,33 @@ export function extractToolResults(
 // ============================================================================
 
 /**
- * Extract intent and displayName from tool input.
+ * Extract intent and displayName metadata for a tool call.
  *
- * These fields are injected by the network interceptor into tool schemas,
- * and Claude provides them in the tool_use response. They flow through
- * unchanged to the SDK, then are stripped by pre-tool-use.ts before execution.
- *
- * Sources:
- * - intent: input._intent, or Bash description field as fallback
- * - displayName: input._displayName
+ * Sources (checked in priority order):
+ * 1. toolMetadataStore — populated by the SSE stripping stream in network-interceptor.ts
+ * 2. toolBlock.input._intent / _displayName — fallback for Codex backend or if SSE interception didn't run
+ * 3. Bash description field — fallback for intent on Bash tools
  */
 function extractToolMetadata(toolBlock: ToolUseBlock): { intent?: string; displayName?: string } {
-  // Read directly from tool input (metadata flows through from Claude's response)
+  // 1. Check the metadata store first (populated by SSE interceptor, pop semantics)
+  const stored = toolMetadataStore.get(toolBlock.id);
+  if (stored) {
+    let intent = stored.intent;
+    const displayName = stored.displayName;
+
+    // Bash description fallback for intent
+    if (!intent && toolBlock.name === 'Bash') {
+      intent = (toolBlock.input as { description?: string }).description;
+    }
+
+    return { intent, displayName };
+  }
+
+  // 2. Fallback: read directly from tool input (Codex backend, non-streaming, etc.)
   let intent = toolBlock.input._intent as string | undefined;
   const displayName = toolBlock.input._displayName as string | undefined;
 
-  // For Bash tools, use description field as intent fallback
+  // 3. Bash description fallback for intent
   if (!intent && toolBlock.name === 'Bash') {
     intent = (toolBlock.input as { description?: string }).description;
   }
