@@ -1873,21 +1873,13 @@ export class CodexAgent extends BaseAgent {
    * Get Codex sandbox mode from permission mode.
    * Valid values: "read-only" | "workspace-write" | "danger-full-access"
    */
-  private getSandboxMode(mode: PermissionMode): SandboxMode {
-    switch (mode) {
-      case 'safe':
-        // Use workspace-write to allow plans folder writes.
-        // Our permission system handles the actual restrictions.
-        return 'workspace-write';
-      case 'ask':
-        // Workspace write with approval
-        return 'workspace-write';
-      case 'allow-all':
-        // Full access
-        return 'danger-full-access';
-      default:
-        return 'workspace-write';
-    }
+  private getSandboxMode(_mode: PermissionMode): SandboxMode {
+    // Use danger-full-access for all modes.
+    // Our PreToolUse hook handles all permission logic:
+    // - Explore: blocks everything except plans folder
+    // - Ask: prompts for approval
+    // - Execute: auto-approves
+    return 'danger-full-access';
   }
 
   /**
