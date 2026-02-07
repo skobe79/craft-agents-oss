@@ -5,7 +5,7 @@
  * when performing configuration tasks (sources, agents, permissions, etc.).
  *
  * Docs are stored at ~/.craft-agent/docs/ and synced from bundled assets.
- * Source content lives in packages/shared/assets/docs/*.md for easier editing.
+ * Source content lives in apps/electron/resources/docs/*.md for easier editing.
  */
 
 import { join } from 'path';
@@ -21,12 +21,12 @@ const DOCS_DIR = join(CONFIG_DIR, 'docs');
 let docsInitialized = false;
 
 // Resolve the bundled docs assets directory using the shared asset resolver.
-// Handles all environments: dev (monorepo source), bundled (dist/assets/docs),
+// Handles all environments: dev (resources/docs), bundled (dist/resources/docs),
 // and packaged Electron (setBundledAssetsRoot sets the base path at startup).
 function getAssetsDir(): string {
   return getBundledAssetsDir('docs')
     // Fallback: development path (will fail gracefully if files don't exist)
-    ?? join(process.cwd(), 'packages', 'shared', 'assets', 'docs');
+    ?? join(process.cwd(), 'resources', 'docs');
 }
 
 /**
@@ -39,7 +39,7 @@ function loadBundledDocs(): Record<string, string> {
   const docs: Record<string, string> = {};
 
   // Auto-discover all files in the bundled docs directory.
-  // No hardcoded list — any file dropped into packages/shared/assets/docs/ is synced automatically.
+  // No hardcoded list — any file dropped into resources/docs/ is synced automatically.
   let files: string[];
   try {
     files = existsSync(assetsDir) ? readdirSync(assetsDir) : [];

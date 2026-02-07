@@ -19,12 +19,8 @@ files:
   # Include bundled MCP servers (bridge + session) for Codex sessions
   - resources/bridge-mcp-server/**/*
   - resources/session-mcp-server/**/*
-  # Bundled assets loaded at runtime via getBundledAssetsDir()
-  - dist/assets/docs/**/*
-  - dist/assets/tool-icons/**/*
-  - dist/assets/themes/**/*
-  - dist/assets/permissions/**/*
-  - dist/assets/config-defaults.json
+  # Note: Bundled assets (docs, themes, permissions, tool-icons) are in resources/
+  # and copied to dist/resources/ by build:copy. They're included via dist/**/* above.
   # Include SDK for subprocess execution
   - node_modules/@anthropic-ai/claude-agent-sdk/**/*
   # Include network interceptor for API error capture and MCP schema injection
