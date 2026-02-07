@@ -74,7 +74,7 @@ import { getWorkspaces, loadStoredConfig, addWorkspace, saveConfig } from '@craf
 import { getDefaultWorkspacesDir } from '@craft-agent/shared/workspaces'
 import { initializeDocs } from '@craft-agent/shared/docs'
 import { ensureDefaultPermissions } from '@craft-agent/shared/agent/permissions-config'
-import { ensureToolIcons } from '@craft-agent/shared/config'
+import { ensureToolIcons, ensurePresetThemes } from '@craft-agent/shared/config'
 import { setBundledAssetsRoot } from '@craft-agent/shared/utils'
 import { setVendorRoot } from '@craft-agent/shared/codex'
 import { handleDeepLink } from './deep-link'
@@ -235,6 +235,9 @@ app.whenReady().then(async () => {
 
   // Seed tool icons to ~/.craft-agent/tool-icons/ (copies bundled SVGs on first run)
   ensureToolIcons()
+
+  // Seed preset themes to ~/.craft-agent/themes/ (copies bundled theme JSONs on first run)
+  ensurePresetThemes()
 
   // Register thumbnail:// protocol handler (scheme was registered earlier, before app.whenReady)
   registerThumbnailHandler()

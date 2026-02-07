@@ -60,8 +60,21 @@ function loadBundledDocs(): Record<string, string> {
   return docs;
 }
 
-// Load docs at module initialization (one-time read)
-const BUNDLED_DOCS = loadBundledDocs();
+// Lazy-loaded bundled docs cache.
+// IMPORTANT: Must NOT load at module initialization because setBundledAssetsRoot()
+// hasn't been called yet. Loading eagerly causes empty docs on fresh install.
+let _bundledDocs: Record<string, string> | null = null;
+
+/**
+ * Get bundled docs, loading them lazily on first access.
+ * This ensures docs are loaded AFTER setBundledAssetsRoot() has been called.
+ */
+function getBundledDocs(): Record<string, string> {
+  if (_bundledDocs === null) {
+    _bundledDocs = loadBundledDocs();
+  }
+  return _bundledDocs;
+}
 
 /**
  * Get the docs directory path
@@ -132,15 +145,17 @@ export function initializeDocs(): void {
   // Always write bundled docs to disk on launch.
   // This ensures consistent behavior between debug and release modes —
   // docs are always up-to-date with the running version.
-  for (const [filename, content] of Object.entries(BUNDLED_DOCS)) {
+  const bundledDocs = getBundledDocs();
+  for (const [filename, content] of Object.entries(bundledDocs)) {
     const docPath = join(DOCS_DIR, filename);
     writeFileSync(docPath, content, 'utf-8');
   }
 
-  debug(`[docs] Synced ${Object.keys(BUNDLED_DOCS).length} docs`);
+  debug(`[docs] Synced ${Object.keys(bundledDocs).length} docs`);
 }
 
-export { BUNDLED_DOCS };
+// Export the lazy getter for external access
+export { getBundledDocs };
 
 // Re-export source guides utilities (parsing only - bundled guides removed)
 export {
