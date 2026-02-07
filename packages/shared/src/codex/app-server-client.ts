@@ -612,7 +612,7 @@ export class AppServerClient extends EventEmitter {
       modelProvider: params.modelProvider ?? null,
       cwd: params.cwd ?? this.options.workDir,
       approvalPolicy: params.approvalPolicy ?? 'on-failure',
-      sandbox: params.sandbox ?? 'workspace-write',
+      sandbox: params.sandbox ?? 'danger-full-access',
       config: params.config ?? null,
       baseInstructions: params.baseInstructions ?? null,
       developerInstructions: params.developerInstructions ?? null,
