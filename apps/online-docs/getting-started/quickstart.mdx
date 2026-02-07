@@ -25,6 +25,7 @@ When you launch Craft Agents for the first time, a setup wizard configures authe
     |--------|----------|
     | **Claude Pro/Max** | Use your existing Claude subscription via OAuth. |
     | **API Key** | Direct API access. Supports Anthropic, [OpenRouter](https://openrouter.ai), [Vercel AI Gateway](https://vercel.com/docs/ai-gateway), Ollama, or any compatible endpoint. |
+    | **Codex (OpenAI)** | Use ChatGPT Plus OAuth for Codex-powered sessions. |
 
     If you choose **API Key**, you'll see a Base URL preset selector with options for Anthropic, OpenRouter, Vercel AI Gateway, or a custom endpoint. For non-Anthropic providers, you can also specify a model name (e.g. `anthropic/claude-sonnet-4` for OpenRouter).
 
@@ -93,6 +94,10 @@ Connect my GitHub account
 **Sources** — Connections to external data (Craft spaces, GitHub, APIs, local files). Manage in Settings or the sidebar.
 
 **Status bar** — Shows permission mode, model, and workspace. Click to change settings.
+
+<Note>
+You can add multiple connections later in **Settings → AI**, and each session locks to a connection after the first message. Start a new session to switch connections.
+</Note>
 
 ## Keyboard Shortcuts
 

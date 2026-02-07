@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
+      codex_version: ${{ steps.version.outputs.codex_version }}
       matrix: ${{ steps.matrix.outputs.matrix }}
       is_tag: ${{ steps.check.outputs.is_tag }}
     steps:
@@ -40,6 +41,7 @@ jobs:
         id: version
         run: |
           VERSION=$(jq -r .version packages/shared/package.json)
+          CODEX_VERSION=$(jq -r .codexVersion packages/shared/package.json)
 
           # Validate semver format
           if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -48,7 +50,16 @@ jobs:
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "codex_version=$CODEX_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
+          echo "Codex version: $CODEX_VERSION"
+
+      - name: Validate codex version
+        run: |
+          if [ -z "${{ steps.version.outputs.codex_version }}" ] || [ "${{ steps.version.outputs.codex_version }}" = "null" ]; then
+            echo "::error::Missing codexVersion in packages/shared/package.json."
+            exit 1
+          fi
 
       # Require release notes file to exist before proceeding with release.
       # This replaces AI-generated changelogs - release notes must be written manually.
@@ -133,6 +144,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    env:
+      CODEX_VERSION: ${{ needs.prepare.outputs.codex_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -213,7 +226,7 @@ jobs:
       # Build using unified build script
       - name: Build (macOS)
         if: steps.check.outputs.skip != 'true' && matrix.platform == 'darwin'
-        run: bun run scripts/build.ts --platform=darwin --arch=${{ matrix.arch }}
+        run: bun run scripts/build.ts --codex-version=${{ env.CODEX_VERSION }} --platform=darwin --arch=${{ matrix.arch }}
         env:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -234,7 +247,7 @@ jobs:
 
       - name: Build (Windows)
         if: steps.check.outputs.skip != 'true' && matrix.platform == 'win32'
-        run: bun run scripts/build.ts --platform=win32 --arch=${{ matrix.arch }}
+        run: bun run scripts/build.ts --codex-version=${{ env.CODEX_VERSION }} --platform=win32 --arch=${{ matrix.arch }}
         env:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -267,7 +280,7 @@ jobs:
 
       - name: Build (Linux)
         if: steps.check.outputs.skip != 'true' && matrix.platform == 'linux'
-        run: bun run scripts/build.ts --platform=linux --arch=${{ matrix.arch }}
+        run: bun run scripts/build.ts --codex-version=${{ env.CODEX_VERSION }} --platform=linux --arch=${{ matrix.arch }}
         env:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}

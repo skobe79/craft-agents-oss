@@ -52,6 +52,7 @@ Each workspace maintains its own:
 | **Sessions** | Chat history stored in `sessions/` |
 | **Permissions** | Optional Explore mode rules in `permissions.json` |
 | **Theme** | Optional color theme override (configured in Settings → Appearance) |
+| **Default LLM Connection** | Optional default AI connection for new sessions |
 
 ## Directory Structure
 
@@ -82,6 +83,26 @@ Each workspace maintains its own:
       permissions.json      # Optional Explore mode rules
       icon.png              # Optional workspace icon (png/jpg/svg)
 ```
+
+## Workspace Defaults
+
+Workspaces can override app defaults for AI connection and theme:
+
+```json
+{
+  "defaults": {
+    "defaultLlmConnection": "claude-max",
+    "colorTheme": "nord"
+  }
+}
+```
+
+Resolution order for connections:
+
+1. **Session connection**
+2. **Workspace default** (`defaults.defaultLlmConnection`)
+3. **Global default** (`defaultLlmConnection` in `config.json`)
+4. **First connection in the list**
 
 ## Use Cases
 

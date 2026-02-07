@@ -5,7 +5,6 @@ import './index.css'
 import App from './App'
 import HomePage from './pages/HomePage'
 import BlogPage from './pages/BlogPage'
-import CodexPage from './pages/CodexPage'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -14,7 +13,6 @@ createRoot(document.getElementById('root')!).render(
         <Route element={<App />}>
           <Route index element={<HomePage />} />
           <Route path="blog" element={<BlogPage />} />
-          <Route path="codex" element={<CodexPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

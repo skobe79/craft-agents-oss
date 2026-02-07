@@ -5,8 +5,9 @@ on:
     inputs:
       codex-version:
         description: 'Codex fork version to bundle (e.g., craft-v0.1.0). See: https://github.com/lukilabs/craft-agents-codex/releases'
-        required: true
+        required: false
         type: string
+        default: ''
       targets:
         description: 'Targets to build (comma-separated: macos-arm64, macos-x64, windows, linux, or "all")'
         required: false
@@ -15,10 +16,6 @@ on:
 
 permissions:
   contents: read
-
-env:
-  # Codex fork version - single source of truth for all build jobs
-  CODEX_VERSION: ${{ inputs.codex-version }}
 
 concurrency:
   group: build-${{ github.ref }}
@@ -31,6 +28,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       version: ${{ steps.version.outputs.version }}
+      codex_version: ${{ steps.version.outputs.codex_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,8 +36,24 @@ jobs:
         id: version
         run: |
           VERSION=$(jq -r .version packages/shared/package.json)
+          CODEX_VERSION_FILE=$(jq -r .codexVersion packages/shared/package.json)
+          INPUT_CODEX_VERSION="${{ inputs.codex-version }}"
+
+          if [ -n "$INPUT_CODEX_VERSION" ]; then
+            CODEX_VERSION="$INPUT_CODEX_VERSION"
+          else
+            CODEX_VERSION="$CODEX_VERSION_FILE"
+          fi
+
+          if [ -z "$CODEX_VERSION" ] || [ "$CODEX_VERSION" = "null" ]; then
+            echo "::error::Missing codexVersion. Provide workflow input 'codex-version' or set packages/shared/package.json codexVersion."
+            exit 1
+          fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "codex_version=$CODEX_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
+          echo "Codex version: $CODEX_VERSION"
 
       - name: Build matrix
         id: matrix
@@ -81,6 +95,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    env:
+      CODEX_VERSION: ${{ needs.prepare.outputs.codex_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -127,7 +143,8 @@ jobs:
         if: matrix.platform == 'darwin'
         run: bun run scripts/build.ts --codex-version=${{ env.CODEX_VERSION }} --platform=darwin --arch=${{ matrix.arch }}
         env:
-          # Note: Google OAuth credentials not included - users provide their own via source config
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           SLACK_OAUTH_CLIENT_ID: ${{ secrets.SLACK_OAUTH_CLIENT_ID }}
           SLACK_OAUTH_CLIENT_SECRET: ${{ secrets.SLACK_OAUTH_CLIENT_SECRET }}
           MICROSOFT_OAUTH_CLIENT_ID: ${{ secrets.MICROSOFT_OAUTH_CLIENT_ID }}
@@ -148,7 +165,8 @@ jobs:
         if: matrix.platform == 'win32'
         run: bun run scripts/build.ts --codex-version=${{ env.CODEX_VERSION }} --platform=win32 --arch=${{ matrix.arch }}
         env:
-          # Note: Google OAuth credentials not included - users provide their own via source config
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           SLACK_OAUTH_CLIENT_ID: ${{ secrets.SLACK_OAUTH_CLIENT_ID }}
           SLACK_OAUTH_CLIENT_SECRET: ${{ secrets.SLACK_OAUTH_CLIENT_SECRET }}
           MICROSOFT_OAUTH_CLIENT_ID: ${{ secrets.MICROSOFT_OAUTH_CLIENT_ID }}
@@ -181,7 +199,8 @@ jobs:
         if: matrix.platform == 'linux'
         run: bun run scripts/build.ts --codex-version=${{ env.CODEX_VERSION }} --platform=linux --arch=${{ matrix.arch }}
         env:
-          # Note: Google OAuth credentials not included - users provide their own via source config
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           SLACK_OAUTH_CLIENT_ID: ${{ secrets.SLACK_OAUTH_CLIENT_ID }}
           SLACK_OAUTH_CLIENT_SECRET: ${{ secrets.SLACK_OAUTH_CLIENT_SECRET }}
           MICROSOFT_OAUTH_CLIENT_ID: ${{ secrets.MICROSOFT_OAUTH_CLIENT_ID }}

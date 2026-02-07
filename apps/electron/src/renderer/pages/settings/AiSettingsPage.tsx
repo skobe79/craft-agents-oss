@@ -146,9 +146,6 @@ function ConnectionRow({ connection, isLastConnection, onEdit, onDelete, onSetDe
       default: parts.push(provider || 'Unknown')
     }
 
-    // Default indicator
-    if (connection.isDefault) parts.push('Default')
-
     // Auth status
     if (!connection.isAuthenticated) parts.push('Not authenticated')
 
@@ -157,7 +154,16 @@ function ConnectionRow({ connection, isLastConnection, onEdit, onDelete, onSetDe
 
   return (
     <SettingsRow
-      label={connection.name}
+      label={(
+        <div className="flex items-center gap-1.5">
+          <span>{connection.name}</span>
+          {connection.isDefault && (
+            <span className="inline-flex items-center h-5 px-2 text-[11px] font-medium rounded-[4px] bg-background shadow-minimal text-foreground/60">
+              Default
+            </span>
+          )}
+        </div>
+      )}
       description={getDescription()}
     >
       <DropdownMenu modal={true} onOpenChange={setMenuOpen}>
@@ -722,7 +728,13 @@ export default function AiSettingsPage() {
                       No connections configured. Add a connection to get started.
                     </div>
                   ) : (
-                    llmConnections.map((conn) => (
+                    [...llmConnections]
+                      .sort((a, b) => {
+                        if (a.isDefault && !b.isDefault) return -1
+                        if (!a.isDefault && b.isDefault) return 1
+                        return a.name.localeCompare(b.name)
+                      })
+                      .map((conn) => (
                       <ConnectionRow
                         key={conn.slug}
                         connection={conn}

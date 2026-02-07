@@ -5,7 +5,7 @@
 
 Craft Agents is a tool we built so that we (at craft.do) can work effectively with agents. It enables intuitive multitasking, no-fluff connection to any API or Service, sharing sessions, and a more document (vs code) centric workflow - in a beautiful and fluid UI.
 
-It leans on Claude Code through the Claude Agent SDK - follows what we found great, and improves areas where we've desired improvements.
+It uses the Claude Agent SDK and the Codex app-server side by side—building on what we found great and improving areas where we’ve desired improvements.
 
 It's built with Agent Native software principles in mind, and is highly customisable out of the box. One of the first of its kind.
 
@@ -42,6 +42,8 @@ bun run electron:start
 
 - **Multi-Session Inbox**: Desktop app with session management, status workflow, and flagging
 - **Claude Code Experience**: Streaming responses, tool visualization, real-time updates
+- **Multiple LLM Connections**: Add multiple AI providers and set per-workspace defaults
+- **Codex / OpenAI Support**: Run Codex-backed sessions alongside Anthropic
 - **Craft MCP Integration**: Access to 32+ Craft document tools (blocks, collections, search, tasks)
 - **Sources**: Connect to MCP servers, REST APIs (Google, Slack, Microsoft), and local filesystems
 - **Permission Modes**: Three-level system (Explore, Ask to Edit, Auto) with customizable rules
@@ -55,7 +57,7 @@ bun run electron:start
 ## Quick Start
 
 1. **Launch the app** after installation
-2. **Choose API Connection**: Use your own Anthropic API key or Claude Max subscription
+2. **Choose API Connection**: Use Anthropic (API key or Claude Max) or Codex (OpenAI OAuth)
 3. **Create a workspace**: Set up a workspace to organize your sessions
 4. **Connect sources** (optional): Add MCP servers, REST APIs, or local filesystems
 5. **Start chatting**: Create sessions and interact with Claude
@@ -160,7 +162,7 @@ Configuration is stored at `~/.craft-agent/`:
 
 ```
 ~/.craft-agent/
-├── config.json              # Main config (workspaces, auth type)
+├── config.json              # Main config (workspaces, LLM connections)
 ├── credentials.enc          # Encrypted credentials (AES-256-GCM)
 ├── preferences.json         # User preferences
 ├── theme.json               # App-level theme
@@ -198,6 +200,7 @@ craftagents://action/new-chat                  # Create new session
 |-------|------------|
 | Runtime | [Bun](https://bun.sh/) |
 | AI | [@anthropic-ai/claude-agent-sdk](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) |
+| AI (OpenAI) | Craft Agents Codex fork (app-server) |
 | Desktop | [Electron](https://www.electronjs.org/) + React |
 | UI | [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS v4 |
 | Build | esbuild (main) + Vite (renderer) |
@@ -214,6 +217,10 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 ### Third-Party Licenses
 
 This project uses the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), which is subject to [Anthropic's Commercial Terms of Service](https://www.anthropic.com/legal/commercial-terms).
+
+Craft Agents also bundles a custom Codex app-server fork to support OpenAI/Codex connections:
+
+- https://github.com/lukilabs/craft-agents-codex
 
 ### Trademark
 

@@ -1,0 +1,151 @@
+---
+title: "LLM Connections"
+description: "Configure multiple AI provider connections (Anthropic, Codex/OpenAI, OpenRouter, and more)"
+---
+
+LLM Connections let you add **multiple AI provider configurations** and switch between them. Each session locks to a specific connection after the first message, and workspaces can define their own default connection.
+
+## Location
+
+LLM connections are stored in:
+
+```
+~/.craft-agent/config.json
+```
+
+## How Connections Are Used
+
+Connections resolve in this order:
+
+1. **Session connection** (locked after first message)
+2. **Workspace default connection** (`defaults.defaultLlmConnection`)
+3. **Global default connection** (`defaultLlmConnection`)
+4. **First connection in the list** (fallback)
+
+<Note>
+Each session locks to a connection after the first message. To change connections, start a new session.
+</Note>
+
+## Connection Schema
+
+```json
+{
+  "slug": "anthropic-api",
+  "name": "Anthropic (API Key)",
+  "providerType": "anthropic",
+  "authType": "api_key",
+  "baseUrl": "https://api.anthropic.com",
+  "defaultModel": "claude-sonnet-4-5-20250929",
+  "createdAt": 1737451800000
+}
+```
+
+### Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `slug` | Yes | URL-safe identifier (e.g., `anthropic-api`, `codex`) |
+| `name` | Yes | Display name shown in the UI |
+| `providerType` | Yes | Provider backend (see list below) |
+| `authType` | Yes | Auth mechanism (see list below) |
+| `baseUrl` | No | Custom base URL for compatible providers |
+| `models` | No | Explicit model list (used by compatible providers) |
+| `defaultModel` | No | Default model for this connection |
+| `codexPath` | No | Path to Codex binary (OpenAI/Codex only) |
+| `awsRegion` | No | AWS region for Bedrock |
+| `gcpProjectId` | No | GCP project for Vertex |
+| `gcpRegion` | No | GCP region for Vertex |
+| `createdAt` | Yes | Timestamp (ms) when created |
+| `lastUsedAt` | No | Timestamp (ms) when last used |
+
+## providerType Values
+
+| Value | Description |
+|-------|-------------|
+| `anthropic` | Direct Anthropic API |
+| `anthropic_compat` | Anthropic‑compatible endpoints (OpenRouter, Vercel AI Gateway, custom) |
+| `openai` | OpenAI via Codex app‑server |
+| `openai_compat` | OpenAI‑compatible endpoints |
+| `bedrock` | AWS Bedrock |
+| `vertex` | Google Vertex AI |
+
+## authType Values
+
+| Value | Description |
+|-------|-------------|
+| `api_key` | API key only |
+| `api_key_with_endpoint` | API key + custom endpoint |
+| `oauth` | OAuth login (Claude Max / Codex / OpenAI) |
+| `iam_credentials` | AWS IAM credentials (Bedrock) |
+| `service_account_file` | GCP service account JSON (Vertex) |
+| `environment` | Uses environment variables |
+| `none` | No auth required |
+
+## Examples
+
+### Anthropic (API Key)
+
+```json
+{
+  "slug": "anthropic-api",
+  "name": "Anthropic (API Key)",
+  "providerType": "anthropic",
+  "authType": "api_key",
+  "defaultModel": "claude-sonnet-4-5-20250929",
+  "createdAt": 1737451800000
+}
+```
+
+### Claude Max (OAuth)
+
+```json
+{
+  "slug": "claude-max",
+  "name": "Claude Max",
+  "providerType": "anthropic",
+  "authType": "oauth",
+  "defaultModel": "claude-opus-4-6",
+  "createdAt": 1737451800000
+}
+```
+
+### OpenRouter (Anthropic‑compatible)
+
+```json
+{
+  "slug": "openrouter",
+  "name": "OpenRouter",
+  "providerType": "anthropic_compat",
+  "authType": "api_key_with_endpoint",
+  "baseUrl": "https://openrouter.ai/api",
+  "defaultModel": "anthropic/claude-sonnet-4",
+  "createdAt": 1737451800000
+}
+```
+
+### Codex / OpenAI (OAuth)
+
+```json
+{
+  "slug": "codex",
+  "name": "OpenAI (Codex)",
+  "providerType": "openai",
+  "authType": "oauth",
+  "codexPath": "/Applications/Craft Agents.app/Contents/Resources/vendor/codex/darwin-arm64/codex",
+  "defaultModel": "codex-mini-latest",
+  "createdAt": 1737451800000
+}
+```
+
+## Managing Connections
+
+Connections are managed in **Settings → AI**:
+
+- Add/edit/delete connections
+- Set a **global default connection**
+- Validate connection status
+- Set **per‑workspace defaults**
+
+<Tip>
+If you only need a single provider, keep one connection and set it as default.
+</Tip>

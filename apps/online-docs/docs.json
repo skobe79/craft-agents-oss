@@ -104,6 +104,7 @@
             "group": "Configuration",
             "pages": [
               "reference/config/config-file",
+              "reference/config/llm-connections",
               "reference/config/preferences",
               "reference/config/credentials",
               "reference/config/custom-endpoint",

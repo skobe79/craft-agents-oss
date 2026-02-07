@@ -4186,6 +4186,7 @@ To view this task's output:
 
         // Send event to renderer on first occurrence OR when input data is updated
         if (shouldSendEvent) {
+          const timestamp = existingStartMsg?.timestamp ?? Date.now()
           this.sendEvent({
             type: 'tool_start',
             sessionId,
@@ -4197,6 +4198,7 @@ To view this task's output:
             toolDisplayMeta,  // Includes base64 icon for viewer compatibility
             turnId: event.turnId,
             parentToolUseId,
+            timestamp,
           }, workspaceId)
         }
         break

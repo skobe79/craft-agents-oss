@@ -56,6 +56,8 @@ export interface ToolStartEvent {
   toolUseId: string
   toolName: string
   toolInput?: Record<string, unknown>
+  /** Timestamp from main process for consistent ordering */
+  timestamp?: number
   turnId?: string
   parentToolUseId?: string
   toolIntent?: string
