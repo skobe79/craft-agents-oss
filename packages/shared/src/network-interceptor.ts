@@ -19,7 +19,12 @@ import { join } from 'node:path';
 // Using string[][] instead of [string, string][] to match RequestInit.headers type
 type HeadersInitType = Headers | Record<string, string> | string[][];
 
-const DEBUG = process.argv.includes('--debug') || process.env.CRAFT_DEBUG === '1';
+// Feature flags
+const TOOL_METADATA_FOR_ALL_TOOLS = false; // When false, only add metadata to MCP tools
+const INTERCEPTOR_LOGGING_ENABLED = false; // When false, disable all debug logging
+
+const DEBUG = INTERCEPTOR_LOGGING_ENABLED &&
+  (process.argv.includes('--debug') || process.env.CRAFT_DEBUG === '1');
 
 // Log file for debug output (avoids console spam)
 const LOG_DIR = join(homedir(), '.craft-agent', 'logs');
@@ -309,7 +314,13 @@ function addMetadataToAllTools(body: Record<string, unknown>): Record<string, un
 
   let modifiedCount = 0;
   for (const tool of tools) {
-    // Add metadata fields to ALL tools with input schemas
+    // Skip non-MCP tools when feature flag is disabled
+    const isMcpTool = tool.name?.startsWith('mcp__');
+    if (!TOOL_METADATA_FOR_ALL_TOOLS && !isMcpTool) {
+      continue;
+    }
+
+    // Add metadata fields to tools with input schemas
     if (tool.input_schema?.properties) {
       let modified = false;
 
