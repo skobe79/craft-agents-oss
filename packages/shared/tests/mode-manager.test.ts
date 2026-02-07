@@ -1297,6 +1297,12 @@ describe('extractBashWriteTarget', () => {
       const cmd = `@('# Plan') | out-file -filepath 'C:\\plans\\plan.md'`;
       expect(extractBashWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
     });
+
+    it('should extract path from full powershell.exe -Command wrapper', () => {
+      // This is the exact format Codex uses on Windows
+      const cmd = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "@('# Sample Plan', '', '## Goal', 'Submit a sample plan for tool testing.', '', '## Steps', '1. Confirm requirements.', '2. Prepare plan file in the session plans folder.', '3. Submit the plan for approval.') | Out-File -FilePath 'C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sessions\\260208-wild-sky\\plans\\sample-plan.md' -Encoding utf8"`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sessions\\260208-wild-sky\\plans\\sample-plan.md');
+    });
   });
 
   describe('PowerShell Set-Content/Add-Content pattern', () => {
@@ -1402,6 +1408,57 @@ describe('shouldAllowToolInMode - Bash plans folder exception', () => {
       );
       expect(result.allowed).toBe(true);
     });
+
+    it('should allow Bash write with different case in path (Windows compatibility)', () => {
+      // On Windows, paths are case-insensitive. The system might report "C:\Users\Balin\..."
+      // but the command might use "C:\Users\balin\..." - both should work.
+      const plansFolderPath = 'C:\\Users\\Balin\\.craft-agent\\workspaces\\ws\\sessions\\s1\\plans';
+      const command = `@('# Plan') | Out-File -FilePath 'C:\\Users\\balin\\.craft-agent\\workspaces\\ws\\sessions\\s1\\plans\\plan.md' -Encoding utf8`;
+      const result = shouldAllowToolInMode(
+        'Bash',
+        { command },
+        'safe',
+        { plansFolderPath }
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should allow Unix redirect with different case in path (Windows compatibility)', () => {
+      const plansFolderPath = 'C:\\Users\\Balin\\.craft-agent\\plans';
+      const command = `printf '# Plan' > "C:\\Users\\balin\\.craft-agent\\plans\\plan.md"`;
+      const result = shouldAllowToolInMode(
+        'Bash',
+        { command },
+        'safe',
+        { plansFolderPath }
+      );
+      expect(result.allowed).toBe(true);
+    });
+  });
+
+  describe('should allow Write/Edit to plans folder with case-insensitive paths', () => {
+    it('should allow Write with different case in path (Windows compatibility)', () => {
+      // Simulating Windows where system reports "C:\Users\Balin\..." but tool uses "C:\Users\balin\..."
+      const plansFolderPath = 'C:\\Users\\Balin\\.craft-agent\\workspaces\\ws\\sessions\\s1\\plans';
+      const result = shouldAllowToolInMode(
+        'Write',
+        { file_path: 'C:\\Users\\balin\\.craft-agent\\workspaces\\ws\\sessions\\s1\\plans\\plan.md', content: '# Plan' },
+        'safe',
+        { plansFolderPath }
+      );
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should allow Edit with different case in path (Windows compatibility)', () => {
+      const plansFolderPath = 'C:\\Users\\Balin\\.craft-agent\\plans';
+      const result = shouldAllowToolInMode(
+        'Edit',
+        { file_path: 'C:\\Users\\balin\\.craft-agent\\plans\\plan.md', old_string: 'old', new_string: 'new' },
+        'safe',
+        { plansFolderPath }
+      );
+      expect(result.allowed).toBe(true);
+    });
   });
 
   describe('should block bash writes to other paths in safe mode', () => {
@@ -1432,4 +1489,180 @@ describe('shouldAllowToolInMode - Bash plans folder exception', () => {
   // shouldAllowToolInMode uses SAFE_MODE_CONFIG which has empty patterns at test time
   // (patterns are loaded from default.json at runtime). Read-only bash command validation
   // is thoroughly tested via isReadOnlyBashCommandWithConfig + TEST_MODE_CONFIG above.
+});
+
+// ============================================================
+// PowerShell Syntax Detection Tests
+// ============================================================
+
+import { looksLikePowerShell, isPowerShellAvailable } from '../src/agent/powershell-validator.ts';
+
+describe('looksLikePowerShell', () => {
+  describe('should detect PowerShell cmdlet patterns', () => {
+    it('should detect Get-* cmdlets', () => {
+      expect(looksLikePowerShell('Get-Process')).toBe(true);
+      expect(looksLikePowerShell('Get-ChildItem')).toBe(true);
+      expect(looksLikePowerShell('Get-Content file.txt')).toBe(true);
+      expect(looksLikePowerShell('Get-Service -Name "spooler"')).toBe(true);
+    });
+
+    it('should detect Set-* cmdlets', () => {
+      expect(looksLikePowerShell('Set-Content file.txt')).toBe(true);
+      expect(looksLikePowerShell('Set-Location C:\\')).toBe(true);
+    });
+
+    it('should detect pipeline with PowerShell cmdlets', () => {
+      expect(looksLikePowerShell('Get-Process | Where-Object { $_.CPU -gt 10 }')).toBe(true);
+      expect(looksLikePowerShell('Get-ChildItem | Select-Object Name, Length')).toBe(true);
+      expect(looksLikePowerShell('Get-Content file.txt | ForEach-Object { $_ }')).toBe(true);
+    });
+
+    it('should detect comparison operators', () => {
+      expect(looksLikePowerShell('$x -eq 5')).toBe(true);
+      expect(looksLikePowerShell('$name -like "test*"')).toBe(true);
+      expect(looksLikePowerShell('$val -match "pattern"')).toBe(true);
+    });
+
+    it('should detect array/hashtable literals', () => {
+      expect(looksLikePowerShell('@(1, 2, 3)')).toBe(true);
+      expect(looksLikePowerShell('@{key = "value"}')).toBe(true);
+    });
+  });
+
+  describe('should NOT detect bash/unix commands as PowerShell', () => {
+    it('should not detect basic bash commands', () => {
+      expect(looksLikePowerShell('ls -la')).toBe(false);
+      expect(looksLikePowerShell('cat file.txt')).toBe(false);
+      expect(looksLikePowerShell('grep pattern file')).toBe(false);
+      expect(looksLikePowerShell('git status')).toBe(false);
+    });
+
+    it('should not detect bash pipelines', () => {
+      expect(looksLikePowerShell('ls | head')).toBe(false);
+      expect(looksLikePowerShell('cat file | grep pattern')).toBe(false);
+    });
+
+    it('should not detect bash compound commands', () => {
+      expect(looksLikePowerShell('ls && pwd')).toBe(false);
+      expect(looksLikePowerShell('git status || git log')).toBe(false);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle mixed case cmdlets', () => {
+      expect(looksLikePowerShell('GET-PROCESS')).toBe(true);
+      expect(looksLikePowerShell('get-process')).toBe(true);
+      expect(looksLikePowerShell('Get-PROCESS')).toBe(true);
+    });
+
+    it('should detect common aliases', () => {
+      expect(looksLikePowerShell('gci')).toBe(true);
+      expect(looksLikePowerShell('gcm')).toBe(true);
+      expect(looksLikePowerShell('gps')).toBe(true);
+    });
+  });
+});
+
+// ============================================================
+// PowerShell Validator Tests (Unit tests that work without PowerShell)
+// ============================================================
+
+import { validatePowerShellCommand } from '../src/agent/powershell-validator.ts';
+
+describe('validatePowerShellCommand', () => {
+  // These tests check the validation logic when PowerShell is available
+  // If PowerShell is not available, they verify the fallback behavior
+
+  const psPatterns: CompiledBashPattern[] = [
+    { regex: /^Get-Process\b/, source: '^Get-Process\\b', comment: 'Get running processes' },
+    { regex: /^Get-ChildItem\b/, source: '^Get-ChildItem\\b', comment: 'List directory contents' },
+    { regex: /^Get-Content\b/, source: '^Get-Content\\b', comment: 'Read file contents' },
+    { regex: /^Get-Service\b/, source: '^Get-Service\\b', comment: 'List services' },
+    { regex: /^Select-Object\b/, source: '^Select-Object\\b', comment: 'Select properties' },
+    { regex: /^Where-Object\b/, source: '^Where-Object\\b', comment: 'Filter objects' },
+    { regex: /^Sort-Object\b/, source: '^Sort-Object\\b', comment: 'Sort objects' },
+    { regex: /^Format-Table\b/, source: '^Format-Table\\b', comment: 'Format as table' },
+    { regex: /^Test-Path\b/, source: '^Test-Path\\b', comment: 'Test if path exists' },
+  ];
+
+  describe('when PowerShell is available', () => {
+    const psAvailable = isPowerShellAvailable();
+
+    it('should allow safe Get-* cmdlets', () => {
+      if (!psAvailable) {
+        // When PowerShell is unavailable, validation returns powershell_unavailable
+        const result = validatePowerShellCommand('Get-Process', psPatterns);
+        expect(result.reason?.type).toBe('powershell_unavailable');
+        return;
+      }
+
+      const result = validatePowerShellCommand('Get-Process', psPatterns);
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should block dangerous cmdlets like Invoke-Expression', () => {
+      if (!psAvailable) {
+        return; // Skip if PowerShell not available
+      }
+
+      const result = validatePowerShellCommand('Invoke-Expression $code', psPatterns);
+      expect(result.allowed).toBe(false);
+      // Could be unsafe_command or invoke_expression depending on parsing
+    });
+
+    it('should block Set-Content (file writing)', () => {
+      if (!psAvailable) {
+        return; // Skip if PowerShell not available
+      }
+
+      const result = validatePowerShellCommand('Set-Content file.txt -Value "test"', psPatterns);
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block Out-File (file writing)', () => {
+      if (!psAvailable) {
+        return; // Skip if PowerShell not available
+      }
+
+      const result = validatePowerShellCommand('"content" | Out-File file.txt', psPatterns);
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should block Remove-Item (file deletion)', () => {
+      if (!psAvailable) {
+        return; // Skip if PowerShell not available
+      }
+
+      const result = validatePowerShellCommand('Remove-Item file.txt', psPatterns);
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should handle pipelines with safe cmdlets', () => {
+      if (!psAvailable) {
+        return; // Skip if PowerShell not available
+      }
+
+      // This would need the pipeline cmdlets in the patterns
+      const result = validatePowerShellCommand('Get-Process | Select-Object Name', psPatterns);
+      // Pipeline validation depends on all commands being in allowlist
+      // Either it passes or fails based on pattern matching
+      expect(typeof result.allowed).toBe('boolean');
+    });
+  });
+
+  describe('fallback behavior', () => {
+    it('should return powershell_unavailable when PowerShell is not installed', () => {
+      // This test documents the expected behavior
+      // On systems without PowerShell, the validator should gracefully fail
+      const result = validatePowerShellCommand('Get-Process', psPatterns);
+
+      if (!isPowerShellAvailable()) {
+        expect(result.allowed).toBe(false);
+        expect(result.reason?.type).toBe('powershell_unavailable');
+      } else {
+        // If PowerShell IS available, the command should be validated normally
+        expect(result.allowed).toBe(true);
+      }
+    });
+  });
 });

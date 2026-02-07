@@ -22,6 +22,13 @@ import {
   type BashValidationReason,
 } from './bash-validator.ts';
 import {
+  validatePowerShellCommand,
+  looksLikePowerShell,
+  isPowerShellAvailable,
+  type PowerShellValidationResult,
+  type PowerShellValidationReason,
+} from './powershell-validator.ts';
+import {
   type PermissionMode,
   type ModeConfig,
   type CompiledApiEndpointRule,
@@ -46,6 +53,14 @@ export {
   PERMISSION_MODE_ORDER,
   PERMISSION_MODE_CONFIG,
   SAFE_MODE_CONFIG,
+};
+
+// Re-export PowerShell validator types
+export {
+  type PowerShellValidationResult,
+  type PowerShellValidationReason,
+  looksLikePowerShell,
+  isPowerShellAvailable,
 };
 
 /**
@@ -718,6 +733,9 @@ function generateMismatchSuggestion(
  * safe compound commands like `git status && git log` while still blocking
  * dangerous constructs.
  *
+ * For PowerShell commands (detected by syntax or on Windows), uses the
+ * PowerShell validator with native System.Management.Automation parsing.
+ *
  * This is used to provide helpful error messages that explain exactly what
  * was blocked and why, helping the agent understand and avoid the issue.
  */
@@ -736,7 +754,17 @@ export function getBashRejectionReason(command: string, config: ToolCheckConfig)
     };
   }
 
-  // Step 2: Use AST-based validation
+  // Step 2: Determine if this is a PowerShell command
+  // On Windows or if the command looks like PowerShell syntax, use PS validator
+  const isWindows = process.platform === 'win32';
+  const isPsCommand = looksLikePowerShell(trimmedCommand);
+
+  if ((isWindows || isPsCommand) && isPowerShellAvailable()) {
+    debug('[Mode] Using PowerShell validator for command:', trimmedCommand);
+    return getPowerShellRejectionReason(trimmedCommand, config);
+  }
+
+  // Step 3: Use bash AST-based validation
   // This handles compound commands, pipelines, redirects, and substitutions properly
   const astResult = validateBashCommand(trimmedCommand, config.readOnlyBashPatterns);
 
@@ -821,6 +849,116 @@ export function getBashRejectionReason(command: string, config: ToolCheckConfig)
   return {
     type: 'no_safe_pattern',
     command: trimmedCommand,
+    relevantPatterns: [],
+    mismatchAnalysis: undefined,
+  };
+}
+
+/**
+ * Get detailed reason why a PowerShell command would be rejected.
+ * Converts PowerShell validation results to BashRejectionReason format
+ * for consistent error message handling.
+ */
+function getPowerShellRejectionReason(command: string, config: ToolCheckConfig): BashRejectionReason | null {
+  const psResult = validatePowerShellCommand(command, config.readOnlyBashPatterns);
+
+  if (psResult.allowed) {
+    debug('[Mode] PowerShell command allowed via AST validation:', command);
+    return null;
+  }
+
+  // Convert PowerShell rejection reason to BashRejectionReason format
+  if (psResult.reason) {
+    const reason = psResult.reason;
+
+    switch (reason.type) {
+      case 'parse_error':
+        return { type: 'parse_error', error: reason.error };
+
+      case 'powershell_unavailable':
+        // Fall back to bash validation if PowerShell is not available
+        debug('[Mode] PowerShell unavailable, falling back to bash validation');
+        return null;
+
+      case 'pipeline':
+        return {
+          type: 'dangerous_operator',
+          operator: '|',
+          operatorType: 'chain',
+          explanation: reason.explanation,
+        };
+
+      case 'redirect':
+        return {
+          type: 'dangerous_operator',
+          operator: '>',
+          operatorType: 'redirect',
+          explanation: reason.explanation,
+        };
+
+      case 'subexpression':
+        return {
+          type: 'dangerous_substitution',
+          pattern: '$()',
+          explanation: reason.explanation,
+        };
+
+      case 'script_block':
+        return {
+          type: 'dangerous_substitution',
+          pattern: '{ }',
+          explanation: reason.explanation,
+        };
+
+      case 'invoke_expression':
+        return {
+          type: 'dangerous_substitution',
+          pattern: 'Invoke-Expression',
+          explanation: reason.explanation,
+        };
+
+      case 'dot_sourcing':
+        return {
+          type: 'dangerous_substitution',
+          pattern: '. (dot-sourcing)',
+          explanation: reason.explanation,
+        };
+
+      case 'assignment':
+        return {
+          type: 'dangerous_operator',
+          operator: '=',
+          operatorType: 'chain',
+          explanation: reason.explanation,
+        };
+
+      case 'background_execution':
+        return {
+          type: 'dangerous_operator',
+          operator: '&',
+          operatorType: 'chain',
+          explanation: reason.explanation,
+        };
+
+      case 'unsafe_command': {
+        const relevantPatterns = findRelevantPatterns(reason.command, config.readOnlyBashPatterns);
+        const mismatchAnalysis = analyzePatternMismatch(reason.command, config.readOnlyBashPatterns);
+
+        return {
+          type: 'no_safe_pattern',
+          command: reason.command,
+          relevantPatterns,
+          mismatchAnalysis: mismatchAnalysis ?? undefined,
+        };
+      }
+    }
+  }
+
+  // Fallback
+  debug('[Mode] Unexpected: PowerShell AST rejected but no reason provided');
+  return {
+    type: 'no_safe_pattern',
+    command: command,
     relevantPatterns: [],
     mismatchAnalysis: undefined,
   };
@@ -1237,7 +1375,8 @@ export function shouldAllowToolInMode(
         if (targetPath) {
           const normalizedTarget = targetPath.replace(/\\/g, '/');
           const normalizedPlansDir = options.plansFolderPath.replace(/\\/g, '/');
-          if (normalizedTarget.startsWith(normalizedPlansDir)) {
+          // Use case-insensitive comparison for Windows path compatibility
+          if (normalizedTarget.toLowerCase().startsWith(normalizedPlansDir.toLowerCase())) {
             debug(`[Mode] Allowing Bash write to plans folder: ${targetPath}`);
             return { allowed: true };
           }
@@ -1290,7 +1429,8 @@ export function shouldAllowToolInMode(
         const normalizedPlansDir = options.plansFolderPath.replace(/\\/g, '/');
         debug(`[Mode] Checking plans folder exception: path="${normalizedPath}", plansDir="${normalizedPlansDir}"`);
 
-        if (normalizedPath.startsWith(normalizedPlansDir)) {
+        // Use case-insensitive comparison for Windows path compatibility
+        if (normalizedPath.toLowerCase().startsWith(normalizedPlansDir.toLowerCase())) {
           debug(`[Mode] Allowing ${toolName} to plans folder`);
           return { allowed: true };
         }

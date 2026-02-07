@@ -64,8 +64,19 @@ export class EventAdapter {
   // Track commands detected as file reads (for Read tool display)
   private readCommands: Map<string, ReadCommandInfo> = new Map();
 
+  // Track block reasons for declined commands (set by PreToolUse handler)
+  private blockReasons: Map<string, string> = new Map();
+
   // Current turn ID for event correlation
   private currentTurnId: string | null = null;
+
+  /**
+   * Store the block reason for a command that will be declined.
+   * Called from codex-agent when PreToolUse blocks a command.
+   */
+  setBlockReason(itemId: string, reason: string): void {
+    this.blockReasons.set(itemId, reason);
+  }
 
   /**
    * Start a new turn - resets item indexing and streaming state.
@@ -76,6 +87,7 @@ export class EventAdapter {
     this.itemIndex = 0;
     this.commandOutput.clear();
     this.readCommands.clear();
+    this.blockReasons.clear();
     this.currentTurnId = turnId || null;
   }
 
@@ -449,11 +461,30 @@ export class EventAdapter {
    * If the command was detected as a file read, emits as Read tool result.
    */
   private createCommandResult(item: ThreadItem & { type: 'commandExecution' }): AgentEvent {
+    // Handle declined status explicitly (command was blocked by permission policy)
+    const isDeclined = item.status === 'declined';
+    // Fix: use != null to properly handle null exitCode (null !== undefined is true!)
     const isError =
-      item.status === 'failed' || (item.exitCode !== undefined && item.exitCode !== 0);
+      item.status === 'failed' || isDeclined || (item.exitCode != null && item.exitCode !== 0);
 
     // Use accumulated output from deltas, or fallback to item output
     const output = this.commandOutput.get(item.id) || item.aggregatedOutput || '';
+
+    // Get stored block reason if available (set by PreToolUse handler)
+    const blockReason = this.blockReasons.get(item.id);
+    if (blockReason) {
+      this.blockReasons.delete(item.id); // Clean up
+    }
+
+    // Determine appropriate result message
+    const getResultMessage = (isRead: boolean): string => {
+      if (output) return output;
+      if (isDeclined && blockReason) return blockReason;
+      if (isDeclined) return 'Command blocked by permission policy';
+      if (isError && item.exitCode != null) return `Exit code: ${item.exitCode}`;
+      if (isError) return 'Command failed';
+      return isRead ? '' : 'Success';
+    };
 
     // Check if this was detected as a file read
     const readInfo = this.readCommands.get(item.id);
@@ -463,7 +494,7 @@ export class EventAdapter {
         type: 'tool_result',
         toolUseId: item.id,
         toolName: 'Read',
-        result: output || (isError ? `Exit code: ${item.exitCode}` : ''),
+        result: getResultMessage(true),
         isError,
         turnId: this.currentTurnId || undefined,
       };
@@ -473,7 +504,7 @@ export class EventAdapter {
       type: 'tool_result',
       toolUseId: item.id,
       toolName: 'Bash',
-      result: output || (isError ? `Exit code: ${item.exitCode}` : 'Success'),
+      result: getResultMessage(false),
       isError,
       turnId: this.currentTurnId || undefined,
     };

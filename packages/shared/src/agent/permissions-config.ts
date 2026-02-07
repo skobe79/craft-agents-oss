@@ -47,10 +47,11 @@ export function getAppPermissionsDir(): string {
 
 /**
  * Sync bundled default permissions to disk on launch.
- * Preserves user customizations:
+ * Handles migrations when bundled version is newer:
  * - If file doesn't exist → copy from bundle
  * - If file exists but is invalid/corrupt → copy from bundle (auto-heal)
- * - If file exists and is valid → skip (preserve user changes)
+ * - If file exists and bundled is newer → merge new patterns, update version
+ * - If file exists and same/older version → no-op (preserve user changes)
  *
  * User customizations in workspace/source permissions.json files
  * are never touched by this function.
@@ -75,28 +76,90 @@ export function ensureDefaultPermissions(): void {
     return;
   }
 
-  // Copy bundled default.json to disk, preserving user customizations.
-  // - If file doesn't exist → copy from bundle
-  // - If file exists but is invalid/corrupt → copy from bundle (auto-heal)
-  // - If file exists and is valid → skip (preserve user changes)
   const destPath = join(permissionsDir, 'default.json');
   const srcPath = join(bundledPermissionsDir, 'default.json');
-  if (existsSync(srcPath)) {
-    // Skip if file exists and is valid (preserve user customizations)
-    if (existsSync(destPath) && isValidPermissionsFile(destPath)) {
-      debug('[Permissions] Preserved existing valid default.json');
-      return;
-    }
 
-    // Copy from bundle (new file or auto-heal corrupt file)
+  if (!existsSync(srcPath)) {
+    return;
+  }
+
+  // New install or corrupt file - copy fresh from bundle
+  if (!existsSync(destPath) || !isValidPermissionsFile(destPath)) {
     try {
       const content = readFileSync(srcPath, 'utf-8');
       writeFileSync(destPath, content, 'utf-8');
-      debug('[Permissions] Synced bundled default.json to', destPath);
+      debug('[Permissions] Installed default.json');
     } catch (error) {
-      debug('[Permissions] Error syncing bundled default.json:', error);
+      debug('[Permissions] Error installing default.json:', error);
     }
+    return;
   }
+
+  // Check if migration needed (bundled version > installed version)
+  try {
+    const installedContent = readFileSync(destPath, 'utf-8');
+    const bundledContent = readFileSync(srcPath, 'utf-8');
+
+    const installed = JSON.parse(installedContent) as PermissionsConfigFile;
+    const bundled = JSON.parse(bundledContent) as PermissionsConfigFile;
+
+    const installedVersion = installed.version || '2000-01-01';
+    const bundledVersion = bundled.version || '2000-01-01';
+
+    if (bundledVersion > installedVersion) {
+      const merged = migratePermissions(installed, bundled);
+      writeFileSync(destPath, JSON.stringify(merged, null, 2), 'utf-8');
+      debug('[Permissions] Migrated from', installedVersion, 'to', bundledVersion);
+    } else {
+      debug('[Permissions] Already up to date:', installedVersion);
+    }
+  } catch (error) {
+    debug('[Permissions] Migration error:', error);
+  }
+}
+
+/**
+ * Merge new patterns from bundled config into existing installed config.
+ * Preserves user customizations, adds new patterns, updates version.
+ */
+function migratePermissions(
+  installed: PermissionsConfigFile,
+  bundled: PermissionsConfigFile
+): PermissionsConfigFile {
+  // Get existing pattern strings for deduplication
+  const getPatternString = (p: string | { pattern: string }): string =>
+    typeof p === 'string' ? p : p.pattern;
+
+  const existingBashPatterns = new Set(
+    (installed.allowedBashPatterns || []).map(getPatternString)
+  );
+  const existingMcpPatterns = new Set(
+    (installed.allowedMcpPatterns || []).map(getPatternString)
+  );
+
+  // Find new patterns not already in installed
+  const newBashPatterns = (bundled.allowedBashPatterns || []).filter(
+    p => !existingBashPatterns.has(getPatternString(p))
+  );
+  const newMcpPatterns = (bundled.allowedMcpPatterns || []).filter(
+    p => !existingMcpPatterns.has(getPatternString(p))
+  );
+
+  debug('[Permissions] Adding', newBashPatterns.length, 'new bash patterns');
+  debug('[Permissions] Adding', newMcpPatterns.length, 'new MCP patterns');
+
+  return {
+    ...installed,
+    version: bundled.version,
+    allowedBashPatterns: [
+      ...(installed.allowedBashPatterns || []),
+      ...newBashPatterns,
+    ],
+    allowedMcpPatterns: [
+      ...(installed.allowedMcpPatterns || []),
+      ...newMcpPatterns,
+    ],
+  };
 }
 
 /**

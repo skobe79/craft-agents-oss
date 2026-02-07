@@ -883,7 +883,7 @@ export class CodexAgent extends BaseAgent {
    */
   private async handleToolCallPreExecute(params: ToolCallPreExecuteParams & { requestId: RequestId }): Promise<void> {
     const permissionMode = this.permissionManager.getPermissionMode();
-    const { toolType, toolName, input, mcpServer, mcpTool, requestId } = params;
+    const { toolType, toolName, input, mcpServer, mcpTool, requestId, itemId } = params;
 
     this.debug(`PreToolUse: ${toolName} (${toolType}) - mode: ${permissionMode}`);
 
@@ -916,6 +916,10 @@ export class CodexAgent extends BaseAgent {
     if (!result.allowed) {
       // Block the tool with the reason
       this.debug(`PreToolUse: Blocking ${toolName} - ${result.reason}`);
+
+      // Store the block reason for the event adapter to use in tool_result
+      this.adapter.setBlockReason(itemId, result.reason);
+
       const decision: ToolCallPreExecuteDecision = {
         type: 'block',
         reason: result.reason,
