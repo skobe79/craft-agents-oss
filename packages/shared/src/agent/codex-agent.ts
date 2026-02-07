@@ -1876,8 +1876,9 @@ export class CodexAgent extends BaseAgent {
   private getSandboxMode(mode: PermissionMode): SandboxMode {
     switch (mode) {
       case 'safe':
-        // Read-only
-        return 'read-only';
+        // Use workspace-write to allow plans folder writes.
+        // Our permission system handles the actual restrictions.
+        return 'workspace-write';
       case 'ask':
         // Workspace write with approval
         return 'workspace-write';

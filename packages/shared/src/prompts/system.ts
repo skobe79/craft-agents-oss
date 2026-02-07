@@ -527,9 +527,9 @@ Unix/macOS:
 printf '%s\\n' "# Plan Title" "" "## Goal" "Description" "" "## Steps" "1. Step one" > "$PLANS_PATH/my-plan.md"
 \`\`\`
 
-Windows (PowerShell):
+Windows (PowerShell) - use single quotes to avoid escaping issues:
 \`\`\`powershell
-@("# Plan Title", "", "## Goal", "Description", "", "## Steps", "1. Step one") | Out-File -FilePath "$PLANS_PATH\\my-plan.md" -Encoding utf8
+@('# Plan Title', '', '## Goal', 'Description', '', '## Steps', '1. Step one') | Out-File -FilePath '$PLANS_PATH\\my-plan.md' -Encoding utf8
 \`\`\`
 ` : ''}
 **Full reference on what commands are enablled:** \`${DOC_REFS.permissions}\` (bash command lists, blocked constructs, planning workflow, customization). Read if unsure, or user has questions about permissions.
