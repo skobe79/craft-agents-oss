@@ -1009,8 +1009,13 @@ export class CodexAgent extends BaseAgent {
           try {
             const activated = await this.onSourceActivationRequest(sourceSlug);
             if (!activated) {
-              // Block if activation failed
-              const reason = `Source "${sourceSlug}" is not active and could not be activated. Enable it in Settings → Sources.`;
+              // Block if activation failed - distinguish not-installed vs inactive
+              const sourceExists = this.sourceManager
+                .getAllSources()
+                .some((s) => s.config.slug === sourceSlug);
+              const reason = sourceExists
+                ? `Source "${sourceSlug}" is not active. Activate it by @mentioning it in your message or via the source icon at the bottom of the input field.`
+                : `Source "${sourceSlug}" is not available yet. It needs to be created and configured first.`;
               this.adapter.setBlockReason(itemId, reason);
               const decision: ToolCallPreExecuteDecision = {
                 type: 'block',
@@ -1028,7 +1033,12 @@ export class CodexAgent extends BaseAgent {
             });
           } catch (err) {
             this.debug(`PreToolUse: Error activating source "${sourceSlug}": ${err}`);
-            const reason = `Failed to activate source "${sourceSlug}": ${err}`;
+            const sourceExists = this.sourceManager
+              .getAllSources()
+              .some((s) => s.config.slug === sourceSlug);
+            const reason = sourceExists
+              ? `Source "${sourceSlug}" could not be activated: ${err}. Try activating it by @mentioning it in your message or via the source icon at the bottom of the input field.`
+              : `Source "${sourceSlug}" is not available yet. It needs to be created and configured first.`;
             this.adapter.setBlockReason(itemId, reason);
             const decision: ToolCallPreExecuteDecision = {
               type: 'block',
