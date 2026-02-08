@@ -5,6 +5,13 @@
  * while legitimate read-only commands are allowed.
  */
 import { describe, it, expect } from 'bun:test';
+import { join } from 'path';
+import { setPowerShellValidatorRoot } from '../src/agent/powershell-validator.ts';
+
+// Register PowerShell validator root BEFORE any tests run or isPowerShellAvailable()
+// is called, so the validator can find the parser script when PowerShell is detected.
+setPowerShellValidatorRoot(join(import.meta.dir, '..', 'src', 'agent'));
+
 import {
   hasDangerousSubstitution,
   hasDangerousControlChars,
@@ -1316,6 +1323,31 @@ describe('extractBashWriteTarget', () => {
       expect(extractBashWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
     });
   });
+
+  describe('PowerShell with escaped quotes (powershell.exe -Command wrapper, regex fallback)', () => {
+    // These patterns are a REQUIRED fallback for when PowerShell AST parsing
+    // is unavailable (e.g. in the Codex agent context where isPowerShellAvailable() = false).
+    it('should extract path from Set-Content -Path with escaped quotes', () => {
+      const cmd = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path \\"C:\\Users\\test\\plans\\plan.md\\" -Value @('# Plan')"`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\Users\\test\\plans\\plan.md');
+    });
+
+    it('should extract path from Add-Content -Path with escaped quotes', () => {
+      const cmd = `powershell.exe -Command "Add-Content -Path \\"C:\\Users\\test\\plans\\plan.md\\" -Value 'more content'"`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\Users\\test\\plans\\plan.md');
+    });
+
+    it('should extract path from Out-File with escaped quotes', () => {
+      const cmd = `powershell.exe -Command "@('# Plan') | Out-File -FilePath \\"C:\\Users\\test\\plans\\plan.md\\" -Encoding utf8"`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\Users\\test\\plans\\plan.md');
+    });
+
+    it('should extract path from the exact Codex-generated Set-Content pattern', () => {
+      const cmd = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path \\"C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sessions\\260208-aware-bamboo\\plans\\slack-api-source-plan.md\\" -Value @('# Plan: Add Slack API source (OAuth, read/write)','', '## Goal','Set up a Slack API source.')"`;
+      expect(extractBashWriteTarget(cmd)).toBe('C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sessions\\260208-aware-bamboo\\plans\\slack-api-source-plan.md');
+    });
+  });
+
 });
 
 // ============================================================
@@ -1671,7 +1703,7 @@ describe('validatePowerShellCommand', () => {
 // PowerShell Write Target Extraction Tests
 // ============================================================
 
-import { extractPowerShellWriteTarget } from '../src/agent/powershell-validator.ts';
+import { extractPowerShellWriteTarget, unwrapPowerShellCommand } from '../src/agent/powershell-validator.ts';
 
 describe('extractPowerShellWriteTarget', () => {
   // These tests only work when PowerShell is available
@@ -1735,6 +1767,38 @@ describe('extractPowerShellWriteTarget', () => {
     });
   });
 
+  describe('powershell.exe -Command wrapper unwrapping', () => {
+    it('should extract path from Set-Content inside powershell.exe -Command wrapper', () => {
+      if (!psAvailable) return;
+      const cmd = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path \\"C:\\Users\\test\\plans\\plan.md\\" -Value @('# Plan')"`;
+      expect(extractPowerShellWriteTarget(cmd)).toBe('C:\\Users\\test\\plans\\plan.md');
+    });
+
+    it('should extract path from Out-File inside powershell -Command wrapper', () => {
+      if (!psAvailable) return;
+      const cmd = `powershell -Command "@('# Plan') | Out-File -FilePath \\"C:\\plans\\plan.md\\" -Encoding utf8"`;
+      expect(extractPowerShellWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
+    });
+
+    it('should extract path from pwsh -Command wrapper', () => {
+      if (!psAvailable) return;
+      const cmd = `pwsh -Command "Set-Content -Path \\"C:\\plans\\plan.md\\" -Value 'content'"`;
+      expect(extractPowerShellWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
+    });
+
+    it('should handle -NoProfile and other flags before -Command', () => {
+      if (!psAvailable) return;
+      const cmd = `powershell.exe -NoProfile -NonInteractive -Command "Set-Content -Path \\"C:\\plans\\plan.md\\" -Value 'test'"`;
+      expect(extractPowerShellWriteTarget(cmd)).toBe('C:\\plans\\plan.md');
+    });
+
+    it('should return null for non-write commands inside wrapper', () => {
+      if (!psAvailable) return;
+      const cmd = `powershell.exe -Command "Get-Process | Select-Object Name"`;
+      expect(extractPowerShellWriteTarget(cmd)).toBeNull();
+    });
+  });
+
   describe('when PowerShell is unavailable', () => {
     it('should return null gracefully', () => {
       // This test runs regardless of PowerShell availability
@@ -1744,6 +1808,54 @@ describe('extractPowerShellWriteTarget', () => {
         expect(extractPowerShellWriteTarget(cmd)).toBeNull();
       }
     });
+  });
+});
+
+// ============================================================
+// unwrapPowerShellCommand Tests
+// ============================================================
+
+describe('unwrapPowerShellCommand', () => {
+  it('should unwrap full powershell.exe path with -Command', () => {
+    const cmd = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path \\"C:\\path\\" -Value @('x')"`;
+    expect(unwrapPowerShellCommand(cmd)).toBe(`Set-Content -Path "C:\\path" -Value @('x')`);
+  });
+
+  it('should unwrap bare powershell.exe -Command', () => {
+    const cmd = `powershell.exe -Command "Get-Process"`;
+    expect(unwrapPowerShellCommand(cmd)).toBe('Get-Process');
+  });
+
+  it('should unwrap pwsh -Command', () => {
+    const cmd = `pwsh -Command "Get-ChildItem"`;
+    expect(unwrapPowerShellCommand(cmd)).toBe('Get-ChildItem');
+  });
+
+  it('should unwrap with flags before -Command', () => {
+    const cmd = `powershell.exe -NoProfile -NonInteractive -Command "Write-Host hello"`;
+    expect(unwrapPowerShellCommand(cmd)).toBe('Write-Host hello');
+  });
+
+  it('should return null for non-powershell commands', () => {
+    expect(unwrapPowerShellCommand('git status')).toBeNull();
+    expect(unwrapPowerShellCommand('ls -la')).toBeNull();
+  });
+
+  it('should return null for powershell without -Command', () => {
+    expect(unwrapPowerShellCommand('powershell.exe -File script.ps1')).toBeNull();
+  });
+
+  it('should unescape inner escaped quotes', () => {
+    const cmd = `powershell -Command "Write-Host \\"hello world\\""`;
+    expect(unwrapPowerShellCommand(cmd)).toBe('Write-Host "hello world"');
+  });
+
+  it('should unwrap the exact Codex-generated Set-Content pattern', () => {
+    const cmd = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path \\"C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sessions\\260208-aware-bamboo\\plans\\slack-api-source-plan.md\\" -Value @('# Plan: Add Slack API source (OAuth, read/write)','', '## Goal','Set up a Slack API source.')"`;
+    const inner = unwrapPowerShellCommand(cmd);
+    expect(inner).not.toBeNull();
+    expect(inner).toContain('Set-Content -Path "C:\\Users\\balin');
+    expect(inner).toContain('plans\\slack-api-source-plan.md"');
   });
 });
 
@@ -1824,6 +1936,331 @@ describe('PowerShell plans folder exception', () => {
         { plansFolderPath }
       );
       expect(result.allowed).toBe(true);
+    });
+  });
+
+  describe('powershell.exe -Command wrapper targeting plans folder', () => {
+    it('should allow Set-Content inside powershell.exe -Command wrapper targeting plans folder', () => {
+      // This is the exact pattern that was failing: Codex wraps Set-Content in powershell.exe -Command "..."
+      const command = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path \\"${plansFolderPath}\\\\plan.md\\" -Value @('# Plan')"`;
+      const result = shouldAllowToolInMode('Bash', { command }, 'safe', { plansFolderPath });
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should block Set-Content inside wrapper targeting non-plans folder', () => {
+      const command = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path \\"C:\\Users\\test\\Desktop\\hack.txt\\" -Value @('bad')"`;
+      const result = shouldAllowToolInMode('Bash', { command }, 'safe', { plansFolderPath });
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should allow Out-File inside wrapper targeting plans folder', () => {
+      const command = `powershell.exe -Command "@('# Plan') | Out-File -FilePath \\"${plansFolderPath}\\\\plan.md\\" -Encoding utf8"`;
+      const result = shouldAllowToolInMode('Bash', { command }, 'safe', { plansFolderPath });
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should allow the exact Codex-generated command from session 260208-aware-bamboo (escaped quotes)', () => {
+      // Real-world regression test: this was the command that got blocked
+      const realPlansFolder = 'C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sessions\\260208-aware-bamboo\\plans';
+      const command = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path \\"${realPlansFolder}\\\\slack-api-source-plan.md\\" -Value @('# Plan: Add Slack API source (OAuth, read/write)','', '## Goal','Set up a Slack API source for the whole workspace with OAuth and full read/write access.', '', '## Steps','1. Create source folder.','2. Write config.json.','3. Write guide.md.','4. Run source_test.','5. Trigger OAuth.')"`;
+      const result = shouldAllowToolInMode('Bash', { command }, 'safe', { plansFolderPath: realPlansFolder });
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should allow the exact Codex-generated command with unescaped inner quotes', () => {
+      // Second real-world variant: Codex sometimes emits unescaped inner quotes.
+      // The -Path "C:\..." uses regular " not \" inside the outer -Command "..." string.
+      // This is handled by extractBashWriteTarget Pattern 6 (regex), not AST unwrapping.
+      const realPlansFolder = 'C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sessions\\260208-aware-bamboo\\plans';
+      const command = `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Set-Content -Path "${realPlansFolder}\\slack-api-source-plan.md" -Value @('# Plan: Add Slack API source (OAuth, read/write)','', '## Goal','Set up a Slack API source for the whole workspace with OAuth and full read/write access.', '', '## Steps','1. Create the source folder at C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sources\\slack.','2. Write config.json with baseUrl https://slack.com/api/, bearer auth, and testEndpoint POST auth.test; set an icon (emoji by default) and tagline.','3. Write permissions.json allowing GET/POST/PUT/PATCH/DELETE for full API access in Explore mode.','4. Write guide.md tailored to whole-workspace usage (search messages, list channels/users, post messages, etc.).','5. Run source_test to validate the configuration.','6. Trigger source_slack_oauth_trigger to authenticate Slack OAuth.')"`;
+      const result = shouldAllowToolInMode('Bash', { command }, 'safe', { plansFolderPath: realPlansFolder });
+      expect(result.allowed).toBe(true);
+    });
+
+    it('should allow the verbatim command from session 260208-aware-bamboo (exact JSON string)', () => {
+      // This is the EXACT command string as received from Codex via JSON-RPC.
+      // Pasted verbatim from the blocked command log.
+      const realPlansFolder = 'C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sessions\\260208-aware-bamboo\\plans';
+      const command = '"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe" -Command "Set-Content -Path \\"C:\\\\Users\\\\balin\\\\.craft-agent\\\\workspaces\\\\my-workspace\\\\sessions\\\\260208-aware-bamboo\\\\plans\\\\slack-api-source-plan.md\\" -Value @(\'# Plan: Add Slack API source (OAuth, read/write)\',\'\', \'## Goal\',\'Set up a Slack API source for the whole workspace with OAuth and full read/write access.\', \'\', \'## Steps\',\'1. Create the source folder at C:\\\\Users\\\\balin\\\\.craft-agent\\\\workspaces\\\\my-workspace\\\\sources\\\\slack.\',\'2. Write config.json with baseUrl https://slack.com/api/, bearer auth, and testEndpoint POST auth.test; set an icon and tagline.\',\'3. Write permissions.json allowing GET/POST/PUT/PATCH/DELETE for full API access in Explore mode.\',\'4. Write guide.md tailored to whole-workspace usage (search messages, list channels/users, post messages, etc.).\',\'5. Run source_test to validate the configuration.\',\'6. Trigger source_slack_oauth_trigger to authenticate Slack OAuth.\')"';
+      const result = shouldAllowToolInMode('Bash', { command }, 'safe', { plansFolderPath: realPlansFolder });
+      expect(result.allowed).toBe(true);
+    });
+  });
+});
+
+// ============================================================
+// Windows Path Normalization Tests
+// ============================================================
+
+import { normalizeWindowsPathsForBashParser } from '../src/agent/mode-manager.ts';
+
+describe('normalizeWindowsPathsForBashParser', () => {
+  describe('double-quoted Windows paths', () => {
+    it('should preserve non-special backslashes inside double quotes (bash-parser keeps them)', () => {
+      // bash-parser only interprets \\ \" \$ \` \! inside double quotes.
+      // All other \X are kept as literal \X, so we don't need to convert them.
+      const result = normalizeWindowsPathsForBashParser('ls "C:\\Users\\balin\\.craft-agent\\workspaces"');
+      expect(result).toBe('ls "C:\\Users\\balin\\.craft-agent\\workspaces"');
+    });
+
+    it('should fix trailing backslash before closing quote (the critical bug)', () => {
+      // This was the "Unclosed quote" bug: bash-parser sees \" as escaped quote.
+      // The fix converts \" → /" so bash-parser sees the closing quote.
+      const result = normalizeWindowsPathsForBashParser('ls "C:\\Users\\balin\\sources\\"');
+      expect(result).toBe('ls "C:\\Users\\balin\\sources/"');
+    });
+
+    it('should convert double-backslash to double-forward-slash', () => {
+      const result = normalizeWindowsPathsForBashParser('echo "path\\\\file"');
+      expect(result).toBe('echo "path//file"');
+    });
+
+    it('should preserve real bash escapes inside double quotes', () => {
+      const result = normalizeWindowsPathsForBashParser('echo "hello\\nworld"');
+      expect(result).toBe('echo "hello\\nworld"');
+    });
+
+    it('should preserve escaped dollar signs', () => {
+      const result = normalizeWindowsPathsForBashParser('echo "\\$HOME"');
+      expect(result).toBe('echo "\\$HOME"');
+    });
+  });
+
+  describe('unquoted Windows paths', () => {
+    it('should convert drive-letter paths', () => {
+      const result = normalizeWindowsPathsForBashParser('ls C:\\Users\\balin\\Desktop');
+      expect(result).toBe('ls C:/Users/balin/Desktop');
+    });
+
+    it('should handle path at start of command', () => {
+      const result = normalizeWindowsPathsForBashParser('C:\\Windows\\System32\\cmd.exe /c dir');
+      expect(result).toBe('C:/Windows/System32/cmd.exe /c dir');
+    });
+
+    it('should handle multiple unquoted paths', () => {
+      const result = normalizeWindowsPathsForBashParser('diff C:\\a\\file.txt C:\\b\\file.txt');
+      expect(result).toBe('diff C:/a/file.txt C:/b/file.txt');
+    });
+  });
+
+  describe('single-quoted strings', () => {
+    it('should pass through single-quoted content verbatim', () => {
+      const result = normalizeWindowsPathsForBashParser("echo 'C:\\Users\\test'");
+      expect(result).toBe("echo 'C:\\Users\\test'");
+    });
+  });
+
+  describe('mixed content', () => {
+    it('should handle commands with no Windows paths', () => {
+      const result = normalizeWindowsPathsForBashParser('git status && git log --oneline');
+      expect(result).toBe('git status && git log --oneline');
+    });
+
+    it('should handle compound commands with quoted Windows paths', () => {
+      // Inside double quotes, only \\ and \" are converted
+      const result = normalizeWindowsPathsForBashParser('ls "C:\\Users\\test" && pwd');
+      expect(result).toBe('ls "C:\\Users\\test" && pwd');
+    });
+
+    it('should handle compound commands with unquoted Windows paths', () => {
+      const result = normalizeWindowsPathsForBashParser('ls C:\\Users\\test && pwd');
+      expect(result).toBe('ls C:/Users/test && pwd');
+    });
+  });
+
+  describe('integration: fixes for the three reported bugs', () => {
+    it('should fix the "Unclosed quote" parse error (trailing backslash-quote)', () => {
+      // Bug 1: ls "C:\path\" → bash-parser sees \" as escaped quote, never closes string
+      const normalized = normalizeWindowsPathsForBashParser('ls "C:\\Users\\balin\\.craft-agent\\workspaces\\my-workspace\\sources\\"');
+      // The trailing \" should become /" so the string closes properly
+      expect(normalized).toEndWith('sources/"');
+    });
+
+    it('should fix backslash stripping in unquoted Windows paths', () => {
+      // Bug 2: ls C:\Users\balin\... → bash-parser strips backslashes → C:Usersbalin...
+      const normalized = normalizeWindowsPathsForBashParser('ls C:\\Users\\balin\\.craft-agent');
+      expect(normalized).toBe('ls C:/Users/balin/.craft-agent');
+      expect(normalized).not.toContain('C:Users');
+    });
+  });
+});
+
+// ============================================================
+// End-to-End Integration Tests: Windows paths through getBashRejectionReason
+// ============================================================
+// These tests call getBashRejectionReason directly with real Windows paths
+// to verify the full normalization → bash-parser → pattern-matching pipeline.
+// Since we're on Windows (process.platform === 'win32'), the normalization
+// path is exercised automatically.
+
+describe('Windows path handling through getBashRejectionReason', () => {
+  // Config with common read-only patterns for integration testing
+  const integrationConfig = {
+    blockedTools: new Set(['Write', 'Edit']),
+    readOnlyBashPatterns: [
+      { regex: /^ls\b/, source: '^ls\\b', comment: 'List directory contents' },
+      { regex: /^cat\b/, source: '^cat\\b', comment: 'Display file contents' },
+      { regex: /^head\b/, source: '^head\\b', comment: 'Output first part of files' },
+      { regex: /^tail\b/, source: '^tail\\b', comment: 'Output last part of files' },
+      { regex: /^find\b/, source: '^find\\b', comment: 'Search for files' },
+      { regex: /^grep\b/, source: '^grep\\b', comment: 'Search file contents' },
+      { regex: /^diff\b/, source: '^diff\\b', comment: 'Compare files' },
+      { regex: /^git\s+(status|log|diff|show|branch)\b/, source: '^git\\s+(status|log|diff|show|branch)\\b', comment: 'Git read-only operations' },
+      { regex: /^echo\b/, source: '^echo\\b', comment: 'Print text' },
+      { regex: /^pwd\b/, source: '^pwd\\b', comment: 'Print working directory' },
+      { regex: /^wc\b/, source: '^wc\\b', comment: 'Count lines, words, bytes' },
+    ] as CompiledBashPattern[],
+    readOnlyMcpPatterns: [],
+    allowedApiEndpoints: [],
+    allowedWritePaths: [],
+    displayName: 'Test',
+    shortcutHint: 'SHIFT+TAB',
+  };
+
+  const isWindows = process.platform === 'win32';
+
+  describe('commands with Windows paths that should PASS validation', () => {
+    it('should allow quoted path with non-special backslashes', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('ls "C:\\Users\\balin\\.craft-agent\\workspaces"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow trailing backslash-quote (the critical "Unclosed quote" bug)', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('ls "C:\\Users\\balin\\sources\\"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow unquoted drive-letter path', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('ls C:\\Users\\balin\\Desktop', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow simple quoted path with cat', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('cat "C:\\Users\\test\\file.txt"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow unquoted path as non-first argument', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('head -n 50 C:\\temp\\log.txt', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow compound command with Windows path', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('git status && ls "C:\\Users\\test"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow find with unquoted path and flags', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('find C:\\Users\\balin -name "*.ts"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow grep with unquoted path at end', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('grep -r "TODO" C:\\Users\\balin\\src', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow diff with multiple unquoted paths', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('diff C:\\a\\file.txt C:\\b\\file.txt', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should allow single-quoted Windows path (bash literal)', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason("cat 'C:\\Users\\test\\file.txt'", integrationConfig);
+      expect(reason).toBeNull();
+    });
+  });
+
+  describe('commands with Windows paths that should FAIL validation', () => {
+    it('should still block dangerous commands with Windows paths', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('rm "C:\\Users\\test\\file.txt"', integrationConfig);
+      expect(reason).not.toBeNull();
+      expect(reason?.type).toBe('no_safe_pattern');
+    });
+
+    it('should still detect redirects after normalization', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('echo "hello" > C:\\Users\\test\\out.txt', integrationConfig);
+      expect(reason).not.toBeNull();
+      expect(reason?.type).toBe('dangerous_operator');
+    });
+
+    it('should block mixed safe/unsafe compound with Windows path', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('ls "C:\\Users\\test" && rm -rf /', integrationConfig);
+      expect(reason).not.toBeNull();
+    });
+
+    it('should detect CMD "if not exist" syntax', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('if not exist "C:\\temp" mkdir "C:\\temp"', integrationConfig);
+      expect(reason).not.toBeNull();
+      expect(reason?.type).toBe('parse_error');
+    });
+
+    it('should detect CMD "set" syntax', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('set PATH=C:\\evil', integrationConfig);
+      expect(reason).not.toBeNull();
+      expect(reason?.type).toBe('parse_error');
+    });
+
+    it('should detect CMD "for /f" syntax', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('for /f %i in (file) do echo %i', integrationConfig);
+      expect(reason).not.toBeNull();
+      expect(reason?.type).toBe('parse_error');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle double-backslash before closing quote', () => {
+      if (!isWindows) return;
+      // \\\\" → // before " — the quote closes properly
+      const reason = getBashRejectionReason('ls "C:\\\\"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should handle trailing double-backslash in quoted non-drive path', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('ls "path with spaces\\\\"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should handle non-C drive letter', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('ls D:\\Games\\save.dat', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should handle UNC path (double-backslashes)', () => {
+      if (!isWindows) return;
+      // UNC: "\\\\server\\share\\file.txt" → all \\\\ become //
+      const reason = getBashRejectionReason('cat "\\\\\\\\server\\\\share\\\\file.txt"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should preserve \\n inside double quotes (not a path)', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('echo "hello\\nworld"', integrationConfig);
+      expect(reason).toBeNull();
+    });
+
+    it('should handle command with no path at all (baseline)', () => {
+      if (!isWindows) return;
+      const reason = getBashRejectionReason('ls', integrationConfig);
+      expect(reason).toBeNull();
     });
   });
 });

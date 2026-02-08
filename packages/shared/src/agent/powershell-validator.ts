@@ -263,13 +263,24 @@ export function isPowerShellAvailable(): boolean {
     return powershellAvailable;
   }
 
-  // Try pwsh first (PowerShell Core - cross-platform), then Windows PowerShell
-  for (const cmd of ['pwsh', 'powershell']) {
+  // Try pwsh first (PowerShell Core - cross-platform), then Windows PowerShell by name
+  const candidates: string[] = ['pwsh', 'powershell'];
+
+  // On Windows, also try the full path to powershell.exe as a fallback.
+  // Spawned subprocesses (e.g. from Electron) may not inherit the full system
+  // PATH, so 'powershell' by name can fail even though it's always installed.
+  if (process.platform === 'win32') {
+    const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT || 'C:\\Windows';
+    candidates.push(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+  }
+
+  for (const cmd of candidates) {
     try {
-      const result = spawnSync(cmd, ['-Version'], {
+      const result = spawnSync(cmd, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 5000,
         encoding: 'utf8',
+        shell: true,
       });
 
       if (result.status === 0) {
@@ -814,6 +825,29 @@ export function looksLikePowerShell(command: string): boolean {
 // Write Target Extraction (for plans folder exception)
 // ============================================================
 
+/**
+ * Detect and unwrap `powershell.exe -Command "..."` wrapper, returning the inner command.
+ *
+ * Codex on Windows often wraps PowerShell commands in:
+ *   "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -Command "Set-Content -Path \"...\" ..."
+ *   powershell.exe -NoProfile -Command "..."
+ *   pwsh -Command "..."
+ *
+ * The PS AST parser sees `powershell.exe` as the top-level command (not the inner cmdlet),
+ * so extractPowerShellWriteTarget() fails. This function strips the wrapper and returns
+ * the inner command with escaped quotes unescaped, so it can be re-parsed.
+ */
+export function unwrapPowerShellCommand(command: string): string | null {
+  // Match: "C:\...\powershell.exe" -Command "inner"  OR  powershell.exe -Command "inner"  OR  pwsh -Command "inner"
+  // Optional flags like -NoProfile -NonInteractive before -Command
+  const match = command.match(
+    /^(?:"[^"]*[/\\]?(?:powershell|pwsh)(?:\.exe)?"\s+|(?:powershell|pwsh)(?:\.exe)?\s+)(?:-(?!Command)\w+\s+)*-Command\s+"((?:[^"\\]|\\.)*)"\s*$/i
+  );
+  if (!match?.[1]) return null;
+  // Unescape inner escaped quotes: \" → "
+  return match[1].replace(/\\"/g, '"');
+}
+
 /** Write cmdlets that output to files */
 const WRITE_CMDLETS = ['out-file', 'set-content', 'add-content'];
 
@@ -827,6 +861,13 @@ const WRITE_CMDLETS = ['out-file', 'set-content', 'add-content'];
 export function extractPowerShellWriteTarget(command: string): string | null {
   if (!isPowerShellAvailable()) return null;
 
+  // If wrapped in powershell.exe -Command "...", unwrap and re-parse the inner command.
+  // The PS AST parser would see powershell.exe as the top-level command (not the write cmdlet).
+  const innerCommand = unwrapPowerShellCommand(command);
+  if (innerCommand) {
+    return extractPowerShellWriteTarget(innerCommand);
+  }
+
   const parseResult = parseCommand(command);
   if (!parseResult.success || !parseResult.ast) return null;
 
@@ -839,7 +880,13 @@ export function extractPowerShellWriteTarget(command: string): string | null {
   if (!cmdName || !WRITE_CMDLETS.includes(cmdName.toLowerCase())) return null;
 
   // Extract -FilePath or -Path parameter value
-  const targetPath = extractParameterValue(lastCmd, ['FilePath', 'Path']);
+  let targetPath = extractParameterValue(lastCmd, ['FilePath', 'Path']);
+
+  // Fallback: check for positional parameter (e.g. Out-File C:\temp\file.txt)
+  if (!targetPath) {
+    targetPath = extractFirstPositionalArg(lastCmd);
+  }
+
   if (targetPath) {
     debug('[PowerShellValidator] Extracted write target:', targetPath);
   }
@@ -940,6 +987,32 @@ function extractParameterValue(cmd: CommandAst, paramNames: string[]): string | 
     }
   }
 
+  return null;
+}
+
+/**
+ * Extract the first positional argument from a CommandAst.
+ * Skips the command name (index 0) and any named parameters (CommandParameterAst)
+ * along with their values. Returns the first remaining string element.
+ *
+ * This handles commands like: Out-File C:\temp\file.txt
+ * where the path is a positional parameter (no -FilePath flag).
+ */
+function extractFirstPositionalArg(cmd: CommandAst): string | null {
+  if (!cmd.CommandElements || cmd.CommandElements.length < 2) return null;
+
+  let i = 1; // Skip index 0 (cmdlet name)
+  while (i < cmd.CommandElements.length) {
+    const element = cmd.CommandElements[i];
+    if (element?.Type === 'CommandParameterAst') {
+      // Skip the parameter name and its value (next element)
+      i += 2;
+      continue;
+    }
+    // First non-parameter element is the positional argument
+    if (!element) return null;
+    return extractStringValue(element);
+  }
   return null;
 }
 

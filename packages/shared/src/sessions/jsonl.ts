@@ -10,6 +10,7 @@ import { open, readFile } from 'fs/promises';
 import type { SessionHeader, StoredSession, StoredMessage, SessionTokenUsage } from './types.ts';
 import { toPortablePath, expandPath } from '../utils/paths.ts';
 import { debug } from '../utils/debug.ts';
+import { safeJsonParse } from '../utils/files.ts';
 import { pickSessionFields } from './utils.ts';
 
 /**
@@ -27,7 +28,7 @@ export function readSessionHeader(sessionFile: string): SessionHeader | null {
     const firstNewline = content.indexOf('\n');
     const firstLine = firstNewline > 0 ? content.slice(0, firstNewline) : content;
 
-    return JSON.parse(firstLine) as SessionHeader;
+    return safeJsonParse(firstLine) as SessionHeader;
   } catch (error) {
     debug('[jsonl] Failed to read session header:', sessionFile, error);
     return null;
@@ -46,7 +47,7 @@ export function readSessionJsonl(sessionFile: string): StoredSession | null {
     const firstLine = lines[0];
     if (!firstLine) return null;
 
-    const header = JSON.parse(firstLine) as SessionHeader;
+    const header = safeJsonParse(firstLine) as SessionHeader;
     // Parse messages resiliently: skip lines that fail to parse (e.g. truncated by crash)
     // rather than losing the entire session's messages
     const messages = parseMessagesResilient(lines.slice(1));
@@ -182,7 +183,7 @@ export async function readSessionHeaderAsync(sessionFile: string): Promise<Sessi
       const content = buffer.toString('utf-8', 0, bytesRead);
       const firstNewline = content.indexOf('\n');
       const firstLine = firstNewline > 0 ? content.slice(0, firstNewline) : content;
-      return JSON.parse(firstLine) as SessionHeader;
+      return safeJsonParse(firstLine) as SessionHeader;
     } finally {
       await handle.close();
     }

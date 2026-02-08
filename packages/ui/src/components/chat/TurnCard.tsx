@@ -995,7 +995,7 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
               if (typeof activity.toolInput?.file_path === 'string') {
                 return (
                   <span className="px-1.5 py-0.5 bg-background shadow-minimal rounded-[4px] text-[11px] text-foreground/70">
-                    {activity.toolInput.file_path.split('/').pop()}
+                    {normalizePath(activity.toolInput.file_path).split('/').pop()}
                   </span>
                 )
               }
@@ -1005,7 +1005,7 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
                 if (firstChange?.path) {
                   return (
                     <span className="px-1.5 py-0.5 bg-background shadow-minimal rounded-[4px] text-[11px] text-foreground/70">
-                      {firstChange.path.split('/').pop()}
+                      {normalizePath(firstChange.path).split('/').pop()}
                     </span>
                   )
                 }
@@ -1018,7 +1018,7 @@ function ActivityRow({ activity, onOpenDetails, isLastChild, sessionFolderPath, 
         {!isMcpOrApiTool && !isBackgrounded && !diffStats && activity.toolName === 'Read' && typeof activity.toolInput?.file_path === 'string' && (
           <span className="flex items-center gap-1.5 text-[10px] shrink-0">
             <span className="px-1.5 py-0.5 bg-background shadow-minimal rounded-[4px] text-[11px] text-foreground/70">
-              {activity.toolInput.file_path.split('/').pop()}
+              {normalizePath(activity.toolInput.file_path).split('/').pop()}
             </span>
           </span>
         )}

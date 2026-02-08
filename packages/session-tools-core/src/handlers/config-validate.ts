@@ -71,7 +71,7 @@ export async function handleConfigValidate(
       return successResponse(formatValidationResult(result));
     } catch (error) {
       return errorResponse(
-        `Error validating config: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Config validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }

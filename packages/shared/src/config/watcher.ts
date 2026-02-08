@@ -21,6 +21,7 @@ import { join, dirname, basename, relative } from 'path';
 import type { FSWatcher } from 'fs';
 import { CONFIG_DIR } from './paths.ts';
 import { debug } from '../utils/debug.ts';
+import { readJsonFileSync } from '../utils/files.ts';
 import { perf } from '../utils/perf.ts';
 import { loadStoredConfig, type StoredConfig } from './storage.ts';
 import {
@@ -156,8 +157,7 @@ export function loadPreferences(): UserPreferences | null {
   }
 
   try {
-    const content = readFileSync(PREFERENCES_FILE, 'utf-8');
-    return JSON.parse(content) as UserPreferences;
+    return readJsonFileSync<UserPreferences>(PREFERENCES_FILE);
   } catch (error) {
     debug('[ConfigWatcher] Error loading preferences', error);
     return null;

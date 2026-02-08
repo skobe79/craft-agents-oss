@@ -780,7 +780,7 @@ async function main() {
       }
     } catch (error) {
       return errorResponse(
-        `Error executing ${name}: ${error instanceof Error ? error.message : String(error)}`
+        `Tool '${name}' failed: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   });

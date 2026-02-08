@@ -30,7 +30,7 @@ export async function handleSubmitPlan(
   // Verify the file exists
   if (!ctx.fs.exists(planPath)) {
     return errorResponse(
-      `Error: Plan file not found at ${planPath}. Please write the plan file first using the Write tool.`
+      `Plan file not found at ${planPath}. Please write the plan file first using the Write tool.`
     );
   }
 
@@ -39,7 +39,7 @@ export async function handleSubmitPlan(
     ctx.fs.readFile(planPath);
   } catch (error) {
     return errorResponse(
-      `Error reading plan file: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to read plan file: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
   }
 

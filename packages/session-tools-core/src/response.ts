@@ -19,11 +19,28 @@ export function successResponse(text: string): ToolResult {
 }
 
 /**
- * Create an error response
+ * Create an error response.
+ *
+ * IMPORTANT — OpenAI Responses API limitation (discovered 2025-02):
+ * The `function_call_output` input item only has `type`, `call_id`, and
+ * `output` (a plain string). There is NO `success`, `status`, or `error`
+ * field. Our Codex fork's FunctionCallOutputPayload has a `success: bool`
+ * field, but its custom Serialize impl (codex-rs/protocol/src/models.rs)
+ * drops it entirely — only the content string is serialized to the API.
+ *
+ * This means `isError: true` is invisible to the model. To make errors
+ * distinguishable from successes, we prefix the output text with "[ERROR]".
+ * The model can then parse this prefix to understand the tool call failed.
+ *
+ * This covers all session MCP tool errors (source_test, config_validate,
+ * skill_validate, SubmitPlan, credential_prompt, oauth triggers, etc.).
+ *
+ * See also: blockWithReason() in packages/shared/src/agent/mode-manager.ts
+ * which applies the same prefix for permission-mode blocks.
  */
 export function errorResponse(message: string): ToolResult {
   return {
-    content: [{ type: 'text', text: message }],
+    content: [{ type: 'text', text: `[ERROR] ${message}` }],
     structuredContent: {},
     isError: true,
   };

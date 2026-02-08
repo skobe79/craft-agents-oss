@@ -14,6 +14,7 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { debug } from '../utils/debug.ts';
+import { readJsonFileSync, safeJsonParse } from '../utils/files.ts';
 import { CONFIG_DIR } from '../config/paths.ts';
 import { getBundledAssetsDir } from '../utils/paths.ts';
 import { getSourcePath } from '../sources/storage.ts';
@@ -100,8 +101,8 @@ export function ensureDefaultPermissions(): void {
     const installedContent = readFileSync(destPath, 'utf-8');
     const bundledContent = readFileSync(srcPath, 'utf-8');
 
-    const installed = JSON.parse(installedContent) as PermissionsConfigFile;
-    const bundled = JSON.parse(bundledContent) as PermissionsConfigFile;
+    const installed = safeJsonParse(installedContent) as PermissionsConfigFile;
+    const bundled = safeJsonParse(bundledContent) as PermissionsConfigFile;
 
     const installedVersion = installed.version || '2000-01-01';
     const bundledVersion = bundled.version || '2000-01-01';
@@ -271,7 +272,7 @@ export function parsePermissionsJson(content: string): PermissionsCustomConfig {
   };
 
   try {
-    const json = JSON.parse(content);
+    const json = safeJsonParse(content);
     const result = PermissionsConfigSchema.safeParse(json);
 
     if (!result.success) {

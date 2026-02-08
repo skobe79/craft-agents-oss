@@ -19,7 +19,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { expandPath, toPortablePath } from '../utils/paths.ts';
-import { atomicWriteFileSync } from '../utils/files.ts';
+import { atomicWriteFileSync, readJsonFileSync } from '../utils/files.ts';
 import { getDefaultStatusConfig, saveStatusConfig, ensureDefaultIconFiles } from '../statuses/storage.ts';
 import { getDefaultLabelConfig, saveLabelConfig } from '../labels/storage.ts';
 import { loadConfigDefaults } from '../config/storage.ts';
@@ -99,7 +99,7 @@ export function loadWorkspaceConfig(rootPath: string): WorkspaceConfig | null {
   if (!existsSync(configPath)) return null;
 
   try {
-    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as WorkspaceConfig;
+    const config = readJsonFileSync<WorkspaceConfig>(configPath);
 
     // Expand path variables in defaults for portability
     if (config.defaults?.workingDirectory) {

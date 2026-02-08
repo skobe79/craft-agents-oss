@@ -13,6 +13,7 @@ import { findIconFile } from '../utils/icon.ts';
 import { initializeDocs } from '../docs/index.ts';
 import { expandPath, toPortablePath, getBundledAssetsDir } from '../utils/paths.ts';
 import { debug } from '../utils/debug.ts';
+import { readJsonFileSync } from '../utils/files.ts';
 import { CONFIG_DIR } from './paths.ts';
 import type { StoredAttachment, StoredMessage } from '@craft-agent/core/types';
 import type { Plan } from '../agent/plan-types.ts';
@@ -119,8 +120,7 @@ function syncConfigDefaults(): void {
  */
 export function loadConfigDefaults(): ConfigDefaults {
   if (existsSync(CONFIG_DEFAULTS_FILE)) {
-    const content = readFileSync(CONFIG_DEFAULTS_FILE, 'utf-8');
-    return JSON.parse(content) as ConfigDefaults;
+    return readJsonFileSync<ConfigDefaults>(CONFIG_DEFAULTS_FILE);
   }
   throw new Error('config-defaults.json not found at ' + CONFIG_DEFAULTS_FILE + '. Ensure ensureConfigDir() was called at startup.');
 }
@@ -152,8 +152,7 @@ export function loadStoredConfig(): StoredConfig | null {
     if (!existsSync(CONFIG_FILE)) {
       return null;
     }
-    const content = readFileSync(CONFIG_FILE, 'utf-8');
-    const config = JSON.parse(content) as StoredConfig;
+    const config = readJsonFileSync<StoredConfig>(CONFIG_FILE);
 
     // Must have workspaces array
     if (!Array.isArray(config.workspaces)) {
@@ -785,8 +784,7 @@ export function loadWorkspaceConversation(workspaceId: string): WorkspaceConvers
     if (!existsSync(filePath)) {
       return null;
     }
-    const content = readFileSync(filePath, 'utf-8');
-    return JSON.parse(content) as WorkspaceConversation;
+    return readJsonFileSync<WorkspaceConversation>(filePath);
   } catch {
     return null;
   }
@@ -835,8 +833,7 @@ export function loadWorkspacePlan(workspaceId: string): Plan | null {
     if (!existsSync(filePath)) {
       return null;
     }
-    const content = readFileSync(filePath, 'utf-8');
-    return JSON.parse(content) as Plan;
+    return readJsonFileSync<Plan>(filePath);
   } catch {
     return null;
   }
@@ -873,8 +870,7 @@ function loadDraftsData(): DraftsData {
     if (!existsSync(DRAFTS_FILE)) {
       return { drafts: {}, updatedAt: 0 };
     }
-    const content = readFileSync(DRAFTS_FILE, 'utf-8');
-    return JSON.parse(content) as DraftsData;
+    return readJsonFileSync<DraftsData>(DRAFTS_FILE);
   } catch {
     return { drafts: {}, updatedAt: 0 };
   }
@@ -957,8 +953,7 @@ export function loadAppTheme(): ThemeOverrides | null {
     if (!existsSync(APP_THEME_FILE)) {
       return null;
     }
-    const content = readFileSync(APP_THEME_FILE, 'utf-8');
-    return JSON.parse(content) as ThemeOverrides;
+    return readJsonFileSync<ThemeOverrides>(APP_THEME_FILE);
   } catch {
     return null;
   }
@@ -1051,8 +1046,7 @@ export function loadPresetThemes(): PresetTheme[] {
       const id = file.replace('.json', '');
       const path = join(themesDir, file);
       try {
-        const content = readFileSync(path, 'utf-8');
-        const theme = JSON.parse(content) as ThemeFile;
+        const theme = readJsonFileSync<ThemeFile>(path);
         // Resolve relative backgroundImage paths to file:// URLs
         const resolvedTheme = resolveThemeBackgroundImage(theme, path);
         themes.push({ id, path, theme: resolvedTheme });
@@ -1147,8 +1141,7 @@ export function loadPresetTheme(id: string): PresetTheme | null {
   }
 
   try {
-    const content = readFileSync(path, 'utf-8');
-    const theme = JSON.parse(content) as ThemeFile;
+    const theme = readJsonFileSync<ThemeFile>(path);
     // Resolve relative backgroundImage paths to file:// URLs
     const resolvedTheme = resolveThemeBackgroundImage(theme, path);
     return { id, path, theme: resolvedTheme };

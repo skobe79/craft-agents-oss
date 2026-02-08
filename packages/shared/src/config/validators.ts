@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { CONFIG_DIR } from './paths.ts';
+import { safeJsonParse, readJsonFileSync } from '../utils/files.ts';
 import { EntityColorSchema } from '../colors/validate.ts';
 
 // ============================================================
@@ -134,7 +135,7 @@ export function validateConfig(): ValidationResult {
   let content: unknown;
   try {
     const raw = readFileSync(CONFIG_FILE, 'utf-8');
-    content = JSON.parse(raw);
+    content = safeJsonParse(raw);
   } catch (e) {
     return {
       valid: false,
@@ -203,7 +204,7 @@ export function validatePreferences(): ValidationResult {
   let content: unknown;
   try {
     const raw = readFileSync(PREFERENCES_FILE, 'utf-8');
-    content = JSON.parse(raw);
+    content = safeJsonParse(raw);
   } catch (e) {
     return {
       valid: false,
@@ -401,7 +402,7 @@ export function validateSourceConfig(config: unknown): ValidationResult {
 export function validateSourceConfigContent(jsonString: string): ValidationResult {
   let content: unknown;
   try {
-    content = JSON.parse(jsonString);
+    content = safeJsonParse(jsonString);
   } catch (e) {
     return {
       valid: false,
@@ -456,7 +457,7 @@ export function validateSource(workspaceId: string, slug: string): ValidationRes
   let content: unknown;
   try {
     const raw = readFileSync(configPath, 'utf-8');
-    content = JSON.parse(raw);
+    content = safeJsonParse(raw);
   } catch (e) {
     return {
       valid: false,
@@ -892,7 +893,7 @@ export function validateStatusesContent(jsonString: string): ValidationResult {
   // Parse JSON
   let content: unknown;
   try {
-    content = JSON.parse(jsonString);
+    content = safeJsonParse(jsonString);
   } catch (e) {
     return {
       valid: false,
@@ -1117,7 +1118,7 @@ export function validateLabelsContent(jsonString: string): ValidationResult {
   // Parse JSON
   let content: unknown;
   try {
-    content = JSON.parse(jsonString);
+    content = safeJsonParse(jsonString);
   } catch (e) {
     return {
       valid: false,
@@ -1299,7 +1300,7 @@ export function validatePermissionsContent(jsonString: string, displayFile: stri
   // Parse JSON
   let content: unknown;
   try {
-    content = JSON.parse(jsonString);
+    content = safeJsonParse(jsonString);
   } catch (e) {
     return {
       valid: false,
@@ -1476,7 +1477,7 @@ export function validateThemeContent(jsonString: string, displayFile: string = '
   // Parse JSON
   let content: unknown;
   try {
-    content = JSON.parse(jsonString);
+    content = safeJsonParse(jsonString);
   } catch (e) {
     return {
       valid: false,
@@ -1560,7 +1561,7 @@ export function validateToolIconsContent(jsonString: string): ValidationResult {
   // Parse JSON
   let content: unknown;
   try {
-    content = JSON.parse(jsonString);
+    content = safeJsonParse(jsonString);
   } catch (e) {
     return {
       valid: false,
@@ -1682,7 +1683,7 @@ export function validateToolIcons(): ValidationResult {
 
   // Filesystem-specific check: verify referenced icon files exist
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = safeJsonParse(raw) as Record<string, unknown>;
     if (parsed.tools && Array.isArray(parsed.tools)) {
       for (const tool of parsed.tools) {
         if (tool.icon) {

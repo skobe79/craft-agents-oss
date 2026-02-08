@@ -10,6 +10,11 @@ import matter from 'gray-matter';
 import { existsSync, readFileSync } from 'node:fs';
 import type { ValidationResult, ValidationIssue } from './types.ts';
 
+/** Strip UTF-8 BOM that breaks JSON.parse */
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+}
+
 // ============================================================
 // Validation Result Helpers
 // ============================================================
@@ -102,7 +107,7 @@ export function readJsonFile(filePath: string): { success: true; data: unknown }
 
   try {
     const content = readFileSync(filePath, 'utf-8');
-    const data = JSON.parse(content);
+    const data = JSON.parse(stripBom(content));
     return { success: true, data };
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error';

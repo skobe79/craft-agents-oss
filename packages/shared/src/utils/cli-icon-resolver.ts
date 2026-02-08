@@ -17,10 +17,11 @@
  * - Relative paths: `./node_modules/.bin/jest` → `jest`
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join, basename } from 'path';
 import { parse as shellParse } from 'shell-quote';
 import { encodeIconToDataUrl } from './icon-encoder.ts';
+import { readJsonFileSync } from './files.ts';
 
 // ============================================
 // Types
@@ -271,8 +272,7 @@ export function loadToolIconConfig(toolIconsDir: string): ToolIconConfig | null 
     if (!existsSync(configPath)) {
       return null;
     }
-    const content = readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(content) as ToolIconConfig;
+    const config = readJsonFileSync<ToolIconConfig>(configPath);
 
     // Basic validation
     if (!config.tools || !Array.isArray(config.tools)) {

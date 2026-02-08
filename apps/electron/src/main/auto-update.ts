@@ -25,6 +25,7 @@ import {
   getDismissedUpdateVersion,
   clearDismissedUpdateVersion,
 } from '@craft-agent/shared/config'
+import { readJsonFileSync } from '@craft-agent/shared/utils/files'
 import type { UpdateInfo } from '../shared/types'
 import type { WindowManager } from './window-manager'
 
@@ -284,7 +285,7 @@ function checkForExistingDownload(): { exists: boolean; version?: string } {
     const updateInfoFile = files.find(f => f === 'update-info.json')
     if (updateInfoFile) {
       const infoPath = path.join(cacheDir, updateInfoFile)
-      const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'))
+      const info = readJsonFileSync(infoPath)
       mainLog.info(`[auto-update] update-info.json contents: ${JSON.stringify(info)}`)
 
       // electron-updater uses 'fileName' (not 'path') in update-info.json

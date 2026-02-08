@@ -51,7 +51,7 @@ export async function handleCredentialPrompt(
   // Validate that passwordRequired only applies to basic auth
   if (passwordRequired !== undefined && effectiveMode !== 'basic') {
     return errorResponse(
-      `Error: passwordRequired parameter only applies to basic auth mode. You specified mode="${mode}" with passwordRequired=${passwordRequired}.`
+      `passwordRequired parameter only applies to basic auth mode. You specified mode="${mode}" with passwordRequired=${passwordRequired}.`
     );
   }
 

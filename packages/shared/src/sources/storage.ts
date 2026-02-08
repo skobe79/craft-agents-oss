@@ -19,6 +19,7 @@ import type {
 } from './types.ts';
 import { validateSourceConfig } from '../config/validators.ts';
 import { debug } from '../utils/debug.ts';
+import { readJsonFileSync } from '../utils/files.ts';
 import { getBuiltinSources, isBuiltinSource, getDocsSource } from './builtin-sources.ts';
 import { expandPath, toPortablePath } from '../utils/paths.ts';
 import { getWorkspaceSourcesPath } from '../workspaces/storage.ts';
@@ -66,7 +67,7 @@ export function loadSourceConfig(
   if (!existsSync(configPath)) return null;
 
   try {
-    const config = JSON.parse(readFileSync(configPath, 'utf-8')) as FolderSourceConfig;
+    const config = readJsonFileSync<FolderSourceConfig>(configPath);
 
     // Expand path variables in local source paths for portability
     if (config.type === 'local' && config.local?.path) {

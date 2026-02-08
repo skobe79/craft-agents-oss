@@ -20,6 +20,7 @@ import { join, dirname, basename, relative } from 'path';
 import { homedir } from 'os';
 import type { FSWatcher } from 'fs';
 import { debug, perf } from '@craft-agent/shared/utils';
+import { readJsonFileSync } from '@craft-agent/shared/utils/files';
 import { loadStoredConfig, type StoredConfig } from '@craft-agent/shared/config';
 import {
   validateConfig,
@@ -147,8 +148,7 @@ export function loadPreferences(): UserPreferences | null {
   }
 
   try {
-    const content = readFileSync(PREFERENCES_FILE, 'utf-8');
-    return JSON.parse(content) as UserPreferences;
+    return readJsonFileSync<UserPreferences>(PREFERENCES_FILE);
   } catch (error) {
     debug('[ConfigWatcher] Error loading preferences', error);
     return null;

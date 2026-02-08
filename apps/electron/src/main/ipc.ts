@@ -11,6 +11,7 @@ import { WindowManager } from './window-manager'
 import { registerOnboardingHandlers } from './onboarding'
 import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type AuthType, type ApiSetupInfo, type SendMessageOptions, type LlmConnectionSetup } from '../shared/types'
 import { readFileAttachment, perf, validateImageForClaudeAPI, IMAGE_LIMITS } from '@craft-agent/shared/utils'
+import { safeJsonParse } from '@craft-agent/shared/utils/files'
 import { getPreferencesPath, getModel, setModel, getModelDefaults, setModelDefault, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, loadStoredConfig, saveConfig, type Workspace, DEFAULT_MODEL, SUMMARIZATION_MODEL, getLlmConnections, getLlmConnection, addLlmConnection, updateLlmConnection, deleteLlmConnection, getDefaultLlmConnection, setDefaultLlmConnection, touchLlmConnection, type LlmConnection, type LlmConnectionWithStatus } from '@craft-agent/shared/config'
 import { getSessionAttachmentsPath, validateSessionId } from '@craft-agent/shared/sessions'
 import { loadWorkspaceSources, getSourcesBySlugs, type LoadedSource } from '@craft-agent/shared/sources'
@@ -2432,7 +2433,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
     try {
       const content = readFileSync(path, 'utf-8')
-      return JSON.parse(content)
+      return safeJsonParse(content)
     } catch (error) {
       ipcLog.error('Error reading permissions config:', error)
       return null
@@ -2453,7 +2454,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
     try {
       const content = readFileSync(path, 'utf-8')
-      return JSON.parse(content)
+      return safeJsonParse(content)
     } catch (error) {
       ipcLog.error('Error reading workspace permissions config:', error)
       return null
@@ -2472,7 +2473,7 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
     try {
       const content = readFileSync(defaultPath, 'utf-8')
-      return { config: JSON.parse(content), path: defaultPath }
+      return { config: safeJsonParse(content), path: defaultPath }
     } catch (error) {
       ipcLog.error('Error reading default permissions config:', error)
       return { config: null, path: defaultPath }

@@ -10,6 +10,11 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SourceConfig } from './types.ts';
 
+/** Strip UTF-8 BOM that breaks JSON.parse */
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+}
+
 /**
  * Get the path to a source's directory
  */
@@ -61,7 +66,7 @@ export function loadSourceConfig(
 
   try {
     const content = readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(content) as SourceConfig;
+    const config = JSON.parse(stripBom(content)) as SourceConfig;
     return config;
   } catch {
     return null;
