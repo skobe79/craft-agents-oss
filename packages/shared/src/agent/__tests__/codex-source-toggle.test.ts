@@ -186,6 +186,47 @@ describe('Codex Source Toggle Flow', () => {
     });
   });
 
+  describe('api-bridge source slug extraction', () => {
+    // Tests the extraction logic used in CodexAgent.extractSourceSlugFromMcpServer
+    // to resolve real source slugs from api-bridge tool names.
+    // Pattern: mcp__api-bridge__api_{slug} → slug
+
+    function extractSourceSlug(mcpServer: string, mcpTool?: string): string | null {
+      const BUILT_IN = new Set(['preferences', 'session', 'craft-agents-docs', 'api-bridge']);
+      if (!mcpServer) return null;
+      if (mcpServer === 'api-bridge') {
+        if (mcpTool?.startsWith('api_')) return mcpTool.slice(4);
+        return null;
+      }
+      if (BUILT_IN.has(mcpServer)) return null;
+      return mcpServer;
+    }
+
+    it('should resolve real source slug from api-bridge tool name', () => {
+      expect(extractSourceSlug('api-bridge', 'api_slack')).toBe('slack');
+      expect(extractSourceSlug('api-bridge', 'api_gmail')).toBe('gmail');
+      expect(extractSourceSlug('api-bridge', 'api_stripe')).toBe('stripe');
+    });
+
+    it('should return null for api-bridge without a valid tool name', () => {
+      expect(extractSourceSlug('api-bridge')).toBeNull();
+      expect(extractSourceSlug('api-bridge', undefined)).toBeNull();
+      expect(extractSourceSlug('api-bridge', 'list_tools')).toBeNull();
+    });
+
+    it('should return null for built-in MCP servers', () => {
+      expect(extractSourceSlug('session')).toBeNull();
+      expect(extractSourceSlug('preferences')).toBeNull();
+      expect(extractSourceSlug('craft-agents-docs')).toBeNull();
+    });
+
+    it('should return the server name for user sources', () => {
+      expect(extractSourceSlug('linear')).toBe('linear');
+      expect(extractSourceSlug('github')).toBe('github');
+      expect(extractSourceSlug('my-custom-source')).toBe('my-custom-source');
+    });
+  });
+
   describe('Source toggle preserves thread', () => {
     it('should document thread preservation requirement', () => {
       // This is a documentation test - actual thread preservation is tested via e2e

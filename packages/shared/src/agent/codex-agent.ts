@@ -1000,7 +1000,7 @@ export class CodexAgent extends BaseAgent {
 
     // Check for source blocking (MCP tools from inactive sources)
     if (toolType === 'mcp' && mcpServer) {
-      const sourceSlug = this.extractSourceSlugFromMcpServer(mcpServer);
+      const sourceSlug = this.extractSourceSlugFromMcpServer(mcpServer, mcpTool);
       if (sourceSlug && !this.sourceManager.isSourceActive(sourceSlug)) {
         // Source is inactive - attempt auto-activation
         this.debug(`PreToolUse: MCP tool from inactive source "${sourceSlug}", attempting activation...`);
@@ -1165,15 +1165,27 @@ export class CodexAgent extends BaseAgent {
     'preferences',
     'session',
     'craft-agents-docs',
+    'api-bridge',
   ]);
 
   /**
    * Extract source slug from MCP server name.
    * Returns null for built-in MCP servers (session, preferences, etc.)
    * so that PreToolUse doesn't try to activate them as user sources.
+   *
+   * Special case: api-bridge is a built-in server that proxies API sources.
+   * The real source slug is embedded in the tool name (e.g., "api_slack" → "slack").
    */
-  private extractSourceSlugFromMcpServer(mcpServer: string): string | null {
-    if (!mcpServer || CodexAgent.BUILT_IN_MCP_SERVERS.has(mcpServer)) {
+  private extractSourceSlugFromMcpServer(mcpServer: string, mcpTool?: string): string | null {
+    if (!mcpServer) return null;
+    // api-bridge proxies API sources — resolve the real source slug from the tool name
+    if (mcpServer === 'api-bridge') {
+      if (mcpTool?.startsWith('api_')) {
+        return mcpTool.slice(4);
+      }
+      return null;
+    }
+    if (CodexAgent.BUILT_IN_MCP_SERVERS.has(mcpServer)) {
       return null;
     }
     return mcpServer;
