@@ -11,6 +11,7 @@ import {
   resolveSessionConnection,
   providerTypeToAgentProvider,
   connectionAuthTypeToBackendAuthType,
+  createBackendFromConnection,
   type LlmAuthType,
 } from '@craft-agent/shared/agent/backend'
 import {
@@ -72,7 +73,7 @@ import { toolMetadataStore } from '@craft-agent/shared/network-interceptor'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { CraftMcpClient } from '@craft-agent/shared/mcp'
 import { type Session, type Message, type SessionEvent, type FileAttachment, type StoredAttachment, type SendMessageOptions, IPC_CHANNELS, generateMessageId } from '../shared/types'
-import { generateSessionTitle, regenerateSessionTitle, formatPathsToRelative, formatToolInputPaths, perf, encodeIconToDataUrl, getEmojiIcon, resetSummarizationClient, resolveToolIcon, type TitleGeneratorOptions } from '@craft-agent/shared/utils'
+import { formatPathsToRelative, formatToolInputPaths, perf, encodeIconToDataUrl, getEmojiIcon, resetSummarizationClient, resolveToolIcon } from '@craft-agent/shared/utils'
 import { loadWorkspaceSkills, type LoadedSkill } from '@craft-agent/shared/skills'
 import type { ToolDisplayMeta } from '@craft-agent/core/types'
 import { getToolIconsDir, isCodexModel, getMiniModel, getSummarizationModel } from '@craft-agent/shared/config'
@@ -1599,10 +1600,17 @@ export class SessionManager {
     this.loadSessionsFromDisk()
   }
 
-  getSessions(): Session[] {
+  getSessions(workspaceId?: string): Session[] {
     // Returns session metadata only - messages are NOT included to save memory
     // Use getSession(id) to load messages for a specific session
-    return Array.from(this.sessions.values())
+    let sessions = Array.from(this.sessions.values())
+
+    // Filter by workspace if specified (used when switching workspaces)
+    if (workspaceId) {
+      sessions = sessions.filter(m => m.workspace.id === workspaceId)
+    }
+
+    return sessions
       .map(m => ({
         // Persistent fields (auto-included via pickSessionFields)
         ...pickSessionFields(m),
@@ -3094,11 +3102,39 @@ export class SessionManager {
 
     const assistantResponse = lastAssistantMsg?.content ?? ''
 
-    // Resolve provider and credentials based on session's LLM connection
-    // This ensures title generation uses the same provider as the session
-    const titleOptions = await this.buildTitleOptions(managed.llmConnection)
+    // Use existing agent or create temporary one
+    let agent: AgentInstance | null = managed.agent
+    let isTemporary = false
 
-    sessionLog.info(`refreshTitle: Calling regenerateSessionTitle with provider=${titleOptions?.provider ?? 'anthropic'}...`)
+    if (!agent && managed.llmConnection) {
+      try {
+        const connection = getLlmConnection(managed.llmConnection)
+        agent = createBackendFromConnection(managed.llmConnection, {
+          workspace: managed.workspace,
+          miniModel: connection ? getMiniModel(connection) : undefined,
+          session: {
+            id: `title-${managed.id}`,
+            workspaceRootPath: managed.workspace.rootPath,
+            llmConnection: managed.llmConnection,
+            createdAt: Date.now(),
+            lastUsedAt: Date.now(),
+          },
+          isHeadless: true,
+        }) as AgentInstance
+        isTemporary = true
+        sessionLog.info(`refreshTitle: Created temporary agent for session ${sessionId}`)
+      } catch (error) {
+        sessionLog.error(`refreshTitle: Failed to create temporary agent:`, error)
+        return { success: false, error: 'Failed to create agent for title generation' }
+      }
+    }
+
+    if (!agent) {
+      sessionLog.warn(`refreshTitle: No agent and no connection for session ${sessionId}`)
+      return { success: false, error: 'No agent available' }
+    }
+
+    sessionLog.info(`refreshTitle: Calling agent.regenerateTitle...`)
 
     // Notify renderer that title regeneration has started (for shimmer effect)
     managed.isAsyncOperationOngoing = true
@@ -3107,8 +3143,8 @@ export class SessionManager {
     this.sendEvent({ type: 'title_regenerating', sessionId, isRegenerating: true }, managed.workspace.id)
 
     try {
-      const title = await regenerateSessionTitle(userMessages, assistantResponse, titleOptions)
-      sessionLog.info(`refreshTitle: regenerateSessionTitle returned: ${title ? `"${title}"` : 'null'}`)
+      const title = await agent.regenerateTitle(userMessages, assistantResponse)
+      sessionLog.info(`refreshTitle: regenerateTitle returned: ${title ? `"${title}"` : 'null'}`)
       if (title) {
         managed.name = title
         this.persistSession(managed)
@@ -3127,6 +3163,10 @@ export class SessionManager {
       sessionLog.error(`Failed to refresh title for session ${sessionId}:`, error)
       return { success: false, error: message }
     } finally {
+      // Clean up temporary agent
+      if (isTemporary && agent) {
+        agent.destroy()
+      }
       // Signal async operation end
       managed.isAsyncOperationOngoing = false
       this.sendEvent({ type: 'async_operation', sessionId, isOngoing: false }, managed.workspace.id)
@@ -3382,16 +3422,9 @@ export class SessionManager {
           title: initialTitle,
         }, managed.workspace.id)
 
-        // Resolve the connection for title generation BEFORE the agent is created
-        // (agent creation sets managed.llmConnection, but runs concurrently
-        // and may not complete before generateTitle reads it)
-        const titleConnection = managed.llmConnection ?? resolveSessionConnection(
-          undefined,
-          loadWorkspaceConfig(managed.workspace.rootPath)?.defaults?.defaultLlmConnection
-        )?.slug
-
-        // Generate AI title asynchronously (will update the initial title)
-        this.generateTitle(managed, message, titleConnection)
+        // Generate AI title asynchronously using agent's SDK
+        // (waits briefly for agent creation if needed)
+        this.generateTitle(managed, message)
       }
     }
 
@@ -4039,92 +4072,58 @@ To view this task's output:
   }
 
   /**
-   * Build title generation options based on a session's LLM connection.
-   * Resolves provider type, credentials, and model override from the connection config.
-   */
-  private async buildTitleOptions(llmConnection: string | undefined): Promise<(TitleGeneratorOptions & { modelOverride?: string }) | undefined> {
-    if (!llmConnection) {
-      sessionLog.info(`[buildTitleOptions] No connection specified, skipping`)
-      return undefined
-    }
-
-    const connection = getLlmConnection(llmConnection)
-    if (!connection) {
-      sessionLog.info(`[buildTitleOptions] Connection '${llmConnection}' not found`)
-      return undefined
-    }
-
-    if (connection.providerType === 'openai' || connection.providerType === 'openai_compat') {
-      const credentialManager = getCredentialManager()
-      let apiKey: string | undefined
-      let accessToken: string | undefined
-
-      if (connection.authType === 'api_key' || connection.authType === 'api_key_with_endpoint' || connection.authType === 'bearer_token') {
-        apiKey = await credentialManager.getLlmApiKey(llmConnection) ?? undefined
-      } else if (connection.authType === 'oauth') {
-        const oauth = await credentialManager.getLlmOAuth(llmConnection)
-        if (oauth?.accessToken) {
-          // Check if token is expired and refresh if needed (ChatGPT Plus tokens expire after ~1h)
-          const isExpired = oauth.expiresAt
-            ? Date.now() > oauth.expiresAt - 5 * 60 * 1000
-            : !!oauth.refreshToken
-
-          if (isExpired && oauth.refreshToken) {
-            try {
-              const { refreshChatGptTokens } = await import('@craft-agent/shared/auth/chatgpt-oauth')
-              const refreshed = await refreshChatGptTokens(oauth.refreshToken)
-              await credentialManager.setLlmOAuth(llmConnection, {
-                accessToken: refreshed.accessToken,
-                refreshToken: refreshed.refreshToken,
-                expiresAt: refreshed.expiresAt,
-                idToken: refreshed.idToken,
-              })
-              accessToken = refreshed.accessToken
-              sessionLog.info(`[buildTitleOptions] Refreshed ChatGPT Plus OAuth token for title generation`)
-            } catch (error) {
-              sessionLog.warn(`[buildTitleOptions] Failed to refresh ChatGPT Plus token:`, error)
-              accessToken = oauth.accessToken
-            }
-          } else {
-            accessToken = oauth.accessToken
-          }
-        }
-      }
-
-      if (apiKey || accessToken) {
-        const model = getSummarizationModel(connection)
-        sessionLog.info(`[buildTitleOptions] OpenAI provider ready: model=${model}, authType=${apiKey ? 'api_key' : 'oauth'}, baseUrl=${connection.baseUrl ?? '(default)'}`)
-        return {
-          provider: 'openai',
-          credentials: { apiKey, accessToken },
-          summarizationModel: model,
-          baseUrl: connection.baseUrl,
-        }
-      }
-      sessionLog.info(`[buildTitleOptions] No credentials found for OpenAI connection '${llmConnection}'`)
-      return undefined
-    }
-
-    sessionLog.info(`[buildTitleOptions] Anthropic provider ready: model=${connection.defaultModel ?? '(default)'}, summarizationModel=${getSummarizationModel(connection)}`)
-    return {
-      provider: 'anthropic',
-      modelOverride: connection.defaultModel ?? undefined,
-      summarizationModel: getSummarizationModel(connection),
-    }
-  }
-
-  /**
    * Generate an AI title for a session from the user's first message.
-   * Called asynchronously when the first user message is received.
+   * Uses the agent's generateTitle() method which handles provider-specific SDK calls.
+   * If no agent exists, creates a temporary one using the session's connection.
    */
-  private async generateTitle(managed: ManagedSession, userMessage: string, connectionOverride?: string): Promise<void> {
-    const resolvedConnection = connectionOverride ?? managed.llmConnection
-    sessionLog.info(`[generateTitle] Starting for session ${managed.id}, connection=${resolvedConnection ?? '(none)'}`)
-    try {
-      const titleOptions = await this.buildTitleOptions(resolvedConnection)
-      sessionLog.info(`[generateTitle] Options: provider=${titleOptions?.provider ?? '(none)'}, model=${titleOptions?.summarizationModel ?? '(default)'}, baseUrl=${titleOptions?.baseUrl ?? '(default)'}`)
+  private async generateTitle(managed: ManagedSession, userMessage: string): Promise<void> {
+    sessionLog.info(`[generateTitle] Starting for session ${managed.id}`)
 
-      const title = await generateSessionTitle(userMessage, titleOptions)
+    // Use existing agent or create temporary one
+    let agent: AgentInstance | null = managed.agent
+    let isTemporary = false
+
+    // Wait briefly for agent to be created (it's created concurrently)
+    if (!agent) {
+      let attempts = 0
+      while (!managed.agent && attempts < 10) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        attempts++
+      }
+      agent = managed.agent
+    }
+
+    // If still no agent, create a temporary one using the session's connection
+    if (!agent && managed.llmConnection) {
+      try {
+        const connection = getLlmConnection(managed.llmConnection)
+        agent = createBackendFromConnection(managed.llmConnection, {
+          workspace: managed.workspace,
+          miniModel: connection ? getMiniModel(connection) : undefined,
+          session: {
+            id: `title-${managed.id}`,
+            workspaceRootPath: managed.workspace.rootPath,
+            llmConnection: managed.llmConnection,
+            createdAt: Date.now(),
+            lastUsedAt: Date.now(),
+          },
+          isHeadless: true,
+        }) as AgentInstance
+        isTemporary = true
+        sessionLog.info(`[generateTitle] Created temporary agent for session ${managed.id}`)
+      } catch (error) {
+        sessionLog.error(`[generateTitle] Failed to create temporary agent:`, error)
+        return
+      }
+    }
+
+    if (!agent) {
+      sessionLog.warn(`[generateTitle] No agent and no connection for session ${managed.id}`)
+      return
+    }
+
+    try {
+      const title = await agent.generateTitle(userMessage)
       if (title) {
         managed.name = title
         this.persistSession(managed)
@@ -4140,6 +4139,11 @@ To view this task's output:
       }
     } catch (error) {
       sessionLog.error(`Failed to generate title for session ${managed.id}:`, error)
+    } finally {
+      // Clean up temporary agent
+      if (isTemporary && agent) {
+        agent.destroy()
+      }
     }
   }
 

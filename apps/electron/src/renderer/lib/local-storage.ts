@@ -44,6 +44,9 @@ export const KEYS = {
 
   // TurnCard expansion state (persisted across session switches)
   turnCardExpansion: 'turncard-expansion',
+
+  // Last selected session (workspace-scoped via suffix)
+  lastSelectedSessionId: 'last-selected-session-id',
 } as const
 
 export type StorageKey = typeof KEYS[keyof typeof KEYS]

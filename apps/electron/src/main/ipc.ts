@@ -182,10 +182,11 @@ async function validateFilePath(filePath: string): Promise<string> {
 }
 
 export function registerIpcHandlers(sessionManager: SessionManager, windowManager: WindowManager): void {
-  // Get all sessions
-  ipcMain.handle(IPC_CHANNELS.GET_SESSIONS, async () => {
+  // Get all sessions for the calling window's workspace
+  ipcMain.handle(IPC_CHANNELS.GET_SESSIONS, async (event) => {
     const end = perf.start('ipc.getSessions')
-    const sessions = sessionManager.getSessions()
+    const workspaceId = windowManager.getWorkspaceForWindow(event.sender.id)
+    const sessions = sessionManager.getSessions(workspaceId)
     end()
     return sessions
   })

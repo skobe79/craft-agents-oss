@@ -1158,34 +1158,34 @@ export default function App() {
       // This prevents showing stale session data from the wrong workspace.
       setSession({ selected: null })
 
-      // 4. Navigate to allSessions view without a specific session selected
-      // This ensures the UI is in a clean state for the new workspace
-      navigate(routes.view.allSessions())
-
-      // 5. Clear pending permissions/credentials (not relevant to new workspace)
+      // 4. Clear pending permissions/credentials (not relevant to new workspace)
       setPendingPermissions(new Map())
       setPendingCredentials(new Map())
 
-      // 6. Clear session options from previous workspace
+      // 5. Clear session options from previous workspace
       // (session IDs are unique UUIDs, but clearing prevents unbounded memory growth
       // and ensures no stale state from old workspace persists)
       setSessionOptions(new Map())
 
-      // 7. Clear message drafts from previous workspace
+      // 6. Clear message drafts from previous workspace
       // (prevents memory growth on repeated workspace switches)
       sessionDraftsRef.current.clear()
 
-      // 8. Reset sources and skills atoms to empty
+      // 7. Reset sources and skills atoms to empty
       // (prevents stale data flash during workspace switch - AppShell will reload)
       store.set(sourcesAtom, [])
       store.set(skillsAtom, [])
 
-      // 9. Clear session atoms BEFORE navigating
+      // 8. Clear session atoms BEFORE navigating
       // This prevents applyNavigationState from auto-selecting a session from the old workspace.
       // Without this, getFirstSessionId() would return a session ID from the previous workspace,
       // causing the detail panel to show a stale chat until sessions reload.
       store.set(sessionMetaMapAtom, new Map())
       store.set(sessionIdsAtom, [])
+
+      // 9. Navigate to allSessions view without a specific session selected
+      // This ensures the UI is in a clean state for the new workspace
+      navigate(routes.view.allSessions())
 
       // Note: Sessions and theme will reload automatically due to windowWorkspaceId dependency
       // in useEffect hooks

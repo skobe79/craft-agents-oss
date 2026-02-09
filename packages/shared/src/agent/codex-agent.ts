@@ -30,7 +30,7 @@ import { AbortReason } from './backend/types.ts';
 import type { Workspace } from '../config/storage.ts';
 
 // Import models from centralized registry
-import { DEFAULT_CODEX_MODEL, getModelById, getModelIdByShortName } from '../config/models.ts';
+import { DEFAULT_CODEX_MODEL, getModelById, getModelIdByShortName, isCodexModel } from '../config/models.ts';
 
 // BaseAgent provides common functionality
 import { BaseAgent } from './base-agent.ts';
@@ -50,17 +50,21 @@ import {
 // Codex binary resolver
 import { resolveCodexBinary } from '../codex/binary-resolver.ts';
 
-// ChatGPT OAuth for token refresh
+// ChatGPT OAuth for token refresh and API key exchange
 import { refreshChatGptTokens, type ChatGptTokens } from '../auth/chatgpt-oauth.ts';
 
 // Credential manager for stored tokens
 import { getCredentialManager } from '../credentials/index.ts';
+
 
 // Event adapter
 import { EventAdapter } from './backend/codex/event-adapter.ts';
 
 // Error parsing for typed errors
 import { parseError, type AgentError } from './errors.ts';
+
+// Debug logging
+import { debug } from '../utils/debug.ts';
 
 // Session storage for plans folder path
 import { getSessionPlansPath } from '../sessions/storage.ts';
@@ -2284,6 +2288,114 @@ export class CodexAgent extends BaseAgent {
         `API servers (${apiServerCount}) are not supported in Codex backend. ` +
         `Servers: ${Object.keys(apiServers).join(', ')}`
       );
+    }
+  }
+
+  // ============================================================
+  // Mini Completion (for title generation and other quick tasks)
+  // ============================================================
+
+  /**
+   * Run a simple text completion using the Codex app-server.
+   * No tools, empty system prompt - just text in → text out.
+   * Uses the same auth infrastructure as the main agent.
+   *
+   * Creates an ephemeral thread for the completion so it doesn't
+   * interfere with the main conversation thread.
+   */
+  async runMiniCompletion(prompt: string): Promise<string | null> {
+    // Use direct debug() for logging since temporary agents don't have onDebug set
+    debug(`[CodexAgent.runMiniCompletion] Starting`);
+
+    try {
+      // Ensure client is connected (includes auth injection)
+      const client = await this.ensureClient();
+      debug(`[CodexAgent.runMiniCompletion] Client connected`);
+
+      // Use a smaller model for quick completions
+      let model = this.config.miniModel ?? 'gpt-5-mini';
+      if (isCodexModel(model)) {
+        model = 'gpt-5-mini';
+      }
+      debug(`[CodexAgent.runMiniCompletion] Using model: ${model}`);
+
+      // Start an ephemeral thread with no system prompt
+      debug(`[CodexAgent.runMiniCompletion] Starting ephemeral thread...`);
+      const threadResponse = await client.threadStart({
+        model,
+        cwd: this.workingDirectory,
+        baseInstructions: '', // Empty - no system prompt
+        ephemeral: true, // Don't persist this thread
+      });
+      const threadId = threadResponse.thread.id;
+      debug(`[CodexAgent.runMiniCompletion] Started ephemeral thread: ${threadId}`);
+
+      // Set up Promise-based completion tracking
+      let result = '';
+      let completionResolve: () => void;
+      const completionPromise = new Promise<void>((resolve) => {
+        completionResolve = resolve;
+      });
+
+      // Collect response text from deltas
+      const textHandler = (notification: { threadId: string; delta?: string }) => {
+        if (notification.threadId === threadId && notification.delta) {
+          result += notification.delta;
+          debug(`[CodexAgent.runMiniCompletion] Delta: ${notification.delta}`);
+        }
+      };
+
+      // Resolve when turn completes
+      const completionHandler = (notification: { threadId: string }) => {
+        if (notification.threadId === threadId) {
+          debug(`[CodexAgent.runMiniCompletion] Turn completed`);
+          completionResolve();
+        }
+      };
+
+      // Set up listeners
+      client.on('item/agentMessage/delta', textHandler);
+      client.on('turn/completed', completionHandler);
+
+      try {
+        // Start the turn with our prompt
+        debug(`[CodexAgent.runMiniCompletion] Starting turn...`);
+        await client.turnStart({
+          threadId,
+          input: [{ type: 'text', text: prompt, text_elements: [] }],
+          cwd: null,
+          approvalPolicy: null,
+          sandboxPolicy: null,
+          model: null,
+          effort: null,
+          summary: null,
+          personality: null,
+          outputSchema: null,
+          collaborationMode: null,
+        });
+        debug(`[CodexAgent.runMiniCompletion] Turn started`);
+
+        // Wait for turn completion with timeout
+        const timeoutPromise = new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout')), 30000)
+        );
+
+        try {
+          await Promise.race([completionPromise, timeoutPromise]);
+        } catch (e) {
+          debug(`[CodexAgent.runMiniCompletion] Timeout waiting for completion`);
+        }
+
+        debug(`[CodexAgent.runMiniCompletion] Result: "${result.trim()}"`);
+        return result.trim() || null;
+      } finally {
+        // Clean up listeners
+        client.off('item/agentMessage/delta', textHandler);
+        client.off('turn/completed', completionHandler);
+      }
+    } catch (error) {
+      debug(`[CodexAgent.runMiniCompletion] Failed: ${error}`);
+      return null;
     }
   }
 }

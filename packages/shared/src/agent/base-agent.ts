@@ -44,6 +44,7 @@ import { PlanningAdvisor } from './core/planning-advisor.ts';
 import { UsageTracker, type UsageUpdate } from './core/usage-tracker.ts';
 import { getSessionPlansPath } from '../sessions/storage.ts';
 import { getMiniAgentSystemPrompt } from '../prompts/system.ts';
+import { buildTitlePrompt, buildRegenerateTitlePrompt, validateTitle } from '../utils/title-generator.ts';
 
 // ============================================================
 // Mini Agent Configuration
@@ -88,6 +89,7 @@ export const MINI_AGENT_MCP_KEYS = ['session', 'craft-agents-docs'] as const;
  * - capabilities(): Provider-specific capabilities
  * - respondToPermission(): Provider-specific permission resolution
  * - destroy(): Provider-specific cleanup
+ * - runMiniCompletion(): Simple text completion using backend's auth
  */
 export abstract class BaseAgent implements AgentBackend {
   // ============================================================
@@ -636,6 +638,57 @@ Please continue the conversation naturally from where we left off.
    * Respond to a pending permission request.
    */
   abstract respondToPermission(requestId: string, allowed: boolean, alwaysAllow?: boolean): void;
+
+  /**
+   * Run a simple text completion using the agent's auth infrastructure.
+   * No tools, no system prompt - just text in → text out.
+   * Each backend implements using its own SDK (Claude SDK query() or Codex app-server).
+   *
+   * @param prompt - The prompt to send
+   * @returns The model's response text, or null if completion fails
+   */
+  abstract runMiniCompletion(prompt: string): Promise<string | null>;
+
+  // ============================================================
+  // Title Generation (shared implementation using runMiniCompletion)
+  // ============================================================
+
+  /**
+   * Generate a session title from a user message.
+   * Uses runMiniCompletion with the same auth as the main agent.
+   *
+   * @param message - The user's message to generate a title from
+   * @returns Generated title (2-5 words), or null if generation fails
+   */
+  async generateTitle(message: string): Promise<string | null> {
+    try {
+      const prompt = buildTitlePrompt(message);
+      const result = await this.runMiniCompletion(prompt);
+      return validateTitle(result);
+    } catch (error) {
+      this.debug(`[generateTitle] Failed: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Regenerate a session title based on recent conversation context.
+   * Uses recent messages to capture what the session has evolved into.
+   *
+   * @param recentUserMessages - The last few user messages
+   * @param lastAssistantResponse - The most recent assistant response
+   * @returns Generated title (2-5 words), or null if generation fails
+   */
+  async regenerateTitle(recentUserMessages: string[], lastAssistantResponse: string): Promise<string | null> {
+    try {
+      const prompt = buildRegenerateTitlePrompt(recentUserMessages, lastAssistantResponse);
+      const result = await this.runMiniCompletion(prompt);
+      return validateTitle(result);
+    } catch (error) {
+      this.debug(`[regenerateTitle] Failed: ${error}`);
+      return null;
+    }
+  }
 }
 
 // Re-export for convenience

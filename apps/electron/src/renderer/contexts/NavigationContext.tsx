@@ -43,6 +43,7 @@ import {
 } from '../../shared/route-parser'
 import { routes, type Route } from '../../shared/routes'
 import { NAVIGATE_EVENT } from '../lib/navigate'
+import * as storage from '@/lib/local-storage'
 import type {
   DeepLinkNavigation,
   Session,
@@ -160,7 +161,9 @@ export function NavigationProvider({
   const filterSessionsByFilter = useCallback(
     (filter: SessionFilter): SessionMeta[] => {
       // First filter out hidden sessions - they should never appear in any view
-      const visibleSessions = sessionMetas.filter(s => !s.hidden)
+      const visibleSessions = sessionMetas.filter(
+        s => !s.hidden && (!workspaceId || s.workspaceId === workspaceId)
+      )
 
       return visibleSessions.filter((session) => {
         switch (filter.kind) {
@@ -194,7 +197,7 @@ export function NavigationProvider({
         }
       })
     },
-    [sessionMetas]
+    [sessionMetas, workspaceId]
   )
 
   // Helper: Get first session ID for a filter
@@ -204,6 +207,22 @@ export function NavigationProvider({
       return filtered[0]?.id ?? null
     },
     [filterSessionsByFilter]
+  )
+
+  // Helper: Get last selected session ID for the workspace (if still valid in filter)
+  const getLastSelectedSessionId = useCallback(
+    (filter: SessionFilter): string | null => {
+      if (!workspaceId) return null
+      const storedId = storage.get<string | null>(
+        storage.KEYS.lastSelectedSessionId,
+        null,
+        workspaceId
+      )
+      if (!storedId) return null
+      const filtered = filterSessionsByFilter(filter)
+      return filtered.some(session => session.id === storedId) ? storedId : null
+    },
+    [workspaceId, filterSessionsByFilter]
   )
 
   // Helper: Get first source slug (optionally filtered by type)
@@ -397,66 +416,84 @@ export function NavigationProvider({
    */
   const applyNavigationState = useCallback(
     (newState: NavigationState): NavigationState => {
-      // For chats: auto-select first session if no details provided
-      if (isSessionsNavigation(newState) && !newState.details) {
-        const firstSessionId = getFirstSessionId(newState.filter)
-        if (firstSessionId) {
+      let nextState = newState
+
+      // If an explicit session is provided but doesn't exist in the current workspace,
+      // treat it as no selection so we can auto-select a valid session (if any).
+      if (isSessionsNavigation(nextState) && nextState.details) {
+        const meta = sessionMetaMap.get(nextState.details.sessionId)
+        if (!meta || (workspaceId && meta.workspaceId !== workspaceId)) {
+          nextState = { ...nextState, details: null }
+        }
+      }
+
+      // For chats: auto-select last session in workspace (if valid), otherwise first
+      if (isSessionsNavigation(nextState) && !nextState.details) {
+        const lastSelectedSessionId = getLastSelectedSessionId(nextState.filter)
+        const fallbackSessionId = lastSelectedSessionId ?? getFirstSessionId(nextState.filter)
+        if (fallbackSessionId) {
           const stateWithSelection: NavigationState = {
-            ...newState,
-            details: { type: 'session', sessionId: firstSessionId },
+            ...nextState,
+            details: { type: 'session', sessionId: fallbackSessionId },
           }
-          setSession({ selected: firstSessionId })
+          if (workspaceId) {
+            storage.set(storage.KEYS.lastSelectedSessionId, fallbackSessionId, workspaceId)
+          }
+          setSession({ selected: fallbackSessionId })
           setNavigationState(stateWithSelection)
           return stateWithSelection
         } else {
           setSession({ selected: null })
-          setNavigationState(newState)
-          return newState
+          setNavigationState(nextState)
+          return nextState
         }
       }
 
       // For sources: auto-select first source if no details provided (respects filter)
-      if (isSourcesNavigation(newState) && !newState.details) {
-        const firstSourceSlug = getFirstSourceSlug(newState.filter)
+      if (isSourcesNavigation(nextState) && !nextState.details) {
+        const firstSourceSlug = getFirstSourceSlug(nextState.filter)
         if (firstSourceSlug) {
           const stateWithSelection: NavigationState = {
-            ...newState,
+            ...nextState,
             details: { type: 'source', sourceSlug: firstSourceSlug },
           }
           setNavigationState(stateWithSelection)
           return stateWithSelection
         } else {
-          setNavigationState(newState)
-          return newState
+          setNavigationState(nextState)
+          return nextState
         }
       }
 
       // For skills: auto-select first skill if no details provided
-      if (isSkillsNavigation(newState) && !newState.details) {
+      if (isSkillsNavigation(nextState) && !nextState.details) {
         const firstSkillSlug = getFirstSkillSlug()
         if (firstSkillSlug) {
           const stateWithSelection: NavigationState = {
-            ...newState,
+            ...nextState,
             details: { type: 'skill', skillSlug: firstSkillSlug },
           }
           setNavigationState(stateWithSelection)
           return stateWithSelection
         } else {
-          setNavigationState(newState)
-          return newState
+          setNavigationState(nextState)
+          return nextState
         }
       }
 
       // For chats with explicit session: update session selection
-      if (isSessionsNavigation(newState) && newState.details) {
-        setSession({ selected: newState.details.sessionId })
+      if (isSessionsNavigation(nextState) && nextState.details) {
+        if (workspaceId) {
+          storage.set(storage.KEYS.lastSelectedSessionId, nextState.details.sessionId, workspaceId)
+        }
+        setSession({ selected: nextState.details.sessionId })
       }
 
       // Apply state directly
-      setNavigationState(newState)
-      return newState
+      setNavigationState(nextState)
+      return nextState
     },
-    [getFirstSessionId, getFirstSourceSlug, getFirstSkillSlug, setSession]
+    [getFirstSessionId, getLastSelectedSessionId, getFirstSourceSlug, getFirstSkillSlug, setSession, sessionMetaMap, workspaceId]
   )
 
   // Main navigate function - unified approach using NavigationState
@@ -883,6 +920,26 @@ export function NavigationProvider({
         navigate(routes.view.allSessions(sessionId))
     }
   }, [navigationState, navigate])
+
+  // After sessions load (or workspace switch), if no session is selected,
+  // auto-select last-used session for this workspace (or fallback to first).
+  useEffect(() => {
+    if (!isReady || !workspaceId) return
+    if (!isSessionsNavigation(navigationState) || navigationState.details) return
+
+    const lastSelectedSessionId = getLastSelectedSessionId(navigationState.filter)
+    const fallbackSessionId = lastSelectedSessionId ?? getFirstSessionId(navigationState.filter)
+    if (!fallbackSessionId) return
+
+    navigateToSession(fallbackSessionId)
+  }, [
+    isReady,
+    workspaceId,
+    navigationState,
+    getLastSelectedSessionId,
+    getFirstSessionId,
+    navigateToSession,
+  ])
 
   return (
     <NavigationContext.Provider

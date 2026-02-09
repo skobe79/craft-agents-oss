@@ -11,7 +11,7 @@ import { runErrorDiagnostics } from './diagnostics.ts';
 import { loadStoredConfig, loadConfigDefaults, type Workspace, type AuthType, getDefaultLlmConnection, getLlmConnection } from '../config/storage.ts';
 import { isLocalMcpEnabled } from '../workspaces/storage.ts';
 import { loadPlanFromPath, type SessionConfig as Session } from '../sessions/storage.ts';
-import { DEFAULT_MODEL, isClaudeModel } from '../config/models.ts';
+import { DEFAULT_MODEL, isClaudeModel, getDefaultSummarizationModel } from '../config/models.ts';
 import { getCredentialManager } from '../credentials/index.ts';
 import { updatePreferences, loadPreferences, formatPreferencesForPrompt, type UserPreferences } from '../config/preferences.ts';
 import type { FileAttachment } from '../utils/files.ts';
@@ -2772,6 +2772,44 @@ export class ClaudeAgent extends BaseAgent {
   }
 
   // getActiveSourceSlugs() is now inherited from BaseAgent
+
+  // ============================================================
+  // Mini Completion (for title generation and other quick tasks)
+  // ============================================================
+
+  /**
+   * Run a simple text completion using Claude SDK.
+   * No tools, empty system prompt - just text in → text out.
+   * Uses the same auth infrastructure as the main agent.
+   */
+  async runMiniCompletion(prompt: string): Promise<string | null> {
+    try {
+      const model = this.config.miniModel ?? getDefaultSummarizationModel();
+
+      const options = {
+        ...getDefaultOptions(),
+        model,
+        maxTurns: 1,
+        systemPrompt: 'Reply with ONLY the requested text. No explanation.', // Minimal - no Claude Code preset
+      };
+
+      let result = '';
+      for await (const msg of query({ prompt, options })) {
+        if (msg.type === 'assistant') {
+          for (const block of msg.message.content) {
+            if (block.type === 'text') {
+              result += block.text;
+            }
+          }
+        }
+      }
+
+      return result.trim() || null;
+    } catch (error) {
+      this.debug(`[runMiniCompletion] Failed: ${error}`);
+      return null;
+    }
+  }
 
   // ============================================================
 }
