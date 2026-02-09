@@ -11,33 +11,7 @@ import type { AgentEvent, TypedError } from '@craft-agent/core/types';
 import type { SessionEvent } from '@github/copilot-sdk';
 import { parseReadCommand, type ReadCommandInfo } from '../codex/read-patterns.ts';
 import { createLogger } from '../../../utils/debug.ts';
-
-/**
- * Map Copilot CLI lowercase tool names to PascalCase names used by the UI.
- * Mirrors COPILOT_TOOL_NAME_MAP in copilot-agent.ts.
- */
-const TOOL_NAME_MAP: Record<string, string> = {
-  bash: 'Bash',
-  read: 'Read',
-  write: 'Write',
-  edit: 'Edit',
-  multi_edit: 'MultiEdit',
-  glob: 'Glob',
-  grep: 'Grep',
-  web_fetch: 'WebFetch',
-  web_search: 'WebSearch',
-  todo_write: 'TodoWrite',
-  notebook_edit: 'NotebookEdit',
-  task: 'Task',
-  task_output: 'TaskOutput',
-  list_dir: 'Glob',
-  // Native Copilot CLI tools (str_replace_editor subcommands)
-  view: 'Read',
-  create: 'Write',
-  str_replace: 'Edit',
-  insert: 'Edit',
-  str_replace_editor: 'Edit',
-};
+import { COPILOT_TOOL_NAME_MAP } from '../../copilot-agent.ts';
 
 /**
  * Maps Copilot SDK session events to AgentEvents for UI compatibility.
@@ -255,7 +229,10 @@ export class CopilotEventAdapter {
             if (!this.toolNames.has(req.toolCallId)) {
               const toolName = this.resolveToolName({ toolName: req.name });
               this.toolNames.set(req.toolCallId, toolName);
-              const args = (req.arguments ?? {}) as Record<string, unknown>;
+              const args = this.normalizeToolArgs(
+                toolName,
+                (req.arguments ?? {}) as Record<string, unknown>
+              );
               yield {
                 type: 'tool_start',
                 toolName,
@@ -326,11 +303,17 @@ export class CopilotEventAdapter {
       // ============================================================
 
       case 'tool.execution_start': {
+        const toolCallId = event.data.toolCallId;
         const toolName = this.resolveToolName(event.data);
-        this.toolNames.set(event.data.toolCallId, toolName);
+        // assistant.message toolRequests may have already emitted tool_start for this call
+        const alreadyEmitted = this.toolNames.has(toolCallId);
+        this.toolNames.set(toolCallId, toolName);
         const parentToolUseId = event.data.parentToolCallId || undefined;
 
-        const args = (event.data.arguments ?? {}) as Record<string, unknown>;
+        const args = this.normalizeToolArgs(
+          toolName,
+          (event.data.arguments ?? {}) as Record<string, unknown>
+        );
         const intent = (event.data as { description?: string }).description || undefined;
         const displayName = this.getToolDisplayName(toolName);
 
@@ -338,38 +321,42 @@ export class CopilotEventAdapter {
         if (toolName === 'Bash' && typeof args.command === 'string') {
           const readInfo = parseReadCommand(args.command);
           if (readInfo) {
-            this.readCommands.set(event.data.toolCallId, readInfo);
-            yield {
-              type: 'tool_start',
-              toolName: 'Read',
-              toolUseId: event.data.toolCallId,
-              input: {
-                file_path: readInfo.filePath,
-                offset: readInfo.startLine,
-                limit: readInfo.endLine
-                  ? readInfo.endLine - (readInfo.startLine || 1) + 1
-                  : undefined,
-                _command: readInfo.originalCommand,
-              },
-              intent,
-              displayName: 'Read File',
-              turnId: this.currentTurnId || undefined,
-              parentToolUseId,
-            };
+            this.readCommands.set(toolCallId, readInfo);
+            if (!alreadyEmitted) {
+              yield {
+                type: 'tool_start',
+                toolName: 'Read',
+                toolUseId: toolCallId,
+                input: {
+                  file_path: readInfo.filePath,
+                  offset: readInfo.startLine,
+                  limit: readInfo.endLine
+                    ? readInfo.endLine - (readInfo.startLine || 1) + 1
+                    : undefined,
+                  _command: readInfo.originalCommand,
+                },
+                intent,
+                displayName: 'Read File',
+                turnId: this.currentTurnId || undefined,
+                parentToolUseId,
+              };
+            }
             break;
           }
         }
 
-        yield {
-          type: 'tool_start',
-          toolName,
-          toolUseId: event.data.toolCallId,
-          input: args,
-          intent,
-          displayName,
-          turnId: this.currentTurnId || undefined,
-          parentToolUseId,
-        };
+        if (!alreadyEmitted) {
+          yield {
+            type: 'tool_start',
+            toolName,
+            toolUseId: toolCallId,
+            input: args,
+            intent,
+            displayName,
+            turnId: this.currentTurnId || undefined,
+            parentToolUseId,
+          };
+        }
         break;
       }
 
@@ -377,14 +364,17 @@ export class CopilotEventAdapter {
         const toolCallId = event.data.toolCallId;
         const parentToolUseId = event.data.parentToolCallId || undefined;
 
-        const blockReason = this.blockReasons.get(toolCallId);
-        if (blockReason) {
-          this.blockReasons.delete(toolCallId);
-        }
-
         // Resolve original tool name from execution_start
         const resolvedToolName = this.toolNames.get(toolCallId) || 'tool';
         this.toolNames.delete(toolCallId);
+
+        // Block reasons are keyed by mapped tool name (e.g. "Bash") because
+        // the PreToolUse hook doesn't have access to the tool call ID
+        const blockReason = this.blockReasons.get(toolCallId) || this.blockReasons.get(resolvedToolName);
+        if (blockReason) {
+          this.blockReasons.delete(toolCallId);
+          this.blockReasons.delete(resolvedToolName);
+        }
 
         // Use accumulated output from partial results if available
         const accumulatedOutput = this.commandOutput.get(toolCallId);
@@ -405,6 +395,10 @@ export class CopilotEventAdapter {
         } else {
           result = blockReason || (isError ? 'Tool execution failed' : 'Success');
         }
+
+        // After tool completion, the assistant may generate new text in response
+        // to tool results. Reset the guard so the next assistant.message emits text_complete.
+        this.hasEmittedFinalText = false;
 
         // Check if this was classified as a file read
         const readInfo = this.readCommands.get(toolCallId);
@@ -524,6 +518,24 @@ export class CopilotEventAdapter {
   }
 
   /**
+   * Normalize Copilot-native tool arguments to match Claude Code conventions.
+   * Copilot CLI tools (str_replace_editor subcommands) use different param names
+   * than Claude Code (e.g., `path` instead of `file_path`).
+   */
+  private normalizeToolArgs(
+    toolName: string,
+    args: Record<string, unknown>
+  ): Record<string, unknown> {
+    // Copilot native tools use `path` instead of `file_path`.
+    // Replace (not duplicate) so the UI doesn't show the path twice.
+    if ((toolName === 'Read' || toolName === 'Write' || toolName === 'Edit') && args.path && !args.file_path) {
+      const { path: filePath, ...rest } = args;
+      return { ...rest, file_path: filePath };
+    }
+    return args;
+  }
+
+  /**
    * Resolve the display tool name from execution_start event data.
    * Maps MCP tool calls to mcp__server__tool format, and normalizes
    * built-in tool names from lowercase to PascalCase for UI consistency.
@@ -537,7 +549,7 @@ export class CopilotEventAdapter {
       return `mcp__${data.mcpServerName}__${data.mcpToolName}`;
     }
     // Normalize lowercase tool names to PascalCase (bash → Bash, etc.)
-    return TOOL_NAME_MAP[data.toolName] || data.toolName;
+    return COPILOT_TOOL_NAME_MAP[data.toolName] || data.toolName;
   }
 
   /**

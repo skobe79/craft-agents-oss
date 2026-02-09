@@ -361,6 +361,19 @@ export interface BackendConfig {
    */
   copilotConfigDir?: string;
 
+  /**
+   * Path to session-mcp-server executable (stdio MCP server for session-scoped tools).
+   * Provides SubmitPlan, config_validate, source_test, source_oauth_trigger, etc.
+   * Used by Codex (via config.toml) and Copilot (via mcpServers runtime config).
+   */
+  sessionServerPath?: string;
+
+  /**
+   * Path to Node/Bun executable for spawning MCP server subprocesses.
+   * Used to run session-mcp-server and bridge-mcp-server.
+   */
+  nodePath?: string;
+
   /** Callback when SDK session ID is captured/updated */
   onSdkSessionIdUpdate?: (sdkSessionId: string) => void;
 

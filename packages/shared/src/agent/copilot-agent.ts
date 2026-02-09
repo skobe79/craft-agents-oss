@@ -98,6 +98,16 @@ import { getSystemPrompt } from '../prompts/system.ts';
 // Credential manager for token storage
 import { getCredentialManager } from '../credentials/manager.ts';
 
+// Session-scoped tool callbacks (for SubmitPlan, source auth, etc.)
+import {
+  registerSessionScopedToolCallbacks,
+  unregisterSessionScopedToolCallbacks,
+} from './session-scoped-tools.ts';
+
+// Path utilities
+import { join } from 'path';
+import { homedir } from 'os';
+
 // Error typing
 import { parseError, type AgentError } from './errors.ts';
 
@@ -121,8 +131,10 @@ const THINKING_TO_EFFORT: Record<ThinkingLevel, ReasoningEffort> = {
  * Map Copilot CLI lowercase tool names to PascalCase names used by our permission system.
  * The Copilot CLI emits lowercase tool names (e.g., 'glob', 'bash') but
  * ALWAYS_ALLOWED_TOOLS and shouldAllowToolInMode expect PascalCase (e.g., 'Glob', 'Bash').
+ *
+ * Exported for use by CopilotEventAdapter (tool name normalization in events).
  */
-const COPILOT_TOOL_NAME_MAP: Record<string, string> = {
+export const COPILOT_TOOL_NAME_MAP: Record<string, string> = {
   bash: 'Bash',
   read: 'Read',
   write: 'Write',
@@ -196,6 +208,12 @@ export class CopilotAgent extends BaseAgent {
   // Session event unsubscribe function
   private unsubscribeEvents: (() => void) | null = null;
 
+  // Generation counter to invalidate stale event handlers.
+  // The Copilot SDK's session.on() unsubscribe doesn't reliably remove listeners,
+  // so old handlers accumulate. Each handler checks its generation against the
+  // current value — stale handlers become no-ops.
+  private handlerGeneration: number = 0;
+
   // ============================================================
   // Copilot-specific Callbacks
   // ============================================================
@@ -241,7 +259,7 @@ export class CopilotAgent extends BaseAgent {
 
     this.client = new CopilotClient({
       useStdio: true,
-      cwd: this.workingDirectory,
+      cwd: this.resolvedCwd(),
       autoStart: true,
       autoRestart: true,
       logLevel: this.config.debugMode?.enabled ? 'debug' : 'error',
@@ -289,6 +307,15 @@ export class CopilotAgent extends BaseAgent {
     this.currentUserMessage = message;
     this.adapter.startTurn();
 
+    // Register session-scoped tool callbacks (for SubmitPlan, source auth, etc.)
+    const sessionId = this.config.session?.id;
+    if (sessionId) {
+      registerSessionScopedToolCallbacks(sessionId, {
+        onPlanSubmitted: (planPath) => this.onPlanSubmitted?.(planPath),
+        onAuthRequest: (request) => this.onAuthRequest?.(request),
+      });
+    }
+
     try {
       // Ensure client is connected
       const client = await this.ensureClient();
@@ -326,7 +353,7 @@ export class CopilotAgent extends BaseAgent {
             systemMessage: systemPrompt ? { mode: 'append', content: systemPrompt } : undefined,
             onPermissionRequest: (request, invocation) => this.handlePermissionRequest(request, invocation.sessionId),
             hooks: this.buildHooks(),
-            workingDirectory: this.workingDirectory,
+            workingDirectory: this.resolvedCwd(),
             streaming: true,
           };
           this.session = await client.resumeSession(this.copilotSessionId, resumeConfig);
@@ -354,7 +381,7 @@ export class CopilotAgent extends BaseAgent {
           systemMessage: systemPrompt ? { mode: 'append', content: systemPrompt } : undefined,
           onPermissionRequest: (request, invocation) => this.handlePermissionRequest(request, invocation.sessionId),
           hooks: this.buildHooks(),
-          workingDirectory: this.workingDirectory,
+          workingDirectory: this.resolvedCwd(),
           configDir: this.config.copilotConfigDir,
           streaming: true,
         };
@@ -364,11 +391,16 @@ export class CopilotAgent extends BaseAgent {
         this.debug(`Created new Copilot session: ${this.session.sessionId}`);
       }
 
-      // Wire up event handler
+      // Wire up event handler.
+      // Bump generation so any lingering old handlers become no-ops.
+      // (The SDK's unsubscribe doesn't reliably remove listeners on resume.)
+      this.handlerGeneration++;
+      const expectedGen = this.handlerGeneration;
       if (this.unsubscribeEvents) {
         this.unsubscribeEvents();
       }
       this.unsubscribeEvents = this.session.on((event: SessionEvent) => {
+        if (this.handlerGeneration !== expectedGen) return;
         this.handleSessionEvent(event);
       });
 
@@ -847,6 +879,27 @@ export class CopilotAgent extends BaseAgent {
       }
     }
 
+    // Add session-scoped MCP server (provides SubmitPlan, config_validate, source_test, etc.)
+    if (this.config.sessionServerPath) {
+      const sessionId = this.config.session?.id;
+      const workspaceRootPath = this.config.workspace.rootPath;
+      if (sessionId && workspaceRootPath) {
+        const nodePath = this.config.nodePath || 'bun';
+        const plansFolderPath = join(workspaceRootPath, 'sessions', sessionId, 'plans');
+        config['session'] = {
+          type: 'local',
+          command: nodePath,
+          args: [
+            this.config.sessionServerPath,
+            '--session-id', sessionId,
+            '--workspace-root', workspaceRootPath,
+            '--plans-folder', plansFolderPath,
+          ],
+          tools: ['*'],
+        };
+      }
+    }
+
     return config;
   }
 
@@ -957,6 +1010,11 @@ export class CopilotAgent extends BaseAgent {
   destroy(): void {
     this.stopConfigWatcher();
 
+    // Unregister session-scoped tool callbacks
+    if (this.config.session?.id) {
+      unregisterSessionScopedToolCallbacks(this.config.session.id);
+    }
+
     if (this.unsubscribeEvents) {
       this.unsubscribeEvents();
       this.unsubscribeEvents = null;
@@ -995,6 +1053,18 @@ export class CopilotAgent extends BaseAgent {
   // ============================================================
   // Helpers
   // ============================================================
+
+  /**
+   * Resolve working directory to an absolute path.
+   * BaseAgent stores paths with tilde (~) but the Copilot SDK / Node.js spawn
+   * don't expand tilde, causing the CLI to fall back to configDir as cwd.
+   */
+  private resolvedCwd(): string {
+    const wd = this.workingDirectory;
+    if (wd.startsWith('~/')) return join(homedir(), wd.slice(2));
+    if (wd === '~') return homedir();
+    return wd;
+  }
 
   /**
    * Map Copilot tool names to SDK tool names for permission checking.

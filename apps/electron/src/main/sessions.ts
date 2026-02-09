@@ -2235,6 +2235,20 @@ export class SessionManager {
         )
         const { mcpServers, apiServers } = await buildServersFromSources(enabledSources, sessionPath, managed.tokenRefreshManager)
 
+        // Session MCP server path - provides session-scoped tools (SubmitPlan, config_validate, etc.)
+        // Same resolution logic as Codex branch (line ~324)
+        const copilotSessionServerPath = app.isPackaged
+          ? join(app.getAppPath(), 'resources', 'session-mcp-server', 'index.js')
+          : join(process.cwd(), 'packages', 'session-mcp-server', 'dist', 'index.js')
+        const copilotSessionServerExists = existsSync(copilotSessionServerPath)
+        if (!copilotSessionServerExists) {
+          sessionLog.warn(`Session MCP server not found at ${copilotSessionServerPath}. Session-scoped tools (SubmitPlan, etc.) will not be available in Copilot sessions. Run 'bun run electron:build' to build it.`)
+        }
+
+        // Create per-session config directory for Copilot CLI
+        const copilotConfigDir = join(sessionPath, '.copilot-config')
+        await mkdir(copilotConfigDir, { recursive: true })
+
         managed.agent = new CopilotAgent({
           provider: 'copilot',
           authType: authType || 'oauth',
@@ -2244,6 +2258,9 @@ export class SessionManager {
           thinkingLevel: managed.thinkingLevel,
           connectionSlug: connection?.slug,
           copilotCliPath: this.copilotCliPath,
+          copilotConfigDir,
+          sessionServerPath: copilotSessionServerExists ? copilotSessionServerPath : undefined,
+          nodePath: getBundledBunPath() ?? 'bun',
           session: {
             id: managed.id,
             workspaceRootPath: managed.workspace.rootPath,
