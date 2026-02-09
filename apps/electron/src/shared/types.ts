@@ -707,6 +707,13 @@ export const IPC_CHANNELS = {
   CHATGPT_GET_AUTH_STATUS: 'chatgpt:getAuthStatus',
   CHATGPT_LOGOUT: 'chatgpt:logout',
 
+  // GitHub Copilot OAuth
+  COPILOT_START_OAUTH: 'copilot:startOAuth',
+  COPILOT_CANCEL_OAUTH: 'copilot:cancelOAuth',
+  COPILOT_GET_AUTH_STATUS: 'copilot:getAuthStatus',
+  COPILOT_LOGOUT: 'copilot:logout',
+  COPILOT_DEVICE_CODE: 'copilot:deviceCode',
+
   // Settings - API Setup
   SETUP_LLM_CONNECTION: 'settings:setupLlmConnection',
   SETTINGS_TEST_API_CONNECTION: 'settings:testApiConnection',
@@ -983,6 +990,13 @@ export interface ElectronAPI {
   cancelChatGptOAuth(): Promise<{ success: boolean }>
   getChatGptAuthStatus(connectionSlug: string): Promise<{ authenticated: boolean; expiresAt?: number; hasRefreshToken?: boolean }>
   chatGptLogout(connectionSlug: string): Promise<{ success: boolean }>
+
+  // GitHub Copilot OAuth
+  startCopilotOAuth(connectionSlug: string): Promise<{ success: boolean; error?: string }>
+  cancelCopilotOAuth(): Promise<{ success: boolean }>
+  getCopilotAuthStatus(connectionSlug: string): Promise<{ authenticated: boolean }>
+  copilotLogout(connectionSlug: string): Promise<{ success: boolean }>
+  onCopilotDeviceCode(callback: (data: { userCode: string; verificationUri: string }) => void): () => void
 
   /** Unified LLM connection setup */
   setupLlmConnection(setup: LlmConnectionSetup): Promise<{ success: boolean; error?: string }>

@@ -29,6 +29,8 @@ interface CredentialsStepProps {
   isWaitingForCode?: boolean
   onSubmitAuthCode?: (code: string) => void
   onCancelOAuth?: () => void
+  // Device flow (Copilot)
+  copilotDeviceCode?: { userCode: string; verificationUri: string }
 }
 
 export function CredentialsStep({
@@ -41,9 +43,11 @@ export function CredentialsStep({
   isWaitingForCode,
   onSubmitAuthCode,
   onCancelOAuth,
+  copilotDeviceCode,
 }: CredentialsStepProps) {
   const isClaudeOAuth = apiSetupMethod === 'claude_oauth'
   const isChatGptOAuth = apiSetupMethod === 'chatgpt_oauth'
+  const isCopilotOAuth = apiSetupMethod === 'copilot_oauth'
   const isAnthropicApiKey = apiSetupMethod === 'anthropic_api_key'
   const isOpenAiApiKey = apiSetupMethod === 'openai_api_key'
   const isApiKey = isAnthropicApiKey || isOpenAiApiKey
@@ -81,6 +85,63 @@ export function CredentialsStep({
           {status === 'success' && (
             <div className="rounded-lg bg-success/10 text-success text-sm p-3">
               Connected! Your ChatGPT subscription is ready.
+            </div>
+          )}
+        </div>
+      </StepFormLayout>
+    )
+  }
+
+  // --- Copilot OAuth flow (device flow) ---
+  if (isCopilotOAuth) {
+    return (
+      <StepFormLayout
+        title="Connect GitHub Copilot"
+        description="Use your GitHub Copilot subscription to power AI agents."
+        actions={
+          <>
+            <BackButton onClick={onBack} disabled={status === 'validating'} />
+            <ContinueButton
+              onClick={() => onStartOAuth?.()}
+              className="gap-2"
+              loading={status === 'validating'}
+              loadingText="Waiting for authorization..."
+            >
+              <ExternalLink className="size-4" />
+              Sign in with GitHub
+            </ContinueButton>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {copilotDeviceCode ? (
+            <div className="rounded-xl bg-foreground-2 p-4 text-sm space-y-3">
+              <p className="text-muted-foreground">
+                Enter this code on GitHub to authorize:
+              </p>
+              <div className="flex items-center justify-center">
+                <code className="text-2xl font-mono font-bold tracking-widest text-foreground px-4 py-2 rounded-lg bg-background border border-border">
+                  {copilotDeviceCode.userCode}
+                </code>
+              </div>
+              <p className="text-muted-foreground text-xs text-center">
+                A browser window should have opened to{' '}
+                <span className="font-medium">github.com/login/device</span>
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl bg-foreground-2 p-4 text-sm text-muted-foreground">
+              <p>Click the button above to sign in with your GitHub account. A browser window will open for authentication.</p>
+            </div>
+          )}
+          {status === 'error' && errorMessage && (
+            <div className="rounded-lg bg-destructive/10 text-destructive text-sm p-3">
+              {errorMessage}
+            </div>
+          )}
+          {status === 'success' && (
+            <div className="rounded-lg bg-success/10 text-success text-sm p-3">
+              Connected! Your GitHub Copilot subscription is ready.
             </div>
           )}
         </div>

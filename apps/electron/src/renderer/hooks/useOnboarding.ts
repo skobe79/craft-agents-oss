@@ -54,6 +54,9 @@ interface UseOnboardingReturn {
   handleSubmitAuthCode: (code: string) => void
   handleCancelOAuth: () => void
 
+  // Copilot device code (displayed during device flow)
+  copilotDeviceCode?: { userCode: string; verificationUri: string }
+
   // Git Bash (Windows)
   handleBrowseGitBash: () => Promise<string | null>
   handleUseGitBashPath: (path: string) => void
@@ -99,6 +102,11 @@ function apiSetupMethodToConnectionSetup(
         baseUrl: options.baseUrl,
         defaultModel: options.connectionDefaultModel,
         models: options.models,
+      }
+    case 'copilot_oauth':
+      return {
+        slug: 'copilot',
+        credential: options.credential,
       }
   }
 }
@@ -320,6 +328,9 @@ export function useOnboarding({
   // Two-step OAuth flow state
   const [isWaitingForCode, setIsWaitingForCode] = useState(false)
 
+  // Copilot device code (displayed during device flow)
+  const [copilotDeviceCode, setCopilotDeviceCode] = useState<{ userCode: string; verificationUri: string } | undefined>()
+
   // Start OAuth flow (Claude or ChatGPT depending on selected method)
   const handleStartOAuth = useCallback(async (methodOverride?: ApiSetupMethod) => {
     const effectiveMethod = methodOverride ?? state.apiSetupMethod
@@ -365,6 +376,40 @@ export function useOnboarding({
             credentialStatus: 'error',
             errorMessage: result.error || 'ChatGPT authentication failed',
           }))
+        }
+        return
+      }
+
+      // Copilot OAuth (device flow — polls for token after user enters code on GitHub)
+      if (effectiveMethod === 'copilot_oauth') {
+        const connectionSlug = apiSetupMethodToConnectionSetup(effectiveMethod, {}).slug
+
+        // Subscribe to device code event before starting the flow
+        const cleanup = window.electronAPI.onCopilotDeviceCode((data) => {
+          setCopilotDeviceCode(data)
+        })
+
+        try {
+          const result = await window.electronAPI.startCopilotOAuth(connectionSlug)
+
+          if (result.success) {
+            // Tokens captured, save config and complete
+            await handleSaveConfig(undefined)
+            setState(s => ({
+              ...s,
+              credentialStatus: 'success',
+              step: 'complete',
+            }))
+          } else {
+            setState(s => ({
+              ...s,
+              credentialStatus: 'error',
+              errorMessage: result.error || 'GitHub authentication failed',
+            }))
+          }
+        } finally {
+          cleanup()
+          setCopilotDeviceCode(undefined)
         }
         return
       }
@@ -534,6 +579,8 @@ export function useOnboarding({
     isWaitingForCode,
     handleSubmitAuthCode,
     handleCancelOAuth,
+    // Copilot device code
+    copilotDeviceCode,
     // Git Bash (Windows)
     handleBrowseGitBash,
     handleUseGitBashPath,

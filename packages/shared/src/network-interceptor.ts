@@ -14,17 +14,20 @@
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, appendFileSync, mkdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { isDebugEnabled } from './utils/debug.js';
 
 // Type alias for fetch's HeadersInit (not in ESNext lib, but available at runtime via Bun)
 // Using string[][] instead of [string, string][] to match RequestInit.headers type
 type HeadersInitType = Headers | Record<string, string> | string[][];
 
 // Feature flags
-const TOOL_METADATA_FOR_ALL_TOOLS = false; // When false, only add metadata to MCP tools
 const INTERCEPTOR_LOGGING_ENABLED = false; // When false, disable all debug logging
 
 const DEBUG = INTERCEPTOR_LOGGING_ENABLED &&
   (process.argv.includes('--debug') || process.env.CRAFT_DEBUG === '1');
+
+// Add metadata to all tools only in debug mode (for cache stability testing)
+const TOOL_METADATA_FOR_ALL_TOOLS = isDebugEnabled();
 
 // Log file for debug output (avoids console spam)
 const LOG_DIR = join(homedir(), '.craft-agent', 'logs');
@@ -298,6 +301,10 @@ function isApiMessagesUrl(url: string): boolean {
  *
  * These fields are extracted for UI display in tool-matching.ts, then stripped
  * before execution in pre-tool-use.ts to avoid SDK validation errors.
+ *
+ * IMPORTANT: Properties are always ordered with _displayName first, _intent second,
+ * followed by original properties. This ensures consistent schema structure across
+ * all tools for LLM input cache stability.
  */
 function addMetadataToAllTools(body: Record<string, unknown>): Record<string, unknown> {
   const tools = body.tools as Array<{
@@ -312,6 +319,15 @@ function addMetadataToAllTools(body: Record<string, unknown>): Record<string, un
     return body;
   }
 
+  const displayNameSchema = {
+    type: 'string',
+    description: 'REQUIRED: Human-friendly name for this action (2-4 words, e.g., "List Folders", "Search Documents", "Create Task")',
+  };
+  const intentSchema = {
+    type: 'string',
+    description: 'REQUIRED: Describe what you are trying to accomplish with this tool call (1-2 sentences)',
+  };
+
   let modifiedCount = 0;
   for (const tool of tools) {
     // Skip non-MCP tools when feature flag is disabled
@@ -322,39 +338,27 @@ function addMetadataToAllTools(body: Record<string, unknown>): Record<string, un
 
     // Add metadata fields to tools with input schemas
     if (tool.input_schema?.properties) {
-      let modified = false;
+      // Extract existing properties, excluding any existing metadata fields
+      const { _displayName, _intent, ...restProperties } = tool.input_schema.properties as {
+        _displayName?: unknown;
+        _intent?: unknown;
+        [key: string]: unknown;
+      };
 
-      // Add _intent if not present
-      if (!('_intent' in tool.input_schema.properties)) {
-        tool.input_schema.properties._intent = {
-          type: 'string',
-          description: 'REQUIRED: Describe what you are trying to accomplish with this tool call (1-2 sentences)',
-        };
-        modified = true;
-      }
+      // Reconstruct properties with metadata fields FIRST for cache stability
+      // This ensures consistent ordering: _displayName, _intent, then original properties
+      tool.input_schema.properties = {
+        _displayName: _displayName || displayNameSchema,
+        _intent: _intent || intentSchema,
+        ...restProperties,
+      };
 
-      // Add _displayName if not present
-      if (!('_displayName' in tool.input_schema.properties)) {
-        tool.input_schema.properties._displayName = {
-          type: 'string',
-          description: 'REQUIRED: Human-friendly name for this action (2-4 words, e.g., "List Folders", "Search Documents", "Create Task")',
-        };
-        modified = true;
-      }
+      // Reconstruct required array with metadata fields first
+      const currentRequired = tool.input_schema.required || [];
+      const otherRequired = currentRequired.filter(r => r !== '_displayName' && r !== '_intent');
+      tool.input_schema.required = ['_displayName', '_intent', ...otherRequired];
 
-      // Add both to required array if we modified anything
-      if (modified) {
-        const currentRequired = tool.input_schema.required || [];
-        const newRequired = [...currentRequired];
-        if (!currentRequired.includes('_intent')) {
-          newRequired.push('_intent');
-        }
-        if (!currentRequired.includes('_displayName')) {
-          newRequired.push('_displayName');
-        }
-        tool.input_schema.required = newRequired;
-        modifiedCount++;
-      }
+      modifiedCount++;
     }
   }
 

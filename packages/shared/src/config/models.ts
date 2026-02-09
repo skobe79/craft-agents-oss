@@ -17,7 +17,7 @@
 /**
  * Provider identifier for AI backends.
  */
-export type ModelProvider = 'anthropic' | 'openai';
+export type ModelProvider = 'anthropic' | 'openai' | 'copilot';
 
 /**
  * Full model definition with capabilities and costs.
@@ -36,6 +36,8 @@ export interface ModelDefinition {
   provider: ModelProvider;
   /** Maximum context window in tokens */
   contextWindow: number;
+  /** Whether this model supports thinking/reasoning effort. Defaults to true when undefined. */
+  supportsThinking?: boolean;
 }
 
 // ============================================
@@ -95,6 +97,12 @@ export const MODEL_REGISTRY: ModelDefinition[] = [
     provider: 'openai',
     contextWindow: 128_000,
   },
+
+  // ----------------------------------------
+  // GitHub Copilot Models (via Copilot SDK)
+  // No hardcoded entries — models are discovered at runtime via client.listModels()
+  // and stored on the connection. See fetchAndStoreCopilotModels() in ipc.ts.
+  // ----------------------------------------
 ];
 
 // ============================================
@@ -113,6 +121,9 @@ export const ANTHROPIC_MODELS = getModelsByProvider('anthropic');
 
 /** All OpenAI/Codex models */
 export const OPENAI_MODELS = getModelsByProvider('openai');
+
+/** All GitHub Copilot models */
+export const COPILOT_MODELS = getModelsByProvider('copilot');
 
 /**
  * Legacy compatibility export.
@@ -147,6 +158,9 @@ export const DEFAULT_MODEL = getModelIdByShortName('Sonnet');
 
 /** Default model for Codex/OpenAI connections (used when creating/backfilling connections) */
 export const DEFAULT_CODEX_MODEL = getModelIdByShortName('Codex');
+
+/** Default model for Copilot connections — no hardcoded default; models come from listModels() */
+export const DEFAULT_COPILOT_MODEL: string | undefined = undefined;
 
 // ============================================
 // UTILITY MODELS
@@ -231,6 +245,14 @@ export function isClaudeModel(modelId: string): boolean {
 export function isCodexModel(modelId: string): boolean {
   const lower = modelId.toLowerCase();
   return lower.includes('codex');
+}
+
+/**
+ * Check if a model ID refers to a Copilot model.
+ */
+export function isCopilotModel(modelId: string): boolean {
+  const model = getModelById(modelId);
+  return model?.provider === 'copilot';
 }
 
 /**
