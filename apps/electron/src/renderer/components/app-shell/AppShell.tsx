@@ -1691,7 +1691,10 @@ function AppShellContent({
     const newSession = await onCreateSession(activeWorkspace.id)
     // Navigate to the new session via central routing
     navigate(routes.view.allSessions(newSession.id))
-  }, [activeWorkspace, onCreateSession])
+
+    // Focus the chat input after navigation completes
+    setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
+  }, [activeWorkspace, onCreateSession, focusZone])
 
   // Delete Source - simplified since agents system is removed
   const handleDeleteSource = useCallback(async (sourceSlug: string) => {

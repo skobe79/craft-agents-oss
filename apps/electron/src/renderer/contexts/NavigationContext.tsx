@@ -32,7 +32,7 @@ import {
   type ReactNode,
 } from 'react'
 import { toast } from 'sonner'
-import { useAtomValue, useSetAtom } from 'jotai'
+import { useAtomValue, useSetAtom, useStore } from 'jotai'
 import { useSession } from '@/hooks/useSession'
 import {
   parseRoute,
@@ -124,6 +124,9 @@ export function NavigationProvider({
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const sessionMetas = useMemo(() => Array.from(sessionMetaMap.values()), [sessionMetaMap])
   const updateSessionMeta = useSetAtom(updateSessionMetaAtom)
+
+  // Store reference for reading fresh atom values in callbacks (avoids stale closures)
+  const store = useStore()
 
   // Read sources from atom (populated by AppShell)
   const sources = useAtomValue(sourcesAtom)
@@ -420,8 +423,10 @@ export function NavigationProvider({
 
       // If an explicit session is provided but doesn't exist in the current workspace,
       // treat it as no selection so we can auto-select a valid session (if any).
+      // Use store.get() for fresh atom value to avoid stale closure after session creation.
       if (isSessionsNavigation(nextState) && nextState.details) {
-        const meta = sessionMetaMap.get(nextState.details.sessionId)
+        const freshMetaMap = store.get(sessionMetaMapAtom)
+        const meta = freshMetaMap.get(nextState.details.sessionId)
         if (!meta || (workspaceId && meta.workspaceId !== workspaceId)) {
           nextState = { ...nextState, details: null }
         }
@@ -493,7 +498,7 @@ export function NavigationProvider({
       setNavigationState(nextState)
       return nextState
     },
-    [getFirstSessionId, getLastSelectedSessionId, getFirstSourceSlug, getFirstSkillSlug, setSession, sessionMetaMap, workspaceId]
+    [getFirstSessionId, getLastSelectedSessionId, getFirstSourceSlug, getFirstSkillSlug, setSession, store, workspaceId]
   )
 
   // Main navigate function - unified approach using NavigationState
