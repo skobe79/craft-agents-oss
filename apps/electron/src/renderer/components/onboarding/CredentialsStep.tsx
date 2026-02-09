@@ -5,7 +5,8 @@
  * with StepFormLayout for the onboarding wizard context.
  */
 
-import { ExternalLink } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Check, ExternalLink } from "lucide-react"
 import type { ApiSetupMethod } from "./APISetupStep"
 import { StepFormLayout, BackButton, ContinueButton } from "./primitives"
 import {
@@ -51,6 +52,30 @@ export function CredentialsStep({
   const isAnthropicApiKey = apiSetupMethod === 'anthropic_api_key'
   const isOpenAiApiKey = apiSetupMethod === 'openai_api_key'
   const isApiKey = isAnthropicApiKey || isOpenAiApiKey
+
+  // Copilot device code clipboard handling
+  const [copiedCode, setCopiedCode] = useState(false)
+
+  // Auto-copy device code to clipboard when it appears
+  useEffect(() => {
+    if (copilotDeviceCode?.userCode) {
+      navigator.clipboard.writeText(copilotDeviceCode.userCode).then(() => {
+        setCopiedCode(true)
+        setTimeout(() => setCopiedCode(false), 2000)
+      }).catch(() => {
+        // Clipboard write failed, user can still click to copy
+      })
+    }
+  }, [copilotDeviceCode?.userCode])
+
+  const handleCopyCode = () => {
+    if (copilotDeviceCode?.userCode) {
+      navigator.clipboard.writeText(copilotDeviceCode.userCode).then(() => {
+        setCopiedCode(true)
+        setTimeout(() => setCopiedCode(false), 2000)
+      })
+    }
+  }
 
   // --- ChatGPT OAuth flow (native browser OAuth) ---
   if (isChatGptOAuth) {
@@ -116,31 +141,38 @@ export function CredentialsStep({
         <div className="space-y-4">
           {copilotDeviceCode ? (
             <div className="rounded-xl bg-foreground-2 p-4 text-sm space-y-3">
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground text-center">
                 Enter this code on GitHub to authorize:
               </p>
-              <div className="flex items-center justify-center">
-                <code className="text-2xl font-mono font-bold tracking-widest text-foreground px-4 py-2 rounded-lg bg-background border border-border">
+              <div className="flex flex-col items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyCode}
+                  className="text-2xl font-mono font-bold tracking-widest text-foreground px-4 py-2 rounded-lg bg-background border border-border hover:bg-foreground-2 transition-colors cursor-pointer"
+                >
                   {copilotDeviceCode.userCode}
-                </code>
+                </button>
+                <span className={`text-xs text-muted-foreground flex items-center gap-1 transition-opacity ${copiedCode ? 'opacity-100' : 'opacity-0'}`}>
+                  <Check className="size-3" />
+                  Copied to clipboard
+                </span>
               </div>
               <p className="text-muted-foreground text-xs text-center">
-                A browser window should have opened to{' '}
-                <span className="font-medium">github.com/login/device</span>
+                A browser window should have opened to github.com/login/device
               </p>
             </div>
           ) : (
-            <div className="rounded-xl bg-foreground-2 p-4 text-sm text-muted-foreground">
-              <p>Click the button above to sign in with your GitHub account. A browser window will open for authentication.</p>
+            <div className="rounded-xl bg-foreground-2 p-4 text-sm text-muted-foreground text-center">
+              <p>Click the button above to sign in with your GitHub account.</p>
             </div>
           )}
           {status === 'error' && errorMessage && (
-            <div className="rounded-lg bg-destructive/10 text-destructive text-sm p-3">
+            <div className="rounded-lg bg-destructive/10 text-destructive text-sm p-3 text-center">
               {errorMessage}
             </div>
           )}
           {status === 'success' && (
-            <div className="rounded-lg bg-success/10 text-success text-sm p-3">
+            <div className="rounded-lg bg-success/10 text-success text-sm p-3 text-center">
               Connected! Your GitHub Copilot subscription is ready.
             </div>
           )}

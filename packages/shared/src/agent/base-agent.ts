@@ -50,6 +50,10 @@ import { getSessionPlansPath } from '../sessions/storage.ts';
 import { getMiniAgentSystemPrompt } from '../prompts/system.ts';
 import { buildTitlePrompt, buildRegenerateTitlePrompt, validateTitle } from '../utils/title-generator.ts';
 
+// Skill extraction for Codex/Copilot backends (Claude uses native SDK Skill tool)
+import { parseMentions, stripAllMentions } from '../mentions/index.ts';
+import { loadWorkspaceSkills } from '../skills/storage.ts';
+
 // ============================================================
 // Mini Agent Configuration
 // ============================================================
@@ -696,6 +700,61 @@ Please continue the conversation naturally from where we left off.
   protected getSkillContent(skillPath: string): string | null {
     const filePath = join(skillPath, 'SKILL.md')
     return existsSync(filePath) ? readFileSync(filePath, 'utf-8') : null
+  }
+
+  /**
+   * Extract skill mentions from a message and return formatted skill contents.
+   *
+   * Parses [skill:slug] or [skill:workspaceId:slug] mentions, loads the
+   * corresponding SKILL.md files, and wraps them in XML tags.
+   *
+   * Used by CodexAgent and CopilotAgent to inject skill content into messages.
+   * (ClaudeAgent uses the SDK's native Skill tool instead.)
+   *
+   * @param message - The user message containing potential skill mentions
+   * @returns Object with:
+   *   - skillContents: Array of formatted skill XML blocks
+   *   - cleanMessage: Message with mentions stripped, or default directive
+   */
+  protected extractSkillContent(message: string): {
+    skillContents: string[];
+    cleanMessage: string;
+  } {
+    const workspaceRoot = this.config.workspace?.rootPath ?? this.workingDirectory;
+    const skills = loadWorkspaceSkills(workspaceRoot);
+    const skillSlugs = skills.map(s => s.slug);
+
+    this.debug(`[extractSkillContent] Available skills: ${skillSlugs.join(', ')}`);
+
+    const parsed = parseMentions(message, skillSlugs, []);
+    this.debug(`[extractSkillContent] Parsed skills: ${JSON.stringify(parsed.skills)}`);
+
+    // Read matched SKILL.md files and wrap in XML tags
+    const skillContents: string[] = [];
+    for (const slug of parsed.skills) {
+      const skill = skills.find(s => s.slug === slug);
+      if (skill) {
+        const content = this.getSkillContent(skill.path);
+        if (content) {
+          this.debug(`[extractSkillContent] Loaded skill ${skill.slug} (${content.length} chars)`);
+          skillContents.push(`<skill name="${skill.slug}">\n${content}\n</skill>`);
+        } else {
+          this.debug(`[extractSkillContent] SKILL.md not found: ${skill.path}`);
+        }
+      }
+    }
+
+    // Strip all bracket mentions from the message text
+    const stripped = stripAllMentions(message).trim();
+
+    // If user sent only skill mentions with no other text, add a directive
+    const cleanMessage = (!stripped && skillContents.length > 0)
+      ? 'Follow the skill instructions above.'
+      : stripped;
+
+    this.debug(`[extractSkillContent] Clean message: "${cleanMessage.slice(0, 100)}...", skills: ${skillContents.length}`);
+
+    return { skillContents, cleanMessage };
   }
 
   // ============================================================

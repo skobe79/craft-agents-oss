@@ -70,12 +70,6 @@ import { debug } from '../utils/debug.ts';
 // Session storage for plans folder path
 import { getSessionPlansPath } from '../sessions/storage.ts';
 
-// Mention parsing for skill extraction
-import { parseMentions, stripAllMentions } from '../mentions/index.ts';
-
-// Skills loader for resolving skill paths
-import { loadWorkspaceSkills } from '../skills/storage.ts';
-
 // Path utilities for cross-platform normalization
 import { join, resolve } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
@@ -1983,43 +1977,9 @@ export class CodexAgent extends BaseAgent {
     const input: UserInput[] = [];
 
     // ============================================================
-    // SKILL MENTION EXTRACTION
+    // SKILL MENTION EXTRACTION (delegated to BaseAgent)
     // ============================================================
-
-    // Parse [skill:workspaceId:slug] mentions from the message.
-    // Load workspace skills to match against and resolve paths.
-    const workspaceRoot = this.config.workspace.rootPath ?? this.workingDirectory;
-    const skills = loadWorkspaceSkills(workspaceRoot);
-    const skillSlugs = skills.map(s => s.slug);
-    this.debug(`[buildUserInput] Available skills: ${skillSlugs.join(', ')}`);
-    const parsed = parseMentions(message, skillSlugs, []);
-    this.debug(`[buildUserInput] Parsed skills from message: ${JSON.stringify(parsed.skills)}, raw message: ${message.slice(0, 200)}`);
-
-    // Read matched SKILL.md files and inject their content directly into the
-    // user message. The Codex app-server only discovers skills from its own
-    // standard paths ({CODEX_HOME}/skills/, .agents/skills/), so we read and
-    // inject workspace skill content ourselves to guarantee the model sees it.
-    const skillContents: string[] = [];
-    for (const slug of parsed.skills) {
-      const skill = skills.find(s => s.slug === slug);
-      if (skill) {
-        const content = this.getSkillContent(skill.path);
-        if (content) {
-          this.debug(`[buildUserInput] Loaded skill ${skill.slug} (${content.length} chars) from ${skill.path}`);
-          skillContents.push(`<skill name="${skill.slug}">\n${content}\n</skill>`);
-        } else {
-          this.debug(`[buildUserInput] SKILL.md not found: ${skill.path}`);
-        }
-      }
-    }
-
-    // Strip all bracket mentions from the message text.
-    const cleanMessage = stripAllMentions(message).trim();
-    // If the user sent only skill mentions with no other text, add a directive.
-    const effectiveMessage = (!cleanMessage && skillContents.length > 0)
-      ? 'Follow the skill instructions above.'
-      : cleanMessage;
-    this.debug(`[buildUserInput] Clean message: "${effectiveMessage.slice(0, 200)}", skills injected: ${skillContents.length}`);
+    const { skillContents, cleanMessage: effectiveMessage } = this.extractSkillContent(message);
 
     // ============================================================
     // CONTEXT INJECTION (matching ClaudeAgent)
@@ -2028,6 +1988,7 @@ export class CodexAgent extends BaseAgent {
     // Build context parts using centralized PromptBuilder
     // This includes: date/time, session state (with plansFolderPath),
     // workspace capabilities, and working directory context
+    const workspaceRoot = this.config.workspace.rootPath ?? this.workingDirectory;
     const contextParts = this.promptBuilder.buildContextParts(
       {
         plansFolderPath: getSessionPlansPath(

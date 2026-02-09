@@ -27,6 +27,8 @@ interface UseOnboardingOptions {
   initialSetupNeeds?: SetupNeeds
   /** Start the wizard at a specific step (default: 'welcome') */
   initialStep?: OnboardingStep
+  /** Pre-select an API setup method (useful when editing an existing connection) */
+  initialApiSetupMethod?: ApiSetupMethod
   /** Called when user goes back from the initial step (dismisses the wizard) */
   onDismiss?: () => void
   /** Called immediately after config is saved to disk (before wizard closes).
@@ -69,6 +71,9 @@ interface UseOnboardingReturn {
 
   // Reset
   reset: () => void
+
+  // Edit mode - start wizard at credentials step for editing an API key connection
+  startEditMode: (method: ApiSetupMethod) => void
 }
 
 // Map ApiSetupMethod to LlmConnectionSetup for the new unified connection system
@@ -115,6 +120,7 @@ export function useOnboarding({
   onComplete,
   initialSetupNeeds,
   initialStep = 'welcome',
+  initialApiSetupMethod,
   onDismiss,
   onConfigSaved,
 }: UseOnboardingOptions): UseOnboardingReturn {
@@ -124,7 +130,7 @@ export function useOnboarding({
     loginStatus: 'idle',
     credentialStatus: 'idle',
     completionStatus: 'saving',
-    apiSetupMethod: null,
+    apiSetupMethod: initialApiSetupMethod ?? null,
     isExistingUser: initialSetupNeeds?.needsBillingConfig ?? false,
     gitBashStatus: undefined,
     isRecheckingGitBash: false,
@@ -557,7 +563,7 @@ export function useOnboarding({
       loginStatus: 'idle',
       credentialStatus: 'idle',
       completionStatus: 'saving',
-      apiSetupMethod: null,
+      apiSetupMethod: initialApiSetupMethod ?? null,
       isExistingUser: false,
       errorMessage: undefined,
     })
@@ -566,6 +572,21 @@ export function useOnboarding({
     window.electronAPI.clearClaudeOAuthState().catch(() => {
       // Ignore errors - state may not exist
     })
+  }, [initialStep, initialApiSetupMethod])
+
+  // Start edit mode - jump directly to credentials step with pre-selected method
+  // Used when editing an existing API key connection (skips provider selection)
+  const startEditMode = useCallback((method: ApiSetupMethod) => {
+    setState({
+      step: 'credentials',
+      loginStatus: 'idle',
+      credentialStatus: 'idle',
+      completionStatus: 'saving',
+      apiSetupMethod: method,
+      isExistingUser: true,
+      errorMessage: undefined,
+    })
+    setIsWaitingForCode(false)
   }, [])
 
   return {
@@ -589,5 +610,6 @@ export function useOnboarding({
     handleFinish,
     handleCancel,
     reset,
+    startEditMode,
   }
 }

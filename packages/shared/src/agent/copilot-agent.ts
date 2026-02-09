@@ -440,6 +440,11 @@ export class CopilotAgent extends BaseAgent {
         }
       }
 
+      // ============================================================
+      // SKILL MENTION EXTRACTION (shared with CodexAgent)
+      // ============================================================
+      const { skillContents, cleanMessage: effectiveMessage } = this.extractSkillContent(message);
+
       // Build context parts using centralized PromptBuilder
       // This includes: date/time, session state (with plansFolderPath),
       // workspace capabilities, and working directory context
@@ -448,11 +453,12 @@ export class CopilotAgent extends BaseAgent {
         sourceContext
       );
 
-      // Combine: context + attachments + user message
+      // Combine: skills + context + attachments + user message
       const messageParts = [
+        ...skillContents,
         ...contextParts,
         ...attachmentParts,
-        message,
+        effectiveMessage,
       ].filter(Boolean);
       const fullMessage = messageParts.join('\n\n');
 

@@ -150,9 +150,11 @@ interface ConnectionRowProps {
   onReauthenticate: () => void
   validationState: ValidationState
   validationError?: string
+  /** Hide edit option for OAuth connections (they can only re-authenticate) */
+  showEdit: boolean
 }
 
-function ConnectionRow({ connection, isLastConnection, onEdit, onDelete, onSetDefault, onValidate, onReauthenticate, validationState, validationError }: ConnectionRowProps) {
+function ConnectionRow({ connection, isLastConnection, onEdit, onDelete, onSetDefault, onValidate, onReauthenticate, validationState, validationError, showEdit }: ConnectionRowProps) {
   const [menuOpen, setMenuOpen] = useState(false)
 
   // Build description with provider, default indicator, auth status, and validation state
@@ -207,10 +209,12 @@ function ConnectionRow({ connection, isLastConnection, onEdit, onDelete, onSetDe
           </button>
         </DropdownMenuTrigger>
         <StyledDropdownMenuContent align="end">
-          <StyledDropdownMenuItem onClick={onEdit}>
-            <Pencil className="h-3.5 w-3.5" />
-            <span>Edit</span>
-          </StyledDropdownMenuItem>
+          {showEdit && (
+            <StyledDropdownMenuItem onClick={onEdit}>
+              <Pencil className="h-3.5 w-3.5" />
+              <span>Edit</span>
+            </StyledDropdownMenuItem>
+          )}
           {!connection.isDefault && (
             <StyledDropdownMenuItem onClick={onSetDefault}>
               <Star className="h-3.5 w-3.5" />
@@ -539,9 +543,15 @@ export default function AiSettingsPage() {
   }, [llmConnections, openApiSetup])
 
   // Connection action handlers
-  const handleEditConnection = useCallback((slug: string) => {
-    openApiSetup(slug)
-  }, [openApiSetup])
+  const handleEditConnection = useCallback((connection: LlmConnectionWithStatus) => {
+    // Determine the API setup method based on provider type
+    // Note: This should only be called for non-OAuth connections (API key)
+    const method = connection.providerType === 'openai' ? 'openai_api_key'
+                 : 'anthropic_api_key' // Default to Anthropic for other types
+
+    openApiSetup(connection.slug)
+    apiSetupOnboarding.startEditMode(method)
+  }, [openApiSetup, apiSetupOnboarding])
 
   const handleReauthenticateConnection = useCallback((connection: LlmConnectionWithStatus) => {
     openApiSetup(connection.slug)
@@ -739,13 +749,14 @@ export default function AiSettingsPage() {
                         key={conn.slug}
                         connection={conn}
                         isLastConnection={false}
-                        onEdit={() => handleEditConnection(conn.slug)}
+                        onEdit={() => handleEditConnection(conn)}
                         onDelete={() => handleDeleteConnection(conn.slug)}
                         onSetDefault={() => handleSetDefaultConnection(conn.slug)}
                         onValidate={() => handleValidateConnection(conn.slug)}
                         onReauthenticate={() => handleReauthenticateConnection(conn)}
                         validationState={validationStates[conn.slug]?.state || 'idle'}
                         validationError={validationStates[conn.slug]?.error}
+                        showEdit={conn.authType !== 'oauth'}
                       />
                     ))
                   )}
