@@ -9,7 +9,8 @@ import { createLogger } from '../../utils/debug.ts';
 import type { EventBus, BaseEventPayload } from '../event-bus.ts';
 import type { HookHandler, CommandHandlerOptions, HooksConfigProvider } from './types.ts';
 import type { HookEvent, CommandHookDefinition } from '../types.ts';
-import { executeCommand, setPermissionsContext, clearPermissionsContext } from '../command-executor.ts';
+import { executeCommand } from '../command-executor.ts';
+import type { PermissionsContext } from '../../agent/permissions-config.ts';
 import { matcherMatches, buildEnvFromPayload } from '../utils.ts';
 
 const log = createLogger('command-handler');
@@ -21,18 +22,17 @@ const log = createLogger('command-handler');
 export class CommandHandler implements HookHandler {
   private readonly options: CommandHandlerOptions;
   private readonly configProvider: HooksConfigProvider;
+  private readonly permissionsContext: PermissionsContext;
   private bus: EventBus | null = null;
   private boundHandler: ((event: HookEvent, payload: BaseEventPayload) => Promise<void>) | null = null;
 
   constructor(options: CommandHandlerOptions, configProvider: HooksConfigProvider) {
     this.options = options;
     this.configProvider = configProvider;
-
-    // Set up permissions context
-    setPermissionsContext({
+    this.permissionsContext = {
       workspaceRootPath: options.workspaceRootPath,
       activeSourceSlugs: options.activeSourceSlugs,
-    });
+    };
   }
 
   /**
@@ -83,6 +83,7 @@ export class CommandHandler implements HookHandler {
             timeout: command.timeout ?? 60000,
             cwd: this.options.workingDir,
             permissionMode,
+            permissionsContext: this.permissionsContext,
           });
 
           const durationMs = Date.now() - startTime;
@@ -112,7 +113,6 @@ export class CommandHandler implements HookHandler {
       this.boundHandler = null;
     }
     this.bus = null;
-    clearPermissionsContext();
     log.debug(`[CommandHandler] Disposed`);
   }
 }

@@ -128,12 +128,23 @@ export function matcherMatches(matcher: HookMatcher, event: HookEvent, data: Rec
 // ============================================================================
 
 /**
+ * Get process.env as a clean Record<string, string> with undefined values filtered out.
+ * Avoids the unsafe `process.env as Record<string, string>` cast that turns undefined
+ * values into the string "undefined".
+ */
+export function cleanEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined)
+  );
+}
+
+/**
  * Build environment variables from an event payload.
  * Sanitizes user-controlled values using sanitizeForShell.
  */
 export function buildEnvFromPayload(event: HookEvent, payload: BaseEventPayload): Record<string, string> {
   const env: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...cleanEnv(),
     CRAFT_EVENT: event,
     CRAFT_EVENT_DATA: JSON.stringify(payload),
   };

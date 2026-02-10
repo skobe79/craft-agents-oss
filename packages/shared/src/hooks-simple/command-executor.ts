@@ -17,59 +17,39 @@ import { getBashRejectionReason, formatBashRejectionMessage } from '../agent/mod
 const execAsync = promisify(exec);
 
 // ============================================================================
-// Permission State
+// Permission Checking
 // ============================================================================
 
-let permissionsContext: PermissionsContext | null = null;
-let permissionsConfig: MergedPermissionsConfig | null = null;
-
 /**
- * Set the permissions context for command checking.
- * This loads the merged permissions from the global settings.
+ * Resolve a PermissionsContext to a MergedPermissionsConfig.
  */
-export function setPermissionsContext(ctx: PermissionsContext): void {
-  permissionsContext = ctx;
-  permissionsConfig = permissionsConfigCache.getMergedConfig(ctx);
+export function resolvePermissionsConfig(ctx: PermissionsContext): MergedPermissionsConfig {
+  return permissionsConfigCache.getMergedConfig(ctx);
 }
 
 /**
- * Clear permissions context
- */
-export function clearPermissionsContext(): void {
-  permissionsContext = null;
-  permissionsConfig = null;
-}
-
-/**
- * Check if a command is allowed using the global permission patterns.
+ * Check if a command is allowed using the provided permission config.
  *
  * Uses the allowlist approach from Settings:
  * - Commands matching allowedBashPatterns are allowed
  * - Commands not matching any pattern are blocked
  */
-export function isCommandAllowed(command: string): { allowed: boolean; reason?: string } {
+export function isCommandAllowed(command: string, config?: MergedPermissionsConfig | null): { allowed: boolean; reason?: string } {
   // If no permissions config, block all (fail-closed)
-  if (!permissionsConfig) {
+  if (!config) {
     return { allowed: false, reason: 'Permissions not initialized' };
   }
 
   // Use the global bash permission checker
-  const rejection = getBashRejectionReason(command, permissionsConfig);
+  const rejection = getBashRejectionReason(command, config);
 
   if (!rejection) {
     return { allowed: true };
   }
 
   // Command not in allowlist - format a helpful error message
-  const reason = formatBashRejectionMessage(rejection, permissionsConfig);
+  const reason = formatBashRejectionMessage(rejection, config);
   return { allowed: false, reason };
-}
-
-/**
- * Get the current permissions config (for debugging/display)
- */
-export function getPermissionsConfig(): MergedPermissionsConfig | null {
-  return permissionsConfig;
 }
 
 // ============================================================================
@@ -85,6 +65,8 @@ export interface CommandExecutionOptions {
   cwd?: string;
   /** Permission mode for the command ('allow-all' bypasses checks) */
   permissionMode?: 'safe' | 'ask' | 'allow-all';
+  /** Permissions context for resolving command allowlists */
+  permissionsContext?: PermissionsContext;
 }
 
 export interface CommandExecutionResult {
@@ -110,7 +92,10 @@ export async function executeCommand(
     console.warn(`[hooks] WARNING: Executing command in allow-all mode (bypasses security checks): ${command}`);
   }
   if (options.permissionMode !== 'allow-all') {
-    const permission = isCommandAllowed(command);
+    const config = options.permissionsContext
+      ? resolvePermissionsConfig(options.permissionsContext)
+      : null;
+    const permission = isCommandAllowed(command, config);
     if (!permission.allowed) {
       return {
         success: false,

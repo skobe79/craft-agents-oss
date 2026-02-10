@@ -24,7 +24,7 @@ export interface HookHandler {
   subscribe(bus: EventBus): void;
 
   /** Clean up resources and unsubscribe from events */
-  dispose(): void;
+  dispose(): void | Promise<void>;
 }
 
 // ============================================================================

@@ -11,8 +11,6 @@ import type { HookMatcher, HookEvent } from '../index.ts';
 // Mock command-executor to avoid real shell execution
 vi.mock('../command-executor.ts', () => ({
   executeCommand: vi.fn().mockResolvedValue({ success: true, stdout: 'ok', stderr: '', blocked: false }),
-  setPermissionsContext: vi.fn(),
-  clearPermissionsContext: vi.fn(),
 }));
 
 import { executeCommand } from '../command-executor.ts';

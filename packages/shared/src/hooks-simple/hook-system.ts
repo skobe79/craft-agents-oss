@@ -470,6 +470,10 @@ export class HookSystem implements HooksConfigProvider {
         timeout: hook.timeout ?? 60000,
         cwd: this.options.workingDir,
         permissionMode: matcher.permissionMode,
+        permissionsContext: {
+          workspaceRootPath: this.options.workspaceRootPath,
+          activeSourceSlugs: this.options.activeSourceSlugs,
+        },
       });
 
       if (result.blocked) {

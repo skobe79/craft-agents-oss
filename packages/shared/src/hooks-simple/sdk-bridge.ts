@@ -5,6 +5,7 @@
  */
 
 import { sanitizeForShell } from './security.ts';
+import { cleanEnv } from './utils.ts';
 import type { AgentEvent, SdkHookInput } from './types.ts';
 
 /**
@@ -13,7 +14,7 @@ import type { AgentEvent, SdkHookInput } from './types.ts';
  */
 export function buildEnvFromSdkInput(event: AgentEvent, input: SdkHookInput): Record<string, string> {
   const env: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...cleanEnv(),
     CRAFT_EVENT: event,
   };
 
