@@ -2399,7 +2399,7 @@ function AppShellContent({
           >
             <div
               style={{ width: sessionListWidth }}
-              className="h-full flex flex-col min-w-0"
+              className="h-full flex flex-col min-w-0 titlebar-no-drag relative z-panel"
             >
             <PanelHeader
               title={isSidebarVisible ? listTitle : undefined}
