@@ -9,6 +9,64 @@ description: "Automate workflows by triggering actions on app and agent events"
 
 Hooks let you trigger actions automatically when events happen in Craft Agent. You can run shell commands, send prompts to start new sessions, or schedule recurring automations — all configured in a single JSON file.
 
+## Getting Started
+
+The easiest way to set up hooks is to describe what you want in plain language. Here are some prompts you can try:
+
+| What you want | What to say |
+|---------------|-------------|
+| **Scheduled briefing** | "Set up a daily standup briefing every weekday at 9am" |
+| **Desktop notifications** | "Notify me with a macOS notification when a session is labelled urgent" |
+| **Audit logging** | "Log all permission mode changes to a file" |
+| **Auto-label** | "When a session starts, run a command that checks the working directory and logs it" |
+| **Recurring report** | "Every Friday at 5pm, create a session that summarises this week's completed tasks" |
+| **Webhook integration** | "When I flag a session, send a curl request to my webhook URL" |
+
+### Your First Hook
+
+Here's the simplest possible hook — it logs a message every time a label is added to a session:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "LabelAdd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "echo \"Label added: $CRAFT_LABEL\" >> ~/craft-hooks.log" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Save this as `~/.craft-agent/workspaces/{workspaceId}/hooks.json` and it starts working immediately — no restart needed.
+
+### Scheduling a Prompt
+
+Want Craft Agent to do something for you on a schedule? Use a prompt hook with a cron expression:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "SchedulerTick": [
+      {
+        "cron": "0 9 * * 1-5",
+        "timezone": "America/New_York",
+        "labels": ["Scheduled"],
+        "hooks": [
+          { "type": "prompt", "prompt": "Check @github for any new issues assigned to me and summarise them" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This creates a new session every weekday at 9 AM, activates the GitHub source, and asks the agent to check your issues. The session is automatically labelled "Scheduled" for easy filtering.
+
 ## How Hooks Work
 
 When an event fires (e.g., a label is added, a tool runs, or a cron schedule matches), Craft Agent checks your hooks configuration for matching entries and executes them.

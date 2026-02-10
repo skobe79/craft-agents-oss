@@ -96,6 +96,7 @@ bun run electron:start
 - **Multi-File Diff**: VS Code-style window for viewing all file changes in a turn
 - **Skills**: Specialized agent instructions stored per-workspace
 - **File Attachments**: Drag-drop images, PDFs, Office documents with auto-conversion
+- **Hooks**: Event-driven automation — run commands or create sessions on label changes, schedules, tool use, and more
 
 ## Quick Start
 
@@ -291,11 +292,59 @@ Configuration is stored at `~/.craft-agent/`:
     └── {id}/
         ├── config.json      # Workspace settings
         ├── theme.json       # Workspace theme override
+        ├── hooks.json       # Event-driven automation hooks
         ├── sessions/        # Session data (JSONL)
         ├── sources/         # Connected sources
         ├── skills/          # Custom skills
         └── statuses/        # Status configuration
 ```
+
+### Hooks (Automation)
+
+Hooks let you automate workflows by triggering actions when events happen — labels change, sessions start, tools run, or on a cron schedule.
+
+**Just ask the agent:**
+- "Set up a daily standup briefing every weekday at 9am"
+- "Notify me when a session is labelled urgent"
+- "Log all permission mode changes to a file"
+- "Every Friday at 5pm, summarise this week's completed tasks"
+
+Or configure manually in `~/.craft-agent/workspaces/{id}/hooks.json`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "SchedulerTick": [
+      {
+        "cron": "0 9 * * 1-5",
+        "timezone": "America/New_York",
+        "labels": ["Scheduled"],
+        "hooks": [
+          { "type": "prompt", "prompt": "Check @github for new issues assigned to me" }
+        ]
+      }
+    ],
+    "LabelAdd": [
+      {
+        "matcher": "^urgent$",
+        "permissionMode": "allow-all",
+        "hooks": [
+          { "type": "command", "command": "osascript -e 'display notification \"Urgent session\" with title \"Craft Agent\"'" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Two hook types:**
+- **Command hooks** — run shell commands with event data as environment variables (`$CRAFT_LABEL`, `$CRAFT_SESSION_ID`, etc.)
+- **Prompt hooks** — create a new agent session with a prompt (supports `@mentions` for sources and skills)
+
+**Supported events:** `LabelAdd`, `LabelRemove`, `PermissionModeChange`, `FlagChange`, `TodoStateChange`, `SchedulerTick`, `PreToolUse`, `PostToolUse`, `SessionStart`, `SessionEnd`, and more.
+
+See the [Hooks documentation](https://agents.craft.do/docs/hooks/overview) for the full reference.
 
 ## Advanced Features
 
