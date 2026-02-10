@@ -257,6 +257,26 @@ Or simply tell the agent you want to connect Gmail/Calendar/Drive - it will guid
 - Never commit credentials to version control
 - For production use, consider getting your OAuth consent screen verified by Google
 
+## Configure Third-Party Providers (OpenRouter, Vercel AI Gateway, Ollama, etc.)
+
+Third-party and self-hosted LLM providers are supported **only through the Claude / Anthropic API Key** connection. When you select **Anthropic API Key** during setup, you can choose from:
+
+| Provider | Endpoint | Notes |
+|----------|----------|-------|
+| **OpenRouter** | `https://openrouter.ai/api` | Access Claude, GPT, Llama, Gemini, and hundreds of other models through a single API key. Use `provider/model-name` format (e.g. `anthropic/claude-opus-4.6`). |
+| **Vercel AI Gateway** | `https://ai-gateway.vercel.sh` | Route requests through Vercel's AI Gateway with built-in observability and caching. |
+| **Ollama** | `http://localhost:11434` | Run open-source models locally. No API key required. |
+| **Custom** | Any URL | Any OpenAI-compatible or Anthropic-compatible endpoint. |
+
+### Why only under Claude?
+
+Craft Agents uses two different agent backends:
+
+- **Claude** — powered by the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), which natively supports custom base URLs and provider routing. This makes it straightforward to point requests at any compatible endpoint.
+- **Codex** — powered by the [Codex app-server](https://github.com/lukilabs/craft-agents-codex), which communicates via JSON-RPC over stdio. Codex connections are limited to **direct OpenAI API** (via API key or ChatGPT subscription OAuth).
+
+If you want to use models from OpenRouter, Vercel AI Gateway, Ollama, or any other third-party provider, set up a **Claude / Anthropic API Key** connection and select the desired endpoint.
+
 ## Configuration
 
 Configuration is stored at `~/.craft-agent/`:
