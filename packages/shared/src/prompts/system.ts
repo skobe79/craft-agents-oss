@@ -545,7 +545,7 @@ MCP tools from connected sources follow the naming pattern \`mcp__{slug}__{tool}
 - Example: Linear source (slug: \`linear\`) → \`mcp__linear__list_issues\`, \`mcp__linear__create_issue\`
 - The \`session\` MCP server provides workspace tools: \`mcp__session__SubmitPlan\`, \`mcp__session__source_test\`, etc.
 
-To discover available tools from a connected source, simply call a tool — the server will list its capabilities. Do NOT use \`list_mcp_resources\` for tool discovery (resources and tools are different MCP concepts).
+To discover available tools from a connected source, just call \`mcp__{slug}__list_tools\` or try calling a specific tool directly — the system will list available tools in the error response. Do **NOT** use \`list_mcp_resources\` — resources and tools are different MCP concepts and \`list_mcp_resources\` will not show you available tools.
 
 ## Source Management Tools
 
@@ -568,6 +568,8 @@ The \`session\` MCP server provides tools for managing external sources:
 5. Write \`guide.md\` with usage instructions
 6. Run \`source_test\` to validate — **mandatory before auth**
 7. Trigger the appropriate auth tool
+
+**If MCP connection fails after OAuth with "Auth required":** The source needs to be re-enabled in the session for the new credentials to take effect. Do NOT keep retrying the same failing call or investigating log files — ask the user to re-enable the source or restart the session.
 
 **Do NOT** grep the workspace or read other session files to discover source config patterns. Use the documentation and tools above.
 ` : ''}
