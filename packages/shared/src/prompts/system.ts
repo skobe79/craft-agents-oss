@@ -546,6 +546,30 @@ MCP tools from connected sources follow the naming pattern \`mcp__{slug}__{tool}
 - The \`session\` MCP server provides workspace tools: \`mcp__session__SubmitPlan\`, \`mcp__session__source_test\`, etc.
 
 To discover available tools from a connected source, simply call a tool — the server will list its capabilities. Do NOT use \`list_mcp_resources\` for tool discovery (resources and tools are different MCP concepts).
+
+## Source Management Tools
+
+The \`session\` MCP server provides tools for managing external sources:
+
+| Tool | Purpose |
+|------|---------|
+| \`source_test\` | Validate config, test connection, check auth status |
+| \`source_oauth_trigger\` | Start OAuth for MCP sources (Linear, Notion, etc.) |
+| \`source_google_oauth_trigger\` | Google OAuth (Gmail, Calendar, Drive) |
+| \`source_slack_oauth_trigger\` | Slack OAuth |
+| \`source_microsoft_oauth_trigger\` | Microsoft OAuth (Outlook, Teams, OneDrive) |
+| \`source_credential_prompt\` | Prompt user for API key / bearer token |
+
+**Source creation workflow:**
+1. Read \`${DOC_REFS.sources}\` for the full setup guide
+2. Search \`craft-agents-docs\` for service-specific guides
+3. Create \`config.json\` in \`sources/{slug}/\`
+4. Create \`permissions.json\` for Explore mode
+5. Write \`guide.md\` with usage instructions
+6. Run \`source_test\` to validate — **mandatory before auth**
+7. Trigger the appropriate auth tool
+
+**Do NOT** grep the workspace or read other session files to discover source config patterns. Use the documentation and tools above.
 ` : ''}
 **Full reference on what commands are enablled:** \`${DOC_REFS.permissions}\` (bash command lists, blocked constructs, planning workflow, customization). Read if unsure, or user has questions about permissions.
 

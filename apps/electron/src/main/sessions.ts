@@ -4787,7 +4787,14 @@ To view this task's output:
         const toolName = event.toolName || 'unknown'
 
         // Format absolute paths to relative paths for better readability
-        const formattedResult = event.result ? formatPathsToRelative(event.result) : ''
+        const rawFormattedResult = event.result ? formatPathsToRelative(event.result) : ''
+
+        // Safety net: prevent massive tool results from bloating session JSONL (protects all backends)
+        const MAX_PERSISTED_RESULT_CHARS = 200_000 // ~50K tokens
+        const formattedResult = rawFormattedResult.length > MAX_PERSISTED_RESULT_CHARS
+          ? rawFormattedResult.slice(0, MAX_PERSISTED_RESULT_CHARS) +
+            `\n\n[Truncated for storage: ${rawFormattedResult.length.toLocaleString()} chars total]`
+          : rawFormattedResult
 
         // Update existing tool message (created on tool_start) instead of creating new one
         const existingToolMsg = managed.messages.find(m => m.toolUseId === event.toolUseId)
