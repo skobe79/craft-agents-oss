@@ -206,7 +206,7 @@ export function ActiveOptionBadges({
             {/* Label badges */}
             {resolvedLabels.map(({ config, rawValue, index }) => (
               <LabelBadge
-                key={config.id}
+                key={`${config.id}-${index}`}
                 label={config}
                 value={rawValue}
                 autoOpen={config.id === autoOpenLabelId}

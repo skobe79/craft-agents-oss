@@ -496,11 +496,12 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
       // AUTHENTICATION
       // ========================================
 
+      const connectionSlug = getDefaultLlmConnection();
+      const connection = connectionSlug ? getLlmConnection(connectionSlug) : null;
       const credManager = getCredentialManager();
-      const connectionSlug = getDefaultLlmConnection() ?? 'anthropic-api';
-      const apiKey = await credManager.getLlmApiKey(connectionSlug);
-      const oauthCreds = await credManager.getLlmOAuth(connectionSlug);
-      const oauthToken = oauthCreds?.accessToken ?? null;
+      const apiKey = connectionSlug ? await credManager.getLlmApiKey(connectionSlug) : null;
+      const oauthCred = connectionSlug ? await credManager.getLlmOAuth(connectionSlug) : null;
+      const oauthToken = oauthCred?.accessToken ?? null;
 
       if (!apiKey && !oauthToken) {
         return errorResponse(
@@ -582,7 +583,7 @@ For large files (>2000 lines), use {path, startLine, endLine} to select a portio
       // BUILD CLIENT
       // ========================================
 
-      const baseUrl = getLlmConnection(connectionSlug)?.baseUrl;
+      const baseUrl = connection?.baseUrl;
 
       // Build client with API key (OAuth-only case already handled above with clear error)
       const client = new Anthropic({
