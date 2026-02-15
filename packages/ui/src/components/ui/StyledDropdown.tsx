@@ -116,7 +116,7 @@ export const StyledDropdownMenuSubTrigger = React.forwardRef<
       'relative flex cursor-default items-center gap-2 px-2 py-1.5 text-sm outline-hidden select-none',
       '[&_svg]:pointer-events-none [&_svg]:shrink-0',
       'pr-1.5 rounded-[4px] hover:bg-foreground/10 focus:bg-foreground/10 data-[state=open]:bg-foreground/10',
-      '[&>svg]:size-auto [&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:shrink-0',
+      '[&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:shrink-0',
       className,
     )}
     {...props}
