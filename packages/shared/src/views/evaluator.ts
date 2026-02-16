@@ -124,6 +124,7 @@ export function buildViewContext(meta: {
     name: meta.name ?? '',
     preview: meta.preview ?? '',
     sessionStatus: meta.sessionStatus ?? '',
+    todoState: meta.sessionStatus ?? '',  // Deprecated alias — existing expressions using todoState still work
     permissionMode: meta.permissionMode ?? '',
     model: meta.model ?? '',
     lastMessageRole: meta.lastMessageRole ?? '',

@@ -222,6 +222,30 @@ export function loadAllSkills(workspaceRoot: string, projectRoot?: string): Load
 }
 
 /**
+ * Load a single skill by slug from all sources (project > workspace > global).
+ * Unlike loadAllSkills(), this only reads the specific slug directory — O(1) not O(N).
+ *
+ * @param workspaceRoot - Absolute path to workspace root
+ * @param slug - Skill slug to load
+ * @param projectRoot - Optional project root for project-level skills
+ */
+export function loadSkillBySlug(workspaceRoot: string, slug: string, projectRoot?: string): LoadedSkill | null {
+  // Highest priority: project-level
+  if (projectRoot) {
+    const projectSkillsDir = join(projectRoot, PROJECT_AGENT_SKILLS_DIR);
+    const skill = loadSkillFromDir(projectSkillsDir, slug, 'project');
+    if (skill) return skill;
+  }
+
+  // Medium priority: workspace
+  const workspaceSkill = loadSkillFromDir(getWorkspaceSkillsPath(workspaceRoot), slug, 'workspace');
+  if (workspaceSkill) return workspaceSkill;
+
+  // Lowest priority: global
+  return loadSkillFromDir(GLOBAL_AGENT_SKILLS_DIR, slug, 'global');
+}
+
+/**
  * Get icon path for a skill
  * @param workspaceRoot - Absolute path to workspace root
  * @param slug - Skill directory name

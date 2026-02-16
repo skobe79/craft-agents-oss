@@ -63,6 +63,8 @@ export interface ViewEvaluationContext {
   preview: string;
   /** Status ID (e.g. 'todo', 'in-progress', 'done') */
   sessionStatus: string;
+  /** @deprecated Use `sessionStatus` instead. Kept for backward compatibility with existing view expressions. */
+  todoState: string;
   /** Permission mode ('safe', 'ask', 'allow-all') */
   permissionMode: string;
   /** Model override string */

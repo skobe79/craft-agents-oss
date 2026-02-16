@@ -356,12 +356,17 @@ export function getGitBashPath(): string | undefined {
 /**
  * Set Git Bash path (Windows only).
  * Persists to config so it survives app restarts.
+ * Returns false if the config could not be loaded (path not persisted).
  */
-export function setGitBashPath(path: string): void {
+export function setGitBashPath(path: string): boolean {
   const config = loadStoredConfig();
-  if (!config) return;
+  if (!config) {
+    console.warn('[storage] Failed to persist Git Bash path: config could not be loaded');
+    return false;
+  }
   config.gitBashPath = path;
   saveConfig(config);
+  return true;
 }
 
 /**

@@ -76,7 +76,7 @@ import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { CraftMcpClient } from '@craft-agent/shared/mcp'
 import { type Session, type Message, type SessionEvent, type FileAttachment, type StoredAttachment, type SendMessageOptions, IPC_CHANNELS, generateMessageId } from '../shared/types'
 import { formatPathsToRelative, formatToolInputPaths, perf, encodeIconToDataUrl, getEmojiIcon, resetSummarizationClient, resolveToolIcon } from '@craft-agent/shared/utils'
-import { loadWorkspaceSkills, loadAllSkills, type LoadedSkill } from '@craft-agent/shared/skills'
+import { loadWorkspaceSkills, loadAllSkills, loadSkillBySlug, type LoadedSkill } from '@craft-agent/shared/skills'
 import type { ToolDisplayMeta } from '@craft-agent/core/types'
 import { getToolIconsDir, isCodexModel, getMiniModel, isAnthropicProvider, DEFAULT_MODEL, DEFAULT_CODEX_MODEL } from '@craft-agent/shared/config'
 import type { SummarizeCallback } from '@craft-agent/shared/sources'
@@ -4060,15 +4060,14 @@ export class SessionManager {
 
     // Pre-enable sources required by invoked skills (Issue #249)
     // This eliminates the two-turn penalty where the agent discovers missing sources at runtime.
+    // Uses targeted loadSkillBySlug() instead of loadAllSkills() to avoid O(N) filesystem scans.
     if (options?.skillSlugs?.length) {
       try {
         const workspaceRoot = managed.workspace.rootPath
-        const allSkills = loadAllSkills(workspaceRoot, managed.workingDirectory)
-        const skillsBySlug = new Map(allSkills.map(s => [s.slug, s]))
 
         const requiredSources = new Set<string>()
         for (const slug of options.skillSlugs) {
-          const skill = skillsBySlug.get(slug)
+          const skill = loadSkillBySlug(workspaceRoot, slug, managed.workingDirectory)
           if (skill?.metadata.requiredSources) {
             for (const src of skill.metadata.requiredSources) {
               requiredSources.add(src)
@@ -4079,9 +4078,11 @@ export class SessionManager {
         if (requiredSources.size > 0) {
           const currentSlugs = new Set(managed.enabledSourceSlugs || [])
           const toEnable: string[] = []
+          const skipped: string[] = []
           const candidateSlugs = Array.from(requiredSources)
+          const loadedSources = getSourcesBySlugs(workspaceRoot, candidateSlugs)
           const usableSources = new Set(
-            getSourcesBySlugs(workspaceRoot, candidateSlugs)
+            loadedSources
               .filter(isSourceUsable)
               .map(source => source.config.slug)
           )
@@ -4090,7 +4091,13 @@ export class SessionManager {
             if (currentSlugs.has(srcSlug)) continue
             if (usableSources.has(srcSlug)) {
               toEnable.push(srcSlug)
+            } else {
+              skipped.push(srcSlug)
             }
+          }
+
+          if (skipped.length > 0) {
+            sessionLog.warn(`Skill requires sources that are not usable (missing or unauthenticated): ${skipped.join(', ')}`)
           }
 
           if (toEnable.length > 0) {
@@ -4202,10 +4209,12 @@ export class SessionManager {
       toolMetadataStore.setSessionDir(chatSessionDir)
 
       // Inject interruption context so the LLM knows the previous turn was cut short.
-      // This prevents context pollution where partial interrupted content misleads the model.
+      // Uses <system-reminder> tags so the LLM treats it as transient system guidance
+      // rather than part of the user's message content. The original message is stored
+      // in session JSONL (line ~3952); this only affects the SDK's in-process context.
       let effectiveMessage = message
       if (managed.wasInterrupted) {
-        effectiveMessage = `[Note: The previous assistant response was interrupted by the user and may be incomplete. Focus on the user's new message below.]\n\n${message}`
+        effectiveMessage = `${message}\n\n<system-reminder>The previous assistant response was interrupted by the user and may be incomplete. Do not repeat or continue the interrupted response unless asked. Focus on the new message above.</system-reminder>`
         managed.wasInterrupted = false
       }
 
