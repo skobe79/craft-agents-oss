@@ -788,6 +788,9 @@ interface ManagedSession {
   // Per-session env overrides for SDK subprocess (e.g., ANTHROPIC_BASE_URL).
   // Stored on managed session so it persists across agent recreations (auth-retry, etc.)
   envOverrides?: Record<string, string>
+  // Whether the previous turn was interrupted (for context injection on next message).
+  // Ephemeral — not persisted to disk. Cleared after one-shot injection.
+  wasInterrupted?: boolean
 }
 
 // Convert runtime Message to StoredMessage for persistence
@@ -3926,6 +3929,7 @@ export class SessionManager {
 
       // Force-abort via Query.close() - immediately stops processing.
       // The for-await loop will complete, triggering onProcessingStopped → queue drain.
+      managed.wasInterrupted = true
       managed.agent?.forceAbort(AbortReason.Redirect)
 
       return
@@ -4197,8 +4201,16 @@ export class SessionManager {
       const chatSessionDir = getSessionStoragePath(workspaceRootPath, sessionId)
       toolMetadataStore.setSessionDir(chatSessionDir)
 
+      // Inject interruption context so the LLM knows the previous turn was cut short.
+      // This prevents context pollution where partial interrupted content misleads the model.
+      let effectiveMessage = message
+      if (managed.wasInterrupted) {
+        effectiveMessage = `[Note: The previous assistant response was interrupted by the user and may be incomplete. Focus on the user's new message below.]\n\n${message}`
+        managed.wasInterrupted = false
+      }
+
       sendSpan.mark('chat.starting')
-      const chatIterator = agent.chat(message, attachments)
+      const chatIterator = agent.chat(effectiveMessage, attachments)
       sessionLog.info('Got chat iterator, starting iteration...')
 
       for await (const event of chatIterator) {
@@ -4347,6 +4359,10 @@ export class SessionManager {
     // Signal intent to stop - let the event loop drain remaining events before clearing isProcessing
     // This prevents losing in-flight messages from Codex after soft interrupt
     managed.stopRequested = true
+
+    // Track interruption so the next user message gets a context note
+    // telling the LLM the previous response was cut short
+    managed.wasInterrupted = true
 
     // Force-abort via Query.close() - sends soft interrupt to Codex
     if (managed.agent) {
