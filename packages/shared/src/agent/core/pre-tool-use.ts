@@ -13,7 +13,6 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { expandPath } from '../../utils/paths.ts';
 import {
   detectConfigFileType,
@@ -22,6 +21,8 @@ import {
   formatValidationResult,
   type ConfigFileDetection,
 } from '../../config/validators.ts';
+import { AGENTS_PLUGIN_NAME } from '../../skills/types.ts';
+import { GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR } from '../../skills/storage.ts';
 
 // ============================================================
 // TYPES
@@ -197,6 +198,7 @@ export function qualifySkillName(
 
   // Extract the bare slug — strip any existing qualifier (e.g. "CraftAgentWS:commit" → "commit")
   const bareSlug = skill.includes(':') ? skill.split(':').pop()! : skill;
+  if (!bareSlug) return { modified: false, input };
 
   // If we don't have the workspace root path, fall back to simple workspace-only qualification
   if (!workspaceRootPath) {
@@ -231,21 +233,21 @@ function resolveSkillPlugin(
   workspaceRootPath: string,
   workingDirectory?: string,
 ): string {
-  // Priority order matches loadAllSkills: workspace > project > global
+  // Priority order matches loadAllSkills: project (highest) > workspace > global (lowest)
 
-  // 1. Workspace: {workspaceRoot}/skills/{slug}/SKILL.md
+  // 1. Project: {workingDir}/.agents/skills/{slug}/SKILL.md
+  if (workingDirectory && existsSync(join(workingDirectory, PROJECT_AGENT_SKILLS_DIR, bareSlug, 'SKILL.md'))) {
+    return `${AGENTS_PLUGIN_NAME}:${bareSlug}`;
+  }
+
+  // 2. Workspace: {workspaceRoot}/skills/{slug}/SKILL.md
   if (existsSync(join(workspaceRootPath, 'skills', bareSlug, 'SKILL.md'))) {
     return `${workspaceSlug}:${bareSlug}`;
   }
 
-  // 2. Project: {workingDir}/.agents/skills/{slug}/SKILL.md
-  if (workingDirectory && existsSync(join(workingDirectory, '.agents', 'skills', bareSlug, 'SKILL.md'))) {
-    return `.agents:${bareSlug}`;
-  }
-
   // 3. Global: ~/.agents/skills/{slug}/SKILL.md
-  if (existsSync(join(homedir(), '.agents', 'skills', bareSlug, 'SKILL.md'))) {
-    return `.agents:${bareSlug}`;
+  if (existsSync(join(GLOBAL_AGENT_SKILLS_DIR, bareSlug, 'SKILL.md'))) {
+    return `${AGENTS_PLUGIN_NAME}:${bareSlug}`;
   }
 
   // Fallback: assume workspace plugin (original behavior)

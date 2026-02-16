@@ -42,7 +42,7 @@ import {
 } from './mode-manager.ts';
 import { type PermissionsContext, permissionsConfigCache } from './permissions-config.ts';
 import { getSessionPlansPath, getSessionPath } from '../sessions/storage.ts';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { expandPath } from '../utils/paths.ts';
@@ -1283,14 +1283,18 @@ export class ClaudeAgent extends BaseAgent {
         // Selectively disable tools - file tools are disabled (use MCP), web/code controlled by settings
         disallowedTools,
         // Load skill directories as SDK plugins (enables skills from all 3 tiers)
+        // Only register directories that exist to avoid SDK warnings/errors
         plugins: [
           { type: 'local' as const, path: this.workspaceRootPath },
           // Project-level skills: {workingDir}/.agents/
-          ...(this.config.session?.workingDirectory
+          ...(this.config.session?.workingDirectory &&
+              existsSync(join(this.config.session.workingDirectory, '.agents'))
             ? [{ type: 'local' as const, path: join(this.config.session.workingDirectory, '.agents') }]
             : []),
           // Global skills: ~/.agents/
-          { type: 'local' as const, path: join(homedir(), '.agents') },
+          ...(existsSync(join(homedir(), '.agents'))
+            ? [{ type: 'local' as const, path: join(homedir(), '.agents') }]
+            : []),
         ],
       };
 
