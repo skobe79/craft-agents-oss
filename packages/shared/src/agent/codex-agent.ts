@@ -190,6 +190,13 @@ export class CodexAgent extends BaseAgent {
   // Event queue for streaming (AsyncGenerator pattern)
   private eventQueue = new EventQueue();
 
+  // Track in-flight async item/completed handlers to prevent race with turn/completed.
+  // turn/completed is sync and calls eventQueue.complete() immediately, but item/completed
+  // is async (may await source activation). If turn/completed fires before all item/completed
+  // handlers finish, their events are enqueued into a dead queue.
+  private inflightItemHandlers = 0;
+  private turnCompletedPending = false;
+
   // Pending approval requests (legacy approval handlers)
   private pendingApprovals: Map<string, {
     type: 'command' | 'fileChange';
@@ -417,11 +424,19 @@ export class CodexAgent extends BaseAgent {
     });
 
     // Turn completed
+    // IMPORTANT: Defer eventQueue.complete() if async item/completed handlers are still in flight.
+    // Without this, tool_result and text_complete events from item/completed can be enqueued
+    // after complete(), causing lost tool results and truncated assistant messages.
     this.client.on('turn/completed', (notification) => {
       for (const event of this.adapter.adaptTurnCompleted(notification)) {
         this.eventQueue.enqueue(event);
       }
-      this.eventQueue.complete();
+      if (this.inflightItemHandlers > 0) {
+        this.debug(`turn/completed: deferring complete() — ${this.inflightItemHandlers} item handlers in flight`);
+        this.turnCompletedPending = true;
+      } else {
+        this.eventQueue.complete();
+      }
     });
 
     // Turn plan updated - Codex's native task list
@@ -440,50 +455,63 @@ export class CodexAgent extends BaseAgent {
     });
 
     // Item completed
+    // NOTE: This handler is async (may await source activation). We track in-flight
+    // handlers so turn/completed can defer eventQueue.complete() until they finish.
     this.client.on('item/completed', async (notification) => {
-      const events = this.adapter.adaptItemCompleted(notification);
-      for (const event of events) {
-        // Check for session MCP tool completions that need callbacks.
-        // Session MCP tools run in an external subprocess that can't trigger
-        // callbacks cross-process. Detect from events and use the centralized
-        // BaseAgent.handleSessionMcpToolCompletion() to fire them.
-        if (event.type === 'tool_result' && !event.isError) {
-          const item = notification.item;
-          if (item?.type === 'mcpToolCall' && item.server === 'session') {
-            const args = (item.arguments ?? {}) as Record<string, unknown>;
-            this.handleSessionMcpToolCompletion(item.tool, args);
-          }
-        }
-
-        // Check for inactive source tool errors and attempt auto-activation
-        if (event.type === 'tool_result' && event.isError) {
-          const inactiveSourceError = this.detectInactiveSourceToolError(event);
-          if (inactiveSourceError && this.onSourceActivationRequest) {
-            const { sourceSlug, toolName } = inactiveSourceError;
-
-            this.debug(`Detected tool call to inactive source "${sourceSlug}", attempting activation...`);
-
-            try {
-              const activated = await this.onSourceActivationRequest(sourceSlug);
-
-              if (activated) {
-                this.debug(`Source "${sourceSlug}" activated successfully`);
-
-                // Emit source_activated event for UI to auto-retry
-                this.eventQueue.enqueue({
-                  type: 'source_activated' as const,
-                  sourceSlug,
-                  originalMessage: this.currentUserMessage,
-                });
-              } else {
-                this.debug(`Failed to activate source "${sourceSlug}"`);
-              }
-            } catch (err) {
-              this.debug(`Error activating source "${sourceSlug}": ${err}`);
+      this.inflightItemHandlers++;
+      try {
+        const events = this.adapter.adaptItemCompleted(notification);
+        for (const event of events) {
+          // Check for session MCP tool completions that need callbacks.
+          // Session MCP tools run in an external subprocess that can't trigger
+          // callbacks cross-process. Detect from events and use the centralized
+          // BaseAgent.handleSessionMcpToolCompletion() to fire them.
+          if (event.type === 'tool_result' && !event.isError) {
+            const item = notification.item;
+            if (item?.type === 'mcpToolCall' && item.server === 'session') {
+              const args = (item.arguments ?? {}) as Record<string, unknown>;
+              this.handleSessionMcpToolCompletion(item.tool, args);
             }
           }
+
+          // Check for inactive source tool errors and attempt auto-activation
+          if (event.type === 'tool_result' && event.isError) {
+            const inactiveSourceError = this.detectInactiveSourceToolError(event);
+            if (inactiveSourceError && this.onSourceActivationRequest) {
+              const { sourceSlug, toolName } = inactiveSourceError;
+
+              this.debug(`Detected tool call to inactive source "${sourceSlug}", attempting activation...`);
+
+              try {
+                const activated = await this.onSourceActivationRequest(sourceSlug);
+
+                if (activated) {
+                  this.debug(`Source "${sourceSlug}" activated successfully`);
+
+                  // Emit source_activated event for UI to auto-retry
+                  this.eventQueue.enqueue({
+                    type: 'source_activated' as const,
+                    sourceSlug,
+                    originalMessage: this.currentUserMessage,
+                  });
+                } else {
+                  this.debug(`Failed to activate source "${sourceSlug}"`);
+                }
+              } catch (err) {
+                this.debug(`Error activating source "${sourceSlug}": ${err}`);
+              }
+            }
+          }
+          this.eventQueue.enqueue(event);
         }
-        this.eventQueue.enqueue(event);
+      } finally {
+        this.inflightItemHandlers--;
+        // If turn/completed arrived while we were processing, complete now
+        if (this.turnCompletedPending && this.inflightItemHandlers === 0) {
+          this.debug('item/completed: last handler done, firing deferred complete()');
+          this.turnCompletedPending = false;
+          this.eventQueue.complete();
+        }
       }
     });
 
@@ -519,6 +547,7 @@ export class CodexAgent extends BaseAgent {
     // CRAFT AGENTS: PreToolUse hook - intercept ALL tools before execution
     // This is the unified permission checking for Codex backend (requires fork)
     this.client.on('item/toolCall/preExecute', async (params) => {
+      this.debug(`[PreToolUse EVENT] Received: toolName=${params.toolName} toolType=${params.toolType} mcpServer=${params.mcpServer} mcpTool=${params.mcpTool}`);
       await this.handleToolCallPreExecute(params);
     });
 
@@ -869,10 +898,11 @@ export class CodexAgent extends BaseAgent {
     const permissionMode = this.permissionManager.getPermissionMode();
     const { toolType, toolName, input, mcpServer, mcpTool, requestId, itemId } = params;
 
-    this.debug(`PreToolUse: ${toolName} (${toolType}) - mode: ${permissionMode}`);
+    this.debug(`PreToolUse: ${toolName} (${toolType}) - mode: ${permissionMode} | mcpServer=${mcpServer} mcpTool=${mcpTool}`);
 
     // Map tool type to SDK tool name for shouldAllowToolInMode
     const sdkToolName = this.mapToolTypeToSdkName(toolType, toolName, mcpServer, mcpTool);
+    this.debug(`PreToolUse: mapped sdkToolName="${sdkToolName}" (from toolType=${toolType}, toolName=${toolName})`);
 
     // Build permissions context for loading custom permissions.json files
     const permissionsContext = {
@@ -1041,6 +1071,7 @@ export class CodexAgent extends BaseAgent {
     // the LLM call here via ephemeral thread and inject the result
     // into the tool input as _precomputedResult.
     // ============================================================
+    this.debug(`PreToolUse: call_llm check — sdkToolName="${sdkToolName}" === "mcp__session__call_llm" → ${sdkToolName === 'mcp__session__call_llm'}`);
     if (sdkToolName === 'mcp__session__call_llm') {
       const inputObj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
       this.debug('PreToolUse: Intercepting call_llm for pre-execution');
@@ -1671,6 +1702,8 @@ export class CodexAgent extends BaseAgent {
     this._isProcessing = true;
     this.abortReason = undefined;
     this.eventQueue.reset();
+    this.inflightItemHandlers = 0;
+    this.turnCompletedPending = false;
     this.adapter.startTurn();
     this.currentUserMessage = message; // Store for source_activated events
 
@@ -2711,8 +2744,10 @@ export class CodexAgent extends BaseAgent {
           debug(`[CodexAgent.runMiniCompletion] Timeout waiting for completion`);
         }
 
-        debug(`[CodexAgent.runMiniCompletion] Result: "${result.trim()}"`);
-        return result.trim() || null;
+        const text = result.trim() || null;
+        debug(`[CodexAgent.runMiniCompletion] Result: ${text ? `"${text.slice(0, 200)}"` : 'null'}`);
+        this.debug(`[runMiniCompletion] Result: ${text ? `"${text.slice(0, 200)}"` : 'null'}`);
+        return text;
       } finally {
         // Clean up listeners
         client.off('item/agentMessage/delta', textHandler);

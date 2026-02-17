@@ -21,7 +21,7 @@ import type {
 import { AbortReason } from './backend/types.ts';
 
 // Import models from centralized registry
-import { getModelById } from '../config/models.ts';
+import { getModelById, getDefaultSummarizationModel } from '../config/models.ts';
 
 /**
  * Validate that a model ID is a known Copilot model.
@@ -115,6 +115,9 @@ import { getSessionPlansPath, getSessionPath } from '../sessions/storage.ts';
 
 // Error typing
 import { parseError, type AgentError } from './errors.ts';
+
+// LLM tool types and helpers for call_llm PreToolUse intercept
+import { processAttachment, OUTPUT_FORMATS, type LLMQueryRequest, type LLMQueryResult } from './llm-tool.ts';
 
 // GitHub OAuth types
 import type { GithubTokens } from '../auth/github-oauth.ts';
@@ -347,6 +350,7 @@ export class CopilotAgent extends BaseAgent {
       registerSessionScopedToolCallbacks(sessionId, {
         onPlanSubmitted: (planPath) => this.onPlanSubmitted?.(planPath),
         onAuthRequest: (request) => this.onAuthRequest?.(request),
+        queryFn: (request) => this.queryLlm(request),
       });
     }
 
@@ -673,6 +677,31 @@ export class CopilotAgent extends BaseAgent {
     // Copilot CLI uses lowercase (e.g., "bash") but our permission system
     // expects PascalCase (e.g., "Bash"). See COPILOT_TOOL_NAME_MAP.
     const sdkToolName = this.mapCopilotToolName(toolName, inputObj);
+
+    // ============================================================
+    // CALL_LLM INTERCEPT: Pre-execute LLM request and inject result.
+    // The session-mcp-server runs as a subprocess and can't access
+    // Copilot auth, so we execute the LLM call here via ephemeral
+    // session and inject the result into _precomputedResult.
+    // Same pattern as CodexAgent (codex-agent.ts ~line 1044).
+    // ============================================================
+    if (sdkToolName === 'mcp__session__call_llm') {
+      this.debug('PreToolUse: Intercepting call_llm for pre-execution');
+      try {
+        const result = await this.preExecuteCallLlm(inputObj);
+        return {
+          permissionDecision: 'allow',
+          modifiedArgs: { ...inputObj, _precomputedResult: JSON.stringify(result) },
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this.debug(`PreToolUse: call_llm pre-execution failed: ${errorMsg}`);
+        return {
+          permissionDecision: 'allow',
+          modifiedArgs: { ...inputObj, _precomputedResult: JSON.stringify({ error: errorMsg }) },
+        };
+      }
+    }
 
     // Normalize Copilot-native arg names before permission check.
     //
@@ -1396,17 +1425,170 @@ export class CopilotAgent extends BaseAgent {
   }
 
   // ============================================================
-  // Mini Completion (for title generation)
+  // LLM Tool Pre-Execution (call_llm via PreToolUse intercept)
   // ============================================================
 
   /**
-   * Run a simple text completion for title generation and other quick tasks.
-   * Copilot SDK doesn't expose a simple completion API, so this returns null
-   * to fall back to other providers for title generation.
+   * Pre-execute a call_llm request: process attachments, resolve model,
+   * build prompt with structured output injection, and run via ephemeral session.
+   *
+   * Same pattern as CodexAgent.preExecuteCallLlm (codex-agent.ts ~line 2472).
    */
-  async runMiniCompletion(_prompt: string): Promise<string | null> {
-    this.debug(`[runMiniCompletion] Not supported by Copilot SDK - falling back`);
-    return null;
+  private async preExecuteCallLlm(input: Record<string, unknown>): Promise<LLMQueryResult> {
+    const prompt = input.prompt as string;
+    if (!prompt?.trim()) {
+      throw new Error('Prompt is required and cannot be empty.');
+    }
+
+    // Validate: thinking not supported in Copilot mode
+    if (input.thinking) {
+      throw new Error(
+        'Extended thinking is not supported in Copilot mode.\n\n' +
+        'Remove thinking=true to use basic mode.'
+      );
+    }
+
+    // Process attachments
+    const textParts: string[] = [];
+    const attachments = input.attachments as Array<string | { path: string; startLine?: number; endLine?: number }> | undefined;
+
+    if (attachments?.length) {
+      for (let i = 0; i < attachments.length; i++) {
+        const result = await processAttachment(attachments[i]!, i);
+        if (result.type === 'error') {
+          throw new Error(result.message);
+        }
+        if (result.type === 'image') {
+          throw new Error(
+            `Attachment ${i + 1}: Image attachments are not supported in Copilot mode. Use text files only.`
+          );
+        }
+        if (result.type === 'text') {
+          textParts.push(`<file path="${result.filename}">\n${result.content}\n</file>`);
+        }
+      }
+    }
+
+    textParts.push(prompt);
+
+    // Build system prompt with structured output injection if needed
+    let systemPrompt = (input.systemPrompt as string) || '';
+    const outputFormat = input.outputFormat as string | undefined;
+    const outputSchema = input.outputSchema as Record<string, unknown> | undefined;
+
+    let schema: Record<string, unknown> | null = null;
+    if (outputSchema) {
+      schema = outputSchema;
+    } else if (outputFormat && OUTPUT_FORMATS[outputFormat as keyof typeof OUTPUT_FORMATS]) {
+      schema = OUTPUT_FORMATS[outputFormat as keyof typeof OUTPUT_FORMATS];
+    }
+
+    if (schema) {
+      const schemaJson = JSON.stringify(schema, null, 2);
+      systemPrompt += `${systemPrompt ? '\n\n' : ''}You MUST respond with valid JSON matching this schema:\n${schemaJson}\n\nRespond with ONLY the JSON object, no other text or markdown formatting.`;
+    }
+
+    return this.queryLlm({
+      prompt: textParts.join('\n\n'),
+      systemPrompt: systemPrompt || undefined,
+      model: input.model as string | undefined,
+      maxTokens: input.maxTokens as number | undefined,
+      temperature: input.temperature as number | undefined,
+    });
+  }
+
+  // ============================================================
+  // LLM Query (ephemeral session for call_llm + runMiniCompletion)
+  // ============================================================
+
+  /**
+   * Execute an LLM query via an ephemeral CopilotSession.
+   *
+   * Creates a minimal session (no MCP servers, no hooks, no permission handler)
+   * for one-turn completions. Collects text from `assistant.message_delta` events,
+   * waits for `session.idle`, returns the accumulated result.
+   *
+   * Used by:
+   * - call_llm tool (via queryFn callback in session-scoped-tools)
+   * - runMiniCompletion (title generation, large response summarization)
+   */
+  private async queryLlm(request: LLMQueryRequest): Promise<LLMQueryResult> {
+    this.debug('[CopilotAgent.queryLlm] Starting');
+
+    const client = await this.ensureClient();
+    const model = request.model ?? this.config.miniModel ?? getDefaultSummarizationModel();
+
+    this.debug(`[CopilotAgent.queryLlm] Using model: ${model}`);
+
+    // Create a minimal ephemeral session — no MCP servers, no hooks, no permissions
+    const ephemeralConfig: CopilotSessionConfig = {
+      model,
+      systemMessage: request.systemPrompt
+        ? { mode: 'replace', content: request.systemPrompt }
+        : { mode: 'replace', content: 'Reply with ONLY the requested text. No explanation.' },
+      onPermissionRequest: async () => ({ kind: 'approved' as const }),
+      workingDirectory: this.resolvedCwd(),
+      streaming: true,
+    };
+
+    const ephemeralSession = await client.createSession(ephemeralConfig);
+    this.debug(`[CopilotAgent.queryLlm] Created ephemeral session: ${ephemeralSession.sessionId}`);
+
+    // Collect response text from delta events
+    let result = '';
+    let completionResolve: () => void;
+    const completionPromise = new Promise<void>((resolve) => {
+      completionResolve = resolve;
+    });
+
+    const unsubscribe = ephemeralSession.on((event: SessionEvent) => {
+      if (event.type === 'assistant.message_delta') {
+        const data = event.data as { deltaContent?: string };
+        if (data.deltaContent) {
+          result += data.deltaContent;
+        }
+      }
+      if (event.type === 'session.idle') {
+        completionResolve();
+      }
+    });
+
+    try {
+      await ephemeralSession.send({ prompt: request.prompt });
+
+      // 30s timeout
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('queryLlm timed out after 30s')), 30000)
+      );
+
+      await Promise.race([completionPromise, timeoutPromise]);
+
+      this.debug(`[CopilotAgent.queryLlm] Result length: ${result.trim().length}`);
+      return { text: result.trim() };
+    } finally {
+      unsubscribe();
+      ephemeralSession.destroy().catch(() => {});
+    }
+  }
+
+  // ============================================================
+  // Mini Completion (for title generation + summarization)
+  // ============================================================
+
+  /**
+   * Run a simple text completion for title generation and large response summarization.
+   * Delegates to queryLlm() which uses an ephemeral CopilotSession.
+   */
+  async runMiniCompletion(prompt: string): Promise<string | null> {
+    try {
+      const result = await this.queryLlm({ prompt });
+      const text = result.text || null;
+      this.debug(`[runMiniCompletion] Result: ${text ? `"${text.slice(0, 200)}"` : 'null'}`);
+      return text;
+    } catch (error) {
+      this.debug(`[runMiniCompletion] Failed: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 
   // ============================================================
