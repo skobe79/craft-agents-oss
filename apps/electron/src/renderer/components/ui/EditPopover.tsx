@@ -84,6 +84,7 @@ export type EditContextKey =
   | 'add-label'
   | 'edit-views'
   | 'edit-tool-icons'
+  | 'hook-config'
 
 /**
  * Full edit configuration including context for agent and example for UI.
@@ -478,6 +479,23 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     model: 'haiku',               // Use fast model for quick config edits
     systemPromptPreset: 'mini',   // Use focused mini prompt
     inlineExecution: true,        // Execute inline in popover
+  }),
+
+  'hook-config': (location) => ({
+    context: {
+      label: 'Hook Configuration',
+      filePath: `${location}/hooks.json`,
+      context:
+        'The user is editing hooks.json which configures automation hooks. ' +
+        'Structure: { version: 1, hooks: { EventName: [{ name?, matcher?, cron?, timezone?, permissionMode?, labels?, hooks: [...] }] } }. ' +
+        'Each event maps to an array of matcher entries. Each matcher has a hooks array of actions ({ type: "command", command } or { type: "prompt", prompt }). ' +
+        'Read ~/.craft-agent/docs/hooks.md for full format reference. ' +
+        'After editing, confirm clearly what changed.',
+    },
+    example: 'Change the cron schedule to every 30 minutes',
+    model: 'sonnet',
+    systemPromptPreset: 'mini',
+    inlineExecution: true,
   }),
 }
 

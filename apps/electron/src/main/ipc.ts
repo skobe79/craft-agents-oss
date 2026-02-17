@@ -3421,6 +3421,102 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     windowManager.broadcastToAll(IPC_CHANNELS.LABELS_CHANGED, workspaceId)
   })
 
+  // ============================================================
+  // Hook Testing (manual trigger from UI)
+  // ============================================================
+
+  ipcMain.handle(IPC_CHANNELS.TEST_HOOK, async (_event, payload: import('../shared/types').TestHookPayload) => {
+    const workspace = getWorkspaceByNameOrId(payload.workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    const { executeCommand } = await import('@craft-agent/shared/hooks-simple/command-executor')
+    const results: import('../shared/types').TestHookActionResult[] = []
+
+    for (const action of payload.hooks) {
+      const start = Date.now()
+
+      if (action.type === 'command') {
+        try {
+          const result = await executeCommand(action.command, {
+            env: { CRAFT_EVENT: 'ManualTest', CRAFT_WORKSPACE_ID: payload.workspaceId },
+            timeout: action.timeout ?? 60000,
+            cwd: workspace.rootPath,
+            permissionMode: payload.permissionMode ?? 'safe',
+          })
+
+          results.push({
+            type: 'command',
+            success: result.success,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            blocked: result.blocked,
+            blockedReason: result.blocked ? result.stderr : undefined,
+            duration: Date.now() - start,
+          })
+        } catch (err: unknown) {
+          results.push({
+            type: 'command',
+            success: false,
+            stderr: (err as Error).message,
+            duration: Date.now() - start,
+          })
+        }
+      } else if (action.type === 'prompt') {
+        // Prompt hooks create a new session
+        try {
+          const session = await sessionManager.createSession(payload.workspaceId, {
+            name: `Test: ${action.prompt.slice(0, 50)}`,
+            labels: payload.labels,
+          })
+          if (session) {
+            await sessionManager.sendMessage(session.id, action.prompt)
+          }
+          results.push({
+            type: 'prompt',
+            success: true,
+            sessionId: session?.id,
+            duration: Date.now() - start,
+          })
+        } catch (err: unknown) {
+          results.push({
+            type: 'prompt',
+            success: false,
+            stderr: (err as Error).message,
+            duration: Date.now() - start,
+          })
+        }
+      }
+    }
+
+    return { actions: results } satisfies import('../shared/types').TestHookResult
+  })
+
+  // Hook enabled state management (toggle enabled/disabled in hooks.json)
+  ipcMain.handle(IPC_CHANNELS.HOOKS_SET_ENABLED, async (_event, workspaceId: string, eventName: string, matcherIndex: number, enabled: boolean) => {
+    const workspace = getWorkspaceByNameOrId(workspaceId)
+    if (!workspace) throw new Error('Workspace not found')
+
+    const { join } = await import('path')
+    const hooksPath = join(workspace.rootPath, 'hooks.json')
+
+    const raw = await readFile(hooksPath, 'utf-8')
+    const config = JSON.parse(raw)
+
+    const matchers = config.hooks?.[eventName]
+    if (!Array.isArray(matchers) || matcherIndex < 0 || matcherIndex >= matchers.length) {
+      throw new Error(`Invalid hook reference: ${eventName}[${matcherIndex}]`)
+    }
+
+    if (enabled) {
+      // Remove the enabled field entirely (defaults to true) to keep JSON clean
+      delete matchers[matcherIndex].enabled
+    } else {
+      matchers[matcherIndex].enabled = false
+    }
+
+    await writeFile(hooksPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+  })
+
   // Generic workspace image loading (for source icons, status icons, etc.)
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_READ_IMAGE, async (_event, workspaceId: string, relativePath: string) => {
     const workspace = getWorkspaceByNameOrId(workspaceId)

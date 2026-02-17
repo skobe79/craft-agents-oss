@@ -181,6 +181,7 @@ const mockHooks: HookListItem[] = [
   {
     id: 'hook-1',
     event: 'SchedulerTick',
+    matcherIndex: 0,
     name: 'Daily Weather Report',
     summary: 'Weekdays at 9:00 AM',
     enabled: true,
@@ -194,6 +195,7 @@ const mockHooks: HookListItem[] = [
   {
     id: 'hook-2',
     event: 'LabelAdd',
+    matcherIndex: 0,
     name: 'Urgent Label Notification',
     summary: 'When "urgent" label is added',
     enabled: true,
@@ -205,6 +207,7 @@ const mockHooks: HookListItem[] = [
   {
     id: 'hook-3',
     event: 'PreToolUse',
+    matcherIndex: 0,
     name: 'Git Pre-commit Check',
     summary: 'Before any Bash tool use',
     enabled: false,
@@ -215,6 +218,7 @@ const mockHooks: HookListItem[] = [
   {
     id: 'hook-4',
     event: 'LabelAdd',
+    matcherIndex: 1,
     name: 'Label Change Logger',
     summary: 'Logs all label additions',
     enabled: true,
@@ -225,6 +229,7 @@ const mockHooks: HookListItem[] = [
   {
     id: 'hook-5',
     event: 'SchedulerTick',
+    matcherIndex: 1,
     name: 'Hourly Health Check',
     summary: 'Every hour',
     enabled: true,
@@ -239,6 +244,7 @@ const mockHooks: HookListItem[] = [
   {
     id: 'hook-6',
     event: 'PostToolUse',
+    matcherIndex: 0,
     name: 'Build Artifact Logger',
     summary: 'After Bash tool completes',
     enabled: true,
@@ -249,6 +255,7 @@ const mockHooks: HookListItem[] = [
   {
     id: 'hook-7',
     event: 'SessionStart',
+    matcherIndex: 0,
     name: 'Welcome Prompt',
     summary: 'Greet on new session',
     enabled: true,
@@ -259,6 +266,7 @@ const mockHooks: HookListItem[] = [
   {
     id: 'hook-8',
     event: 'PostToolUseFailure',
+    matcherIndex: 0,
     name: 'Error Alert',
     summary: 'Notify on tool failures',
     enabled: true,

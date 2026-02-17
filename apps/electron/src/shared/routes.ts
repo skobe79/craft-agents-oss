@@ -156,6 +156,26 @@ export const routes = {
       return `skills/skill/${skillSlug}` as const
     },
 
+    /** Tasks view (tasks navigator) - supports type filtering */
+    tasks: (params?: { taskId?: string; type?: 'scheduled' | 'event' | 'agentic' }) => {
+      const { taskId, type } = params ?? {}
+      const base = type ? `tasks/${type}` : 'tasks'
+      if (taskId) return `${base}/task/${taskId}` as const
+      return base as 'tasks' | `tasks/${'scheduled' | 'event' | 'agentic'}`
+    },
+
+    /** Scheduled tasks view (tasks navigator, scheduled filter) */
+    tasksScheduled: (taskId?: string) =>
+      taskId ? `tasks/scheduled/task/${taskId}` as const : 'tasks/scheduled' as const,
+
+    /** Event-based tasks view (tasks navigator, event filter) */
+    tasksEvent: (taskId?: string) =>
+      taskId ? `tasks/event/task/${taskId}` as const : 'tasks/event' as const,
+
+    /** Agentic tasks view (tasks navigator, agentic filter) */
+    tasksAgentic: (taskId?: string) =>
+      taskId ? `tasks/agentic/task/${taskId}` as const : 'tasks/agentic' as const,
+
     /** Settings view (settings navigator) - uses SettingsSubpage from registry */
     settings: (subpage?: SettingsSubpage) =>
       subpage

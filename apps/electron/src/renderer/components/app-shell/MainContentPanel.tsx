@@ -29,6 +29,7 @@ import {
   isSourcesNavigation,
   isSettingsNavigation,
   isSkillsNavigation,
+  isTasksNavigation,
 } from '@/contexts/NavigationContext'
 import { useSessionSelection, useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import { extractLabelId } from '@craft-agent/shared/labels'
@@ -36,6 +37,8 @@ import type { SessionStatusId } from '@/config/session-status-config'
 import { SourceInfoPage, ChatPage } from '@/pages'
 import SkillInfoPage from '@/pages/SkillInfoPage'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
+import { HookInfoPage } from '../hooks/HookInfoPage'
+import { hooksAtom } from '@/atoms/hooks'
 
 export interface MainContentPanelProps {
   /** Whether the app is in focused mode (single chat, no sidebar) */
@@ -56,6 +59,9 @@ export function MainContentPanel({
     onSessionLabelsChange,
     sessionStatuses,
     labels,
+    onTestHook,
+    onToggleHook,
+    hookTestResults,
   } = useAppShellContext()
 
   // Multi-select state
@@ -64,6 +70,7 @@ export function MainContentPanel({
   const selectionCount = useSelectionCount()
   const { clearMultiSelect } = useSessionSelection()
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
+  const hooks = useAtomValue(hooksAtom)
 
   const selectedMetas = useMemo(() => {
     const metas: SessionMeta[] = []
@@ -182,6 +189,32 @@ export function MainContentPanel({
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <p className="text-sm">No skills configured</p>
+        </div>
+      </Panel>
+    )
+  }
+
+  // Tasks navigator - show task (hook) info or empty state
+  if (isTasksNavigation(navState)) {
+    if (navState.details) {
+      const hook = hooks.find(h => h.id === navState.details!.taskId)
+      if (hook) {
+        return wrapWithStoplight(
+          <Panel variant="grow" className={className}>
+            <HookInfoPage
+              hook={hook}
+              testResult={hookTestResults?.[hook.id]}
+              onTest={onTestHook ? () => onTestHook(hook.id) : undefined}
+              onToggleEnabled={onToggleHook ? () => onToggleHook(hook.id) : undefined}
+            />
+          </Panel>
+        )
+      }
+    }
+    return wrapWithStoplight(
+      <Panel variant="grow" className={className}>
+        <div className="flex items-center justify-center h-full text-muted-foreground">
+          <p className="text-sm">No tasks configured</p>
         </div>
       </Panel>
     )

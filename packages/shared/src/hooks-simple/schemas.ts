@@ -29,6 +29,7 @@ export const HookDefinitionSchema = z.discriminatedUnion('type', [
 ]);
 
 export const HookMatcherSchema = z.object({
+  name: z.string().optional(),
   matcher: z.string().optional(),
   cron: z.string().optional(),
   timezone: z.string().optional(),

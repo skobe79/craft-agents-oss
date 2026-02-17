@@ -58,10 +58,12 @@ const categoryConfig: Record<EventCategory, { icon: React.ElementType; bg: strin
 export interface HookAvatarProps {
   event: HookEvent
   size?: AvatarSize
+  /** Fill parent container (h-full w-full). Overrides size. */
+  fluid?: boolean
   className?: string
 }
 
-export function HookAvatar({ event, size = 'md', className }: HookAvatarProps) {
+export function HookAvatar({ event, size = 'md', fluid, className }: HookAvatarProps) {
   const category = getEventCategory(event)
   const config = categoryConfig[category]
   const sizes = sizeConfig[size]
@@ -71,12 +73,12 @@ export function HookAvatar({ event, size = 'md', className }: HookAvatarProps) {
     <span
       className={cn(
         'inline-flex items-center justify-center rounded-[4px] ring-1 ring-border/30 shrink-0',
-        sizes.container,
+        fluid ? 'h-full w-full' : sizes.container,
         config.bg,
         className
       )}
     >
-      <Icon className={cn(sizes.icon, config.text)} />
+      <Icon className={cn(fluid ? 'h-[60%] w-[60%]' : sizes.icon, config.text)} />
     </span>
   )
 }

@@ -1057,6 +1057,8 @@ export class SessionManager {
             sessionLog.error(`Failed to reload hooks for workspace ${workspaceId}:`, result.errors)
           }
         }
+        // Notify renderer to re-read hooks.json
+        this.broadcastHooksChanged(workspaceId)
       },
       onLlmConnectionsChange: () => {
         sessionLog.info(`LLM connections changed in ${workspaceId}`)
@@ -1213,6 +1215,15 @@ export class SessionManager {
     if (!this.windowManager) return
     sessionLog.info(`Broadcasting labels changed for ${workspaceId}`)
     this.windowManager.broadcastToAll(IPC_CHANNELS.LABELS_CHANGED, workspaceId)
+  }
+
+  /**
+   * Broadcast hooks changed event to all windows
+   */
+  private broadcastHooksChanged(workspaceId: string): void {
+    if (!this.windowManager) return
+    sessionLog.info(`Broadcasting hooks changed for ${workspaceId}`)
+    this.windowManager.broadcastToAll(IPC_CHANNELS.HOOKS_CHANGED, workspaceId)
   }
 
   /**

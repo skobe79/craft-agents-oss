@@ -67,6 +67,8 @@ export interface PromptHookDefinition {
 export type HookDefinition = CommandHookDefinition | PromptHookDefinition;
 
 export interface HookMatcher {
+  /** Optional display name. If omitted, derived from the first action. */
+  name?: string;
   /** Regex pattern for matching event data (not used for SchedulerTick) */
   matcher?: string;
   /** Cron expression for SchedulerTick events (5-field format) */

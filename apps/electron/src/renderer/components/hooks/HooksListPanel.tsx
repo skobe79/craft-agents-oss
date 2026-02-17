@@ -3,11 +3,12 @@
  *
  * Navigator panel for displaying hooks in the 2nd column.
  * Follows the SourcesListPanel pattern with avatar, title, subtitle, badges.
+ * Title and Plus button are handled by the shared PanelHeader in AppShell.
  */
 
 import * as React from 'react'
 import { useState } from 'react'
-import { MoreHorizontal, Webhook, ChevronDown, ChevronRight, Terminal, MessageSquare, ListFilter, Check } from 'lucide-react'
+import { MoreHorizontal, Webhook, ChevronDown, ChevronRight, Terminal, MessageSquare } from 'lucide-react'
 import { formatDistanceToNowStrict } from 'date-fns'
 import type { Locale } from 'date-fns'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@craft-agent/ui'
@@ -25,16 +26,11 @@ import {
   StyledContextMenuContent,
 } from '@/components/ui/styled-context-menu'
 import { DropdownMenuProvider, ContextMenuProvider } from '@/components/ui/menu-context'
-import {
-  StyledDropdownMenuItem,
-} from '@/components/ui/styled-dropdown'
 import { SessionSearchHeader } from '@/components/app-shell/SessionSearchHeader'
-import { PanelHeader } from '@/components/app-shell/PanelHeader'
-import { HeaderIconButton } from '@/components/ui/HeaderIconButton'
 import { HookMenu } from './HookMenu'
 import { HookAvatar } from './HookAvatar'
 import { cn } from '@/lib/utils'
-import { APP_EVENTS, AGENT_EVENTS, getEventDisplayName, type HookListItem, type HookFilter, type HookFilterKind } from './types'
+import { APP_EVENTS, AGENT_EVENTS, getEventDisplayName, type HookListItem, type HookFilter } from './types'
 
 /** Short relative time locale — produces compact strings: "7m", "2h", "3d" */
 const shortTimeLocale: Pick<Locale, 'formatDistance'> = {
@@ -51,17 +47,6 @@ const shortTimeLocale: Pick<Locale, 'formatDistance'> = {
     return units[token] || `${count}`
   },
 }
-
-// ============================================================================
-// Filter Options
-// ============================================================================
-
-const FILTER_OPTIONS: { kind: HookFilterKind; label: string; title: string }[] = [
-  { kind: 'all', label: 'All', title: 'Automations' },
-  { kind: 'app', label: 'Workspace', title: 'Workspace' },
-  { kind: 'agent', label: 'AI Agent', title: 'AI Agent' },
-  { kind: 'scheduled', label: 'Scheduled', title: 'Scheduled' },
-]
 
 
 // ============================================================================
@@ -116,128 +101,133 @@ function HookItem({
       <ContextMenu modal={true} onOpenChange={setContextMenuOpen}>
         <ContextMenuTrigger asChild>
           <div className="hook-content relative group select-none pl-2 mr-2">
-            {/* Expand chevron — positioned absolutely, before the avatar */}
+            {/* Background wrapper — covers chevron, avatar, button, and expanded content */}
             <div
-              className="absolute left-[6px] top-3.5 z-10 flex items-center justify-center cursor-pointer p-0.5 rounded hover:bg-foreground/5 transition-colors"
-              onClick={(e) => {
-                e.stopPropagation()
-                setExpanded(!expanded)
-              }}
-            >
-              {expanded ? (
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-              )}
-            </div>
-
-            {/* Hook Avatar — shifted right to make room for chevron */}
-            <div className="absolute left-[26px] top-3.5 z-10 flex items-center justify-center">
-              <HookAvatar event={hook.event} size="sm" />
-            </div>
-
-            {/* Main content button */}
-            <button
               className={cn(
-                'flex w-full items-start gap-2 pl-6 pr-4 py-3 text-left text-sm transition-all outline-none rounded-[8px]',
+                'relative rounded-[8px] transition-all',
                 isSelected
                   ? 'bg-foreground/5 hover:bg-foreground/7'
                   : 'hover:bg-foreground/2'
               )}
-              onClick={onClick}
             >
-              {/* Spacer for chevron + avatar */}
-              <div className="w-5 h-5 shrink-0" />
+              {/* Expand chevron — positioned absolutely inside background wrapper */}
+              <div
+                className="absolute left-[4px] top-3.5 z-10 flex items-center justify-center cursor-pointer p-1 rounded-[4px] hover:bg-foreground/5 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setExpanded(!expanded)
+                }}
+              >
+                {expanded ? (
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                )}
+              </div>
 
-              {/* Content column */}
-              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                {/* Title */}
-                <div className="flex items-start gap-2 w-full pr-6 min-w-0">
-                  <div className="font-medium font-sans line-clamp-2 min-w-0 -mb-[2px]">
-                    {hook.name}
+              {/* Hook Avatar — shifted right to make room for chevron */}
+              <div className="absolute left-[24px] top-3.5 z-10 flex items-center justify-center">
+                <HookAvatar event={hook.event} size="sm" />
+              </div>
+
+              {/* Main content button */}
+              <button
+                className="flex w-full items-start gap-2 pl-6 pr-4 py-3 text-left text-sm outline-none"
+                onClick={onClick}
+              >
+                {/* Spacer for chevron + avatar */}
+                <div className="w-5 h-5 shrink-0" />
+
+                {/* Content column */}
+                <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                  {/* Title */}
+                  <div className="flex items-start gap-2 w-full pr-6 min-w-0">
+                    <div className="font-medium font-sans line-clamp-2 min-w-0 -mb-[2px]">
+                      {hook.name}
+                    </div>
+                  </div>
+
+                  {/* Subtitle: summary */}
+                  <div className="flex items-center gap-1.5 text-xs text-foreground/50 w-full -mb-[2px] pr-6 min-w-0">
+                    <span className="truncate">{hook.summary}</span>
+                  </div>
+
+                  {/* Badges row: event + action type + last ran timestamp */}
+                  <div className="flex items-center gap-1.5 -mb-[2px]">
+                    <span className={cn(
+                      'shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded',
+                      'bg-foreground/8 text-foreground/60'
+                    )}>
+                      {getEventDisplayName(hook.event)}
+                    </span>
+                    <span className={cn(
+                      'shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded',
+                      actionBadge.classes
+                    )}>
+                      {actionBadge.label}
+                    </span>
+                    {/* Last ran timestamp — bottom right */}
+                    {hook.lastExecutedAt && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="shrink-0 ml-auto text-[11px] text-foreground/40 whitespace-nowrap cursor-default">
+                            {formatDistanceToNowStrict(new Date(hook.lastExecutedAt), { locale: shortTimeLocale as Locale, roundingMethod: 'floor' })}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" sideOffset={4}>
+                          Last ran {formatDistanceToNowStrict(new Date(hook.lastExecutedAt), { addSuffix: true })}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </div>
                 </div>
+              </button>
 
-                {/* Subtitle: summary */}
-                <div className="flex items-center gap-1.5 text-xs text-foreground/50 w-full -mb-[2px] pr-6 min-w-0">
-                  <span className="truncate">{hook.summary}</span>
-                </div>
-
-                {/* Badges row: event + action type + last ran timestamp */}
-                <div className="flex items-center gap-1.5 -mb-[2px]">
-                  <span className={cn(
-                    'shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded',
-                    'bg-foreground/8 text-foreground/60'
-                  )}>
-                    {getEventDisplayName(hook.event)}
-                  </span>
-                  <span className={cn(
-                    'shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded',
-                    actionBadge.classes
-                  )}>
-                    {actionBadge.label}
-                  </span>
-                  {/* Last ran timestamp — bottom right */}
-                  {hook.lastExecutedAt && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="shrink-0 ml-auto text-[11px] text-foreground/40 whitespace-nowrap cursor-default">
-                          {formatDistanceToNowStrict(new Date(hook.lastExecutedAt), { locale: shortTimeLocale as Locale, roundingMethod: 'floor' })}
+              {/* Expanded When/Then details */}
+              {expanded && (
+                <div className="pl-[50px] pr-4 pb-3 space-y-2.5">
+                  {/* When */}
+                  <div className="space-y-0.5">
+                    <h5 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">When</h5>
+                    <div className="text-xs text-foreground/70">
+                      <span className="font-medium">{getEventDisplayName(hook.event)}</span>
+                      {hook.matcher && (
+                        <span className="ml-2">
+                          matching <code className="font-mono bg-foreground/5 px-1 rounded">{hook.matcher}</code>
                         </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" sideOffset={4}>
-                        Last ran {formatDistanceToNowStrict(new Date(hook.lastExecutedAt), { addSuffix: true })}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
-              </div>
-            </button>
+                      )}
+                      {hook.cron && (
+                        <span className="ml-2">
+                          at <code className="font-mono bg-foreground/5 px-1 rounded">{hook.cron}</code>
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-            {/* Expanded When/Then details */}
-            {expanded && (
-              <div className="pl-[50px] pr-4 pb-3 space-y-2.5">
-                {/* When */}
-                <div className="space-y-0.5">
-                  <h5 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">When</h5>
-                  <div className="text-xs text-foreground/70">
-                    <span className="font-medium">{getEventDisplayName(hook.event)}</span>
-                    {hook.matcher && (
-                      <span className="ml-2">
-                        matching <code className="font-mono bg-foreground/5 px-1 rounded">{hook.matcher}</code>
-                      </span>
-                    )}
-                    {hook.cron && (
-                      <span className="ml-2">
-                        at <code className="font-mono bg-foreground/5 px-1 rounded">{hook.cron}</code>
-                      </span>
-                    )}
+                  {/* Then */}
+                  <div className="space-y-0.5">
+                    <h5 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Then</h5>
+                    <div className="space-y-1">
+                      {hook.hooks.map((action, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          {action.type === 'command' ? (
+                            <>
+                              <Terminal className="h-3 w-3 text-foreground/50 mt-0.5 shrink-0" />
+                              <code className="font-mono text-foreground/70 break-all line-clamp-2">{action.command}</code>
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquare className="h-3 w-3 text-foreground/50 mt-0.5 shrink-0" />
+                              <span className="text-foreground/70 break-words line-clamp-2">{action.prompt}</span>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-
-                {/* Then */}
-                <div className="space-y-0.5">
-                  <h5 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Then</h5>
-                  <div className="space-y-1">
-                    {hook.hooks.map((action, i) => (
-                      <div key={i} className="flex items-start gap-2 text-xs">
-                        {action.type === 'command' ? (
-                          <>
-                            <Terminal className="h-3 w-3 text-foreground/50 mt-0.5 shrink-0" />
-                            <code className="font-mono text-foreground/70 break-all line-clamp-2">{action.command}</code>
-                          </>
-                        ) : (
-                          <>
-                            <MessageSquare className="h-3 w-3 text-foreground/50 mt-0.5 shrink-0" />
-                            <span className="text-foreground/70 break-words line-clamp-2">{action.prompt}</span>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Action buttons - visible on hover */}
             <div
@@ -318,20 +308,20 @@ export function HooksListPanel({
   selectedHookId,
   className,
 }: HooksListPanelProps) {
-  const [activeFilter, setActiveFilter] = useState<HookFilterKind>(hookFilter?.kind ?? 'all')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchActive, setSearchActive] = useState(false)
 
   const isSearchMode = searchActive && searchQuery.length >= 2
 
-  // Filter hooks based on active pill filter
+  // Filter hooks based on sidebar-driven filter (from route)
   const categoryFiltered = React.useMemo(() => {
-    if (activeFilter === 'all') return hooks
-    if (activeFilter === 'scheduled') return hooks.filter(h => h.event === 'SchedulerTick')
-    if (activeFilter === 'app') return hooks.filter(h => (APP_EVENTS as string[]).includes(h.event))
-    if (activeFilter === 'agent') return hooks.filter(h => (AGENT_EVENTS as string[]).includes(h.event))
+    const kind = hookFilter?.kind ?? 'all'
+    if (kind === 'all') return hooks
+    if (kind === 'scheduled') return hooks.filter(h => h.event === 'SchedulerTick')
+    if (kind === 'app') return hooks.filter(h => (APP_EVENTS as string[]).includes(h.event) && h.event !== 'SchedulerTick')
+    if (kind === 'agent') return hooks.filter(h => (AGENT_EVENTS as string[]).includes(h.event))
     return hooks
-  }, [hooks, activeFilter])
+  }, [hooks, hookFilter?.kind])
 
   // Further filter by search query (name, summary, event display name)
   const filteredHooks = React.useMemo(() => {
@@ -344,23 +334,18 @@ export function HooksListPanel({
     )
   }, [categoryFiltered, isSearchMode, searchQuery])
 
-  // Panel header title based on active filter
-  const headerTitle = FILTER_OPTIONS.find(f => f.kind === activeFilter)?.title ?? 'All Hooks'
-  const hasActiveFilter = activeFilter !== 'all'
-
   // Empty state
   if (hooks.length === 0) {
     return (
-      <div className={cn('flex flex-col flex-1', className)}>
-        <PanelHeader title={headerTitle} />
+      <div className={cn('flex flex-col flex-1 min-h-0', className)}>
         <Empty className="flex-1">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <Webhook />
             </EmptyMedia>
-            <EmptyTitle>No automations configured</EmptyTitle>
+            <EmptyTitle>No tasks configured</EmptyTitle>
             <EmptyDescription>
-              Automations run actions when events occur — execute commands on schedules,
+              Tasks run actions when events occur — execute commands on schedules,
               react to label changes, or trigger prompts automatically.
             </EmptyDescription>
           </EmptyHeader>
@@ -370,52 +355,7 @@ export function HooksListPanel({
   }
 
   return (
-    <div className={cn('flex flex-col flex-1', className)}>
-      {/* Panel header with title + filter icon */}
-      <PanelHeader
-        title={headerTitle}
-        actions={
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <HeaderIconButton
-                icon={<ListFilter className="h-4 w-4" />}
-                className={cn(
-                  'rounded-[8px]',
-                  hasActiveFilter && 'bg-accent/5 text-accent shadow-tinted'
-                )}
-                style={hasActiveFilter ? { '--shadow-color': 'var(--accent-rgb)' } as React.CSSProperties : undefined}
-              />
-            </DropdownMenuTrigger>
-            <StyledDropdownMenuContent align="end">
-              <div className="px-2 py-1.5 flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">Filter</span>
-                {hasActiveFilter && (
-                  <button
-                    onClick={() => setActiveFilter('all')}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-              {FILTER_OPTIONS.map(({ kind, label }) => (
-                <StyledDropdownMenuItem
-                  key={kind}
-                  onClick={() => setActiveFilter(kind)}
-                >
-                  <div className="flex items-center gap-2 w-full">
-                    <span className="flex-1">{label}</span>
-                    {activeFilter === kind && (
-                      <Check className="h-3.5 w-3.5 text-accent" />
-                    )}
-                  </div>
-                </StyledDropdownMenuItem>
-              ))}
-            </StyledDropdownMenuContent>
-          </DropdownMenu>
-        }
-      />
-
+    <div className={cn('flex flex-col flex-1 min-h-0', className)}>
       {/* Search header */}
       {searchActive && (
         <SessionSearchHeader
@@ -425,7 +365,7 @@ export function HooksListPanel({
             setSearchActive(false)
             setSearchQuery('')
           }}
-          placeholder="Search automations..."
+          placeholder="Search tasks..."
           resultCount={isSearchMode ? filteredHooks.length : undefined}
         />
       )}
@@ -434,7 +374,7 @@ export function HooksListPanel({
       {filteredHooks.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-1">
           <p className="text-sm text-muted-foreground">
-            {isSearchMode ? 'No automations found' : `No ${activeFilter} automations configured.`}
+            {isSearchMode ? 'No tasks found' : 'No tasks configured.'}
           </p>
           {isSearchMode && (
             <button

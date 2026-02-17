@@ -58,6 +58,7 @@ import {
   isSourcesNavigation,
   isSettingsNavigation,
   isSkillsNavigation,
+  isTasksNavigation,
   DEFAULT_NAVIGATION_STATE,
 } from '../../shared/types'
 import { isValidSettingsSubpage, type SettingsSubpage } from '../../shared/settings-registry'
@@ -71,7 +72,7 @@ export type { Route }
 
 // Re-export navigation state types for consumers
 export type { NavigationState, SessionFilter }
-export { isSessionsNavigation, isSourcesNavigation, isSettingsNavigation, isSkillsNavigation }
+export { isSessionsNavigation, isSourcesNavigation, isSettingsNavigation, isSkillsNavigation, isTasksNavigation }
 
 interface NavigationContextValue {
   /** Navigate to a route */
@@ -487,6 +488,12 @@ export function NavigationProvider({
         }
       }
 
+      // For tasks: no auto-selection yet (tasks aren't loaded from disk)
+      if (isTasksNavigation(nextState)) {
+        setNavigationState(nextState)
+        return nextState
+      }
+
       // For chats with explicit session: update session selection
       if (isSessionsNavigation(nextState) && nextState.details) {
         if (workspaceId) {
@@ -613,6 +620,11 @@ export function NavigationProvider({
         const { skillSlug } = navState.details
         return skills.some(s => s.slug === skillSlug)
       }
+      return true
+    }
+
+    // Tasks: always valid for now (mock data, no real data layer yet)
+    if (isTasksNavigation(navState)) {
       return true
     }
 

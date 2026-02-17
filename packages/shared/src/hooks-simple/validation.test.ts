@@ -67,6 +67,20 @@ describe('validation', () => {
       const result = validateHooksConfig(config);
       expect(result.valid).toBe(true);
     });
+
+    it('should accept config with optional name field', () => {
+      const config = {
+        hooks: {
+          SchedulerTick: [{
+            name: 'Daily Weather Report',
+            cron: '0 8 * * *',
+            hooks: [{ type: 'prompt', prompt: 'Check the weather' }],
+          }],
+        },
+      };
+      const result = validateHooksConfig(config);
+      expect(result.valid).toBe(true);
+    });
   });
 
   describe('validateHooksContent', () => {

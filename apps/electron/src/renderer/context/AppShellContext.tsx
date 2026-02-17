@@ -24,6 +24,7 @@ import type {
   LoadedSkill,
   NewChatActionParams,
   LlmConnectionWithStatus,
+  TestHookResult,
 } from '../../shared/types'
 import type { SessionStatus as SessionStatusConfig } from '@/config/session-status-config'
 import type { SessionOptions, SessionOptionUpdates } from '../hooks/useSessionOptions'
@@ -139,6 +140,14 @@ export interface AppShellContextType {
   chatDisplayRef?: React.RefObject<ChatDisplayHandle>
   /** Callback when ChatDisplay match info changes (for immediate UI updates) */
   onChatMatchInfoChange?: (info: { count: number; index: number }) => void
+
+  // Hook management
+  /** Test a hook by ID — executes its actions and returns results */
+  onTestHook?: (hookId: string) => void
+  /** Toggle a hook's enabled state by ID */
+  onToggleHook?: (hookId: string) => void
+  /** Map of hookId → last test result */
+  hookTestResults?: Record<string, import('../components/hooks/types').TestResult>
 }
 
 const AppShellContext = createContext<AppShellContextType | null>(null)

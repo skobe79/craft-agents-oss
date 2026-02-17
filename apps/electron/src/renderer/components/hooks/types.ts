@@ -17,6 +17,7 @@ export type AppEvent =
   | 'PermissionModeChange'
   | 'FlagChange'
   | 'TodoStateChange'
+  | 'SessionStatusChange'
   | 'SchedulerTick'
 
 export type AgentEvent =
@@ -38,7 +39,7 @@ export type HookEvent = AppEvent | AgentEvent
 
 export const APP_EVENTS: AppEvent[] = [
   'LabelAdd', 'LabelRemove', 'LabelConfigChange',
-  'PermissionModeChange', 'FlagChange', 'TodoStateChange', 'SchedulerTick'
+  'PermissionModeChange', 'FlagChange', 'TodoStateChange', 'SessionStatusChange', 'SchedulerTick'
 ]
 
 export const AGENT_EVENTS: AgentEvent[] = [
@@ -69,6 +70,8 @@ export interface HookListItem {
   id: string
   /** The event this hook listens to */
   event: HookEvent
+  /** Index of this matcher within its event array in hooks.json (for write-back) */
+  matcherIndex: number
   /** Display name (user-set or auto-derived) */
   name: string
   /** Human-readable summary */
@@ -150,6 +153,7 @@ export const EVENT_DISPLAY_NAMES: Record<HookEvent, string> = {
   PermissionModeChange: 'Permission Changed',
   FlagChange:           'Flag Changed',
   TodoStateChange:      'Task Updated',
+  SessionStatusChange:  'Status Changed',
   SchedulerTick:        'Scheduled',
 
   // Agent events
@@ -200,6 +204,103 @@ export type EventCategory =
   | 'session'
   | 'other'
 
+// ============================================================================
+// hooks.json Parser
+// ============================================================================
+
+/** Raw hooks.json file structure */
+interface HooksConfigFile {
+  version: number
+  hooks: Record<string, HooksConfigMatcher[]>
+}
+
+interface HooksConfigMatcher {
+  name?: string
+  matcher?: string
+  cron?: string
+  timezone?: string
+  permissionMode?: 'safe' | 'ask' | 'allow-all'
+  labels?: string[]
+  enabled?: boolean
+  hooks: { type: 'command'; command: string; timeout?: number }[] | { type: 'prompt'; prompt: string }[]
+}
+
+/** Derive a human-readable name from hook actions and event */
+function deriveHookName(event: string, matcher: HooksConfigMatcher): string {
+  if (matcher.name) return matcher.name
+  const firstAction = matcher.hooks[0]
+  if (!firstAction) return getEventDisplayName(event as HookEvent)
+
+  if (firstAction.type === 'prompt') {
+    // Extract @skill mentions or use first ~40 chars
+    const mentionMatch = firstAction.prompt.match(/@(\S+)/)
+    if (mentionMatch) return `${mentionMatch[1]} prompt`
+    return firstAction.prompt.length > 40
+      ? firstAction.prompt.slice(0, 40) + '...'
+      : firstAction.prompt
+  }
+
+  // Command: use the script name or first ~40 chars
+  const cmd = firstAction.command
+  const scriptMatch = cmd.match(/\/([^/\s]+)$/)
+  if (scriptMatch) return scriptMatch[1]
+  return cmd.length > 40 ? cmd.slice(0, 40) + '...' : cmd
+}
+
+/** Derive a summary line from the matcher/cron/event */
+function deriveHookSummary(event: string, matcher: HooksConfigMatcher): string {
+  if (matcher.cron) {
+    const tz = matcher.timezone ? ` (${matcher.timezone})` : ''
+    return `Cron: ${matcher.cron}${tz}`
+  }
+  if (matcher.matcher) {
+    return `Matches: ${matcher.matcher}`
+  }
+  return `On ${getEventDisplayName(event as HookEvent)}`
+}
+
+/**
+ * Parse a hooks.json file into a flat list of HookListItem[].
+ * Each matcher entry under each event becomes one item.
+ */
+export function parseHooksConfig(json: unknown): HookListItem[] {
+  if (!json || typeof json !== 'object') return []
+  const config = json as HooksConfigFile
+  if (!config.hooks || typeof config.hooks !== 'object') return []
+
+  const allEvents = [...APP_EVENTS, ...AGENT_EVENTS] as string[]
+  const items: HookListItem[] = []
+  let index = 0
+
+  for (const [eventName, matchers] of Object.entries(config.hooks)) {
+    if (!Array.isArray(matchers)) continue
+    const event = (allEvents.includes(eventName) ? eventName : eventName) as HookEvent
+
+    for (let matcherIdx = 0; matcherIdx < matchers.length; matcherIdx++) {
+      const matcher = matchers[matcherIdx]
+      if (!matcher.hooks || !Array.isArray(matcher.hooks) || matcher.hooks.length === 0) continue
+
+      items.push({
+        id: `${eventName}-${index}`,
+        event,
+        matcherIndex: matcherIdx,
+        name: deriveHookName(eventName, matcher),
+        summary: deriveHookSummary(eventName, matcher),
+        enabled: matcher.enabled !== false,
+        matcher: matcher.matcher,
+        cron: matcher.cron,
+        timezone: matcher.timezone,
+        permissionMode: matcher.permissionMode,
+        labels: matcher.labels,
+        hooks: matcher.hooks as HookDefinition[],
+      })
+      index++
+    }
+  }
+
+  return items
+}
+
 export function getEventCategory(event: HookEvent): EventCategory {
   switch (event) {
     case 'SchedulerTick':
@@ -214,6 +315,7 @@ export function getEventCategory(event: HookEvent): EventCategory {
     case 'FlagChange':
       return 'flag'
     case 'TodoStateChange':
+    case 'SessionStatusChange':
       return 'todo'
     case 'PreToolUse':
     case 'UserPromptSubmit':

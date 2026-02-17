@@ -26,7 +26,7 @@ import {
 import { useMenuComponents } from '@/components/ui/menu-context'
 import { getDocUrl, type DocFeature } from '@craft-agent/shared/docs/doc-links'
 
-export type SidebarMenuType = 'allSessions' | 'flagged' | 'status' | 'sources' | 'skills' | 'labels' | 'views' | 'newSession'
+export type SidebarMenuType = 'allSessions' | 'flagged' | 'status' | 'sources' | 'skills' | 'tasks' | 'labels' | 'views' | 'newSession'
 
 export interface SidebarMenuProps {
   /** Type of sidebar item (determines available menu items) */
@@ -47,6 +47,8 @@ export interface SidebarMenuProps {
   onAddSource?: () => void
   /** Handler for "Add Skill" action - only for skills type */
   onAddSkill?: () => void
+  /** Handler for "Add Task" action - only for tasks type */
+  onAddTask?: () => void
   /** Source type filter for "Learn More" link - determines which docs page to open */
   sourceType?: 'api' | 'mcp' | 'local'
   /** Handler for "Edit Views" action - for views type */
@@ -71,6 +73,7 @@ export function SidebarMenu({
   onDeleteLabel,
   onAddSource,
   onAddSkill,
+  onAddTask,
   sourceType,
   onConfigureViews,
   viewId,
@@ -193,6 +196,25 @@ export function SidebarMenu({
         <Plus className="h-3.5 w-3.5" />
         <span className="flex-1">Add Skill</span>
       </MenuItem>
+    )
+  }
+
+  // Tasks: show "Add Task" and "Learn More"
+  if (type === 'tasks') {
+    return (
+      <>
+        {onAddTask && (
+          <MenuItem onClick={onAddTask}>
+            <Plus className="h-3.5 w-3.5" />
+            <span className="flex-1">Add Task</span>
+          </MenuItem>
+        )}
+        <Separator />
+        <MenuItem onClick={() => window.electronAPI.openUrl(getDocUrl('sources'))}>
+          <ExternalLink className="h-3.5 w-3.5" />
+          <span className="flex-1">Learn More about Tasks</span>
+        </MenuItem>
+      </>
     )
   }
 

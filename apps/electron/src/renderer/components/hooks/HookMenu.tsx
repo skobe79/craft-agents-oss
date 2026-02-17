@@ -72,8 +72,6 @@ export function HookMenu({
         </MenuItem>
       )}
 
-      <Separator />
-
       {/* Edit hooks.json */}
       {onEditJson && (
         <MenuItem onClick={onEditJson}>

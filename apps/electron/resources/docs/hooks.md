@@ -25,6 +25,7 @@ Hooks are configured in `hooks.json` at the root of your workspace:
   "hooks": {
     "EventName": [
       {
+        "name": "Optional display name",
         "matcher": "regex-pattern",
         "hooks": [
           { "type": "command", "command": "echo 'Hello'" }
@@ -108,6 +109,20 @@ Send a prompt to Craft Agent (creates a new session for scheduled prompts).
 - Only supported for App events (not Agent events)
 
 ## Matcher Configuration
+
+### Display Name
+
+Use the optional `name` field to give a hook a human-readable display name. If omitted, the name is automatically derived from the first action.
+
+```json
+{
+  "name": "Morning Weather Report",
+  "cron": "0 8 * * *",
+  "hooks": [
+    { "type": "prompt", "prompt": "Run the @weather skill" }
+  ]
+}
+```
 
 ### Regex Matching (for most events)
 
@@ -203,6 +218,7 @@ This creates a session with the "Scheduled" and "morning-briefing" labels applie
   "hooks": {
     "SchedulerTick": [
       {
+        "name": "Daily Weather Report",
         "cron": "0 8 * * *",
         "timezone": "Europe/Budapest",
         "labels": ["Scheduled", "weather"],

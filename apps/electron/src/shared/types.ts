@@ -859,6 +859,11 @@ export const IPC_CHANNELS = {
   MENU_COPY: 'menu:copy',
   MENU_PASTE: 'menu:paste',
   MENU_SELECT_ALL: 'menu:selectAll',
+
+  // Hooks (manual trigger + state management)
+  TEST_HOOK: 'hooks:test',
+  HOOKS_SET_ENABLED: 'hooks:setEnabled',
+  HOOKS_CHANGED: 'hooks:changed',  // Broadcast event
 } as const
 
 // Re-import types for ElectronAPI
@@ -871,6 +876,30 @@ export interface ToolIconMapping {
   /** Data URL of the icon (e.g., data:image/png;base64,...) */
   iconDataUrl: string
   commands: string[]
+}
+
+// Hook testing types (manual trigger from UI)
+export interface TestHookPayload {
+  workspaceId: string
+  hooks: Array<{ type: 'command'; command: string; timeout?: number } | { type: 'prompt'; prompt: string }>
+  permissionMode?: 'safe' | 'ask' | 'allow-all'
+  labels?: string[]
+}
+
+export interface TestHookActionResult {
+  type: 'command' | 'prompt'
+  success: boolean
+  stdout?: string
+  stderr?: string
+  exitCode?: number
+  blocked?: boolean
+  blockedReason?: string
+  sessionId?: string
+  duration: number
+}
+
+export interface TestHookResult {
+  actions: TestHookActionResult[]
 }
 
 // Type-safe IPC API exposed to renderer
@@ -1179,6 +1208,15 @@ export interface ElectronAPI {
   testLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
   setDefaultLlmConnection(slug: string): Promise<{ success: boolean; error?: string }>
   setWorkspaceDefaultLlmConnection(workspaceId: string, slug: string | null): Promise<{ success: boolean; error?: string }>
+
+  // Hook testing (manual trigger)
+  testHook(payload: TestHookPayload): Promise<TestHookResult>
+
+  // Hook state management
+  setHookEnabled(workspaceId: string, eventName: string, matcherIndex: number, enabled: boolean): Promise<void>
+
+  // Hooks change listener (live updates when hooks.json changes on disk)
+  onHooksChanged(callback: (workspaceId: string) => void): () => void
 }
 
 /**
@@ -1301,6 +1339,14 @@ export interface SourceFilter {
 }
 
 /**
+ * Task type filter for tasks navigation (e.g., show only Scheduled, Event-based, or Agentic tasks)
+ */
+export interface TaskFilter {
+  kind: 'type'
+  taskType: 'scheduled' | 'event' | 'agentic'
+}
+
+/**
  * Sources navigation state - shows SourcesListPanel in navigator
  */
 export interface SourcesNavigationState {
@@ -1336,6 +1382,19 @@ export interface SkillsNavigationState {
 }
 
 /**
+ * Tasks navigation state - shows HooksListPanel in navigator
+ */
+export interface TasksNavigationState {
+  navigator: 'tasks'
+  /** Optional filter for task type */
+  filter?: TaskFilter
+  /** Selected task details, or null for empty state */
+  details: { type: 'task'; taskId: string } | null
+  /** Optional right sidebar panel state */
+  rightSidebar?: RightSidebarPanel
+}
+
+/**
  * Unified navigation state - single source of truth for all 3 panels
  *
  * From this state we can derive:
@@ -1348,6 +1407,7 @@ export type NavigationState =
   | SourcesNavigationState
   | SettingsNavigationState
   | SkillsNavigationState
+  | TasksNavigationState
 
 /**
  * Type guard to check if state is sessions navigation
@@ -1378,6 +1438,13 @@ export const isSkillsNavigation = (
 ): state is SkillsNavigationState => state.navigator === 'skills'
 
 /**
+ * Type guard to check if state is tasks navigation
+ */
+export const isTasksNavigation = (
+  state: NavigationState
+): state is TasksNavigationState => state.navigator === 'tasks'
+
+/**
  * Default navigation state - allSessions with no selection
  */
 export const DEFAULT_NAVIGATION_STATE: NavigationState = {
@@ -1401,6 +1468,12 @@ export const getNavigationStateKey = (state: NavigationState): string => {
       return `skills/skill/${state.details.skillSlug}`
     }
     return 'skills'
+  }
+  if (state.navigator === 'tasks') {
+    if (state.details?.type === 'task') {
+      return `tasks/task/${state.details.taskId}`
+    }
+    return 'tasks'
   }
   if (state.navigator === 'settings') {
     return `settings:${state.subpage}`
@@ -1441,6 +1514,16 @@ export const parseNavigationStateKey = (key: string): NavigationState | null => 
       return { navigator: 'skills', details: { type: 'skill', skillSlug } }
     }
     return { navigator: 'skills', details: null }
+  }
+
+  // Handle tasks
+  if (key === 'tasks') return { navigator: 'tasks', details: null }
+  if (key.startsWith('tasks/task/')) {
+    const taskId = key.slice(11)
+    if (taskId) {
+      return { navigator: 'tasks', details: { type: 'task', taskId } }
+    }
+    return { navigator: 'tasks', details: null }
   }
 
   // Handle settings

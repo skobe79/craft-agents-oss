@@ -26,6 +26,11 @@ import {
   HelpCircle,
   ExternalLink,
   Cake,
+  ListTodo,
+  Clock,
+  Radio,
+  Bot,
+  Info,
 } from "lucide-react"
 import { PanelRightRounded } from "../icons/PanelRightRounded"
 import { PanelLeftRounded } from "../icons/PanelLeftRounded"
@@ -81,7 +86,7 @@ import { useFocusZone } from "@/hooks/keyboard"
 import { useFocusContext } from "@/context/FocusContext"
 import { getSessionTitle } from "@/utils/session"
 import { useSetAtom } from "jotai"
-import type { Session, Workspace, FileAttachment, PermissionRequest, LoadedSource, LoadedSkill, PermissionMode, SourceFilter } from "../../../shared/types"
+import type { Session, Workspace, FileAttachment, PermissionRequest, LoadedSource, LoadedSkill, PermissionMode, SourceFilter, TaskFilter } from "../../../shared/types"
 import { sessionMetaMapAtom, type SessionMeta } from "@/atoms/sessions"
 import { sourcesAtom } from "@/atoms/sources"
 import { skillsAtom } from "@/atoms/skills"
@@ -104,12 +109,16 @@ import {
   isSourcesNavigation,
   isSettingsNavigation,
   isSkillsNavigation,
+  isTasksNavigation,
   type NavigationState,
   type SessionFilter,
 } from "@/contexts/NavigationContext"
 import type { SettingsSubpage } from "../../../shared/types"
 import { SourcesListPanel } from "./SourcesListPanel"
 import { SkillsListPanel } from "./SkillsListPanel"
+import { HooksListPanel } from "../hooks/HooksListPanel"
+import { parseHooksConfig, APP_EVENTS, AGENT_EVENTS, type HookFilterKind } from "../hooks/types"
+import { hooksAtom } from "@/atoms/hooks"
 import { PanelHeader } from "./PanelHeader"
 import { EditPopover, getEditConfig, type EditContextKey } from "@/components/ui/EditPopover"
 import { getDocUrl } from "@craft-agent/shared/docs/doc-links"
@@ -565,6 +574,9 @@ function AppShellContent({
   // Derive source filter from navigation state (only when in sources navigator)
   const sourceFilter: SourceFilter | null = isSourcesNavigation(navState) ? navState.filter ?? null : null
 
+  // Derive task filter from navigation state (only when in tasks navigator)
+  const taskFilter: TaskFilter | null = isTasksNavigation(navState) ? navState.filter ?? null : null
+
   // Per-view filter storage: each session list view (allSessions, flagged, state:X, label:X, view:X)
   // has its own independent set of status and label filters.
   // Each filter entry stores a mode ('include' or 'exclude') for tri-state filtering.
@@ -754,6 +766,64 @@ function AppShellContent({
   React.useEffect(() => {
     setSkillsAtom(skills)
   }, [skills, setSkillsAtom])
+  // Hooks state (workspace-scoped) — parsed from hooks.json
+  const [hooks, setHooks] = React.useState<import('../hooks/types').HookListItem[]>([])
+  // Sync hooks to atom for MainContentPanel access
+  const setHooksAtom = useSetAtom(hooksAtom)
+  React.useEffect(() => {
+    setHooksAtom(hooks)
+  }, [hooks, setHooksAtom])
+
+  // Hook test results (per-hook, keyed by hook ID)
+  const [hookTestResults, setHookTestResults] = React.useState<Record<string, import('../hooks/types').TestResult>>({})
+
+  const handleTestHook = React.useCallback((hookId: string) => {
+    const hook = hooks.find(h => h.id === hookId)
+    if (!hook || !activeWorkspaceId) return
+
+    // Set running state
+    setHookTestResults(prev => ({ ...prev, [hookId]: { state: 'running' } }))
+
+    window.electronAPI.testHook({
+      workspaceId: activeWorkspaceId,
+      hooks: hook.hooks,
+      permissionMode: hook.permissionMode,
+      labels: hook.labels,
+    }).then((result) => {
+      const first = result.actions[0]
+      if (!first) {
+        setHookTestResults(prev => ({ ...prev, [hookId]: { state: 'error', stderr: 'No actions to execute' } }))
+        return
+      }
+      setHookTestResults(prev => ({
+        ...prev,
+        [hookId]: {
+          state: first.blocked ? 'blocked' : first.success ? 'success' : 'error',
+          stdout: first.stdout,
+          stderr: first.stderr,
+          exitCode: first.exitCode,
+          duration: first.duration,
+          blockedReason: first.blockedReason,
+        },
+      }))
+    }).catch((err: Error) => {
+      setHookTestResults(prev => ({ ...prev, [hookId]: { state: 'error', stderr: err.message } }))
+    })
+  }, [hooks, activeWorkspaceId])
+
+  const handleToggleHook = React.useCallback((hookId: string) => {
+    const hook = hooks.find(h => h.id === hookId)
+    if (!hook || !activeWorkspaceId) return
+    window.electronAPI.setHookEnabled(
+      activeWorkspaceId,
+      hook.event,
+      hook.matcherIndex,
+      !hook.enabled,
+    ).catch((err: Error) => {
+      console.error('Failed to toggle hook:', err)
+    })
+  }, [hooks, activeWorkspaceId])
+
   // Whether local MCP servers are enabled (affects stdio source status)
   const [localMcpEnabled, setLocalMcpEnabled] = React.useState(true)
 
@@ -863,6 +933,43 @@ function AppShellContent({
   }, [])
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId)
+
+  // Load hooks from workspace hooks.json
+  React.useEffect(() => {
+    if (!activeWorkspace?.rootPath) return
+    const hooksPath = `${activeWorkspace.rootPath}/hooks.json`
+    window.electronAPI.readFile(hooksPath).then((content) => {
+      try {
+        const parsed = JSON.parse(content)
+        setHooks(parseHooksConfig(parsed))
+      } catch {
+        setHooks([])
+      }
+    }).catch(() => {
+      // No hooks.json or read error — empty list
+      setHooks([])
+    })
+  }, [activeWorkspace?.rootPath])
+
+  // Subscribe to live hooks updates (when hooks.json changes on disk)
+  React.useEffect(() => {
+    const rootPath = activeWorkspace?.rootPath
+    if (!rootPath) return
+    const cleanup = window.electronAPI.onHooksChanged(() => {
+      const hooksPath = `${rootPath}/hooks.json`
+      window.electronAPI.readFile(hooksPath).then((content) => {
+        try {
+          const parsed = JSON.parse(content)
+          setHooks(parseHooksConfig(parsed))
+        } catch {
+          setHooks([])
+        }
+      }).catch(() => {
+        setHooks([])
+      })
+    })
+    return cleanup
+  }, [activeWorkspace?.rootPath])
 
   // Load dynamic statuses from workspace config
   const { statuses: statusConfigs, isLoading: isLoadingStatuses } = useStatuses(activeWorkspace?.id || null)
@@ -980,6 +1087,13 @@ function AppShellContent({
     if (!activeWorkspaceId) return
     navigate(routes.view.skills(skill.slug))
   }, [activeWorkspaceId, navigate])
+
+  // Handle selecting a task (hook) from the list
+  const handleTaskSelect = React.useCallback((hookId: string) => {
+    // Preserve current task filter when selecting a task
+    const type = isTasksNavigation(navState) ? navState.filter?.taskType : undefined
+    navigate(routes.view.tasks({ taskId: hookId, type }))
+  }, [navState, navigate])
 
   // Focus zone management
   const { focusZone, focusNextZone, focusPreviousZone } = useFocusContext()
@@ -1278,6 +1392,17 @@ function AppShellContent({
     return counts
   }, [sources])
 
+  // Count hooks by type for the Tasks dropdown subcategories
+  const hookTypeCounts = useMemo(() => {
+    const counts = { scheduled: 0, event: 0, agentic: 0 }
+    for (const hook of hooks) {
+      if (hook.event === 'SchedulerTick') counts.scheduled++
+      else if ((APP_EVENTS as string[]).includes(hook.event)) counts.event++
+      else if ((AGENT_EVENTS as string[]).includes(hook.event)) counts.agentic++
+    }
+    return counts
+  }, [hooks])
+
   // Filter session metadata based on sidebar mode and chat filter
   const filteredSessionMetas = useMemo(() => {
     // When in sources mode, return empty (no sessions to show)
@@ -1467,7 +1592,10 @@ function AppShellContent({
     isSearchModeActive: searchActive,
     chatDisplayRef,
     onChatMatchInfoChange: handleChatMatchInfoChange,
-  }), [contextValue, handleDeleteSession, sources, skills, labelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, rightSidebarOpenButton, searchActive, searchQuery, handleChatMatchInfoChange])
+    onTestHook: handleTestHook,
+    onToggleHook: handleToggleHook,
+    hookTestResults,
+  }), [contextValue, handleDeleteSession, sources, skills, labelConfigs, handleSessionLabelsChange, enabledModes, effectiveSessionStatuses, handleSessionSourcesChange, rightSidebarOpenButton, searchActive, searchQuery, handleChatMatchInfoChange, handleTestHook, handleToggleHook, hookTestResults])
 
   // Persist expanded folders to localStorage (workspace-scoped)
   React.useEffect(() => {
@@ -1575,6 +1703,23 @@ function AppShellContent({
     navigate(routes.view.skills())
   }, [])
 
+  // Handlers for tasks view
+  const handleTasksClick = useCallback(() => {
+    navigate(routes.view.tasks())
+  }, [])
+
+  const handleTasksScheduledClick = useCallback(() => {
+    navigate(routes.view.tasksScheduled())
+  }, [])
+
+  const handleTasksEventClick = useCallback(() => {
+    navigate(routes.view.tasksEvent())
+  }, [])
+
+  const handleTasksAgenticClick = useCallback(() => {
+    navigate(routes.view.tasksAgentic())
+  }, [])
+
   // Handler for settings view
   const handleSettingsClick = useCallback((subpage: SettingsSubpage = 'app') => {
     navigate(routes.view.settings(subpage))
@@ -1600,7 +1745,7 @@ function AppShellContent({
   // We use controlled popovers instead of deep links so the user can type
   // their request in the popover UI before opening a new chat window.
   // add-source variants: add-source (generic), add-source-api, add-source-mcp, add-source-local
-  const [editPopoverOpen, setEditPopoverOpen] = useState<'statuses' | 'labels' | 'views' | 'add-source' | 'add-source-api' | 'add-source-mcp' | 'add-source-local' | 'add-skill' | 'add-label' | null>(null)
+  const [editPopoverOpen, setEditPopoverOpen] = useState<'statuses' | 'labels' | 'views' | 'add-source' | 'add-source-api' | 'add-source-mcp' | 'add-source-local' | 'add-skill' | 'add-label' | 'hook-config' | null>(null)
 
   // Stores the Y position of the last right-clicked sidebar item so the EditPopover
   // appears near it rather than at a fixed location. Updated synchronously before
@@ -1712,6 +1857,13 @@ function AppShellContent({
     setTimeout(() => setEditPopoverOpen('add-skill'), 50)
   }, [captureContextMenuPosition])
 
+  // Handler for "Add Task" context menu action
+  // Opens the EditPopover for adding a new task (hook)
+  const openAddTask = useCallback(() => {
+    captureContextMenuPosition()
+    setTimeout(() => setEditPopoverOpen('hook-config'), 50)
+  }, [captureContextMenuPosition])
+
   // Create a new chat and select it
   const handleNewChat = useCallback(async (_useCurrentAgent: boolean = true) => {
     if (!activeWorkspace) return
@@ -1798,11 +1950,12 @@ function AppShellContent({
     // 3. Sources, Skills, Settings
     result.push({ id: 'nav:sources', type: 'nav', action: handleSourcesClick })
     result.push({ id: 'nav:skills', type: 'nav', action: handleSkillsClick })
+    result.push({ id: 'nav:tasks', type: 'nav', action: handleTasksClick })
     result.push({ id: 'nav:settings', type: 'nav', action: () => handleSettingsClick('app') })
     result.push({ id: 'nav:whats-new', type: 'nav', action: handleWhatsNewClick })
 
     return result
-  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleSettingsClick, handleWhatsNewClick])
+  }, [handleAllSessionsClick, handleFlaggedClick, handleArchivedClick, handleSessionStatusClick, effectiveSessionStatuses, handleLabelClick, labelConfigs, labelTree, viewConfigs, handleViewClick, handleSourcesClick, handleSkillsClick, handleTasksClick, handleSettingsClick, handleWhatsNewClick])
 
   // Toggle folder expanded state
   const handleToggleFolder = React.useCallback((path: string) => {
@@ -1921,6 +2074,17 @@ function AppShellContent({
       return 'All Skills'
     }
 
+    // Tasks navigator
+    if (isTasksNavigation(navState)) {
+      if (!taskFilter) return 'All Tasks'
+      switch (taskFilter.taskType) {
+        case 'scheduled': return 'Scheduled'
+        case 'event': return 'Event-based'
+        case 'agentic': return 'Agentic'
+        default: return 'All Tasks'
+      }
+    }
+
     // Settings navigator
     if (isSettingsNavigation(navState)) return 'Settings'
 
@@ -1941,7 +2105,7 @@ function AppShellContent({
       default:
         return 'All Sessions'
     }
-  }, [navState, sessionFilter, effectiveSessionStatuses, labelConfigs, viewConfigs])
+  }, [navState, sessionFilter, effectiveSessionStatuses, labelConfigs, viewConfigs, taskFilter])
 
   // Build recursive sidebar items from label tree.
   // Each node renders with condensed height (compact: true) since many labels expected.
@@ -2261,6 +2425,50 @@ function AppShellContent({
                         onAddSkill: openAddSkill,
                       },
                     },
+                    {
+                      id: "nav:tasks",
+                      title: "Tasks",
+                      label: String(hooks.length),
+                      icon: ListTodo,
+                      variant: (isTasksNavigation(navState) && !taskFilter) ? "default" : "ghost",
+                      onClick: handleTasksClick,
+                      expandable: true,
+                      expanded: isExpanded('nav:tasks'),
+                      onToggle: () => toggleExpanded('nav:tasks'),
+                      contextMenu: {
+                        type: 'tasks' as const,
+                        onAddTask: openAddTask,
+                      },
+                      items: [
+                        {
+                          id: "nav:tasks:scheduled",
+                          title: "Scheduled",
+                          label: String(hookTypeCounts.scheduled),
+                          icon: Clock,
+                          variant: (taskFilter?.kind === 'type' && taskFilter.taskType === 'scheduled') ? "default" : "ghost",
+                          onClick: handleTasksScheduledClick,
+                          contextMenu: { type: 'tasks' as const, onAddTask: openAddTask },
+                        },
+                        {
+                          id: "nav:tasks:event",
+                          title: "Event-based",
+                          label: String(hookTypeCounts.event),
+                          icon: Radio,
+                          variant: (taskFilter?.kind === 'type' && taskFilter.taskType === 'event') ? "default" : "ghost",
+                          onClick: handleTasksEventClick,
+                          contextMenu: { type: 'tasks' as const, onAddTask: openAddTask },
+                        },
+                        {
+                          id: "nav:tasks:agentic",
+                          title: "Agentic",
+                          label: String(hookTypeCounts.agentic),
+                          icon: Bot,
+                          variant: (taskFilter?.kind === 'type' && taskFilter.taskType === 'agentic') ? "default" : "ghost",
+                          onClick: handleTasksAgenticClick,
+                          contextMenu: { type: 'tasks' as const, onAddTask: openAddTask },
+                        },
+                      ],
+                    },
                     // --- Separator ---
                     { id: "separator:skills-settings", type: "separator" },
                     // --- Settings ---
@@ -2404,6 +2612,18 @@ function AppShellContent({
             <PanelHeader
               title={isSidebarVisible ? listTitle : undefined}
               compensateForStoplight={!isSidebarVisible}
+              badge={taskFilter?.taskType === 'scheduled' ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground/50 cursor-default flex items-center titlebar-no-drag">
+                      <Info className="h-3 w-3" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[220px]">
+                    Scheduling requires your machine to be running. It can be locked, but must be powered on.
+                  </TooltipContent>
+                </Tooltip>
+              ) : undefined}
               actions={
                 <>
                   {/* Filter dropdown - available in ALL chat views.
@@ -2963,6 +3183,18 @@ function AppShellContent({
                       {...getEditConfig('add-skill', activeWorkspace.rootPath)}
                     />
                   )}
+                  {/* Add Task button (only for tasks mode) */}
+                  {isTasksNavigation(navState) && activeWorkspace && (
+                    <EditPopover
+                      trigger={
+                        <HeaderIconButton
+                          icon={<Plus className="h-4 w-4" />}
+                          tooltip="Add Task"
+                        />
+                      }
+                      {...getEditConfig('hook-config', activeWorkspace.rootPath)}
+                    />
+                  )}
                 </>
               }
             />
@@ -2988,6 +3220,17 @@ function AppShellContent({
                 onSkillClick={handleSkillSelect}
                 onDeleteSkill={handleDeleteSkill}
                 selectedSkillSlug={isSkillsNavigation(navState) && navState.details?.type === 'skill' ? navState.details.skillSlug : null}
+              />
+            )}
+            {isTasksNavigation(navState) && (
+              /* Tasks List (hooks) - filtered by type if taskFilter is active */
+              <HooksListPanel
+                hooks={hooks}
+                hookFilter={taskFilter ? { kind: ({ scheduled: 'scheduled', event: 'app', agentic: 'agent' } as const)[taskFilter.taskType] as HookFilterKind } : undefined}
+                onHookClick={handleTaskSelect}
+                onTestHook={handleTestHook}
+                onToggleHook={handleToggleHook}
+                selectedHookId={isTasksNavigation(navState) && navState.details ? navState.details.taskId : null}
               />
             )}
             {isSettingsNavigation(navState) && (
@@ -3300,6 +3543,22 @@ function AppShellContent({
             side="bottom"
             align="start"
             {...getEditConfig('add-skill', activeWorkspace.rootPath)}
+          />
+          {/* Add Task EditPopover - triggered from "Add Task" context menu on tasks */}
+          <EditPopover
+            open={editPopoverOpen === 'hook-config'}
+            onOpenChange={(isOpen) => setEditPopoverOpen(isOpen ? 'hook-config' : null)}
+            modal={true}
+            trigger={
+              <div
+                className="fixed w-0 h-0 pointer-events-none"
+                style={{ left: sidebarWidth + 20, top: editPopoverAnchorY.current }}
+                aria-hidden="true"
+              />
+            }
+            side="bottom"
+            align="start"
+            {...getEditConfig('hook-config', activeWorkspace.rootPath)}
           />
           {/* Add Label EditPopover - triggered from "Add New Label" context menu on labels */}
           <EditPopover

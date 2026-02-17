@@ -15,6 +15,8 @@ import {
   Info_Badge,
   Info_Markdown,
 } from '@/components/info'
+import { EditPopover, EditButton, getEditConfig } from '@/components/ui/EditPopover'
+import { useActiveWorkspace } from '@/context/AppShellContext'
 import { HookAvatar } from './HookAvatar'
 import { HookMenu } from './HookMenu'
 import { HookActionRow } from './HookActionRow'
@@ -104,7 +106,16 @@ export function HookInfoPage({
   onDelete,
   className,
 }: HookInfoPageProps) {
+  const workspace = useActiveWorkspace()
   const nextRuns = hook.cron ? getNextRuns(hook.cron, hook.timezone) : []
+
+  const editActions = workspace?.rootPath ? (
+    <EditPopover
+      trigger={<EditButton />}
+      {...getEditConfig('hook-config', workspace.rootPath)}
+      secondaryAction={{ label: 'Edit File', filePath: `${workspace.rootPath}/hooks.json` }}
+    />
+  ) : undefined
 
   return (
     <Info_Page className={className}>
@@ -126,7 +137,7 @@ export function HookInfoPage({
       <Info_Page.Content>
         {/* Hero */}
         <Info_Page.Hero
-          avatar={<HookAvatar event={hook.event} size="lg" />}
+          avatar={<HookAvatar event={hook.event} fluid />}
           title={hook.name}
           tagline={hook.summary}
         />
@@ -145,6 +156,7 @@ export function HookInfoPage({
         <Info_Section
           title="When"
           description="What causes this automation to run"
+          actions={editActions}
         >
           <Info_Table>
             <Info_Table.Row label="Event">
@@ -187,6 +199,7 @@ export function HookInfoPage({
         <Info_Section
           title="Then"
           description={`${hook.hooks.length} action${hook.hooks.length !== 1 ? 's' : ''} to perform`}
+          actions={editActions}
         >
           <div className="divide-y divide-border/30">
             {hook.hooks.map((action, i) => (
@@ -201,7 +214,7 @@ export function HookInfoPage({
         )}
 
         {/* Section: Settings */}
-        <Info_Section title="Settings">
+        <Info_Section title="Settings" actions={editActions}>
           <Info_Table>
             <Info_Table.Row label="Access Level" value={getPermissionDisplayName(hook.permissionMode)} />
             <Info_Table.Row label="Status">
@@ -229,20 +242,22 @@ export function HookInfoPage({
           <HookEventTimeline entries={executions} />
         </Info_Section>
 
-        {/* Section: Advanced Configuration (raw JSON) */}
-        <Info_Section title="Advanced">
-          <Info_Markdown maxHeight={300} fullscreen>
-            {`\`\`\`json\n${JSON.stringify({
-              event: hook.event,
-              matcher: hook.matcher,
-              cron: hook.cron,
-              timezone: hook.timezone,
-              permissionMode: hook.permissionMode,
-              labels: hook.labels,
-              enabled: hook.enabled,
-              hooks: hook.hooks,
-            }, null, 2)}\n\`\`\``}
-          </Info_Markdown>
+        {/* Section: Raw config (JSON) */}
+        <Info_Section title="Raw config">
+          <div className="rounded-[8px] shadow-minimal overflow-hidden [&_pre]:!bg-transparent [&_.code-block]:!bg-transparent">
+            <Info_Markdown maxHeight={300} fullscreen>
+              {`\`\`\`json\n${JSON.stringify({
+                event: hook.event,
+                matcher: hook.matcher,
+                cron: hook.cron,
+                timezone: hook.timezone,
+                permissionMode: hook.permissionMode,
+                labels: hook.labels,
+                enabled: hook.enabled,
+                hooks: hook.hooks,
+              }, null, 2)}\n\`\`\``}
+            </Info_Markdown>
+          </div>
         </Info_Section>
       </Info_Page.Content>
     </Info_Page>

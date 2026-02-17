@@ -531,6 +531,25 @@ const api: ElectronAPI = {
   setDefaultLlmConnection: (slug: string) => ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_SET_DEFAULT, slug),
   setWorkspaceDefaultLlmConnection: (workspaceId: string, slug: string | null) =>
     ipcRenderer.invoke(IPC_CHANNELS.LLM_CONNECTION_SET_WORKSPACE_DEFAULT, workspaceId, slug),
+
+  // Hook testing (manual trigger from UI)
+  testHook: (payload: import('../shared/types').TestHookPayload) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TEST_HOOK, payload),
+
+  // Hook state management
+  setHookEnabled: (workspaceId: string, eventName: string, matcherIndex: number, enabled: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.HOOKS_SET_ENABLED, workspaceId, eventName, matcherIndex, enabled),
+
+  // Hooks change listener (live updates when hooks.json changes on disk)
+  onHooksChanged: (callback: (workspaceId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, workspaceId: string) => {
+      callback(workspaceId)
+    }
+    ipcRenderer.on(IPC_CHANNELS.HOOKS_CHANGED, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.HOOKS_CHANGED, handler)
+    }
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)
