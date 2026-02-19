@@ -325,20 +325,31 @@ async function ensureSession(): Promise<AgentSession> {
 }
 
 /**
- * Recreate session with new tools (Pi SDK requires recreating session to change tools).
- * Session history is preserved by Pi's SessionManager.
+ * Rebuild the session's tool registry in-place when proxy tools change.
+ * Uses _buildRuntime to update tools without disposing the session,
+ * preserving conversation history and session state.
  */
-async function recreateSessionWithTools(): Promise<void> {
-  if (unsubscribeEvents) {
-    unsubscribeEvents();
-    unsubscribeEvents = null;
+function rebuildSessionTools(): void {
+  if (!piSession) return;
+
+  const wrappedCodingTools = wrapToolsWithHooks(codingTools);
+  const proxyTools = buildProxyTools();
+
+  const baseToolsOverride: Record<string, AgentTool<any>> = {};
+  for (const tool of wrappedCodingTools) {
+    baseToolsOverride[tool.name] = tool;
   }
-  if (piSession) {
-    piSession.dispose();
-    piSession = null;
+  for (const tool of proxyTools) {
+    baseToolsOverride[tool.name] = tool;
   }
-  // Will be recreated on next prompt with updated proxy tools
-  debugLog('Session disposed for tool change — will recreate on next prompt');
+
+  const sessionInternal = piSession as any;
+  sessionInternal._baseToolsOverride = baseToolsOverride;
+  sessionInternal._buildRuntime({
+    activeToolNames: Object.keys(baseToolsOverride),
+    includeAllExtensionTools: true,
+  });
+  debugLog(`Rebuilt session tools in-place: ${Object.keys(baseToolsOverride).length} tools`);
 }
 
 // ============================================================
@@ -849,12 +860,8 @@ function handleRegisterTools(msg: Extract<InboundMessage, { type: 'register_tool
   ];
   debugLog(`Registered ${msg.tools.length} proxy tools (total: ${proxyToolDefs.length}): ${msg.tools.map(t => t.name).join(', ')}`);
 
-  // If session exists, we need to recreate it with new tools
-  if (piSession) {
-    recreateSessionWithTools().catch(err =>
-      debugLog(`Failed to recreate session for tool change: ${err}`),
-    );
-  }
+  // If session exists, rebuild tools in-place (no disposal needed)
+  rebuildSessionTools();
 }
 
 function handleUnregisterTools(msg: Extract<InboundMessage, { type: 'unregister_tools' }>): void {
@@ -862,11 +869,7 @@ function handleUnregisterTools(msg: Extract<InboundMessage, { type: 'unregister_
   proxyToolDefs = proxyToolDefs.filter(t => !toRemove.has(t.name));
   debugLog(`Unregistered tools: ${msg.toolNames.join(', ')}`);
 
-  if (piSession) {
-    recreateSessionWithTools().catch(err =>
-      debugLog(`Failed to recreate session after tool removal: ${err}`),
-    );
-  }
+  rebuildSessionTools();
 }
 
 function handleToolExecuteResponse(msg: Extract<InboundMessage, { type: 'tool_execute_response' }>): void {
