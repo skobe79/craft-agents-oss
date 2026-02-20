@@ -16,7 +16,7 @@
  */
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
-import { getSessionPlansPath } from '../sessions/storage.ts';
+import { getSessionPlansPath, getSessionPath } from '../sessions/storage.ts';
 import { debug } from '../utils/debug.ts';
 import { DOC_REFS } from '../docs/index.ts';
 import { createClaudeContext } from './claude-context.ts';
@@ -251,9 +251,11 @@ export function getSessionScopedTools(
     .map(def => registryTool(def.name, def.inputSchema.shape));
 
   // Add call_llm — backend-specific (not in registry handler)
+  const sessionPath = getSessionPath(workspaceRootPath, sessionId);
   tools.push(
     createLLMTool({
       sessionId,
+      sessionPath,
       getQueryFn: () => {
         const callbacks = getSessionScopedToolCallbacks(sessionId);
         return callbacks?.queryFn;

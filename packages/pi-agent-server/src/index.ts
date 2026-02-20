@@ -660,7 +660,10 @@ async function queryLlm(request: LLMQueryRequest): Promise<LLMQueryResult> {
 }
 
 async function preExecuteCallLlm(input: Record<string, unknown>): Promise<LLMQueryResult> {
-  const request = await buildCallLlmRequest(input, { backendName: 'Pi' });
+  const sessionPath = initConfig
+    ? getSessionPath(initConfig.workspaceRootPath, initConfig.sessionId)
+    : undefined;
+  const request = await buildCallLlmRequest(input, { backendName: 'Pi', sessionPath });
   return queryLlm(request);
 }
 

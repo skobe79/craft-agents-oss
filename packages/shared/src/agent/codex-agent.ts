@@ -34,7 +34,7 @@ import type { Workspace } from '../config/storage.ts';
 import { DEFAULT_CODEX_MODEL, getModelById, getModelIdByShortName, getModelProvider, MODEL_REGISTRY, getDefaultSummarizationModel } from '../config/models.ts';
 
 // LLM tool types and helpers for call_llm PreToolUse intercept
-import { buildCallLlmRequest, withTimeout, type LLMQueryRequest, type LLMQueryResult } from './llm-tool.ts';
+import { withTimeout, type LLMQueryRequest, type LLMQueryResult } from './llm-tool.ts';
 
 // BaseAgent provides common functionality
 import { BaseAgent } from './base-agent.ts';
@@ -52,6 +52,7 @@ import {
 
 // Codex binary resolver
 import { resolveCodexBinary } from '../codex/binary-resolver.ts';
+import { POOL_SERVER_MCP_NAME } from '../codex/config-generator.ts';
 
 // ChatGPT OAuth for token refresh and API key exchange
 import { refreshChatGptTokens, type ChatGptTokens } from '../auth/chatgpt-oauth.ts';
@@ -160,6 +161,8 @@ const THINKING_TO_EFFORT: Record<ThinkingLevel, ReasoningEffort> = {
  * 4. Sends server requests for approval prompts
  */
 export class CodexAgent extends BaseAgent {
+  protected backendName = 'Codex';
+
   // ============================================================
   // Codex-specific State (not in BaseAgent)
   // ============================================================
@@ -1152,6 +1155,12 @@ export class CodexAgent extends BaseAgent {
       case 'mcp':
         // MCP tools follow the pattern mcp__<server>__<tool>
         if (mcpServer && mcpTool) {
+          // Pool server: tool names already include the source slug prefix
+          // (e.g., mcpServer="sources", mcpTool="craft__search_spaces")
+          // → produce "mcp__craft__search_spaces", NOT "mcp__sources__craft__search_spaces"
+          if (mcpServer === POOL_SERVER_MCP_NAME && mcpTool.includes('__')) {
+            return `mcp__${mcpTool}`;
+          }
           return `mcp__${mcpServer}__${mcpTool}`;
         }
         return toolName;
@@ -2349,26 +2358,16 @@ export class CodexAgent extends BaseAgent {
   // Codex MCP servers are also configured in config.toml for tool discovery.
 
   // ============================================================
-  // LLM Tool Pre-Execution (call_llm via PreToolUse intercept)
+  // LLM Tool Model Validation (Codex requires OpenAI models)
   // ============================================================
 
-  /**
-   * Pre-execute a call_llm request: process attachments, resolve model,
-   * build prompt with structured output injection, and run via ephemeral thread.
-   */
-  private async preExecuteCallLlm(input: Record<string, unknown>): Promise<LLMQueryResult> {
-    const request = await buildCallLlmRequest(input, {
-      backendName: 'Codex',
-      validateModel: (modelId) => {
-        const provider = getModelProvider(modelId);
-        if (provider && provider !== 'openai') {
-          this.debug(`preExecuteCallLlm: model "${modelId}" is ${provider}, falling back to miniModel`);
-          return undefined;
-        }
-        return modelId;
-      },
-    });
-    return this.queryLlm(request);
+  protected validateCallLlmModel(modelId: string): string | undefined {
+    const provider = getModelProvider(modelId);
+    if (provider && provider !== 'openai') {
+      this.debug(`preExecuteCallLlm: model "${modelId}" is ${provider}, falling back to miniModel`);
+      return undefined;
+    }
+    return modelId;
   }
 
   /**

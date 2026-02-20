@@ -17,6 +17,7 @@
 import type { AgentEvent } from '@craft-agent/core/types';
 import { parseReadCommand, type ReadCommandInfo } from './read-patterns.ts';
 import { createLogger } from '../../utils/debug.ts';
+import { POOL_SERVER_MCP_NAME } from '../../codex/config-generator.ts';
 
 export { type ReadCommandInfo } from './read-patterns.ts';
 
@@ -147,6 +148,26 @@ export abstract class BaseEventAdapter {
       this.commandOutput.delete(id);
     }
     return output;
+  }
+
+  // ============================================================
+  // MCP Tool Name Helpers
+  // ============================================================
+
+  /**
+   * Build the canonical proxy tool name for an MCP tool call.
+   *
+   * Pool server tools already include the source slug in their name
+   * (e.g., "craft__search_spaces") because the pool strips the `mcp__` prefix.
+   * We just need to re-add `mcp__` to produce "mcp__craft__search_spaces".
+   * Without this, we'd get "mcp__sources__craft__search_spaces" which breaks
+   * source lookup in resolveToolDisplayMeta().
+   */
+  protected buildMcpToolName(serverName: string, toolName: string): string {
+    if (serverName === POOL_SERVER_MCP_NAME && toolName.includes('__')) {
+      return `mcp__${toolName}`;
+    }
+    return `mcp__${serverName}__${toolName}`;
   }
 
   // ============================================================

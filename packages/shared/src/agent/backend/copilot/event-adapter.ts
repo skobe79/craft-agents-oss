@@ -290,12 +290,14 @@ export class CopilotEventAdapter extends BaseEventAdapter {
           (event.data.arguments ?? {}) as Record<string, unknown>
         );
 
-        // Look up metadata captured by the network interceptor (cross-process via file)
+        // Look up metadata: args first (like Codex), then store, then fallbacks
         const storedMeta = toolMetadataStore.get(toolCallId, this.sessionDir);
-        const intent = storedMeta?.intent
+        const intent = (typeof args._intent === 'string' ? args._intent : undefined)
+          || storedMeta?.intent
           || (event.data as { description?: string }).description
           || undefined;
-        const displayName = storedMeta?.displayName
+        const displayName = (typeof args._displayName === 'string' ? args._displayName : undefined)
+          || storedMeta?.displayName
           || this.getToolDisplayName(toolName);
 
         // Classify bash commands that are actually file reads
@@ -487,7 +489,7 @@ export class CopilotEventAdapter extends BaseEventAdapter {
     mcpToolName?: string;
   }): string {
     if (data.mcpServerName && data.mcpToolName) {
-      return `mcp__${data.mcpServerName}__${data.mcpToolName}`;
+      return this.buildMcpToolName(data.mcpServerName, data.mcpToolName);
     }
     // Normalize lowercase tool names to PascalCase (bash → Bash, etc.)
     return COPILOT_TOOL_NAME_MAP[data.toolName] || data.toolName;

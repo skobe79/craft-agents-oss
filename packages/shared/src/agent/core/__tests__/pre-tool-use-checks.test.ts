@@ -19,10 +19,15 @@ let mockIsApiEndpointAllowed = mock(
   (_method: string, _path: string | undefined, _ctx: any) => false
 );
 
+let mockIsReadOnlyBashCommandWithConfig = mock(
+  (_command: string, _config: any) => false
+);
+
 // Paths resolve from THIS file's location (core/__tests__/)
 mock.module('../../mode-manager.ts', () => ({
   shouldAllowToolInMode: (a: any, b: any, c: any, d?: any) => mockShouldAllowToolInMode(a, b, c, d),
   isApiEndpointAllowed: (a: any, b: any, c?: any) => mockIsApiEndpointAllowed(a, b, c),
+  isReadOnlyBashCommandWithConfig: (a: any, b: any) => mockIsReadOnlyBashCommandWithConfig(a, b),
 }));
 
 // Mock permissionsConfigCache for read-only bash pattern checks
@@ -124,6 +129,8 @@ describe('runPreToolUseChecks', () => {
     mockShouldAllowToolInMode.mockImplementation(() => ({ allowed: true, reason: '' }));
     mockIsApiEndpointAllowed.mockReset();
     mockIsApiEndpointAllowed.mockImplementation(() => false);
+    mockIsReadOnlyBashCommandWithConfig.mockReset();
+    mockIsReadOnlyBashCommandWithConfig.mockImplementation(() => false);
     mockReadOnlyBashPatterns = [];
   });
 
@@ -640,6 +647,8 @@ describe('shouldPromptInAskMode', () => {
     mockShouldAllowToolInMode.mockReset();
     mockIsApiEndpointAllowed.mockReset();
     mockIsApiEndpointAllowed.mockImplementation(() => false);
+    mockIsReadOnlyBashCommandWithConfig.mockReset();
+    mockIsReadOnlyBashCommandWithConfig.mockImplementation(() => false);
     mockReadOnlyBashPatterns = [];
   });
 
@@ -716,11 +725,8 @@ describe('shouldPromptInAskMode', () => {
       expect(result!.command).toBe('npm install express');
     });
 
-    it('auto-allows read-only bash patterns', () => {
-      mockReadOnlyBashPatterns = [
-        { regex: /^ls\b/ },
-        { regex: /^cat\b/ },
-      ];
+    it('auto-allows read-only bash commands (AST-validated)', () => {
+      mockIsReadOnlyBashCommandWithConfig.mockImplementation(() => true);
 
       const result = shouldPromptInAskMode('Bash', { command: 'ls -la' }, pm, {
         workspaceRootPath: '/test',
@@ -728,6 +734,20 @@ describe('shouldPromptInAskMode', () => {
       });
 
       expect(result).toBeNull();
+    });
+
+    it('does NOT auto-allow bash commands with redirects (e.g. cat > file)', () => {
+      // isReadOnlyBashCommandWithConfig uses AST validation which catches redirects
+      mockIsReadOnlyBashCommandWithConfig.mockImplementation(() => false);
+
+      const result = shouldPromptInAskMode('Bash', { command: 'cat /etc/hosts > /tmp/test' }, pm, {
+        workspaceRootPath: '/test',
+        activeSourceSlugs: [],
+      });
+
+      expect(result).not.toBeNull();
+      expect(result!.promptType).toBe('bash');
+      expect(result!.command).toBe('cat /etc/hosts > /tmp/test');
     });
 
     it('auto-allows whitelisted non-dangerous commands', () => {

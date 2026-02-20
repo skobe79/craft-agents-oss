@@ -6,9 +6,13 @@
  * MCP source tools through a single HTTP endpoint instead of connecting to each
  * source independently.
  *
+ * Uses Streamable HTTP transport in stateless mode because Codex uses the
+ * Streamable HTTP protocol (POST-based JSON-RPC). Stateless mode means no
+ * session tracking — each request is independent.
+ *
  * Architecture:
  *   Codex/Copilot SDK subprocess
- *       ↓ (HTTP MCP protocol)
+ *       ↓ (HTTP Streamable HTTP protocol)
  *   McpPoolServer (this, in Electron main process)
  *       ↓
  *   McpClientPool
@@ -28,7 +32,8 @@ import type { McpClientPool } from './mcp-pool.ts';
 export class McpPoolServer {
   private pool: McpClientPool;
   private httpServer: HttpServer | null = null;
-  private transports: Map<string, StreamableHTTPServerTransport> = new Map();
+  private mcpServer: Server | null = null;
+  private transport: StreamableHTTPServerTransport | null = null;
   private debugFn: ((msg: string) => void) | undefined;
   private _port = 0;
 
@@ -58,8 +63,14 @@ export class McpPoolServer {
       return this.url;
     }
 
+    // Create a single MCP Server + Streamable HTTP transport pair (stateless mode)
+    this.transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // Stateless — no session tracking
+    });
+    this.mcpServer = this.createMcpServer();
+    await this.mcpServer.connect(this.transport);
+
     this.httpServer = createServer(async (req, res) => {
-      // Only handle /mcp path
       const url = new URL(req.url || '/', `http://127.0.0.1`);
       if (url.pathname !== '/mcp') {
         res.writeHead(404);
@@ -67,44 +78,8 @@ export class McpPoolServer {
         return;
       }
 
-      // Get or create transport for this session
-      const sessionId = req.headers['mcp-session-id'] as string | undefined;
-
-      if (sessionId && this.transports.has(sessionId)) {
-        // Existing session
-        const transport = this.transports.get(sessionId)!;
-        await transport.handleRequest(req, res);
-        return;
-      }
-
-      if (req.method === 'POST' && !sessionId) {
-        // New session — create transport and server
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => `pool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        });
-
-        const server = this.createMcpServer();
-        await server.connect(transport);
-
-        // Track transport by session ID after connection
-        if (transport.sessionId) {
-          this.transports.set(transport.sessionId, transport);
-        }
-
-        transport.onclose = () => {
-          if (transport.sessionId) {
-            this.transports.delete(transport.sessionId);
-          }
-          server.close().catch(() => {});
-        };
-
-        await transport.handleRequest(req, res);
-        return;
-      }
-
-      // Unknown session or invalid request
-      res.writeHead(400);
-      res.end('Bad Request');
+      // Route all methods (POST, GET, DELETE) through the Streamable HTTP transport
+      await this.transport!.handleRequest(req, res);
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -122,8 +97,10 @@ export class McpPoolServer {
 
   /**
    * Create an MCP Server instance wired to the pool.
-   * Each client session gets its own Server instance, but they all
-   * share the same pool for tool discovery and execution.
+   * Tools from pool use `mcp__craft__search_spaces` naming internally.
+   * We strip the `mcp__` prefix so external SDKs see `craft__search_spaces`.
+   * Codex's mapToolTypeToSdkName detects the pool server and re-adds
+   * only `mcp__` (not `mcp__sources__`) to produce `mcp__craft__search_spaces`.
    */
   private createMcpServer(): Server {
     const server = new Server(
@@ -131,12 +108,12 @@ export class McpPoolServer {
       { capabilities: { tools: {} } }
     );
 
-    // List tools — proxy from pool
+    // List tools — proxy from pool, strip `mcp__` prefix
     server.setRequestHandler(ListToolsRequestSchema, async () => {
       const proxyDefs = this.pool.getProxyToolDefs();
       return {
         tools: proxyDefs.map(def => ({
-          name: def.name,
+          name: def.name.replace(/^mcp__/, ''),
           description: def.description,
           inputSchema: def.inputSchema as {
             type: 'object';
@@ -146,12 +123,13 @@ export class McpPoolServer {
       };
     });
 
-    // Call tool — route through pool
+    // Call tool — add `mcp__` prefix back before routing through pool
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      this.debug(`Tool call: ${name}`);
+      const internalName = `mcp__${name}`;
+      this.debug(`Tool call: ${name} → ${internalName}`);
 
-      const result = await this.pool.callTool(name, args || {});
+      const result = await this.pool.callTool(internalName, args || {});
 
       return {
         content: [{ type: 'text' as const, text: result.content }],
@@ -163,16 +141,29 @@ export class McpPoolServer {
   }
 
   /**
-   * Stop the HTTP server and close all transports.
+   * Notify that the tool list has changed.
+   * In stateless mode this is a no-op — source changes already trigger
+   * `regenCodexConfigAndReconnect()` which restarts the app-server,
+   * and it re-discovers tools on startup.
+   */
+  notifyToolsChanged(): void {
+    this.debug('Tools changed (stateless mode — clients will discover on next connect)');
+  }
+
+  /**
+   * Stop the HTTP server and close the transport.
    */
   async stop(): Promise<void> {
-    // Close all active transports
-    for (const transport of this.transports.values()) {
-      await transport.close().catch(() => {});
+    if (this.transport) {
+      await this.transport.close().catch(() => {});
+      this.transport = null;
     }
-    this.transports.clear();
 
-    // Close HTTP server
+    if (this.mcpServer) {
+      await this.mcpServer.close().catch(() => {});
+      this.mcpServer = null;
+    }
+
     if (this.httpServer) {
       await new Promise<void>((resolve) => {
         this.httpServer!.close(() => resolve());

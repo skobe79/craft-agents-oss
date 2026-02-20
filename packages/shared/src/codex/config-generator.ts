@@ -198,6 +198,16 @@ const VALID_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 const DANGEROUS_SLUG_CHARS = /[.\[\]"'\\=\s\n\r]/;
 
 /**
+ * Name used for the pool server's TOML section ([mcp_servers.{name}]).
+ * When using the pool server, ALL MCP source tools are served through a single
+ * endpoint. Tool names from the pool already include the source slug prefix
+ * (e.g., "craft__search_spaces"), so callers must detect this server name and
+ * avoid double-prefixing (i.e., produce "mcp__craft__search_spaces", NOT
+ * "mcp__sources__craft__search_spaces").
+ */
+export const POOL_SERVER_MCP_NAME = 'sources';
+
+/**
  * Validate and sanitize a slug for use as a TOML section name.
  * Returns sanitized slug or throws if slug cannot be safely used.
  *
@@ -526,7 +536,7 @@ export function generateCodexConfig(options: CodexConfigGeneratorOptions): Codex
   // The McpPoolServer in the main process manages all source connections.
   if (poolServerUrl && mcpSources.length > 0) {
     sections.push('# MCP sources via centralized pool (all source tools served from one endpoint)');
-    sections.push('[mcp_servers.sources]');
+    sections.push(`[mcp_servers.${POOL_SERVER_MCP_NAME}]`);
     sections.push(`url = ${formatTomlValue(poolServerUrl)}`);
     sections.push('startup_timeout_sec = 10');
     sections.push('tool_timeout_sec = 120');

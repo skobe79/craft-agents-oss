@@ -22,7 +22,7 @@ import type { ThinkingLevel } from './thinking-levels.ts';
 import { DEFAULT_THINKING_LEVEL } from './thinking-levels.ts';
 import type { PermissionMode } from './mode-manager.ts';
 import type { LoadedSource } from '../sources/types.ts';
-import type { LLMQueryRequest, LLMQueryResult } from './llm-tool.ts';
+import { buildCallLlmRequest, type LLMQueryRequest, type LLMQueryResult } from './llm-tool.ts';
 
 import type {
   AgentBackend,
@@ -47,7 +47,7 @@ import { PathProcessor } from './core/path-processor.ts';
 import { ConfigWatcherManager, type ConfigWatcherManagerCallbacks } from './core/config-watcher-manager.ts';
 import { UsageTracker, type UsageUpdate } from './core/usage-tracker.ts';
 import { PrerequisiteManager } from './core/prerequisite-manager.ts';
-import { getSessionPlansPath, getSessionDataPath } from '../sessions/storage.ts';
+import { getSessionPlansPath, getSessionDataPath, getSessionPath } from '../sessions/storage.ts';
 import { getMiniAgentSystemPrompt } from '../prompts/system.ts';
 import { buildTitlePrompt, buildRegenerateTitlePrompt, validateTitle } from '../utils/title-generator.ts';
 
@@ -93,6 +93,7 @@ export const MINI_AGENT_MCP_KEYS = ['session'] as const;
  * - Callback declarations for UI integration
  *
  * Subclasses must implement:
+ * - backendName: Display name for error messages ('Claude', 'Codex', etc.)
  * - chat(): Provider-specific agentic loop
  * - abort(): Provider-specific abort handling
  * - capabilities(): Provider-specific capabilities
@@ -101,6 +102,11 @@ export const MINI_AGENT_MCP_KEYS = ['session'] as const;
  * - runMiniCompletion(): Simple text completion using backend's auth
  */
 export abstract class BaseAgent implements AgentBackend {
+  // ============================================================
+  // Backend Identity
+  // ============================================================
+  protected abstract backendName: string;
+
   // ============================================================
   // Configuration (protected for subclass access)
   // ============================================================
@@ -422,9 +428,11 @@ export abstract class BaseAgent implements AgentBackend {
    * Reset prerequisite read state (e.g., on context compaction).
    * After compaction the LLM no longer has guide content in context,
    * so it must re-read before using source tools.
+   * Also resets seen sources so guide paths re-appear in source introductions.
    */
   resetPrerequisiteState(): void {
     this.prerequisiteManager.resetReadState();
+    this.sourceManager.resetSeenSources();
   }
 
   /**
@@ -837,6 +845,27 @@ Please continue the conversation naturally from where we left off.
    * @returns The model's response text and optional token usage
    */
   abstract queryLlm(request: LLMQueryRequest): Promise<LLMQueryResult>;
+
+  /**
+   * Pre-execute a call_llm request: resolve attachments, validate model, run query.
+   * Shared across all backends. Codex overrides validateCallLlmModel() for provider filtering.
+   */
+  protected async preExecuteCallLlm(input: Record<string, unknown>): Promise<LLMQueryResult> {
+    const sessionPath = getSessionPath(this.config.workspace.rootPath, this._sessionId);
+    const request = await buildCallLlmRequest(input, {
+      backendName: this.backendName,
+      sessionPath,
+      validateModel: this.validateCallLlmModel?.bind(this),
+    });
+    return this.queryLlm(request);
+  }
+
+  /**
+   * Optional model validation hook for call_llm.
+   * Override in subclasses to filter models (e.g., Codex rejects non-OpenAI models).
+   * Return undefined to fall back to miniModel.
+   */
+  protected validateCallLlmModel?(modelId: string): string | undefined;
 
   // ============================================================
   // Title Generation (shared implementation using runMiniCompletion)

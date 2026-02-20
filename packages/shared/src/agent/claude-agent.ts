@@ -303,6 +303,7 @@ function createSourceProxyServers(pool: McpClientPool): Record<string, ReturnTyp
 const buildWindowsSkillsDirError = buildWindowsSkillsDirErrorFn;
 
 export class ClaudeAgent extends BaseAgent {
+  protected backendName = 'Claude';
   // Note: ClaudeAgentConfig is compatible with BackendConfig, so we use the inherited this.config
   private hookSystem?: HookSystem;
   private currentQuery: Query | null = null;

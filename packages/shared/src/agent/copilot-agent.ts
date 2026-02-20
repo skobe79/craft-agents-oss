@@ -122,7 +122,7 @@ import { getSessionPlansPath, getSessionPath } from '../sessions/storage.ts';
 import { parseError, type AgentError } from './errors.ts';
 
 // LLM tool types and helpers for call_llm PreToolUse intercept
-import { buildCallLlmRequest, withTimeout, type LLMQueryRequest, type LLMQueryResult } from './llm-tool.ts';
+import { withTimeout, type LLMQueryRequest, type LLMQueryResult } from './llm-tool.ts';
 
 // GitHub OAuth types
 import type { GithubTokens } from '../auth/github-oauth.ts';
@@ -181,6 +181,8 @@ export const COPILOT_TOOL_NAME_MAP: Record<string, string> = {
  * planning heuristics, config watching, usage tracking).
  */
 export class CopilotAgent extends BaseAgent {
+  protected backendName = 'Copilot';
+
   // ============================================================
   // Copilot-specific State
   // ============================================================
@@ -808,6 +810,15 @@ export class CopilotAgent extends BaseAgent {
         return { permissionDecision: 'allow', modifiedArgs: checkResult.input };
 
       case 'block': {
+        // Prerequisite blocks: return 'allow' but set a one-time block on the pool.
+        // The Copilot SDK permanently removes tools from its registry on 'deny',
+        // which means the model can never retry the tool after reading guide.md.
+        // Instead, we let the tool call through to the pool which returns the
+        // error message and auto-clears — keeping the tool available for retry.
+        if (checkResult.source === 'prerequisite' && this.config.mcpPool) {
+          this.config.mcpPool.setOneTimeBlock(sdkToolName, checkResult.reason);
+          return { permissionDecision: 'allow' };
+        }
         this.adapter.setBlockReason(sdkToolName, checkResult.reason);
         return {
           permissionDecision: 'deny',
@@ -1421,19 +1432,6 @@ export class CopilotAgent extends BaseAgent {
 
     // Fall back to shared error parsing
     return parseError(error);
-  }
-
-  // ============================================================
-  // LLM Tool Pre-Execution (call_llm via PreToolUse intercept)
-  // ============================================================
-
-  /**
-   * Pre-execute a call_llm request: process attachments, resolve model,
-   * build prompt with structured output injection, and run via ephemeral session.
-   */
-  private async preExecuteCallLlm(input: Record<string, unknown>): Promise<LLMQueryResult> {
-    const request = await buildCallLlmRequest(input, { backendName: 'Copilot' });
-    return this.queryLlm(request);
   }
 
   // ============================================================

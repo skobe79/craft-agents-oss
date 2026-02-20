@@ -62,7 +62,6 @@ import {
 import { createClaudeContext, type SessionToolContext } from './claude-context.ts';
 
 // call_llm pre-execution pipeline
-import { buildCallLlmRequest } from './llm-tool.ts';
 
 // McpClientPool for source tool proxying (centralized pool from main process)
 import type { McpClientPool } from '../mcp/mcp-pool.ts';
@@ -98,6 +97,8 @@ import type { LLMQueryRequest, LLMQueryResult } from './llm-tool.ts';
  * planning heuristics, config watching, usage tracking).
  */
 export class PiAgent extends BaseAgent {
+  protected backendName = 'Pi';
+
   // ============================================================
   // Subprocess State
   // ============================================================
@@ -547,10 +548,7 @@ export class PiAgent extends BaseAgent {
     for (const agentEvent of this.adapter.adaptEvent(event as any)) {
       // Track Read tool calls for prerequisite checking
       if (agentEvent.type === 'tool_start' && agentEvent.toolName === 'Read') {
-        const input = agentEvent.input as Record<string, unknown>;
-        if (input?.file_path) {
-          this.prerequisiteManager.trackReadTool(input);
-        }
+        this.prerequisiteManager.trackReadTool(agentEvent.input as Record<string, unknown>);
       }
       // Reset prerequisite state on compaction (LLM loses guide content)
       if (agentEvent.type === 'info' && typeof agentEvent.message === 'string' && agentEvent.message.startsWith('Compacted')) {
@@ -768,7 +766,7 @@ export class PiAgent extends BaseAgent {
    * Route a proxy tool call to the appropriate handler based on tool name.
    *
    * - Session tools (SubmitPlan, config_validate, etc.) -> session-tools-core handlers
-   * - call_llm -> buildCallLlmRequest + queryLlm
+   * - call_llm -> preExecuteCallLlm (BaseAgent)
    * - mcp__* tools -> MCP server proxy (TODO)
    * - api_* tools -> API source proxy (TODO)
    *
@@ -836,9 +834,15 @@ export class PiAgent extends BaseAgent {
     args: Record<string, unknown>,
   ): Promise<{ content: string; isError: boolean }> {
     try {
-      // call_llm uses a different execution path (backend-specific)
+      // call_llm uses the shared pre-execution pipeline from BaseAgent
       if (toolName === 'call_llm') {
-        return this.executeCallLlm(args);
+        try {
+          const result = await this.preExecuteCallLlm(args);
+          return { content: result.text || '(Model returned empty response)', isError: false };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return { content: `call_llm failed: ${msg}`, isError: true };
+        }
       }
 
       const def = SESSION_TOOL_REGISTRY.get(toolName);
@@ -859,24 +863,7 @@ export class PiAgent extends BaseAgent {
     }
   }
 
-  /**
-   * Execute call_llm by validating input, then routing through queryLlm.
-   */
-  private async executeCallLlm(
-    args: Record<string, unknown>,
-  ): Promise<{ content: string; isError: boolean }> {
-    try {
-      const request = await buildCallLlmRequest(args, { backendName: 'Pi' });
-      const result = await this.queryLlm(request);
-      return {
-        content: result.text || '(Model returned empty response)',
-        isError: false,
-      };
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      return { content: `call_llm failed: ${msg}`, isError: true };
-    }
-  }
+
 
   /**
    * Handle session_tool_completed from subprocess.
@@ -1325,7 +1312,6 @@ export class PiAgent extends BaseAgent {
   async queryLlm(request: LLMQueryRequest): Promise<LLMQueryResult> {
     this.debug('[PiAgent.queryLlm] Starting');
 
-    // For now, delegate to mini completion via subprocess
     const text = await this.runMiniCompletion(request.prompt);
     return {
       text: text || '',

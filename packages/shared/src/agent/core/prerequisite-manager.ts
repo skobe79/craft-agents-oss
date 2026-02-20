@@ -94,7 +94,11 @@ const RULES: PrerequisiteRule[] = [
 // ============================================================
 
 export class PrerequisiteManager {
+  /** Max times to block a tool for the same prerequisite before allowing through */
+  private static readonly MAX_REJECTIONS = 1;
+
   private readFiles: Set<string> = new Set();
+  private rejectionCounts: Map<string, number> = new Map();
   private workspaceRootPath: string;
   private onDebug?: (message: string) => void;
 
@@ -106,6 +110,7 @@ export class PrerequisiteManager {
   /**
    * Check if a tool call's prerequisites are met.
    * Iterates rules, checks if required files have been read.
+   * After MAX_REJECTIONS blocks for the same path, allows through gracefully.
    */
   checkPrerequisites(toolName: string): PrerequisiteCheckResult {
     for (const rule of RULES) {
@@ -115,9 +120,16 @@ export class PrerequisiteManager {
       if (!requiredPath) continue; // No guide.md exists, skip
 
       if (!this.readFiles.has(requiredPath)) {
-        const blockReason = rule.blockMessage.replace('{filePath}', requiredPath);
-        this.onDebug?.(`Prerequisite blocked: ${toolName} requires ${requiredPath}`);
-        return { allowed: false, blockReason };
+        const count = (this.rejectionCounts.get(requiredPath) ?? 0) + 1;
+        this.rejectionCounts.set(requiredPath, count);
+
+        if (count <= PrerequisiteManager.MAX_REJECTIONS) {
+          const blockReason = rule.blockMessage.replace('{filePath}', requiredPath);
+          this.onDebug?.(`Prerequisite blocked (${count}/${PrerequisiteManager.MAX_REJECTIONS}): ${toolName} requires ${requiredPath}`);
+          return { allowed: false, blockReason };
+        }
+        // Exceeded max rejections — allow through gracefully
+        this.onDebug?.(`Prerequisite: allowing ${toolName} after ${count} rejections (max reached)`);
       }
     }
 
@@ -144,6 +156,7 @@ export class PrerequisiteManager {
   resetReadState(): void {
     const count = this.readFiles.size;
     this.readFiles.clear();
+    this.rejectionCounts.clear();
     this.onDebug?.(`Prerequisite: reset read state (cleared ${count} entries)`);
   }
 

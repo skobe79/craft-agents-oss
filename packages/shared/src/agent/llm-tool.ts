@@ -24,6 +24,7 @@ type ToolResult = {
 };
 import { readFile } from 'fs/promises';
 import { existsSync, statSync } from 'fs';
+import path from 'node:path';
 import { getDefaultLlmConnection, getLlmConnection } from '../config/storage.ts';
 import { getCredentialManager } from '../credentials/index.ts';
 import { getModelById, getDefaultSummarizationModel, MODEL_REGISTRY } from '../config/models.ts';
@@ -158,6 +159,8 @@ export interface BuildCallLlmOptions {
   backendName: string;
   /** Optional model validation hook — return undefined to reject (falls back to default), or corrected model ID */
   validateModel?: (resolvedModelId: string) => string | undefined;
+  /** Session directory for resolving relative attachment paths */
+  sessionPath?: string;
 }
 
 /**
@@ -190,7 +193,7 @@ export async function buildCallLlmRequest(
 
   if (attachments?.length) {
     for (let i = 0; i < attachments.length; i++) {
-      const result = await processAttachment(attachments[i]!, i);
+      const result = await processAttachment(attachments[i]!, i, options.sessionPath);
       if (result.type === 'error') {
         throw new Error(result.message);
       }
@@ -340,14 +343,20 @@ type AttachmentResult =
 
 export async function processAttachment(
   input: string | AttachmentInput,
-  index: number
+  index: number,
+  basePath?: string,
 ): Promise<AttachmentResult> {
   // Normalize input to AttachmentInput format
   const attachment: AttachmentInput = typeof input === 'string'
     ? { path: input }
     : input;
 
-  const { path: filePath, startLine, endLine } = attachment;
+  let { path: filePath, startLine, endLine } = attachment;
+
+  // Resolve relative paths against basePath (session directory)
+  if (basePath && filePath && !path.isAbsolute(filePath) && !filePath.startsWith('~')) {
+    filePath = path.resolve(basePath, filePath);
+  }
   const filename = filePath.split('/').pop() || filePath;
   const safeFilename = escapeXml(filename); // Escape for use in XML-like tags
 
@@ -538,6 +547,8 @@ const OutputSchemaParam = z.object({
 
 export interface LLMToolOptions {
   sessionId: string;
+  /** Session directory for resolving relative attachment paths */
+  sessionPath?: string;
   /**
    * Lazy resolver for the agent-native query callback.
    * Called at execution time to get the current callback from the session registry.
@@ -727,7 +738,7 @@ Features depend on authentication:
       if (args.attachments?.length) {
         for (let i = 0; i < args.attachments.length; i++) {
           const attachment = args.attachments[i]!;
-          const result = await processAttachment(attachment, i);
+          const result = await processAttachment(attachment, i, options.sessionPath);
 
           if (result.type === 'error') {
             return errorResponse(result.message);

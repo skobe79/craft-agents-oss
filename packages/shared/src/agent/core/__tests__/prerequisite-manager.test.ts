@@ -217,6 +217,62 @@ describe('PrerequisiteManager', () => {
   });
 
   // ============================================================
+  // Max Rejection (graceful fallback)
+  // ============================================================
+
+  describe('max rejection', () => {
+    it('blocks on first attempt, allows on second for same path', () => {
+      mockExistsPaths.add(guidePath('linear'));
+
+      // First attempt — blocked
+      const first = manager.checkPrerequisites('mcp__linear__createIssue');
+      expect(first.allowed).toBe(false);
+
+      // Second attempt (same source, guide still not read) — allowed through
+      const second = manager.checkPrerequisites('mcp__linear__createIssue');
+      expect(second.allowed).toBe(true);
+    });
+
+    it('tracks rejection counts per source independently', () => {
+      mockExistsPaths.add(guidePath('linear'));
+      mockExistsPaths.add(guidePath('slack'));
+
+      // Block linear once
+      expect(manager.checkPrerequisites('mcp__linear__createIssue').allowed).toBe(false);
+
+      // Slack should still block on first attempt
+      expect(manager.checkPrerequisites('mcp__slack__sendMessage').allowed).toBe(false);
+
+      // Linear second attempt — allowed
+      expect(manager.checkPrerequisites('mcp__linear__createIssue').allowed).toBe(true);
+    });
+
+    it('resets rejection counts on resetReadState', () => {
+      mockExistsPaths.add(guidePath('linear'));
+
+      // Exhaust rejections
+      manager.checkPrerequisites('mcp__linear__createIssue'); // blocked
+      manager.checkPrerequisites('mcp__linear__createIssue'); // allowed (max reached)
+
+      // Reset
+      manager.resetReadState();
+
+      // Should block again (rejection count reset)
+      expect(manager.checkPrerequisites('mcp__linear__createIssue').allowed).toBe(false);
+    });
+
+    it('allows different tools from same source after one rejection', () => {
+      mockExistsPaths.add(guidePath('linear'));
+
+      // First tool blocked
+      expect(manager.checkPrerequisites('mcp__linear__createIssue').allowed).toBe(false);
+
+      // Different tool from same source — same guide path, already rejected once
+      expect(manager.checkPrerequisites('mcp__linear__listIssues').allowed).toBe(true);
+    });
+  });
+
+  // ============================================================
   // Debug Logging
   // ============================================================
 

@@ -30,6 +30,7 @@ import { GLOBAL_AGENT_SKILLS_DIR, PROJECT_AGENT_SKILLS_DIR } from '../../skills/
 import {
   shouldAllowToolInMode,
   isApiEndpointAllowed,
+  isReadOnlyBashCommandWithConfig,
   type PermissionMode,
 } from '../mode-manager.ts';
 import { permissionsConfigCache, type PermissionsContext } from '../permissions-config.ts';
@@ -409,7 +410,7 @@ export function validateConfigWrite(
 export type PreToolUseCheckResult =
   | { type: 'allow' }
   | { type: 'modify'; input: Record<string, unknown> }
-  | { type: 'block'; reason: string }
+  | { type: 'block'; reason: string; source?: 'prerequisite' }
   | { type: 'prompt'; promptType: 'bash' | 'file_write' | 'mcp_mutation' | 'api_mutation';
       description: string; command?: string; modifiedInput?: Record<string, unknown> }
   | { type: 'source_activation_needed'; sourceSlug: string; sourceExists: boolean }
@@ -559,7 +560,7 @@ export function runPreToolUseChecks(ctx: PreToolUseInput): PreToolUseCheckResult
   if (prerequisiteManager) {
     const prereqResult = prerequisiteManager.checkPrerequisites(toolName);
     if (!prereqResult.allowed) {
-      return { type: 'block', reason: prereqResult.blockReason! };
+      return { type: 'block', reason: prereqResult.blockReason!, source: 'prerequisite' };
     }
   }
 
@@ -691,12 +692,10 @@ export function shouldPromptInAskMode(
     const command = typeof input.command === 'string' ? input.command : '';
     const baseCommand = permissionManager.getBaseCommand(command);
 
-    // Auto-allow read-only commands (same patterns allowed in Explore mode)
+    // Auto-allow read-only commands using full AST-based validation
+    // (same pipeline as Explore mode — catches redirects, substitutions, pipes to write commands)
     const mergedConfig = permissionsConfigCache.getMergedConfig(permissionsContext);
-    const isReadOnly = mergedConfig.readOnlyBashPatterns.some(
-      (pattern: { regex: RegExp }) => pattern.regex.test(command.trim())
-    );
-    if (isReadOnly) {
+    if (isReadOnlyBashCommandWithConfig(command, mergedConfig)) {
       onDebug?.(`Auto-allowing read-only command: ${baseCommand}`);
       return null;
     }

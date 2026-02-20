@@ -2536,7 +2536,9 @@ export class SessionManager {
         // Create centralized MCP client pool + HTTP server (Codex connects via URL instead of direct MCP)
         managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath, sessionPath })
         managed.poolServer = new McpPoolServer(managed.mcpPool, { debug: (msg) => sessionLog.debug(msg) })
+        managed.mcpPool.onToolsChanged = () => managed.poolServer?.notifyToolsChanged()
         const poolServerUrl = await managed.poolServer.start()
+        await managed.mcpPool.sync(mcpServers) // Ensure pool has tools before app-server connects
 
         const codexHome = await setupCodexSessionConfig(sessionPath, enabledSources, mcpServers, managed.id, managed.workspace.rootPath, poolServerUrl)
 
@@ -2663,7 +2665,9 @@ export class SessionManager {
         // Create centralized MCP client pool + HTTP server (Copilot connects via URL instead of direct MCP)
         managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath, sessionPath })
         managed.poolServer = new McpPoolServer(managed.mcpPool, { debug: (msg) => sessionLog.debug(msg) })
+        managed.mcpPool.onToolsChanged = () => managed.poolServer?.notifyToolsChanged()
         const copilotPoolServerUrl = await managed.poolServer.start()
+        await managed.mcpPool.sync(mcpServers) // Ensure pool has tools before Copilot connects
 
         // Session MCP server path - provides session-scoped tools (SubmitPlan, config_validate, etc.)
         const copilotSessionServerPath = resolveSessionServerPath()
@@ -4252,11 +4256,10 @@ export class SessionManager {
         // Pass intended slugs so agent shows sources as active even if build failed
         const intendedSlugs = sources.filter(isSourceUsable).map(s => s.config.slug)
 
-        // Update bridge-mcp-server config/credentials for backends that use it (Codex, Copilot)
+        // Sync pool first so tools are available, then apply bridge updates (which may trigger reconnect)
         const usableSources = sources.filter(isSourceUsable)
-        await applyBridgeUpdates(agent, sessionPath, usableSources, mcpServers, sessionId, workspaceRootPath, 'send message', managed.poolServer?.url)
-
         await agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
+        await applyBridgeUpdates(agent, sessionPath, usableSources, mcpServers, sessionId, workspaceRootPath, 'send message', managed.poolServer?.url)
         sessionLog.info(`Applied ${mcpCount} MCP + ${apiCount} API sources to session ${sessionId} (${allSources.length} total)`)
       }
       sendSpan.mark('servers.applied')

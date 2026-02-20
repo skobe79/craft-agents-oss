@@ -253,7 +253,7 @@ export class CodexEventAdapter extends BaseEventAdapter {
           : mcpStoredMeta?.displayName;
         yield this.createToolStart(
           item.id,
-          `mcp__${item.server}__${item.tool}`,
+          this.buildMcpToolName(item.server, item.tool),
           args,
           mcpIntent,
           mcpDisplayName,
@@ -546,7 +546,7 @@ export class CodexEventAdapter extends BaseEventAdapter {
 
     return this.createToolResult(
       item.id,
-      `mcp__${item.server}__${item.tool}`,
+      this.buildMcpToolName(item.server, item.tool),
       result,
       isError,
     );

@@ -72,6 +72,9 @@ export class McpClientPool {
   /** Proxy tool name → original MCP tool name (e.g., "mcp__linear__createIssue" → "createIssue") */
   private toolToOriginal = new Map<string, string>();
 
+  /** One-time blocks: proxy tool name → error reason. Consumed on first callTool() hit. */
+  private oneTimeBlocks = new Map<string, string>();
+
   /** Optional debug logger */
   private debugFn: ((msg: string) => void) | undefined;
 
@@ -83,6 +86,9 @@ export class McpClientPool {
 
   /** Summarize callback for large response handling */
   private summarizeCallback?: (prompt: string) => Promise<string | null>;
+
+  /** Called after sync() connects/disconnects sources, so clients can be notified */
+  onToolsChanged?: () => void;
 
   constructor(options?: { debug?: (msg: string) => void; workspaceRootPath?: string; sessionPath?: string }) {
     this.debugFn = options?.debug;
@@ -220,6 +226,8 @@ export class McpClientPool {
       }
     }
 
+    this.onToolsChanged?.();
+
     return failures;
   }
 
@@ -271,6 +279,21 @@ export class McpClientPool {
   }
 
   // ============================================================
+  // One-Time Blocks (prerequisite enforcement for Copilot)
+  // ============================================================
+
+  /**
+   * Set a one-time block on a proxy tool. The next `callTool()` for this tool
+   * returns the reason as an error and clears the block. This allows the SDK
+   * to keep the tool registered (avoiding permanent removal) while still
+   * delivering the prerequisite error message to the model.
+   */
+  setOneTimeBlock(proxyName: string, reason: string): void {
+    this.oneTimeBlocks.set(proxyName, reason);
+    this.debug(`Set one-time block on ${proxyName}`);
+  }
+
+  // ============================================================
   // Tool Execution
   // ============================================================
 
@@ -279,6 +302,14 @@ export class McpClientPool {
    * Returns a result matching the subprocess protocol format.
    */
   async callTool(proxyName: string, args: Record<string, unknown>): Promise<McpToolResult> {
+    // Check for one-time block (prerequisite enforcement)
+    const blockReason = this.oneTimeBlocks.get(proxyName);
+    if (blockReason) {
+      this.oneTimeBlocks.delete(proxyName);
+      this.debug(`One-time block fired for ${proxyName}`);
+      return { content: blockReason, isError: true };
+    }
+
     const slug = this.toolToSlug.get(proxyName);
     if (!slug) {
       return {
