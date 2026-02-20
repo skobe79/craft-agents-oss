@@ -76,7 +76,7 @@ interface UseOnboardingReturn {
 }
 
 // Base slug for each setup method (used as template key in ipc.ts)
-const BASE_SLUG_FOR_METHOD: Record<ApiSetupMethod, string> = {
+export const BASE_SLUG_FOR_METHOD: Record<ApiSetupMethod, string> = {
   anthropic_api_key: 'anthropic-api',
   claude_oauth: 'claude-max',
   chatgpt_oauth: 'codex',
@@ -92,7 +92,7 @@ const BASE_SLUG_FOR_METHOD: Record<ApiSetupMethod, string> = {
  * If the base slug is taken, appends -2, -3, etc.
  * When editingSlug is provided, reuses that slug (editing existing connection).
  */
-function resolveSlugForMethod(
+export function resolveSlugForMethod(
   method: ApiSetupMethod,
   editingSlug: string | null,
   existingSlugs: Set<string>,
@@ -109,7 +109,7 @@ function resolveSlugForMethod(
 }
 
 // Map ApiSetupMethod to LlmConnectionSetup for the new unified connection system
-function apiSetupMethodToConnectionSetup(
+export function apiSetupMethodToConnectionSetup(
   method: ApiSetupMethod,
   options: { credential?: string; baseUrl?: string; connectionDefaultModel?: string; models?: string[]; piAuthProvider?: string },
   editingSlug: string | null,
@@ -389,6 +389,24 @@ export function useOnboarding({
     }
   }, [handleSaveConfig, state.apiSetupMethod])
 
+  // Save config, validate the connection, and update state accordingly.
+  // Shared by all OAuth flows after tokens are captured.
+  const saveAndValidateConnection = useCallback(async (connectionSlug: string, credential?: string): Promise<boolean> => {
+    const saved = await handleSaveConfig(credential)
+    if (!saved) {
+      setState(s => ({ ...s, credentialStatus: 'error' }))
+      return false
+    }
+    const testResult = await window.electronAPI.testLlmConnection(connectionSlug)
+    if (testResult.success) {
+      setState(s => ({ ...s, credentialStatus: 'success', step: 'complete' }))
+      return true
+    } else {
+      setState(s => ({ ...s, credentialStatus: 'error', errorMessage: testResult.error || 'Connection test failed' }))
+      return false
+    }
+  }, [handleSaveConfig])
+
   // Two-step OAuth flow state
   const [isWaitingForCode, setIsWaitingForCode] = useState(false)
 
@@ -428,18 +446,7 @@ export function useOnboarding({
         const result = await window.electronAPI.startChatGptOAuth(connectionSlug)
 
         if (result.success) {
-          // Tokens captured automatically, save config and complete
-          const saved = await handleSaveConfig(undefined)
-          if (saved) {
-            setState(s => ({
-              ...s,
-              credentialStatus: 'success',
-              step: 'complete',
-            }))
-          } else {
-            // Save failed — error is already set by handleSaveConfig, stay on credentials step
-            setState(s => ({ ...s, credentialStatus: 'error' }))
-          }
+          await saveAndValidateConnection(connectionSlug)
         } else {
           setState(s => ({
             ...s,
@@ -464,18 +471,7 @@ export function useOnboarding({
           const result = await window.electronAPI.startCopilotOAuth(connectionSlug)
 
           if (result.success) {
-            // Tokens captured, save config and complete
-            const saved = await handleSaveConfig(undefined)
-            if (saved) {
-              setState(s => ({
-                ...s,
-                credentialStatus: 'success',
-                step: 'complete',
-              }))
-            } else {
-              // Save failed — error is already set by handleSaveConfig, stay on credentials step
-              setState(s => ({ ...s, credentialStatus: 'error' }))
-            }
+            await saveAndValidateConnection(connectionSlug)
           } else {
             setState(s => ({
               ...s,
@@ -521,7 +517,7 @@ export function useOnboarding({
         errorMessage: error instanceof Error ? error.message : 'OAuth failed',
       }))
     }
-  }, [state.apiSetupMethod, handleSaveConfig, editingSlug, existingSlugs])
+  }, [state.apiSetupMethod, saveAndValidateConnection, editingSlug, existingSlugs])
 
   // Submit authorization code (second step of OAuth flow)
   const handleSubmitAuthCode = useCallback(async (code: string) => {
@@ -542,18 +538,7 @@ export function useOnboarding({
 
       if (result.success && result.token) {
         setIsWaitingForCode(false)
-        const saved = await handleSaveConfig(result.token)
-
-        if (saved) {
-          setState(s => ({
-            ...s,
-            credentialStatus: 'success',
-            step: 'complete',
-          }))
-        } else {
-          // Save failed — error is already set by handleSaveConfig, stay on credentials step
-          setState(s => ({ ...s, credentialStatus: 'error' }))
-        }
+        await saveAndValidateConnection(connectionSlug, result.token)
       } else {
         setState(s => ({
           ...s,
@@ -568,7 +553,7 @@ export function useOnboarding({
         errorMessage: error instanceof Error ? error.message : 'Failed to exchange code',
       }))
     }
-  }, [handleSaveConfig, editingSlug, existingSlugs])
+  }, [saveAndValidateConnection, editingSlug, existingSlugs])
 
   // Cancel OAuth flow
   const handleCancelOAuth = useCallback(async () => {

@@ -255,7 +255,7 @@ export interface AgentBackend {
     mcpServers: Record<string, SdkMcpServerConfig>,
     apiServers: Record<string, unknown>,
     intendedSlugs?: string[]
-  ): void;
+  ): void | Promise<void>;
 
   /**
    * Get currently active source slugs.

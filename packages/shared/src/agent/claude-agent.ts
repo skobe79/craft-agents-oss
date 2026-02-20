@@ -34,33 +34,25 @@ import {
   cyclePermissionMode,
   initializeModeState,
   cleanupModeState,
-  shouldAllowToolInMode,
   blockWithReason,
-  isApiEndpointAllowed,
   type PermissionMode,
   PERMISSION_MODE_CONFIG,
   SAFE_MODE_CONFIG,
 } from './mode-manager.ts';
-import { type PermissionsContext, permissionsConfigCache } from './permissions-config.ts';
 import { getSessionPlansPath, getSessionPath } from '../sessions/storage.ts';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { expandPath } from '../utils/paths.ts';
 import { extractWorkspaceSlug } from '../utils/workspace.ts';
 import {
   ConfigWatcher,
   createConfigWatcher,
   type ConfigWatcherCallbacks,
 } from '../config/watcher.ts';
-import type { ValidationIssue } from '../config/validators.ts';
-import { detectConfigFileType, detectAppConfigFileType, validateConfigFileContent, formatValidationResult } from '../config/validators.ts';
-// Shared PreToolUse utilities
+// Centralized PreToolUse pipeline
 import {
-  expandToolPaths,
-  qualifySkillName,
-  stripToolMetadata,
-  validateConfigWrite,
+  runPreToolUseChecks,
+  type PreToolUseCheckResult,
   BUILT_IN_TOOLS,
 } from './core/pre-tool-use.ts';
 import { type ThinkingLevel, getThinkingTokens, DEFAULT_THINKING_LEVEL } from './thinking-levels.ts';
@@ -238,6 +230,33 @@ export function clearGlobalPermissions(): void {
  *
  * Returns a McpSdkServerConfigWithInstance that can be added to Options.mcpServers.
  */
+function jsonPropToZod(prop: any): z.ZodTypeAny {
+  if (prop.enum) return z.enum(prop.enum as [string, ...string[]]);
+  switch (prop.type) {
+    case 'string': return z.string();
+    case 'number': case 'integer': return z.number();
+    case 'boolean': return z.boolean();
+    case 'array': return z.array(z.unknown());
+    case 'object': return z.record(z.string(), z.unknown());
+    default: return z.unknown();
+  }
+}
+
+function jsonSchemaToZodShape(schema: Record<string, unknown>): Record<string, z.ZodTypeAny> {
+  const properties = (schema.properties as Record<string, any>) || {};
+  const required = new Set((schema.required as string[]) || []);
+  const shape: Record<string, z.ZodTypeAny> = {};
+
+  for (const [key, prop] of Object.entries(properties)) {
+    let zodType = jsonPropToZod(prop);
+    if (prop.description) zodType = zodType.describe(prop.description);
+    if (!required.has(key)) zodType = zodType.optional();
+    shape[key] = zodType;
+  }
+
+  return shape;
+}
+
 /**
  * Create one SDK MCP server per connected source, using original tool names.
  * The SDK adds its own `mcp__{serverKey}__` prefix, so we use the source slug
@@ -256,9 +275,10 @@ function createSourceProxyServers(pool: McpClientPool): Record<string, ReturnTyp
       return tool(
         mcpTool.name,
         mcpTool.description || `Tool from ${slug}`,
-        // Permissive schema — accepts any properties the model sends.
-        // The actual parameter validation happens on the MCP server side.
-        z.object({}).catchall(z.unknown()).shape,
+        {
+          ...jsonSchemaToZodShape((mcpTool.inputSchema as Record<string, unknown>) || {}),
+          ...z.object({}).catchall(z.unknown()).shape,
+        },
         async (args: Record<string, unknown>) => {
           const result = await pool.callTool(proxyName, args);
           return {
@@ -586,12 +606,6 @@ export class ClaudeAgent extends BaseAgent {
       // Mini agents: only session tools (config_validate) to minimize token usage
       // Regular agents: full set including preferences, docs, and user sources
 
-      // Wait for the MCP pool to finish connecting before reading tools.
-      // pool.sync() is fire-and-forget in setSourceServers(), so we must await here.
-      if (this.config.mcpPool) {
-        await this.config.mcpPool.awaitReady();
-      }
-
       // Build per-source proxy servers from centralized MCP pool (if available)
       const sourceProxies = this.config.mcpPool ? createSourceProxyServers(this.config.mcpPool) : {};
       const sourceProxyCount = Object.keys(sourceProxies).length;
@@ -741,454 +755,152 @@ export class ClaudeAgent extends BaseAgent {
               }
               const input = _hookInput as Required<Pick<typeof _hookInput, 'tool_name' | 'tool_use_id'>> & typeof _hookInput;
 
+              // Track Read tool calls for prerequisite checking
+              if (input.tool_name === 'Read') {
+                this.prerequisiteManager.trackReadTool(input.tool_input as Record<string, unknown>);
+              }
+
               // Get current permission mode (single source of truth)
               const permissionMode = getPermissionMode(sessionId);
               this.onDebug?.(`PreToolUse hook: ${input.tool_name} (permissionMode=${permissionMode})`);
 
-              // ============================================================
-              // PERMISSION MODE HANDLING
-              // - 'safe': Block writes entirely (read-only mode)
-              // - 'ask': Prompt for dangerous operations
-              // - 'allow-all': Everything allowed, no prompts
-              // ============================================================
+              const toolInput = input.tool_input as Record<string, unknown>;
 
-              // Build permissions context for loading custom permissions.json files
-              const permissionsContext: PermissionsContext = {
+              // Run centralized PreToolUse checks
+              const checkResult = runPreToolUseChecks({
+                toolName: input.tool_name,
+                input: toolInput,
+                permissionMode,
                 workspaceRootPath: this.workspaceRootPath,
+                workspaceId: extractWorkspaceSlug(this.workspaceRootPath, this.config.workspace.id),
+                plansFolderPath: sessionId ? getSessionPlansPath(this.workspaceRootPath, sessionId) : undefined,
+                workingDirectory: this.config.session?.workingDirectory,
                 activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
-              };
+                allSourceSlugs: this.sourceManager.getAllSources().map(s => s.config.slug),
+                hasSourceActivation: !!this.onSourceActivationRequest,
+                permissionManager: this.permissionManager,
+                prerequisiteManager: this.prerequisiteManager,
+                onDebug: (msg) => this.onDebug?.(msg),
+              });
 
-              // In 'allow-all' mode, still check for explicitly blocked tools
-              if (permissionMode === 'allow-all') {
-                const plansFolderPath = sessionId ? getSessionPlansPath(this.workspaceRootPath, sessionId) : undefined;
-                const result = shouldAllowToolInMode(
-                  input.tool_name,
-                  input.tool_input,
-                  'allow-all',
-                  { plansFolderPath, permissionsContext }
-                );
+              // Translate result to SDK format
+              switch (checkResult.type) {
+                case 'allow':
+                  return { continue: true };
 
-                if (!result.allowed) {
-                  // Tool is explicitly blocked in permissions.json
-                  this.onDebug?.(`Allow-all mode: blocking explicitly blocked tool ${input.tool_name}`);
-                  return blockWithReason(result.reason);
-                }
+                case 'modify':
+                  return {
+                    continue: true,
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      updatedInput: checkResult.input,
+                    },
+                  };
 
-                this.onDebug?.(`Allow-all mode: allowing ${input.tool_name}`);
-                // Fall through to source blocking and other checks below
-              }
+                case 'block':
+                  return blockWithReason(checkResult.reason);
 
-              // In 'ask' mode, still check for explicitly blocked tools
-              if (permissionMode === 'ask') {
-                const plansFolderPath = sessionId ? getSessionPlansPath(this.workspaceRootPath, sessionId) : undefined;
-                const result = shouldAllowToolInMode(
-                  input.tool_name,
-                  input.tool_input,
-                  'ask',
-                  { plansFolderPath, permissionsContext }
-                );
-
-                if (!result.allowed) {
-                  // Tool is explicitly blocked in permissions.json
-                  this.onDebug?.(`Ask mode: blocking explicitly blocked tool ${input.tool_name}`);
-                  return blockWithReason(result.reason);
-                }
-                // Don't return here - fall through to other checks (like prompting for permission)
-              }
-
-              // In 'safe' mode, check against read-only allowlist
-              if (permissionMode === 'safe') {
-                const plansFolderPath = sessionId ? getSessionPlansPath(this.workspaceRootPath, sessionId) : undefined;
-                const result = shouldAllowToolInMode(
-                  input.tool_name,
-                  input.tool_input,
-                  'safe',
-                  { plansFolderPath, permissionsContext }
-                );
-
-                if (!result.allowed) {
-                  // In safe mode, always block without prompting
-                  this.onDebug?.(`Safe mode: blocking ${input.tool_name}`);
-                  return blockWithReason(result.reason);
-                }
-
-                this.onDebug?.(`Allowed in safe mode: ${input.tool_name}`);
-                // Fall through to source blocking and other checks below
-              }
-
-              // ============================================================
-              // SOURCE BLOCKING & AUTO-ENABLE: Handle tools from sources
-              // Sources can be disabled mid-conversation, so we check
-              // against the current active source set on each tool call.
-              // If a source exists but isn't enabled, try to auto-enable it.
-              // ============================================================
-              if (input.tool_name.startsWith('mcp__')) {
-                // Extract server name from tool name (mcp__<server>__<tool>)
-                const parts = input.tool_name.split('__');
-                const serverName = parts[1];
-                if (parts.length >= 3 && serverName) {
-                  // Built-in MCP servers that are always available (not user sources)
-                  // - session: session-scoped tools (SubmitPlan, source_test, etc.)
-                  // - craft-agents-docs: always-available documentation search
-                  const builtInMcpServers = new Set(['session', 'craft-agents-docs']);
-
-                  // Check if this is a source server (not built-in)
-                  if (!builtInMcpServers.has(serverName)) {
-                    // Check if source server is active
-                    const isActive = this.sourceManager.isSourceActive(serverName);
-                    if (!isActive) {
-                      // Check if this source exists in workspace (just not enabled in session)
-                      const sourceExists = this.sourceManager.getAllSources().some(s => s.config.slug === serverName);
-
-                      if (sourceExists && this.onSourceActivationRequest) {
-                        // Try to auto-enable the source
-                        this.onDebug?.(`Source "${serverName}" not active, attempting auto-enable...`);
-                        try {
-                          const activated = await this.onSourceActivationRequest(serverName);
-                          if (activated) {
-                            this.onDebug?.(`Source "${serverName}" auto-enabled successfully, tools available next turn`);
-                            // Source was activated but the SDK was started with old server list.
-                            // The tools will only be available on the NEXT chat() call.
-                            // Return an imperative message to make the model stop and respond.
-                            return {
-                              continue: false,
-                              decision: 'block' as const,
-                              reason: `STOP. Source "${serverName}" has been activated successfully. The tools will be available on the next turn. Do NOT try other tool names or approaches. Respond to the user now: tell them the source is now active and ask them to send their request again.`,
-                            };
-                          } else {
-                            // Activation failed (e.g., needs auth)
-                            this.onDebug?.(`Source "${serverName}" auto-enable failed (may need authentication)`);
-                            return {
-                              continue: false,
-                              decision: 'block' as const,
-                              reason: `Source "${serverName}" could not be activated. It may require authentication. Please check the source status and authenticate if needed.`,
-                            };
-                          }
-                        } catch (error) {
-                          this.onDebug?.(`Source "${serverName}" auto-enable error: ${error}`);
-                          return {
-                            continue: false,
-                            decision: 'block' as const,
-                            reason: `Failed to activate source "${serverName}": ${error instanceof Error ? error.message : 'Unknown error'}`,
-                          };
-                        }
-                      } else if (sourceExists) {
-                        // Source exists but no activation handler - just inform
-                        this.onDebug?.(`BLOCKED source tool: ${input.tool_name} (source "${serverName}" exists but is not enabled)`);
+                case 'source_activation_needed': {
+                  const { sourceSlug, sourceExists } = checkResult;
+                  if (sourceExists && this.onSourceActivationRequest) {
+                    this.onDebug?.(`Source "${sourceSlug}" not active, attempting auto-enable...`);
+                    try {
+                      const activated = await this.onSourceActivationRequest(sourceSlug);
+                      if (activated) {
+                        this.onDebug?.(`Source "${sourceSlug}" auto-enabled successfully, tools available next turn`);
                         return {
                           continue: false,
                           decision: 'block' as const,
-                          reason: `Source "${serverName}" is available but not enabled for this session. Please enable it in the sources panel.`,
+                          reason: `STOP. Source "${sourceSlug}" has been activated successfully. The tools will be available on the next turn. Do NOT try other tool names or approaches. Respond to the user now: tell them the source is now active and ask them to send their request again.`,
                         };
                       } else {
-                        // Source doesn't exist or can't be connected
-                        this.onDebug?.(`BLOCKED source tool: ${input.tool_name} (source "${serverName}" does not exist)`);
                         return {
                           continue: false,
                           decision: 'block' as const,
-                          reason: `Source "${serverName}" could not be connected. It may need re-authentication, or the server may be unreachable. Check the source in the sidebar for details.`,
+                          reason: `Source "${sourceSlug}" could not be activated. It may require authentication. Please check the source status and authenticate if needed.`,
                         };
                       }
+                    } catch (error) {
+                      return {
+                        continue: false,
+                        decision: 'block' as const,
+                        reason: `Failed to activate source "${sourceSlug}": ${error instanceof Error ? error.message : 'Unknown error'}`,
+                      };
                     }
+                  } else if (sourceExists) {
+                    return {
+                      continue: false,
+                      decision: 'block' as const,
+                      reason: `Source "${sourceSlug}" is available but not enabled for this session. Please enable it in the sources panel.`,
+                    };
+                  } else {
+                    return {
+                      continue: false,
+                      decision: 'block' as const,
+                      reason: `Source "${sourceSlug}" could not be connected. It may need re-authentication, or the server may be unreachable. Check the source in the sidebar for details.`,
+                    };
                   }
                 }
-              }
 
-              // ============================================================
-              // SHARED PRETOOLUSE CHECKS
-              // Uses shared utilities from core/pre-tool-use.ts for consistency
-              // with CodexAgent implementation
-              // ============================================================
-
-              const toolInput = input.tool_input as Record<string, unknown>;
-              let modifiedInput: Record<string, unknown> | null = null;
-
-              // PATH EXPANSION: Expand ~ in file paths for SDK file tools
-              const pathResult = expandToolPaths(
-                input.tool_name,
-                toolInput,
-                (msg) => this.onDebug?.(msg)
-              );
-              if (pathResult.modified) {
-                modifiedInput = pathResult.input;
-              }
-
-              // CONFIG FILE VALIDATION: Validate config writes before they happen
-              const configResult = validateConfigWrite(
-                input.tool_name,
-                modifiedInput || toolInput,
-                this.workspaceRootPath,
-                (msg) => this.onDebug?.(msg)
-              );
-              if (!configResult.valid) {
-                return {
-                  continue: false,
-                  decision: 'block' as const,
-                  reason: configResult.error!,
-                };
-              }
-
-              // SKILL QUALIFICATION: Ensure skill names are fully-qualified
-              // SDK expects "workspaceSlug:skillSlug" format, NOT UUID
-              if (input.tool_name === 'Skill') {
-                const workspaceSlug = extractWorkspaceSlug(this.workspaceRootPath, this.config.workspace.id);
-                const skillResult = qualifySkillName(
-                  modifiedInput || toolInput,
-                  workspaceSlug,
-                  this.workspaceRootPath,
-                  this.config.session?.workingDirectory,
-                  (msg) => this.onDebug?.(msg)
-                );
-                if (skillResult.modified) {
-                  modifiedInput = skillResult.input;
-                }
-              }
-
-              // TOOL METADATA STRIPPING: Remove _intent/_displayName from ALL tools
-              // (extracted for UI in tool-matching.ts, stripped here before SDK execution)
-              const metadataResult = stripToolMetadata(
-                input.tool_name,
-                modifiedInput || toolInput,
-                (msg) => this.onDebug?.(msg)
-              );
-              if (metadataResult.modified) {
-                modifiedInput = metadataResult.input;
-              }
-
-              // If any modifications were made, return with updated input
-              if (modifiedInput) {
-                return {
-                  continue: true,
-                  hookSpecificOutput: {
-                    hookEventName: 'PreToolUse' as const,
-                    updatedInput: modifiedInput,
-                  },
-                };
-              }
-
-              // ============================================================
-              // ASK MODE: Prompt for permission on dangerous operations
-              // In 'safe' mode, these are blocked by shouldAllowToolInMode above
-              // In 'allow-all' mode, permission checks are skipped entirely
-              // ============================================================
-
-              // Helper to request permission and wait for response
-              const requestPermission = async (
-                toolUseId: string,
-                toolName: string,
-                command: string,
-                baseCommand: string,
-                description: string
-              ): Promise<{ allowed: boolean }> => {
-                const requestId = `perm-${toolUseId}`;
-                debug(`[PreToolUse] Requesting permission for ${toolName}: ${command}`);
-
-                const permissionPromise = new Promise<boolean>((resolve) => {
-                  this.pendingPermissions.set(requestId, {
-                    resolve,
-                    toolName,
-                    command,
-                    baseCommand,
-                  });
-                });
-
-                if (this.onPermissionRequest) {
-                  this.onPermissionRequest({
-                    requestId,
-                    toolName,
-                    command,
-                    description,
-                  });
-                } else {
-                  this.pendingPermissions.delete(requestId);
-                  return { allowed: false };
-                }
-
-                const allowed = await permissionPromise;
-                return { allowed };
-              };
-
-              // For file write operations in 'ask' mode, prompt for permission
-              const fileWriteTools = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
-              if (fileWriteTools.has(input.tool_name) && permissionMode === 'ask') {
-                const toolInput = input.tool_input as Record<string, unknown>;
-                const filePath = (toolInput.file_path as string) || (toolInput.notebook_path as string) || 'unknown';
-
-                // Check if this tool type is already allowed for this session
-                if (this.permissionManager.isCommandWhitelisted(input.tool_name)) {
-                  this.onDebug?.(`Auto-allowing "${input.tool_name}" (previously approved)`);
+                case 'call_llm_intercept':
+                  // Claude's session tools run in-process via SDK — just allow
                   return { continue: true };
-                }
 
-                const result = await requestPermission(
-                  input.tool_use_id,
-                  input.tool_name,
-                  filePath,
-                  input.tool_name,
-                  `${input.tool_name}: ${filePath}`
-                );
+                case 'prompt': {
+                  const requestId = `perm-${input.tool_use_id}`;
+                  const command = checkResult.command || '';
+                  const baseCommand = this.permissionManager.getBaseCommand(command);
 
-                if (!result.allowed) {
-                  return {
-                    continue: false,
-                    decision: 'block' as const,
-                    reason: 'User denied permission',
-                  };
-                }
-              }
+                  debug(`[PreToolUse] Requesting permission for ${input.tool_name}: ${command}`);
 
-              // For MCP mutation tools in 'ask' mode, prompt for permission
-              if (input.tool_name.startsWith('mcp__') && permissionMode === 'ask') {
-                // Check if this is a mutation tool by testing against safe mode's read-only patterns
-                const plansFolderPath = sessionId ? getSessionPlansPath(this.workspaceRootPath, sessionId) : undefined;
-                const safeModeResult = shouldAllowToolInMode(
-                  input.tool_name,
-                  input.tool_input,
-                  'safe',
-                  { plansFolderPath }
-                );
+                  const permissionPromise = new Promise<boolean>((resolve) => {
+                    this.pendingPermissions.set(requestId, {
+                      resolve,
+                      toolName: input.tool_name,
+                      command,
+                      baseCommand,
+                    });
+                  });
 
-                // If it would be blocked in safe mode, it's a mutation and needs permission
-                if (!safeModeResult.allowed) {
-                  const serverAndTool = input.tool_name.replace('mcp__', '').replace(/__/g, '/');
-
-                  // Check if this tool is already allowed for this session
-                  if (this.permissionManager.isCommandWhitelisted(input.tool_name)) {
-                    this.onDebug?.(`Auto-allowing "${input.tool_name}" (previously approved)`);
-                    return { continue: true };
+                  if (this.onPermissionRequest) {
+                    this.onPermissionRequest({
+                      requestId,
+                      toolName: input.tool_name,
+                      command,
+                      description: checkResult.description,
+                      type: checkResult.promptType,
+                    });
+                  } else {
+                    this.pendingPermissions.delete(requestId);
+                    return {
+                      continue: false,
+                      decision: 'block' as const,
+                      reason: 'No permission handler available',
+                    };
                   }
 
-                  const result = await requestPermission(
-                    input.tool_use_id,
-                    'MCP Tool',
-                    serverAndTool,
-                    input.tool_name,
-                    `MCP: ${serverAndTool}`
-                  );
-
-                  if (!result.allowed) {
+                  const allowed = await permissionPromise;
+                  if (!allowed) {
                     return {
                       continue: false,
                       decision: 'block' as const,
                       reason: 'User denied permission',
                     };
                   }
-                }
-              }
 
-              // For API mutation calls in 'ask' mode, prompt for permission
-              if (input.tool_name.startsWith('api_') && permissionMode === 'ask') {
-                const toolInput = input.tool_input as Record<string, unknown>;
-                const method = ((toolInput?.method as string) || 'GET').toUpperCase();
-                const path = toolInput?.path as string | undefined;
-
-                // Only prompt for mutation methods (not GET)
-                if (method !== 'GET') {
-                  const apiDescription = `${method} ${path || ''}`;
-
-                  // Check if this API endpoint is whitelisted in permissions.json
-                  if (isApiEndpointAllowed(method, path, permissionsContext)) {
-                    this.onDebug?.(`Auto-allowing API "${apiDescription}" (whitelisted in permissions.json)`);
-                    return { continue: true };
-                  }
-
-                  // Check if this API pattern is already allowed (session whitelist)
-                  if (this.permissionManager.isCommandWhitelisted(apiDescription)) {
-                    this.onDebug?.(`Auto-allowing API "${apiDescription}" (previously approved)`);
-                    return { continue: true };
-                  }
-
-                  const result = await requestPermission(
-                    input.tool_use_id,
-                    'API Call',
-                    apiDescription,
-                    apiDescription,
-                    `API: ${apiDescription}`
-                  );
-
-                  if (!result.allowed) {
+                  // User approved — return with modified input if transforms were applied
+                  if (checkResult.modifiedInput) {
                     return {
-                      continue: false,
-                      decision: 'block' as const,
-                      reason: 'User denied permission',
+                      continue: true,
+                      hookSpecificOutput: {
+                        hookEventName: 'PreToolUse' as const,
+                        updatedInput: checkResult.modifiedInput,
+                      },
                     };
                   }
-                }
-              }
-
-              // For Bash in 'ask' mode, check if we need permission
-              if (input.tool_name === 'Bash' && permissionMode === 'ask') {
-                // Extract command and base command
-                const command = typeof input.tool_input === 'object' && input.tool_input !== null
-                  ? (input.tool_input as Record<string, unknown>).command
-                  : JSON.stringify(input.tool_input);
-                const commandStr = String(command);
-                const baseCommand = this.permissionManager.getBaseCommand(commandStr);
-
-                // Auto-allow read-only commands (same ones allowed in Explore mode)
-                // Use merged config to get actual patterns from default.json (SAFE_MODE_CONFIG has empty arrays)
-                const mergedConfig = permissionsConfigCache.getMergedConfig(permissionsContext);
-                const isReadOnly = mergedConfig.readOnlyBashPatterns.some(pattern => pattern.regex.test(commandStr.trim()));
-                if (isReadOnly) {
-                  this.onDebug?.(`Auto-allowing read-only command: ${baseCommand}`);
                   return { continue: true };
                 }
-
-                // Check if this base command is already allowed (and not dangerous)
-                if (this.permissionManager.isCommandWhitelisted(baseCommand) && !this.permissionManager.isDangerousCommand(baseCommand)) {
-                  this.onDebug?.(`Auto-allowing "${baseCommand}" (previously approved)`);
-                  return { continue: true };
-                }
-
-                // For curl/wget, check if the domain is whitelisted
-                if (['curl', 'wget'].includes(baseCommand)) {
-                  const domain = this.permissionManager.extractDomainFromNetworkCommand(commandStr);
-                  if (domain && this.permissionManager.isDomainWhitelisted(domain)) {
-                    this.onDebug?.(`Auto-allowing ${baseCommand} to "${domain}" (domain whitelisted)`);
-                    return { continue: true };
-                  }
-                }
-
-                // Ask for permission
-                const requestId = `perm-${input.tool_use_id}`;
-                debug(`[PreToolUse] Requesting permission for Bash command: ${commandStr}`);
-
-                const permissionPromise = new Promise<boolean>((resolve) => {
-                  this.pendingPermissions.set(requestId, {
-                    resolve,
-                    toolName: input.tool_name,
-                    command: commandStr,
-                    baseCommand,
-                  });
-                });
-
-                if (this.onPermissionRequest) {
-                  this.onPermissionRequest({
-                    requestId,
-                    toolName: input.tool_name,
-                    command: commandStr,
-                    description: `Execute: ${commandStr}`,
-                  });
-                } else {
-                  this.pendingPermissions.delete(requestId);
-                  return {
-                    continue: false,
-                    decision: 'block' as const,
-                    reason: 'No permission handler available',
-                  };
-                }
-
-                const allowed = await permissionPromise;
-                if (!allowed) {
-                  return {
-                    continue: false,
-                    decision: 'block' as const,
-                    reason: 'User denied permission',
-                  };
-                }
               }
-
-              return { continue: true };
             }],
           }],
           // NOTE: PostToolUse hook was removed because updatedMCPToolOutput is not a valid SDK output field.
@@ -1392,6 +1104,11 @@ export class ClaudeAgent extends BaseAgent {
                 this.onDebug?.(`Source "${sourceSlug}" activation error: ${error}`);
                 // Let original error through
               }
+            }
+
+            // Reset prerequisite state on compaction (LLM loses guide content)
+            if (event.type === 'info' && event.message === 'Compacted Conversation') {
+              this.resetPrerequisiteState();
             }
 
             if (event.type === 'complete') {
@@ -2222,13 +1939,13 @@ export class ClaudeAgent extends BaseAgent {
    * @param intendedSlugs Optional list of source slugs that should be considered active
    *                      (what the UI shows as active, even if build failed)
    */
-  override setSourceServers(
+  override async setSourceServers(
     mcpServers: Record<string, SdkMcpServerConfig>,
     apiServers: Record<string, unknown>,
     intendedSlugs?: string[]
-  ): void {
+  ): Promise<void> {
     // BaseAgent handles SourceManager state + McpClientPool sync for MCP sources
-    super.setSourceServers(mcpServers, apiServers, intendedSlugs);
+    await super.setSourceServers(mcpServers, apiServers, intendedSlugs);
     // Store API servers separately — they're in-process MCP server instances
     // (Gmail, Slack, Stripe, etc.) that get added directly to Options.mcpServers
     this.sourceApiServers = apiServers;

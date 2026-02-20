@@ -258,7 +258,7 @@ async function refreshOAuthTokensIfNeeded(
       agent.getSummarizeCallback()
     )
     const intendedSlugs = enabledSources.map(s => s.config.slug)
-    agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
+    await agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
 
     // Update bridge-mcp-server config/credentials for backends that use it (Codex, Copilot)
     if (options?.sessionId && options?.workspaceRootPath) {
@@ -1313,7 +1313,7 @@ export class SessionManager {
     // Update bridge-mcp-server config/credentials for backends that use it (Codex, Copilot)
     await applyBridgeUpdates(managed.agent, sessionPath, enabledSources, mcpServers, managed.id, workspaceRootPath, 'source reload', managed.poolServer?.url)
 
-    managed.agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
+    await managed.agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
 
     sessionLog.info(`Sources reloaded for session ${managed.id}: ${Object.keys(mcpServers).length} MCP, ${Object.keys(apiServers).length} API`)
   }
@@ -2534,7 +2534,7 @@ export class SessionManager {
         const { mcpServers } = await buildServersFromSources(enabledSources, sessionPath, managed.tokenRefreshManager)
 
         // Create centralized MCP client pool + HTTP server (Codex connects via URL instead of direct MCP)
-        managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath })
+        managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath, sessionPath })
         managed.poolServer = new McpPoolServer(managed.mcpPool, { debug: (msg) => sessionLog.debug(msg) })
         const poolServerUrl = await managed.poolServer.start()
 
@@ -2661,7 +2661,7 @@ export class SessionManager {
         const { mcpServers, apiServers } = await buildServersFromSources(enabledSources, sessionPath, managed.tokenRefreshManager)
 
         // Create centralized MCP client pool + HTTP server (Copilot connects via URL instead of direct MCP)
-        managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath })
+        managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath, sessionPath })
         managed.poolServer = new McpPoolServer(managed.mcpPool, { debug: (msg) => sessionLog.debug(msg) })
         const copilotPoolServerUrl = await managed.poolServer.start()
 
@@ -2757,7 +2757,7 @@ export class SessionManager {
         if (Object.keys(mcpServers).length > 0 || Object.keys(apiServers).length > 0) {
           // Write bridge config for API sources before setting servers
           await setupCopilotBridgeConfig(copilotConfigDir, enabledSources)
-          copilotAgent.setSourceServers(mcpServers, apiServers, enabledSlugs)
+          await copilotAgent.setSourceServers(mcpServers, apiServers, enabledSlugs)
         }
       } else if (provider === 'pi') {
         // Pi backend - uses pi-agent-server subprocess
@@ -2776,7 +2776,8 @@ export class SessionManager {
         const bridgeServer = resolveBridgeServerPath()
 
         // Create centralized MCP client pool (Pi will use it instead of managing its own clients)
-        managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath })
+        const sessionPath = getSessionStoragePath(managed.workspace.rootPath, managed.id)
+        managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath, sessionPath })
 
         managed.agent = new PiAgent({
           provider: 'pi',
@@ -2852,7 +2853,8 @@ export class SessionManager {
         // Model resolution: session > connection default (connection always has defaultModel via backfill)
         const resolvedModel = managed.model || connection?.defaultModel || DEFAULT_MODEL
         // Create centralized MCP client pool (will be synced when sources are set)
-        managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath })
+        const sessionPath = getSessionStoragePath(managed.workspace.rootPath, managed.id)
+        managed.mcpPool = new McpClientPool({ debug: (msg) => sessionLog.debug(msg), workspaceRootPath: managed.workspace.rootPath, sessionPath })
 
         managed.agent = new CraftAgent({
           workspace: managed.workspace,
@@ -2920,6 +2922,11 @@ export class SessionManager {
           } : undefined,
         })
         sessionLog.info(`Created Claude agent for session ${managed.id}${managed.sdkSessionId ? ' (resuming)' : ''}`)
+      }
+
+      // Wire up large response handling in the MCP pool (all backends)
+      if (managed.mcpPool && managed.agent) {
+        managed.mcpPool.setSummarizeCallback(managed.agent.getSummarizeCallback())
       }
 
       // Signal that the agent instance is ready (unblocks title generation)
@@ -3139,7 +3146,7 @@ export class SessionManager {
         // Update bridge-mcp-server config/credentials for backends that use it (Codex, Copilot)
         await applyBridgeUpdates(managed.agent!, sessionPath, allEnabledSources, mcpServers, managed.id, workspaceRootPath, 'source enable', managed.poolServer?.url)
 
-        managed.agent!.setSourceServers(mcpServers, apiServers, intendedSlugs)
+        await managed.agent!.setSourceServers(mcpServers, apiServers, intendedSlugs)
 
         sessionLog.info(`Auto-enabled source ${sourceSlug} for session ${managed.id}`)
 
@@ -3554,7 +3561,7 @@ export class SessionManager {
       const usableSources = sources.filter(isSourceUsable)
       await applyBridgeUpdates(managed.agent, sessionPath, usableSources, mcpServers, managed.id, workspaceRootPath, 'source config change', managed.poolServer?.url)
 
-      managed.agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
+      await managed.agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
 
       sessionLog.info(`Applied ${Object.keys(mcpServers).length} MCP + ${Object.keys(apiServers).length} API sources to active agent (${allSources.length} total)`)
     }
@@ -4249,7 +4256,7 @@ export class SessionManager {
         const usableSources = sources.filter(isSourceUsable)
         await applyBridgeUpdates(agent, sessionPath, usableSources, mcpServers, sessionId, workspaceRootPath, 'send message', managed.poolServer?.url)
 
-        agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
+        await agent.setSourceServers(mcpServers, apiServers, intendedSlugs)
         sessionLog.info(`Applied ${mcpCount} MCP + ${apiCount} API sources to session ${sessionId} (${allSources.length} total)`)
       }
       sendSpan.mark('servers.applied')

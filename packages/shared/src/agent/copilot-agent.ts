@@ -12,7 +12,7 @@ import http from 'node:http';
 import type { AgentEvent } from '@craft-agent/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import type { ThinkingLevel } from './thinking-levels.ts';
-import { type PermissionMode, shouldAllowToolInMode } from './mode-manager.ts';
+import type { PermissionMode } from './mode-manager.ts';
 
 import type {
   BackendConfig,
@@ -89,12 +89,10 @@ type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 import { CopilotEventAdapter } from './backend/copilot/event-adapter.ts';
 import { EventQueue } from './backend/event-queue.ts';
 
-// PreToolUse utilities
+// Centralized PreToolUse pipeline
 import {
-  expandToolPaths,
-  qualifySkillName,
-  stripToolMetadata,
-  validateConfigWrite,
+  runPreToolUseChecks,
+  type PreToolUseCheckResult,
 } from './core/pre-tool-use.ts';
 
 // Large response handling
@@ -707,6 +705,14 @@ export class CopilotAgent extends BaseAgent {
 
     // Adapt event to AgentEvents
     for (const agentEvent of this.adapter.adaptEvent(event)) {
+      // Track Read tool calls (including bash/PS commands classified as reads by adapter)
+      if (agentEvent.type === 'tool_start' && agentEvent.toolName === 'Read') {
+        this.prerequisiteManager.trackReadTool(agentEvent.input as Record<string, unknown>);
+      }
+      // Reset prerequisite state on compaction (LLM loses guide content)
+      if (agentEvent.type === 'info' && typeof agentEvent.message === 'string' && agentEvent.message.startsWith('Compacted')) {
+        this.resetPrerequisiteState();
+      }
       this.eventQueue.enqueue(agentEvent);
     }
 
@@ -737,8 +743,9 @@ export class CopilotAgent extends BaseAgent {
   }
 
   /**
-   * Pre-tool-use hook — unified permission handling.
-   * Reuses the same permission logic as ClaudeAgent/CodexAgent.
+   * Pre-tool-use hook — centralized permission handling.
+   * Uses runPreToolUseChecks() pipeline shared by all agents.
+   * Fixes ask-mode bug: previously relied on check.requiresPermission which was never true.
    */
   private async onPreToolUse(input: PreToolUseHookInput): Promise<PreToolUseHookOutput | void> {
     const { toolName, toolArgs, toolCallId } = input;
@@ -748,97 +755,79 @@ export class CopilotAgent extends BaseAgent {
     let inputObj = this.parseCopilotToolArgs(toolArgs);
     const permissionMode = this.getPermissionMode();
 
-    // Log the raw type for debugging — helps diagnose future format issues
-    // without needing to add temporary logging each time.
     this.debug(`PreToolUse: ${toolName}, toolArgs type: ${typeof toolArgs}, keys: [${Object.keys(inputObj).join(', ')}]`);
 
-    // Map Copilot tool names to SDK tool names for permission checking.
-    // Copilot CLI uses lowercase (e.g., "bash") but our permission system
-    // expects PascalCase (e.g., "Bash"). See COPILOT_TOOL_NAME_MAP.
+    // Map Copilot tool names to SDK tool names (lowercase → PascalCase)
     const sdkToolName = this.mapCopilotToolName(toolName, inputObj);
 
-    // ============================================================
-    // CALL_LLM INTERCEPT: Pre-execute LLM request and inject result.
-    // The session-mcp-server runs as a subprocess and can't access
-    // Copilot auth, so we execute the LLM call here via ephemeral
-    // session and inject the result into _precomputedResult.
-    // Same pattern as CodexAgent (codex-agent.ts ~line 1044).
-    // ============================================================
-    if (sdkToolName === 'mcp__session__call_llm') {
-      this.debug('PreToolUse: Intercepting call_llm for pre-execution');
-      try {
-        const result = await this.preExecuteCallLlm(inputObj);
-        return {
-          permissionDecision: 'allow',
-          modifiedArgs: { ...inputObj, model: result.model ?? inputObj.model, _precomputedResult: JSON.stringify(result) },
-        };
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        this.debug(`PreToolUse: call_llm pre-execution failed: ${errorMsg}`);
-        return {
-          permissionDecision: 'allow',
-          modifiedArgs: { ...inputObj, _precomputedResult: JSON.stringify({ error: errorMsg }) },
-        };
-      }
-    }
-
-    // Normalize Copilot-native arg names before permission check.
-    //
-    // WHY: Copilot CLI's native tools (str_replace_editor subcommands like
-    // "view", "create") use `path` as the file path parameter name.
-    // Our permission system (shouldAllowToolInMode in mode-manager.ts) expects
-    // `file_path` — it checks `input.file_path` to evaluate the plans folder
-    // exception and allowedWritePaths rules. Without this remapping, `file_path`
-    // is undefined and the permission check falls through to a generic block.
-    //
-    // MATCHES: event-adapter.ts normalizeToolArgs() does the same for display events.
+    // Normalize Copilot-native arg names: `path` → `file_path`
+    // Copilot CLI's native tools use `path` but our permission system expects `file_path`.
     if ((sdkToolName === 'Write' || sdkToolName === 'Edit' || sdkToolName === 'Read')
         && inputObj.path && !inputObj.file_path) {
       inputObj = { ...inputObj, file_path: inputObj.path };
     }
 
-    // Check permission mode
-    const check = shouldAllowToolInMode(sdkToolName, inputObj, permissionMode, {
-      plansFolderPath: getSessionPlansPath(this.config.workspace.rootPath, this._sessionId),
-      permissionsContext: {
-        workspaceRootPath: this.workingDirectory,
-        activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
-      },
-    });
-
-    if (!check.allowed) {
-      // Tool blocked by permission mode
-      this.debug(`Tool blocked by mode: ${sdkToolName} - ${check.reason}`);
-      this.adapter.setBlockReason(sdkToolName, check.reason);
-      return {
-        permissionDecision: 'deny',
-        permissionDecisionReason: check.reason,
-      };
+    // Track Read tool calls for prerequisite checking
+    if (sdkToolName === 'Read') {
+      this.prerequisiteManager.trackReadTool(inputObj);
     }
 
-    // Check for source blocking (MCP tools from inactive sources)
-    // Copilot uses `mcp__server__tool` format for MCP tool names
-    if (toolName.startsWith('mcp__')) {
-      const parts = toolName.split('__');
-      const sourceSlug = this.extractSourceSlugFromMcpTool(parts[1]);
-      if (sourceSlug && !this.sourceManager.isSourceActive(sourceSlug)) {
-        this.debug(`PreToolUse: MCP tool from inactive source "${sourceSlug}", attempting activation...`);
+    // Extract tool metadata before pipeline strips _intent/_displayName
+    const intent = input.metadata?.intent
+      || (typeof inputObj._intent === 'string' ? inputObj._intent : undefined);
+    const displayName = input.metadata?.displayName
+      || (typeof inputObj._displayName === 'string' ? inputObj._displayName : undefined);
+    if (toolCallId && (intent || displayName)) {
+      toolMetadataStore.set(toolCallId, { intent, displayName, timestamp: Date.now() });
+      this.debug(`PreToolUse: Captured metadata for ${toolCallId} — intent="${intent}", displayName="${displayName}"`);
+    }
+
+    // Run centralized pipeline
+    const checkResult = runPreToolUseChecks({
+      toolName: sdkToolName,
+      input: inputObj,
+      permissionMode,
+      workspaceRootPath: this.workingDirectory,
+      workspaceId: this.config.workspace.id,
+      plansFolderPath: getSessionPlansPath(this.config.workspace.rootPath, this._sessionId),
+      workingDirectory: this.config.session?.workingDirectory,
+      activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
+      allSourceSlugs: this.sourceManager.getAllSources().map(s => s.config.slug),
+      hasSourceActivation: !!this.onSourceActivationRequest,
+      permissionManager: this.permissionManager,
+      prerequisiteManager: this.prerequisiteManager,
+      onDebug: (msg) => this.debug(msg),
+    });
+
+    // Translate result to Copilot SDK format
+    switch (checkResult.type) {
+      case 'allow':
+        return { permissionDecision: 'allow' };
+
+      case 'modify':
+        return { permissionDecision: 'allow', modifiedArgs: checkResult.input };
+
+      case 'block': {
+        this.adapter.setBlockReason(sdkToolName, checkResult.reason);
+        return {
+          permissionDecision: 'deny',
+          permissionDecisionReason: checkResult.reason,
+        };
+      }
+
+      case 'source_activation_needed': {
+        const { sourceSlug, sourceExists } = checkResult;
+        this.debug(`PreToolUse: Source "${sourceSlug}" not active (exists=${sourceExists}), attempting activation...`);
 
         if (this.onSourceActivationRequest) {
           try {
             const activated = await this.onSourceActivationRequest(sourceSlug);
             if (!activated) {
-              const sourceExists = this.sourceManager
-                .getAllSources()
-                .some((s) => s.config.slug === sourceSlug);
               const reason = sourceExists
                 ? `Source "${sourceSlug}" is not active. Activate it by @mentioning it in your message or via the source icon at the bottom of the input field.`
                 : `Source "${sourceSlug}" is not available yet. It needs to be created and configured first.`;
               this.adapter.setBlockReason(sdkToolName, reason);
-              return {
-                permissionDecision: 'deny',
-                permissionDecisionReason: reason,
-              };
+              return { permissionDecision: 'deny', permissionDecisionReason: reason };
             }
             this.debug(`PreToolUse: Source "${sourceSlug}" activated successfully`);
             this.eventQueue.enqueue({
@@ -847,105 +836,96 @@ export class CopilotAgent extends BaseAgent {
               originalMessage: this.currentUserMessage,
             });
           } catch (err) {
-            this.debug(`PreToolUse: Error activating source "${sourceSlug}": ${err}`);
-            const sourceExists = this.sourceManager
-              .getAllSources()
-              .some((s) => s.config.slug === sourceSlug);
             const reason = sourceExists
               ? `Source "${sourceSlug}" could not be activated: ${err}. Try activating it by @mentioning it in your message or via the source icon at the bottom of the input field.`
               : `Source "${sourceSlug}" is not available yet. It needs to be created and configured first.`;
             this.adapter.setBlockReason(sdkToolName, reason);
-            return {
-              permissionDecision: 'deny',
-              permissionDecisionReason: reason,
-            };
+            return { permissionDecision: 'deny', permissionDecisionReason: reason };
           }
         }
-      }
-    }
 
-    // Path expansion
-    const pathResult = expandToolPaths(sdkToolName, inputObj, (msg) => this.debug(msg));
-
-    // Config validation
-    const configResult = validateConfigWrite(
-      sdkToolName,
-      pathResult.modified ? pathResult.input : inputObj,
-      this.workingDirectory,
-      (msg) => this.debug(msg)
-    );
-    if (!configResult.valid) {
-      return {
-        permissionDecision: 'deny',
-        permissionDecisionReason: configResult.error || 'Invalid config write',
-      };
-    }
-
-    // Skill qualification
-    const skillResult = qualifySkillName(
-      pathResult.modified ? pathResult.input : inputObj,
-      this.config.workspace.id,
-      this.config.workspace.rootPath,
-      this.config.session?.workingDirectory,
-      (msg) => this.debug(msg)
-    );
-
-    // Metadata extraction + stripping
-    const currentInput = skillResult.modified ? skillResult.input
-      : pathResult.modified ? pathResult.input
-      : inputObj;
-
-    const intent = input.metadata?.intent
-      || (typeof currentInput._intent === 'string' ? currentInput._intent : undefined);
-    const displayName = input.metadata?.displayName
-      || (typeof currentInput._displayName === 'string' ? currentInput._displayName : undefined);
-    if (toolCallId && (intent || displayName)) {
-      toolMetadataStore.set(toolCallId, { intent, displayName, timestamp: Date.now() });
-      this.debug(`PreToolUse: Captured metadata for ${toolCallId} — intent="${intent}", displayName="${displayName}"`);
-    }
-
-    const metaResult = stripToolMetadata(sdkToolName, currentInput, (msg) => this.debug(msg));
-
-    // Build modified args if any transformations happened
-    const wasModified = pathResult.modified || skillResult.modified || metaResult.modified;
-    const finalInput = metaResult.modified ? metaResult.input
-      : skillResult.modified ? skillResult.input
-      : pathResult.modified ? pathResult.input
-      : undefined;
-
-    // If permission mode requires asking, emit permission request
-    if (check.requiresPermission) {
-      const requestId = `copilot-perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-      // Emit permission request to UI
-      this.onPermissionRequest?.({
-        requestId,
-        toolName: sdkToolName,
-        command: typeof inputObj.command === 'string' ? inputObj.command : undefined,
-        description: check.description,
-        type: this.getPermissionType(sdkToolName),
-      });
-
-      // Wait for user response
-      const userResult = await new Promise<PermissionRequestResult>((resolve) => {
-        this.pendingPermissions.set(requestId, {
-          resolve,
+        // Re-run pipeline after activation to apply remaining transforms
+        const postResult = runPreToolUseChecks({
           toolName: sdkToolName,
+          input: inputObj,
+          permissionMode,
+          workspaceRootPath: this.workingDirectory,
+          workspaceId: this.config.workspace.id,
+          plansFolderPath: getSessionPlansPath(this.config.workspace.rootPath, this._sessionId),
+          workingDirectory: this.config.session?.workingDirectory,
+          activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
+          allSourceSlugs: this.sourceManager.getAllSources().map(s => s.config.slug),
+          hasSourceActivation: !!this.onSourceActivationRequest,
+          permissionManager: this.permissionManager,
+          prerequisiteManager: this.prerequisiteManager,
+          onDebug: (msg) => this.debug(msg),
         });
-      });
 
-      if (userResult.kind !== 'approved') {
+        if (postResult.type === 'modify') {
+          return { permissionDecision: 'allow', modifiedArgs: postResult.input };
+        } else if (postResult.type === 'block') {
+          this.adapter.setBlockReason(sdkToolName, postResult.reason);
+          return { permissionDecision: 'deny', permissionDecisionReason: postResult.reason };
+        }
+        return { permissionDecision: 'allow' };
+      }
+
+      case 'call_llm_intercept': {
+        this.debug('PreToolUse: Intercepting call_llm for pre-execution');
+        try {
+          const result = await this.preExecuteCallLlm(inputObj);
+          return {
+            permissionDecision: 'allow',
+            modifiedArgs: { ...inputObj, model: result.model ?? inputObj.model, _precomputedResult: JSON.stringify(result) },
+          };
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          this.debug(`PreToolUse: call_llm pre-execution failed: ${errorMsg}`);
+          return {
+            permissionDecision: 'allow',
+            modifiedArgs: { ...inputObj, _precomputedResult: JSON.stringify({ error: errorMsg }) },
+          };
+        }
+      }
+
+      case 'prompt': {
+        if (!this.onPermissionRequest) {
+          return {
+            permissionDecision: 'allow',
+            modifiedArgs: checkResult.modifiedInput,
+          };
+        }
+
+        const requestId = `copilot-perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        this.onPermissionRequest({
+          requestId,
+          toolName: sdkToolName,
+          command: checkResult.command,
+          description: checkResult.description,
+          type: checkResult.promptType,
+        });
+
+        const userResult = await new Promise<PermissionRequestResult>((resolve) => {
+          this.pendingPermissions.set(requestId, {
+            resolve,
+            toolName: sdkToolName,
+          });
+        });
+
+        if (userResult.kind !== 'approved') {
+          return {
+            permissionDecision: 'deny',
+            permissionDecisionReason: 'Denied by user',
+          };
+        }
+
         return {
-          permissionDecision: 'deny',
-          permissionDecisionReason: 'Denied by user',
+          permissionDecision: 'allow',
+          modifiedArgs: checkResult.modifiedInput,
         };
       }
     }
-
-    return {
-      permissionDecision: 'allow',
-      modifiedArgs: wasModified ? finalInput : undefined,
-    };
   }
 
   /**
@@ -1027,14 +1007,14 @@ export class CopilotAgent extends BaseAgent {
   // Source / MCP Integration
   // ============================================================
 
-  override setSourceServers(
+  override async setSourceServers(
     mcpServers: Record<string, SdkMcpServerConfig>,
     apiServers: Record<string, unknown>,
     intendedSlugs?: string[]
-  ): void {
+  ): Promise<void> {
     // BaseAgent handles SourceManager state + McpClientPool sync
     // Pool server auto-serves updated tools (reads from pool at request time)
-    super.setSourceServers(mcpServers, apiServers, intendedSlugs);
+    await super.setSourceServers(mcpServers, apiServers, intendedSlugs);
     // Copilot passes MCP config at session creation — destroy active session
     // so next chat() recreates with updated config
     if (this.session) {
@@ -1283,28 +1263,6 @@ export class CopilotAgent extends BaseAgent {
   }
 
   /**
-   * Built-in MCP servers that are always available (not user sources).
-   * Must match the set in codex-agent.ts to keep behavior consistent.
-   * Note: preferences and craft-agents-docs are now bundled into the session server.
-   */
-  private static readonly BUILT_IN_MCP_SERVERS = new Set([
-    'session',
-  ]);
-
-  /**
-   * Extract source slug from MCP tool name parts.
-   * Returns null for built-in MCP servers (session, preferences, etc.)
-   * so that PreToolUse doesn't try to activate them as user sources.
-   */
-  private extractSourceSlugFromMcpTool(mcpServer?: string): string | null {
-    if (!mcpServer) return null;
-    if (CopilotAgent.BUILT_IN_MCP_SERVERS.has(mcpServer)) {
-      return null;
-    }
-    return mcpServer;
-  }
-
-  /**
    * Parse Copilot SDK tool arguments into a usable object.
    *
    * WHY THIS EXISTS:
@@ -1381,16 +1339,6 @@ export class CopilotAgent extends BaseAgent {
       case 'mcp': return 'mcp_tool';
       default: return kind;
     }
-  }
-
-  /**
-   * Get permission request type for a tool name.
-   */
-  private getPermissionType(toolName: string): 'bash' | 'file_write' | 'mcp_mutation' | 'api_mutation' {
-    if (toolName === 'Bash') return 'bash';
-    if (toolName === 'Write' || toolName === 'Edit') return 'file_write';
-    if (toolName.startsWith('mcp__')) return 'mcp_mutation';
-    return 'bash'; // Default
   }
 
   // ============================================================
@@ -1567,15 +1515,10 @@ export class CopilotAgent extends BaseAgent {
    * Delegates to queryLlm() which uses an ephemeral CopilotSession.
    */
   async runMiniCompletion(prompt: string): Promise<string | null> {
-    try {
-      const result = await this.queryLlm({ prompt });
-      const text = result.text || null;
-      this.debug(`[runMiniCompletion] Result: ${text ? `"${text.slice(0, 200)}"` : 'null'}`);
-      return text;
-    } catch (error) {
-      this.debug(`[runMiniCompletion] Failed: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
+    const result = await this.queryLlm({ prompt });
+    const text = result.text || null;
+    this.debug(`[runMiniCompletion] Result: ${text ? `"${text.slice(0, 200)}"` : 'null'}`);
+    return text;
   }
 
   // ============================================================

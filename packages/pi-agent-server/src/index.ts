@@ -45,14 +45,6 @@ import type {
 import type { TextContent as PiTextContent } from '@mariozechner/pi-ai';
 
 // Direct source imports from shared (bundled by bun build)
-import { shouldAllowToolInMode } from '../../shared/src/agent/mode-manager.ts';
-import type { PermissionMode } from '../../shared/src/agent/mode-manager.ts';
-import {
-  expandToolPaths,
-  qualifySkillName,
-  stripToolMetadata,
-  validateConfigWrite,
-} from '../../shared/src/agent/core/pre-tool-use.ts';
 import { handleLargeResponse, estimateTokens, TOKEN_LIMIT } from '../../shared/src/utils/large-response.ts';
 import { getSessionPlansPath, getSessionPath } from '../../shared/src/sessions/storage.ts';
 import { buildCallLlmRequest, withTimeout } from '../../shared/src/agent/llm-tool.ts';
@@ -69,14 +61,12 @@ import { createGoogleSearchTool } from './tools/google-search.ts';
 
 /** Messages from main process (stdin) */
 type InboundMessage =
-  | { type: 'init'; apiKey: string; model: string; cwd: string; thinkingLevel: string; workspaceRootPath: string; sessionId: string; sessionPath: string; workingDirectory: string; permissionMode: PermissionMode; plansFolderPath: string; activeSourceSlugs: string[]; miniModel?: string; agentDir?: string; providerType?: string; authType?: string; workspaceId?: string; piAuth?: { provider: string; credential: { type: 'api_key'; key: string } | { type: 'oauth'; access: string; refresh: string; expires: number } } }
+  | { type: 'init'; apiKey: string; model: string; cwd: string; thinkingLevel: string; workspaceRootPath: string; sessionId: string; sessionPath: string; workingDirectory: string; plansFolderPath: string; miniModel?: string; agentDir?: string; providerType?: string; authType?: string; workspaceId?: string; piAuth?: { provider: string; credential: { type: 'api_key'; key: string } | { type: 'oauth'; access: string; refresh: string; expires: number } } }
   | { type: 'prompt'; id: string; message: string; systemPrompt: string; images?: Array<{ type: 'image'; data: string; mimeType: string }> }
   | { type: 'register_tools'; tools: ProxyToolDef[] }
   | { type: 'tool_execute_response'; requestId: string; result: { content: string; isError: boolean } }
-  | { type: 'permission_response'; requestId: string; allowed: boolean }
+  | { type: 'pre_tool_use_response'; requestId: string; action: 'allow' | 'block' | 'modify'; input?: Record<string, unknown>; reason?: string }
   | { type: 'abort' }
-  | { type: 'set_permission_mode'; mode: PermissionMode }
-  | { type: 'set_active_sources'; slugs: string[] }
   | { type: 'mini_completion'; id: string; prompt: string }
   | { type: 'set_model'; model: string }
   | { type: 'steer'; message: string }
@@ -92,7 +82,7 @@ interface ProxyToolDef {
 /** Messages to main process (stdout) */
 interface OutboundReady { type: 'ready'; sessionId: string | null; callbackPort: number }
 interface OutboundEvent { type: 'event'; event: AgentSessionEvent }
-interface OutboundPermReq { type: 'permission_request'; requestId: string; toolName: string; command?: string; description?: string; permissionType: string }
+interface OutboundPreToolUseReq { type: 'pre_tool_use_request'; requestId: string; toolName: string; input: Record<string, unknown> }
 interface OutboundToolExecReq { type: 'tool_execute_request'; requestId: string; toolName: string; args: Record<string, unknown> }
 interface OutboundSessionToolCompleted { type: 'session_tool_completed'; toolName: string; args: Record<string, unknown>; isError: boolean }
 interface OutboundMiniResult { type: 'mini_completion_result'; id: string; text: string | null }
@@ -102,7 +92,7 @@ interface OutboundError { type: 'error'; message: string; code?: string }
 type OutboundMessage =
   | OutboundReady
   | OutboundEvent
-  | OutboundPermReq
+  | OutboundPreToolUseReq
   | OutboundToolExecReq
   | OutboundSessionToolCompleted
   | OutboundMiniResult
@@ -121,12 +111,10 @@ let unsubscribeEvents: (() => void) | null = null;
 let initConfig: Extract<InboundMessage, { type: 'init' }> | null = null;
 
 // Mutable state
-let permissionMode: PermissionMode = 'ask';
-let activeSourceSlugs: string[] = [];
 let currentUserMessage = '';
 
 // Pending promises for async handshakes
-const pendingPermissions = new Map<string, { resolve: (allowed: boolean) => void; toolName: string }>();
+const pendingPreToolUse = new Map<string, { resolve: (response: { action: string; input?: Record<string, unknown>; reason?: string }) => void }>();
 const pendingToolExecutions = new Map<string, { resolve: (result: { content: string; isError: boolean }) => void }>();
 
 // Pending session MCP tool calls for completion detection
@@ -390,60 +378,33 @@ async function ensureSession(): Promise<AgentSession> {
  * Checks mode-manager rules and, in Ask mode, prompts the user via the
  * pending-permissions handshake. Throws on deny or block.
  */
-async function enforcePermission(
-  toolName: string,
-  params: Record<string, unknown>,
-  opts?: { permissionType?: string },
-): Promise<void> {
-  const plansFolderPath = initConfig
-    ? getSessionPlansPath(initConfig.workspaceRootPath, initConfig.sessionId)
-    : undefined;
+/**
+ * Send pre_tool_use_request to main process and wait for response.
+ * Returns the (potentially modified) input if approved, throws if blocked.
+ * All permission checking, transforms, and source activation happen in the main process.
+ */
+async function requestPreToolUseApproval(
+  sdkToolName: string,
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const requestId = `pi-ptu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const check = shouldAllowToolInMode(toolName, params, permissionMode, {
-    plansFolderPath,
-    permissionsContext: {
-      workspaceRootPath: initConfig?.workspaceRootPath || resolvedCwd(),
-      activeSourceSlugs,
-    },
+  send({
+    type: 'pre_tool_use_request',
+    requestId,
+    toolName: sdkToolName,
+    input,
   });
 
-  if (!check.allowed) {
-    debugLog(`Tool blocked by ${permissionMode} mode: ${toolName} — ${check.reason}`);
-    throw new Error(
-      `Tool "${toolName}" is not allowed in ${permissionMode} mode: ${check.reason}`,
-    );
+  const response = await new Promise<{ action: string; input?: Record<string, unknown>; reason?: string }>((resolve) => {
+    pendingPreToolUse.set(requestId, { resolve });
+  });
+
+  if (response.action === 'block') {
+    throw new Error(response.reason || `Tool "${sdkToolName}" is not allowed`);
   }
 
-  if (check.requiresPermission) {
-    const requestId = `pi-perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const command = typeof params.command === 'string'
-      ? params.command
-      : typeof params.file_path === 'string'
-        ? params.file_path
-        : typeof params.path === 'string'
-          ? params.path
-          : undefined;
-
-    debugLog(`Prompting user for ${toolName} — ${check.description}`);
-
-    send({
-      type: 'permission_request',
-      requestId,
-      toolName,
-      command,
-      description: check.description,
-      permissionType: opts?.permissionType ?? getPermissionType(toolName),
-    });
-
-    const allowed = await new Promise<boolean>((resolve) => {
-      pendingPermissions.set(requestId, { resolve, toolName });
-    });
-
-    if (!allowed) {
-      debugLog(`Tool denied by user: ${toolName}`);
-      throw new Error(`Tool "${toolName}" was denied by the user.`);
-    }
-  }
+  return response.action === 'modify' && response.input ? response.input : input;
 }
 
 function wrapToolsWithHooks(tools: AgentTool<any>[]): AgentTool<any>[] {
@@ -457,13 +418,6 @@ function makeErrorResult(message: string): AgentToolResult<any> {
   };
 }
 
-function getPermissionType(toolName: string): string {
-  if (toolName === 'Bash') return 'bash';
-  if (toolName === 'Write' || toolName === 'Edit') return 'file_write';
-  if (toolName.startsWith('mcp__')) return 'mcp_mutation';
-  return 'bash';
-}
-
 function wrapSingleTool(tool: AgentTool<any>): AgentTool<any> {
   const originalExecute = tool.execute;
 
@@ -473,59 +427,22 @@ function wrapSingleTool(tool: AgentTool<any>): AgentTool<any> {
     signal?: AbortSignal,
     onUpdate?: (partialResult: AgentToolResult<any>) => void,
   ): Promise<AgentToolResult<any>> => {
-    // Map Pi tool name to SDK PascalCase name
     const sdkToolName = PI_TOOL_NAME_MAP[tool.name] || tool.name;
     let inputObj: Record<string, unknown> = { ...(params as Record<string, unknown>) };
 
-    // --- Pre-execute: shared transformations ---
-
-    // 1. Expand ~ in file paths
-    const pathResult = expandToolPaths(sdkToolName, inputObj, debugLog);
-    if (pathResult.modified) inputObj = pathResult.input;
-
-    // 2. Validate config writes
-    if (initConfig?.workspaceRootPath) {
-      const configResult = validateConfigWrite(
-        sdkToolName,
-        inputObj,
-        initConfig.workspaceRootPath,
-        debugLog,
-      );
-      if (!configResult.valid) {
-        return makeErrorResult(configResult.error || 'Config validation failed');
-      }
-    }
-
-    // 3. Qualify skill names
-    if (initConfig?.workspaceId && initConfig?.workspaceRootPath) {
-      const skillResult = qualifySkillName(
-        inputObj,
-        initConfig.workspaceId,
-        initConfig.workspaceRootPath,
-        initConfig.workingDirectory,
-        debugLog,
-      );
-      if (skillResult.modified) inputObj = skillResult.input;
-    }
-
-    // 4. Strip metadata (save _intent before stripping for summarization)
+    // Extract intent before main process strips metadata (used for summarization)
     const intent = typeof inputObj._intent === 'string' ? inputObj._intent : undefined;
-    const metaResult = stripToolMetadata(sdkToolName, inputObj, debugLog);
-    if (metaResult.modified) inputObj = metaResult.input;
 
-    // --- Pre-execute: permission mode enforcement ---
+    // Normalize Pi SDK parameter names: path → file_path
+    if ((sdkToolName === 'Write' || sdkToolName === 'Edit' || sdkToolName === 'MultiEdit' || sdkToolName === 'NotebookEdit')
+        && typeof inputObj.path === 'string' && !inputObj.file_path) {
+      inputObj = { ...inputObj, file_path: inputObj.path };
+    }
 
-    // Normalize Pi SDK parameter names for shouldAllowToolInMode compatibility.
-    // Pi SDK tools use 'path' but mode-manager checks 'file_path'.
-    const permissionInput = (sdkToolName === 'Write' || sdkToolName === 'Edit' || sdkToolName === 'MultiEdit' || sdkToolName === 'NotebookEdit')
-      && typeof inputObj.path === 'string' && !inputObj.file_path
-      ? { ...inputObj, file_path: inputObj.path }
-      : inputObj;
+    // Send to main process for permission checking + transforms
+    inputObj = await requestPreToolUseApproval(sdkToolName, inputObj);
 
-    await enforcePermission(sdkToolName, permissionInput);
-
-    // --- Execute original tool ---
-
+    // Execute original tool with (potentially modified) input
     const result = await originalExecute(toolCallId, inputObj, signal, onUpdate);
 
     // --- Post-execute: large response summarization ---
@@ -585,8 +502,6 @@ function buildProxyTools(): AgentTool<any>[] {
 
   return proxyToolDefs.map(def => ({
     name: def.name,
-    // Pi SDK's AgentTool requires `label` (human-readable name for UI).
-    // Derive from tool name: 'mcp__session__SubmitPlan' → 'Submit Plan'
     label: def.name
       .replace(/^mcp__.*?__/, '')
       .replace(/_/g, ' ')
@@ -597,26 +512,21 @@ function buildProxyTools(): AgentTool<any>[] {
       toolCallId: string,
       params: any,
     ): Promise<AgentToolResult<any>> => {
-      // --- Permission mode enforcement ---
-      // Proxy tools (session tools, MCP sources) must respect Explore mode.
-      // Use the full prefixed name (e.g., 'mcp__session__SubmitPlan') so
-      // shouldAllowToolInMode() matches the mcp__session__ rules.
-      await enforcePermission(def.name, params as Record<string, unknown>, {
-        permissionType: 'mcp_mutation',
-      });
+      const inputObj = params as Record<string, unknown>;
 
-      // --- Execute via main process ---
+      // Permission checking via main process
+      const approvedInput = await requestPreToolUseApproval(def.name, inputObj);
+
+      // Execute via main process
       const requestId = `proxy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const args = params as Record<string, unknown>;
 
       send({
         type: 'tool_execute_request',
         requestId,
         toolName: def.name,
-        args,
+        args: approvedInput,
       });
 
-      // Wait for main process to send back the result
       const result = await new Promise<{ content: string; isError: boolean }>((resolve) => {
         pendingToolExecutions.set(requestId, { resolve });
       });
@@ -825,8 +735,6 @@ async function handleInit(msg: Extract<InboundMessage, { type: 'init' }>): Promi
   }
 
   initConfig = msg;
-  permissionMode = msg.permissionMode || 'ask';
-  activeSourceSlugs = msg.activeSourceSlugs || [];
 
   // Start callback server for call_llm (idempotent — skips if already running)
   await startCallbackServer();
@@ -908,13 +816,13 @@ function handleToolExecuteResponse(msg: Extract<InboundMessage, { type: 'tool_ex
   }
 }
 
-function handlePermissionResponse(msg: Extract<InboundMessage, { type: 'permission_response' }>): void {
-  const pending = pendingPermissions.get(msg.requestId);
+function handlePreToolUseResponse(msg: Extract<InboundMessage, { type: 'pre_tool_use_response' }>): void {
+  const pending = pendingPreToolUse.get(msg.requestId);
   if (pending) {
-    pendingPermissions.delete(msg.requestId);
-    pending.resolve(msg.allowed);
+    pendingPreToolUse.delete(msg.requestId);
+    pending.resolve({ action: msg.action, input: msg.input, reason: msg.reason });
   } else {
-    debugLog(`No pending permission for requestId: ${msg.requestId}`);
+    debugLog(`No pending pre_tool_use for requestId: ${msg.requestId}`);
   }
 }
 
@@ -927,11 +835,11 @@ async function handleAbort(): Promise<void> {
     }
   }
 
-  // Reject all pending permissions
-  for (const [, pending] of pendingPermissions) {
-    pending.resolve(false);
+  // Reject all pending pre-tool-use requests
+  for (const [, pending] of pendingPreToolUse) {
+    pending.resolve({ action: 'block', reason: 'Aborted' });
   }
-  pendingPermissions.clear();
+  pendingPreToolUse.clear();
 }
 
 async function handleMiniCompletion(msg: Extract<InboundMessage, { type: 'mini_completion' }>): Promise<void> {
@@ -987,10 +895,10 @@ function handleShutdown(): void {
   stopCallbackServer();
 
   // Reject pending promises
-  for (const [, pending] of pendingPermissions) {
-    pending.resolve(false);
+  for (const [, pending] of pendingPreToolUse) {
+    pending.resolve({ action: 'block', reason: 'Server shutting down' });
   }
-  pendingPermissions.clear();
+  pendingPreToolUse.clear();
 
   for (const [, pending] of pendingToolExecutions) {
     pending.resolve({ content: 'Server shutting down', isError: true });
@@ -1022,22 +930,12 @@ async function processMessage(msg: InboundMessage): Promise<void> {
       handleToolExecuteResponse(msg);
       break;
 
-    case 'permission_response':
-      handlePermissionResponse(msg);
+    case 'pre_tool_use_response':
+      handlePreToolUseResponse(msg);
       break;
 
     case 'abort':
       await handleAbort();
-      break;
-
-    case 'set_permission_mode':
-      permissionMode = msg.mode;
-      debugLog(`Permission mode set to: ${msg.mode}`);
-      break;
-
-    case 'set_active_sources':
-      activeSourceSlugs = msg.slugs;
-      debugLog(`Active sources set to: ${msg.slugs.join(', ')}`);
       break;
 
     case 'mini_completion':

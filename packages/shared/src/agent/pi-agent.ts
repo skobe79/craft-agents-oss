@@ -77,6 +77,12 @@ import { getSessionPlansPath } from '../sessions/storage.ts';
 // Error typing
 import { parseError, type AgentError } from './errors.ts';
 
+// Centralized PreToolUse pipeline
+import { runPreToolUseChecks, type PreToolUseCheckResult } from './core/pre-tool-use.ts';
+
+// Workspace slug extraction for skill qualification
+import { extractWorkspaceSlug } from '../utils/workspace.ts';
+
 // LLM tool types
 import type { LLMQueryRequest, LLMQueryResult } from './llm-tool.ts';
 
@@ -118,7 +124,7 @@ export class PiAgent extends BaseAgent {
   // Event queue for streaming (AsyncGenerator pattern -- shared with CodexAgent/CopilotAgent)
   private eventQueue = new EventQueue();
 
-  // Pending permission requests (correlation map for subprocess permission_request -> UI -> permission_response)
+  // Pending permission requests (used by handlePreToolUseRequest for ask-mode prompting)
   private pendingPermissions: Map<string, {
     resolve: (allowed: boolean) => void;
     toolName: string;
@@ -284,9 +290,7 @@ export class PiAgent extends BaseAgent {
       sessionId,
       sessionPath,
       workingDirectory,
-      permissionMode: this.getPermissionMode(),
       plansFolderPath,
-      activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
       miniModel: this.config.miniModel,
       providerType: this.config.providerType,
       authType: this.config.authType,
@@ -462,9 +466,13 @@ export class PiAgent extends BaseAgent {
         this.handleSubprocessEvent(msg.event as Record<string, unknown>);
         break;
 
-      case 'permission_request':
-        // Subprocess needs user approval for a tool
-        this.handlePermissionRequest(msg);
+      case 'pre_tool_use_request':
+        // Subprocess needs permission check + transforms before tool execution
+        this.handlePreToolUseRequest(msg as {
+          requestId: string;
+          toolName: string;
+          input: Record<string, unknown>;
+        });
         break;
 
       case 'tool_execute_request':
@@ -537,6 +545,17 @@ export class PiAgent extends BaseAgent {
     // The event adapter expects typed PiAgentEvent/AgentSessionEvent objects,
     // but since we're receiving plain JSON, we cast through unknown.
     for (const agentEvent of this.adapter.adaptEvent(event as any)) {
+      // Track Read tool calls for prerequisite checking
+      if (agentEvent.type === 'tool_start' && agentEvent.toolName === 'Read') {
+        const input = agentEvent.input as Record<string, unknown>;
+        if (input?.file_path) {
+          this.prerequisiteManager.trackReadTool(input);
+        }
+      }
+      // Reset prerequisite state on compaction (LLM loses guide content)
+      if (agentEvent.type === 'info' && typeof agentEvent.message === 'string' && agentEvent.message.startsWith('Compacted')) {
+        this.resetPrerequisiteState();
+      }
       this.eventQueue.enqueue(agentEvent);
     }
 
@@ -547,31 +566,160 @@ export class PiAgent extends BaseAgent {
   }
 
   /**
-   * Handle a permission request from the subprocess.
-   * Emits to the UI and waits for the user response.
+   * Handle a pre_tool_use_request from the subprocess.
+   * Runs the centralized permission pipeline and sends the decision back.
    */
-  private handlePermissionRequest(req: Record<string, unknown>): void {
-    const requestId = req.requestId as string;
-    const toolName = req.toolName as string;
-    const command = req.command as string | undefined;
-    const description = req.description as string;
-    const permType = req.permissionType as 'bash' | 'file_write' | 'mcp_mutation' | 'api_mutation' | undefined;
+  private async handlePreToolUseRequest(req: {
+    requestId: string;
+    toolName: string;
+    input: Record<string, unknown>;
+  }): Promise<void> {
+    const { requestId, toolName, input } = req;
+    this.debug(`PreToolUse request from subprocess: ${toolName} (${requestId})`);
 
-    this.debug(`Permission request from subprocess: ${toolName} (${requestId})`);
+    const rootPath = this.config.workspace.rootPath ?? this.workingDirectory;
+    const workspaceSlug = extractWorkspaceSlug(rootPath, this.config.workspace.id);
+    const sessionId = this.config.session?.id || this._sessionId;
+    const plansFolderPath = sessionId
+      ? getSessionPlansPath(rootPath, sessionId)
+      : undefined;
 
-    if (this.onPermissionRequest) {
-      this.onPermissionRequest({
-        requestId,
-        toolName,
-        command,
-        description,
-        type: permType,
-      });
+    const checkResult = runPreToolUseChecks({
+      toolName,
+      input,
+      permissionMode: this.permissionManager.getPermissionMode(),
+      workspaceRootPath: this.workingDirectory,
+      workspaceId: workspaceSlug,
+      plansFolderPath,
+      workingDirectory: this.config.session?.workingDirectory,
+      activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
+      allSourceSlugs: this.sourceManager.getAllSources().map(s => s.config.slug),
+      hasSourceActivation: !!this.onSourceActivationRequest,
+      permissionManager: this.permissionManager,
+      prerequisiteManager: this.prerequisiteManager,
+      onDebug: (msg) => this.debug(`PreToolUse: ${msg}`),
+    });
+
+    switch (checkResult.type) {
+      case 'allow':
+        this.send({ type: 'pre_tool_use_response', requestId, action: 'allow' });
+        return;
+
+      case 'modify':
+        this.send({ type: 'pre_tool_use_response', requestId, action: 'modify', input: checkResult.input });
+        return;
+
+      case 'block':
+        this.send({ type: 'pre_tool_use_response', requestId, action: 'block', reason: checkResult.reason });
+        return;
+
+      case 'source_activation_needed': {
+        const { sourceSlug, sourceExists } = checkResult;
+        this.debug(`PreToolUse: Source "${sourceSlug}" not active, attempting activation...`);
+
+        if (this.onSourceActivationRequest) {
+          try {
+            const activated = await this.onSourceActivationRequest(sourceSlug);
+            if (!activated) {
+              const reason = sourceExists
+                ? `Source "${sourceSlug}" is not active. Activate it by @mentioning it in your message or via the source icon at the bottom of the input field.`
+                : `Source "${sourceSlug}" is not available yet. It needs to be created and configured first.`;
+              this.send({ type: 'pre_tool_use_response', requestId, action: 'block', reason });
+              return;
+            }
+            this.debug(`PreToolUse: Source "${sourceSlug}" activated successfully`);
+            this.eventQueue.enqueue({
+              type: 'source_activated' as const,
+              sourceSlug,
+              originalMessage: '',
+            });
+          } catch (err) {
+            const reason = sourceExists
+              ? `Source "${sourceSlug}" could not be activated: ${err}`
+              : `Source "${sourceSlug}" is not available yet. It needs to be created and configured first.`;
+            this.send({ type: 'pre_tool_use_response', requestId, action: 'block', reason });
+            return;
+          }
+        }
+
+        // Re-run pipeline after activation
+        const postResult = runPreToolUseChecks({
+          toolName,
+          input,
+          permissionMode: this.permissionManager.getPermissionMode(),
+          workspaceRootPath: this.workingDirectory,
+          workspaceId: workspaceSlug,
+          plansFolderPath,
+          workingDirectory: this.config.session?.workingDirectory,
+          activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
+          allSourceSlugs: this.sourceManager.getAllSources().map(s => s.config.slug),
+          hasSourceActivation: !!this.onSourceActivationRequest,
+          permissionManager: this.permissionManager,
+          prerequisiteManager: this.prerequisiteManager,
+          onDebug: (msg) => this.debug(`PreToolUse: ${msg}`),
+        });
+
+        if (postResult.type === 'modify') {
+          this.send({ type: 'pre_tool_use_response', requestId, action: 'modify', input: postResult.input });
+        } else if (postResult.type === 'block') {
+          this.send({ type: 'pre_tool_use_response', requestId, action: 'block', reason: postResult.reason });
+        } else {
+          this.send({ type: 'pre_tool_use_response', requestId, action: 'allow' });
+        }
+        return;
+      }
+
+      case 'call_llm_intercept':
+        // call_llm tools are proxy tools handled via tool_execute_request — just allow
+        this.send({ type: 'pre_tool_use_response', requestId, action: 'allow' });
+        return;
+
+      case 'prompt': {
+        if (!this.onPermissionRequest) {
+          // No permission handler — allow
+          if (checkResult.modifiedInput) {
+            this.send({ type: 'pre_tool_use_response', requestId, action: 'modify', input: checkResult.modifiedInput });
+          } else {
+            this.send({ type: 'pre_tool_use_response', requestId, action: 'allow' });
+          }
+          return;
+        }
+
+        const permRequestId = `pi-perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        this.debug(`PreToolUse: Prompting user for ${toolName} - ${checkResult.description}`);
+
+        // Wait for user response via pendingPermissions
+        const permissionPromise = new Promise<boolean>((resolve) => {
+          this.pendingPermissions.set(permRequestId, {
+            resolve,
+            toolName,
+          });
+        });
+
+        this.onPermissionRequest({
+          requestId: permRequestId,
+          toolName,
+          command: checkResult.command,
+          description: checkResult.description,
+          type: checkResult.promptType,
+        });
+
+        const allowed = await permissionPromise;
+        this.pendingPermissions.delete(permRequestId);
+
+        if (!allowed) {
+          this.send({ type: 'pre_tool_use_response', requestId, action: 'block', reason: 'Permission denied by user.' });
+          return;
+        }
+
+        if (checkResult.modifiedInput) {
+          this.send({ type: 'pre_tool_use_response', requestId, action: 'modify', input: checkResult.modifiedInput });
+        } else {
+          this.send({ type: 'pre_tool_use_response', requestId, action: 'allow' });
+        }
+        return;
+      }
     }
-
-    // Store pending permission for respondToPermission()
-    // Note: The subprocess blocks waiting for permission_response, so we don't
-    // need a Promise here -- we just forward the response when it arrives.
   }
 
   /**
@@ -586,6 +734,17 @@ export class PiAgent extends BaseAgent {
     toolName: string;
     args: Record<string, unknown>;
   }): Promise<void> {
+    // Prerequisite check: block source tools until guide.md is read
+    const prereqResult = this.prerequisiteManager.checkPrerequisites(request.toolName);
+    if (!prereqResult.allowed) {
+      this.send({
+        type: 'tool_execute_response',
+        requestId: request.requestId,
+        result: { content: prereqResult.blockReason!, isError: true },
+      });
+      return;
+    }
+
     try {
       const result = await this.routeToolCall(request.toolName, request.args);
       this.send({
@@ -942,17 +1101,9 @@ export class PiAgent extends BaseAgent {
 
   /**
    * Respond to a pending permission request.
-   * Forwards the response to the subprocess.
+   * Permission checking now happens in the main process, so this resolves locally.
    */
   respondToPermission(requestId: string, allowed: boolean, _alwaysAllow?: boolean): void {
-    // Forward to subprocess
-    this.send({
-      type: 'permission_response',
-      requestId,
-      allowed,
-    });
-
-    // Also resolve local pending permissions if any
     const pending = this.pendingPermissions.get(requestId);
     if (pending) {
       this.pendingPermissions.delete(requestId);
@@ -977,51 +1128,21 @@ export class PiAgent extends BaseAgent {
   }
 
   // ============================================================
-  // Permission Mode Forwarding
-  // ============================================================
-
-  override setPermissionMode(mode: PermissionMode): void {
-    super.setPermissionMode(mode);
-    // Forward to subprocess so it enforces the updated mode
-    if (this.subprocess) {
-      this.debug(`Forwarding permission mode to subprocess: ${mode}`);
-      this.send({ type: 'set_permission_mode', mode });
-    } else {
-      this.debug(`Permission mode set to ${mode} (subprocess not spawned — will be sent on init)`);
-    }
-  }
-
-  // ============================================================
   // Source / MCP Integration
   // ============================================================
 
-  override setSourceServers(
+  override async setSourceServers(
     mcpServers: Record<string, SdkMcpServerConfig>,
     apiServers: Record<string, unknown>,
     intendedSlugs?: string[]
-  ): void {
+  ): Promise<void> {
     // BaseAgent.setSourceServers() handles:
     //   1. SourceManager state tracking (active slugs)
     //   2. McpClientPool sync (connecting/disconnecting MCP sources)
-    super.setSourceServers(mcpServers, apiServers, intendedSlugs);
-
-    // Notify subprocess of active source changes.
-    if (this.subprocess) {
-      this.send({
-        type: 'set_active_sources',
-        slugs: Array.from(this.sourceManager.getActiveSlugs()),
-      });
-    }
+    await super.setSourceServers(mcpServers, apiServers, intendedSlugs);
 
     // Register pool's proxy tool defs with subprocess so the model can call them.
-    // Pool sync (in BaseAgent) is async — await readiness before reading tools.
-    if (this.mcpPool) {
-      this.mcpPool.awaitReady().then(() => {
-        this.registerPoolToolsWithSubprocess();
-      });
-    } else {
-      this.registerPoolToolsWithSubprocess();
-    }
+    this.registerPoolToolsWithSubprocess();
   }
 
   // ============================================================

@@ -46,16 +46,10 @@ import { PromptBuilder } from './core/prompt-builder.ts';
 import { PathProcessor } from './core/path-processor.ts';
 import { ConfigWatcherManager, type ConfigWatcherManagerCallbacks } from './core/config-watcher-manager.ts';
 import { UsageTracker, type UsageUpdate } from './core/usage-tracker.ts';
+import { PrerequisiteManager } from './core/prerequisite-manager.ts';
 import { getSessionPlansPath, getSessionDataPath } from '../sessions/storage.ts';
 import { getMiniAgentSystemPrompt } from '../prompts/system.ts';
 import { buildTitlePrompt, buildRegenerateTitlePrompt, validateTitle } from '../utils/title-generator.ts';
-import {
-  handleLargeResponse,
-  estimateTokens,
-  TOKEN_LIMIT,
-  type SummarizationContext,
-  type HandleLargeResponseResult,
-} from '../utils/large-response.ts';
 
 // Skill extraction for Codex/Copilot backends (Claude uses native SDK Skill tool)
 import { parseMentions, stripAllMentions } from '../mentions/index.ts';
@@ -130,6 +124,7 @@ export abstract class BaseAgent implements AgentBackend {
   protected pathProcessor: PathProcessor;
   protected configWatcherManager: ConfigWatcherManager | null = null;
   protected usageTracker: UsageTracker;
+  protected prerequisiteManager: PrerequisiteManager;
 
   // ============================================================
   // Additional State (protected for subclass access)
@@ -193,6 +188,12 @@ export abstract class BaseAgent implements AgentBackend {
     this.usageTracker = new UsageTracker({
       contextWindow,
       onUsageUpdate: (update) => this.onUsageUpdate?.(update),
+      onDebug: (msg) => this.debug(msg),
+    });
+
+    // PrerequisiteManager: blocks source tool calls until guide.md is read
+    this.prerequisiteManager = new PrerequisiteManager({
+      workspaceRootPath: config.workspace.rootPath,
       onDebug: (msg) => this.debug(msg),
     });
   }
@@ -413,7 +414,17 @@ export abstract class BaseAgent implements AgentBackend {
    */
   clearHistory(): void {
     this.usageTracker.reset();
+    this.prerequisiteManager.resetReadState();
     this.debug('History cleared');
+  }
+
+  /**
+   * Reset prerequisite read state (e.g., on context compaction).
+   * After compaction the LLM no longer has guide content in context,
+   * so it must re-read before using source tools.
+   */
+  resetPrerequisiteState(): void {
+    this.prerequisiteManager.resetReadState();
   }
 
   /**
@@ -457,11 +468,11 @@ export abstract class BaseAgent implements AgentBackend {
    *
    * Subclasses may override to handle provider-specific MCP setup.
    */
-  setSourceServers(
+  async setSourceServers(
     mcpServers: Record<string, SdkMcpServerConfig>,
     apiServers: Record<string, unknown>,
     intendedSlugs?: string[]
-  ): void {
+  ): Promise<void> {
     // Update SourceManager state (common tracking)
     this.sourceManager.updateActiveState(
       Object.keys(mcpServers),
@@ -471,9 +482,11 @@ export abstract class BaseAgent implements AgentBackend {
 
     // Sync the centralized MCP client pool (if available)
     if (this.config.mcpPool) {
-      this.config.mcpPool.sync(mcpServers).catch(err => {
+      try {
+        await this.config.mcpPool.sync(mcpServers);
+      } catch (err) {
         this.debug(`Failed to sync MCP pool: ${err instanceof Error ? err.message : String(err)}`);
-      });
+      }
     }
   }
 
@@ -864,44 +877,6 @@ Please continue the conversation naturally from where we left off.
       this.debug(`[regenerateTitle] Failed: ${error}`);
       return null;
     }
-  }
-
-  // ============================================================
-  // Large Response Handling (shared implementation using runMiniCompletion)
-  // ============================================================
-
-  /**
-   * Handle a large tool result: save to disk, summarize, and format.
-   * Uses runMiniCompletion with the same auth as the main agent.
-   *
-   * @param text - The large response text
-   * @param sessionPath - Path to the session folder
-   * @param context - Context about the tool call
-   * @returns Result with formatted message + file path, or null if not large enough
-   */
-  async handleLargeToolResult(
-    text: string,
-    sessionPath: string,
-    context: SummarizationContext
-  ): Promise<HandleLargeResponseResult | null> {
-    try {
-      return await handleLargeResponse({
-        text,
-        sessionPath,
-        context,
-        summarize: this.runMiniCompletion.bind(this),
-      });
-    } catch (error) {
-      this.debug(`[handleLargeToolResult] Failed: ${error}`);
-      return null;
-    }
-  }
-
-  /**
-   * Check if a response is large enough to need handling.
-   */
-  isLargeResponse(text: string): boolean {
-    return estimateTokens(text) > TOKEN_LIMIT;
   }
 
   /**

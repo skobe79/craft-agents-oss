@@ -51,9 +51,6 @@ export class PiEventAdapter extends BaseEventAdapter {
   // Track whether a final (non-intermediate) text_complete has been emitted this turn
   private hasEmittedFinalText: boolean = false;
 
-  // Deduplication: track last emitted intermediate text to skip identical re-emissions
-  private lastIntermediateText: string | null = null;
-
   // Sub-turnId isolation (same pattern as CopilotEventAdapter)
   private subTurnCounter: number = 0;
   private messageSubTurnId: string | null = null;
@@ -74,7 +71,6 @@ export class PiEventAdapter extends BaseEventAdapter {
     this.toolNames.clear();
     this.hasStreamedDeltas = false;
     this.hasEmittedFinalText = false;
-    this.lastIntermediateText = null;
     this.subTurnCounter = 0;
     this.messageSubTurnId = null;
     this.log.debug('Turn started', { turnIndex: this.turnIndex });
@@ -112,7 +108,6 @@ export class PiEventAdapter extends BaseEventAdapter {
         this.currentTurnId = null;
         this.hasStreamedDeltas = false;
         this.hasEmittedFinalText = false;
-        this.lastIntermediateText = null;
         this.subTurnCounter = 0;
         this.messageSubTurnId = null;
         break;
@@ -156,8 +151,11 @@ export class PiEventAdapter extends BaseEventAdapter {
 
         // Extract text content from the final assistant message
         const textContent = this.extractTextFromMessage(event.message);
-        if (textContent && !this.hasEmittedFinalText) {
-          this.hasEmittedFinalText = true;
+        // Pi SDK stopReason: 'toolUse' means the model will call tools next (intermediate commentary),
+        // 'stop'/'end_turn' means final response. Same logic as Claude's stop_reason === 'tool_use'.
+        const isIntermediate = msg.stopReason === 'toolUse';
+        if (textContent && (isIntermediate || !this.hasEmittedFinalText)) {
+          if (!isIntermediate) this.hasEmittedFinalText = true;
 
           const mTurnId = this.messageSubTurnId || this.nextSubTurnId('m');
           this.messageSubTurnId = null;
@@ -165,6 +163,7 @@ export class PiEventAdapter extends BaseEventAdapter {
           yield {
             type: 'text_complete',
             text: textContent,
+            isIntermediate,
             turnId: mTurnId,
           };
           this.hasStreamedDeltas = false;

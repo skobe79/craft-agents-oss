@@ -17,6 +17,7 @@ import { CraftMcpClient, type McpClientConfig } from './client.ts';
 import type { SdkMcpServerConfig } from '../agent/backend/types.ts';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { isLocalMcpEnabled } from '../workspaces/storage.ts';
+import { guardLargeResult } from '../utils/large-response.ts';
 
 /**
  * Proxy tool definition — the format passed to backends for registration.
@@ -77,12 +78,24 @@ export class McpClientPool {
   /** Workspace root path for local MCP filtering */
   private workspaceRootPath?: string;
 
-  /** Tracks the latest sync() promise so callers can await pool readiness */
-  private _pendingSync: Promise<string[]> = Promise.resolve([]);
+  /** Session storage path for saving large responses */
+  private sessionPath?: string;
 
-  constructor(options?: { debug?: (msg: string) => void; workspaceRootPath?: string }) {
+  /** Summarize callback for large response handling */
+  private summarizeCallback?: (prompt: string) => Promise<string | null>;
+
+  constructor(options?: { debug?: (msg: string) => void; workspaceRootPath?: string; sessionPath?: string }) {
     this.debugFn = options?.debug;
     this.workspaceRootPath = options?.workspaceRootPath;
+    this.sessionPath = options?.sessionPath;
+  }
+
+  /**
+   * Set the summarize callback for large response handling.
+   * Typically called after agent creation: pool.setSummarizeCallback(agent.getSummarizeCallback())
+   */
+  setSummarizeCallback(fn: (prompt: string) => Promise<string | null>): void {
+    this.summarizeCallback = fn;
   }
 
   private debug(msg: string): void {
@@ -173,12 +186,6 @@ export class McpClientPool {
    * @returns List of slugs that failed to connect
    */
   async sync(desired: Record<string, SdkMcpServerConfig>): Promise<string[]> {
-    const p = this._doSync(desired);
-    this._pendingSync = p;
-    return p;
-  }
-
-  private async _doSync(desired: Record<string, SdkMcpServerConfig>): Promise<string[]> {
     // Filter out stdio sources when local MCP is disabled for this workspace.
     const localEnabled = !this.workspaceRootPath || isLocalMcpEnabled(this.workspaceRootPath);
     const filtered: Record<string, SdkMcpServerConfig> = {};
@@ -214,14 +221,6 @@ export class McpClientPool {
     }
 
     return failures;
-  }
-
-  /**
-   * Wait for the most recent sync() to finish.
-   * Safe to call even if no sync is in progress (resolves immediately).
-   */
-  async awaitReady(): Promise<void> {
-    await this._pendingSync;
   }
 
   // ============================================================
@@ -315,6 +314,19 @@ export class McpClientPool {
         .filter((c: { type: string }) => c.type === 'text')
         .map((c: { text?: string }) => c.text || '');
       const text = textParts.join('\n') || JSON.stringify(result);
+
+      // Handle large results — save + summarize before returning
+      if (!result.isError && this.sessionPath) {
+        const guarded = await guardLargeResult(text, {
+          sessionPath: this.sessionPath,
+          toolName: proxyName,
+          input: args,
+          summarize: this.summarizeCallback,
+        });
+        if (guarded) {
+          return { content: guarded, isError: false };
+        }
+      }
 
       return {
         content: text,

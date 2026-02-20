@@ -48,7 +48,6 @@ import {
   type ToolCallPreExecuteDecision,
   type ToolCallType,
   type PermissionPromptMetadata,
-  type PermissionPromptType,
 } from '../codex/app-server-client.ts';
 
 // Codex binary resolver
@@ -81,13 +80,10 @@ import { readFileSync, existsSync } from 'node:fs';
 // System prompt for Craft Agent context
 import { getSystemPrompt } from '../prompts/system.ts';
 
-// PreToolUse utilities
+// Centralized PreToolUse pipeline
 import {
-  expandToolPaths,
-  qualifySkillName,
-  stripToolMetadata,
-  validateConfigWrite,
-  BUILT_IN_TOOLS,
+  runPreToolUseChecks,
+  type PreToolUseCheckResult,
 } from './core/pre-tool-use.ts';
 
 // Cross-process tool metadata store (file-based)
@@ -475,6 +471,10 @@ export class CodexAgent extends BaseAgent {
     this.client.on('item/started', (notification) => {
       if (this._ephemeralThreadIds.has(notification.threadId)) return;
       for (const event of this.adapter.adaptItemStarted(notification)) {
+        // Track Read tool calls (including bash/PS commands classified as reads)
+        if (event.type === 'tool_start' && event.toolName === 'Read') {
+          this.prerequisiteManager.trackReadTool(event.input as Record<string, unknown>);
+        }
         this.eventQueue.enqueue(event);
       }
     });
@@ -663,6 +663,7 @@ export class CodexAgent extends BaseAgent {
     // Context compaction (auto-compaction complete)
     this.client.on('thread/compacted', (notification) => {
       this.debug(`[codex] Context compacted for thread ${notification.threadId}`);
+      this.resetPrerequisiteState();
       for (const event of this.adapter.adaptContextCompacted(notification)) {
         this.eventQueue.enqueue(event);
       }
@@ -915,13 +916,8 @@ export class CodexAgent extends BaseAgent {
    * CRAFT AGENTS: Handle PreToolUse hook request.
    *
    * This is called BEFORE ANY tool execution (from Codex fork).
-   * Uses the centralized shouldAllowToolInMode for permission checking,
-   * providing the same permission behavior as ClaudeAgent.
-   *
-   * Decisions:
-   * - Allow: Continue with tool execution
-   * - Block: Return error to model with reason (guides retry)
-   * - Modify: Continue with modified input (path expansion, etc.)
+   * Uses the centralized runPreToolUseChecks() pipeline for permission checking,
+   * input transforms, and ask-mode prompt decisions — same logic as all agents.
    */
   private async handleToolCallPreExecute(params: ToolCallPreExecuteParams & { requestId: RequestId }): Promise<void> {
     const permissionMode = this.permissionManager.getPermissionMode();
@@ -929,295 +925,215 @@ export class CodexAgent extends BaseAgent {
 
     this.debug(`PreToolUse: ${toolName} (${toolType}) - mode: ${permissionMode} | mcpServer=${mcpServer} mcpTool=${mcpTool}`);
 
-    // Map tool type to SDK tool name for shouldAllowToolInMode
+    // Map tool type to SDK tool name for the centralized pipeline
     const sdkToolName = this.mapToolTypeToSdkName(toolType, toolName, mcpServer, mcpTool);
     this.debug(`PreToolUse: mapped sdkToolName="${sdkToolName}" (from toolType=${toolType}, toolName=${toolName})`);
 
-    // Build permissions context for loading custom permissions.json files
-    const permissionsContext = {
-      workspaceRootPath: this.workingDirectory,
-      activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
-    };
+    const inputObj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
 
-    // Compute plans folder path from session ID (if available)
+    // Extract tool metadata before the pipeline strips _intent/_displayName
+    // Codex fork provides metadata via params.metadata; also check input fields
+    {
+      const intent = params.metadata?.intent
+        || (typeof inputObj._intent === 'string' ? inputObj._intent : undefined);
+      const displayName = params.metadata?.displayName
+        || (typeof inputObj._displayName === 'string' ? inputObj._displayName : undefined);
+      if (intent || displayName) {
+        toolMetadataStore.set(itemId, { intent, displayName, timestamp: Date.now() });
+        this.debug(`PreToolUse: Captured metadata for ${itemId} — intent="${intent}", displayName="${displayName}"`);
+      }
+    }
+
+    // Build context for centralized pipeline
+    const rootPath = this.config.workspace.rootPath ?? this.workingDirectory;
+    const workspaceSlug = extractWorkspaceSlug(rootPath, this.config.workspace.id);
     const sessionId = this.config.session?.id;
     const plansFolderPath = sessionId
-      ? getSessionPlansPath(this.config.workspace.rootPath ?? this.workingDirectory, sessionId)
+      ? getSessionPlansPath(rootPath, sessionId)
       : undefined;
 
-    // Use centralized permission checking (same logic as ClaudeAgent)
-    const result = shouldAllowToolInMode(
-      sdkToolName,
-      input,
+    const checkResult = runPreToolUseChecks({
+      toolName: sdkToolName,
+      input: inputObj,
       permissionMode,
-      {
-        plansFolderPath,
-        permissionsContext,
+      workspaceRootPath: this.workingDirectory,
+      workspaceId: workspaceSlug,
+      plansFolderPath,
+      workingDirectory: this.config.session?.workingDirectory,
+      activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
+      allSourceSlugs: this.sourceManager.getAllSources().map(s => s.config.slug),
+      hasSourceActivation: !!this.onSourceActivationRequest,
+      permissionManager: this.permissionManager,
+      prerequisiteManager: this.prerequisiteManager,
+      onDebug: (msg) => this.debug(`PreToolUse: ${msg}`),
+    });
+
+    // Translate result to Codex decision format
+    switch (checkResult.type) {
+      case 'allow': {
+        this.debug(`PreToolUse: Allowing ${toolName}`);
+        await this.safeRespondToPreToolUse(requestId, { type: 'allow' });
+        return;
       }
-    );
 
-    if (!result.allowed) {
-      // Block the tool with the reason
-      this.debug(`PreToolUse: Blocking ${toolName} - ${result.reason}`);
-
-      // Store the block reason for the event adapter to use in tool_result
-      this.adapter.setBlockReason(itemId, result.reason);
-
-      const decision: ToolCallPreExecuteDecision = {
-        type: 'block',
-        reason: result.reason,
-      };
-      await this.safeRespondToPreToolUse(requestId, decision);
-      return;
-    }
-
-    // ============================================================
-    // ASK MODE: Prompt user for permission on potentially dangerous operations
-    // ============================================================
-    if (permissionMode === 'ask') {
-      const promptInfo = this.shouldPromptForPermission(sdkToolName, input as Record<string, unknown>);
-
-      if (promptInfo && this.onPermissionRequest) {
-        const permRequestId = String(requestId);
-        this.debug(`PreToolUse: Prompting user for ${sdkToolName} - ${promptInfo.description}`);
-
-        // Create promise for user response with timeout
-        const permissionPromise = new Promise<{ allowed: boolean; acceptForSession: boolean }>((resolve) => {
-          this.pendingPermissions.set(permRequestId, {
-            resolve,
-            toolName: sdkToolName,
-            command: promptInfo.command,
-          });
-        });
-
-        // Create timeout promise (30 seconds)
-        const timeoutPromise = new Promise<{ allowed: boolean; acceptForSession: boolean; timedOut: true }>((resolve) => {
-          setTimeout(() => {
-            resolve({ allowed: false, acceptForSession: false, timedOut: true });
-          }, 30000);
-        });
-
-        // Emit permission request to UI
-        this.onPermissionRequest({
-          requestId: permRequestId,
-          toolName: sdkToolName,
-          command: promptInfo.command,
-          description: promptInfo.description,
-          type: promptInfo.type,
-        });
-
-        // Wait for user response or timeout
-        const result = await Promise.race([permissionPromise, timeoutPromise]);
-
-        // Clean up pending permission
-        this.pendingPermissions.delete(permRequestId);
-
-        if ('timedOut' in result && result.timedOut) {
-          this.debug('PreToolUse: Permission request timed out, blocking');
-          this.adapter.setBlockReason(itemId, 'Permission request timed out. Retry the command or switch to Execute mode.');
-          const decision: ToolCallPreExecuteDecision = {
-            type: 'userResponse',
-            decision: 'timedOut',
-          };
-          await this.safeRespondToPreToolUse(requestId, decision);
-          return;
-        }
-
-        if (!result.allowed) {
-          this.debug('PreToolUse: User denied permission');
-          this.adapter.setBlockReason(itemId, 'Permission denied by user.');
-          const decision: ToolCallPreExecuteDecision = {
-            type: 'userResponse',
-            decision: 'denied',
-          };
-          await this.safeRespondToPreToolUse(requestId, decision);
-          return;
-        }
-
-        // User approved - continue with tool execution
-        this.debug(`PreToolUse: User approved (acceptForSession=${result.acceptForSession})`);
-        // If acceptForSession, we could whitelist the command here
-        // For now, just continue
+      case 'modify': {
+        this.debug(`PreToolUse: Modifying input for ${toolName}`);
+        await this.safeRespondToPreToolUse(requestId, { type: 'modify', input: checkResult.input });
+        return;
       }
-    }
 
-    // Check for source blocking (MCP tools from inactive sources)
-    if (toolType === 'mcp' && mcpServer) {
-      const sourceSlug = this.extractSourceSlugFromMcpServer(mcpServer);
-      if (sourceSlug && !this.sourceManager.isSourceActive(sourceSlug)) {
-        // Source is inactive - attempt auto-activation
-        this.debug(`PreToolUse: MCP tool from inactive source "${sourceSlug}", attempting activation...`);
+      case 'block': {
+        this.debug(`PreToolUse: Blocking ${toolName} - ${checkResult.reason}`);
+        this.adapter.setBlockReason(itemId, checkResult.reason);
+        await this.safeRespondToPreToolUse(requestId, { type: 'block', reason: checkResult.reason });
+        return;
+      }
+
+      case 'source_activation_needed': {
+        const { sourceSlug, sourceExists } = checkResult;
+        this.debug(`PreToolUse: Source "${sourceSlug}" not active (exists=${sourceExists}), attempting activation...`);
 
         if (this.onSourceActivationRequest) {
           try {
             const activated = await this.onSourceActivationRequest(sourceSlug);
             if (!activated) {
-              // Block if activation failed - distinguish not-installed vs inactive
-              const sourceExists = this.sourceManager
-                .getAllSources()
-                .some((s) => s.config.slug === sourceSlug);
               const reason = sourceExists
                 ? `Source "${sourceSlug}" is not active. Activate it by @mentioning it in your message or via the source icon at the bottom of the input field.`
                 : `Source "${sourceSlug}" is not available yet. It needs to be created and configured first.`;
               this.adapter.setBlockReason(itemId, reason);
-              const decision: ToolCallPreExecuteDecision = {
-                type: 'block',
-                reason,
-              };
-              await this.safeRespondToPreToolUse(requestId, decision);
+              await this.safeRespondToPreToolUse(requestId, { type: 'block', reason });
               return;
             }
             this.debug(`PreToolUse: Source "${sourceSlug}" activated successfully`);
-            // Emit source_activated event for UI
             this.eventQueue.enqueue({
               type: 'source_activated' as const,
               sourceSlug,
               originalMessage: this.currentUserMessage,
             });
           } catch (err) {
-            this.debug(`PreToolUse: Error activating source "${sourceSlug}": ${err}`);
-            const sourceExists = this.sourceManager
-              .getAllSources()
-              .some((s) => s.config.slug === sourceSlug);
             const reason = sourceExists
               ? `Source "${sourceSlug}" could not be activated: ${err}. Try activating it by @mentioning it in your message or via the source icon at the bottom of the input field.`
               : `Source "${sourceSlug}" is not available yet. It needs to be created and configured first.`;
             this.adapter.setBlockReason(itemId, reason);
-            const decision: ToolCallPreExecuteDecision = {
-              type: 'block',
-              reason,
-            };
-            await this.safeRespondToPreToolUse(requestId, decision);
+            await this.safeRespondToPreToolUse(requestId, { type: 'block', reason });
             return;
           }
         }
+
+        // Source activated — re-run pipeline to apply remaining transforms (step 2 will pass now)
+        const postResult = runPreToolUseChecks({
+          toolName: sdkToolName,
+          input: inputObj,
+          permissionMode,
+          workspaceRootPath: this.workingDirectory,
+          workspaceId: workspaceSlug,
+          plansFolderPath,
+          workingDirectory: this.config.session?.workingDirectory,
+          activeSourceSlugs: Array.from(this.sourceManager.getActiveSlugs()),
+          allSourceSlugs: this.sourceManager.getAllSources().map(s => s.config.slug),
+          hasSourceActivation: !!this.onSourceActivationRequest,
+          permissionManager: this.permissionManager,
+          prerequisiteManager: this.prerequisiteManager,
+          onDebug: (msg) => this.debug(`PreToolUse: ${msg}`),
+        });
+
+        if (postResult.type === 'modify') {
+          await this.safeRespondToPreToolUse(requestId, { type: 'modify', input: postResult.input });
+        } else if (postResult.type === 'block') {
+          this.adapter.setBlockReason(itemId, postResult.reason);
+          await this.safeRespondToPreToolUse(requestId, { type: 'block', reason: postResult.reason });
+        } else {
+          await this.safeRespondToPreToolUse(requestId, { type: 'allow' });
+        }
+        return;
+      }
+
+      case 'call_llm_intercept': {
+        this.debug('PreToolUse: Intercepting call_llm for pre-execution');
+        try {
+          const result = await this.preExecuteCallLlm(inputObj);
+          await this.safeRespondToPreToolUse(requestId, {
+            type: 'modify',
+            input: { ...inputObj, model: result.model ?? inputObj.model, _precomputedResult: JSON.stringify(result) },
+          });
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          this.debug(`PreToolUse: call_llm pre-execution failed: ${errorMsg}`);
+          await this.safeRespondToPreToolUse(requestId, {
+            type: 'modify',
+            input: { ...inputObj, _precomputedResult: JSON.stringify({ error: errorMsg }) },
+          });
+        }
+        return;
+      }
+
+      case 'prompt': {
+        if (!this.onPermissionRequest) {
+          // No permission handler — allow with any pending input modifications
+          if (checkResult.modifiedInput) {
+            await this.safeRespondToPreToolUse(requestId, { type: 'modify', input: checkResult.modifiedInput });
+          } else {
+            await this.safeRespondToPreToolUse(requestId, { type: 'allow' });
+          }
+          return;
+        }
+
+        const permRequestId = String(requestId);
+        this.debug(`PreToolUse: Prompting user for ${sdkToolName} - ${checkResult.description}`);
+
+        // Create promise for user response with 30s timeout
+        const permissionPromise = new Promise<{ allowed: boolean; acceptForSession: boolean }>((resolve) => {
+          this.pendingPermissions.set(permRequestId, {
+            resolve,
+            toolName: sdkToolName,
+            command: checkResult.command,
+          });
+        });
+
+        const timeoutPromise = new Promise<{ allowed: boolean; acceptForSession: boolean; timedOut: true }>((resolve) => {
+          setTimeout(() => {
+            resolve({ allowed: false, acceptForSession: false, timedOut: true });
+          }, 30000);
+        });
+
+        this.onPermissionRequest({
+          requestId: permRequestId,
+          toolName: sdkToolName,
+          command: checkResult.command,
+          description: checkResult.description,
+          type: checkResult.promptType,
+        });
+
+        const permResult = await Promise.race([permissionPromise, timeoutPromise]);
+        this.pendingPermissions.delete(permRequestId);
+
+        if ('timedOut' in permResult && permResult.timedOut) {
+          this.debug('PreToolUse: Permission request timed out, blocking');
+          this.adapter.setBlockReason(itemId, 'Permission request timed out. Retry the command or switch to Execute mode.');
+          await this.safeRespondToPreToolUse(requestId, { type: 'userResponse', decision: 'timedOut' });
+          return;
+        }
+
+        if (!permResult.allowed) {
+          this.debug('PreToolUse: User denied permission');
+          this.adapter.setBlockReason(itemId, 'Permission denied by user.');
+          await this.safeRespondToPreToolUse(requestId, { type: 'userResponse', decision: 'denied' });
+          return;
+        }
+
+        this.debug(`PreToolUse: User approved (acceptForSession=${permResult.acceptForSession})`);
+        if (checkResult.modifiedInput) {
+          await this.safeRespondToPreToolUse(requestId, { type: 'modify', input: checkResult.modifiedInput });
+        } else {
+          await this.safeRespondToPreToolUse(requestId, { type: 'allow' });
+        }
+        return;
       }
     }
-
-    // ============================================================
-    // CALL_LLM INTERCEPT: Pre-execute LLM request and inject result
-    // The session-mcp-server can't access Codex auth, so we execute
-    // the LLM call here via ephemeral thread and inject the result
-    // into the tool input as _precomputedResult.
-    // ============================================================
-    this.debug(`PreToolUse: call_llm check — sdkToolName="${sdkToolName}" === "mcp__session__call_llm" → ${sdkToolName === 'mcp__session__call_llm'}`);
-    if (sdkToolName === 'mcp__session__call_llm') {
-      const inputObj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
-      this.debug('PreToolUse: Intercepting call_llm for pre-execution');
-      try {
-        const result = await this.preExecuteCallLlm(inputObj);
-        const decision: ToolCallPreExecuteDecision = {
-          type: 'modify',
-          input: { ...inputObj, model: result.model ?? inputObj.model, _precomputedResult: JSON.stringify(result) },
-        };
-        await this.safeRespondToPreToolUse(requestId, decision);
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        this.debug(`PreToolUse: call_llm pre-execution failed: ${errorMsg}`);
-        const decision: ToolCallPreExecuteDecision = {
-          type: 'modify',
-          input: { ...inputObj, _precomputedResult: JSON.stringify({ error: errorMsg }) },
-        };
-        await this.safeRespondToPreToolUse(requestId, decision);
-      }
-      return;
-    }
-
-    // Track modifications to input
-    let modifiedInput: Record<string, unknown> | null = null;
-    const inputObj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
-
-    // ============================================================
-    // PATH EXPANSION: Expand ~ in file paths for all file tools
-    // ============================================================
-    const pathResult = expandToolPaths(sdkToolName, inputObj, (msg) => this.debug(`PreToolUse: ${msg}`));
-    if (pathResult.modified) {
-      modifiedInput = pathResult.input;
-    }
-
-    // ============================================================
-    // CONFIG FILE VALIDATION: Validate config writes before they happen
-    // ============================================================
-    const configResult = validateConfigWrite(
-      sdkToolName,
-      modifiedInput || inputObj,
-      this.workingDirectory,
-      (msg) => this.debug(`PreToolUse: ${msg}`)
-    );
-    if (!configResult.valid) {
-      const reason = configResult.error ?? 'Config validation failed';
-      this.adapter.setBlockReason(itemId, reason);
-      const decision: ToolCallPreExecuteDecision = {
-        type: 'block',
-        reason,
-      };
-      await this.safeRespondToPreToolUse(requestId, decision);
-      return;
-    }
-
-    // ============================================================
-    // SKILL QUALIFICATION: Ensure skill names are fully-qualified
-    // SDK expects "workspaceSlug:skillSlug" format, NOT UUID
-    // ============================================================
-    if (sdkToolName === 'Skill') {
-      const rootPath = this.config.workspace.rootPath ?? this.workingDirectory;
-      const workspaceSlug = extractWorkspaceSlug(rootPath, this.config.workspace.id);
-      const skillResult = qualifySkillName(
-        modifiedInput || inputObj,
-        workspaceSlug,
-        rootPath,
-        this.config.session?.workingDirectory,
-        (msg) => this.debug(`PreToolUse: ${msg}`)
-      );
-      if (skillResult.modified) {
-        modifiedInput = skillResult.input;
-      }
-    }
-
-    // ============================================================
-    // TOOL METADATA EXTRACTION + STRIPPING
-    // Extract _intent/_displayName from tool input (or params.metadata from Codex fork)
-    // and store in toolMetadataStore before stripping for execution.
-    // ============================================================
-    {
-      const currentInput = (modifiedInput || inputObj) as Record<string, unknown>;
-      const intent = params.metadata?.intent
-        || (typeof currentInput._intent === 'string' ? currentInput._intent : undefined);
-      const displayName = params.metadata?.displayName
-        || (typeof currentInput._displayName === 'string' ? currentInput._displayName : undefined);
-      if (intent || displayName) {
-        toolMetadataStore.set(itemId, { intent, displayName, timestamp: Date.now() });
-        this.debug(`PreToolUse: Captured metadata for ${itemId} — intent="${intent}", displayName="${displayName}"`);
-      }
-    }
-    const metadataResult = stripToolMetadata(
-      sdkToolName,
-      modifiedInput || inputObj,
-      (msg) => this.debug(`PreToolUse: ${msg}`)
-    );
-    if (metadataResult.modified) {
-      modifiedInput = metadataResult.input;
-    }
-
-    // If any modifications were made, return modified decision
-    if (modifiedInput) {
-      this.debug(`PreToolUse: Modifying input for ${toolName}`);
-      const decision: ToolCallPreExecuteDecision = {
-        type: 'modify',
-        input: modifiedInput,
-      };
-      await this.safeRespondToPreToolUse(requestId, decision);
-      return;
-    }
-
-    // Allow the tool to proceed
-    this.debug(`PreToolUse: Allowing ${toolName}`);
-    const decision: ToolCallPreExecuteDecision = { type: 'allow' };
-    await this.safeRespondToPreToolUse(requestId, decision);
   }
 
   /**
-   * Map Codex tool type to SDK tool name for shouldAllowToolInMode.
+   * Map Codex tool type to SDK tool name for the centralized pipeline.
    */
   private mapToolTypeToSdkName(
     toolType: ToolCallType,
@@ -1244,79 +1160,6 @@ export class CodexAgent extends BaseAgent {
       default:
         return toolName;
     }
-  }
-
-  /**
-   * Built-in MCP servers that are always available (not user sources).
-   * Must match the set in claude-agent.ts to keep behavior consistent.
-   * Note: preferences and craft-agents-docs are now bundled into the session server.
-   */
-  private static readonly BUILT_IN_MCP_SERVERS = new Set([
-    'session',
-  ]);
-
-  /**
-   * Extract source slug from MCP server name.
-   * Returns null for built-in MCP servers (session, etc.)
-   * so that PreToolUse doesn't try to activate them as user sources.
-   */
-  private extractSourceSlugFromMcpServer(mcpServer: string): string | null {
-    if (!mcpServer) return null;
-    if (CodexAgent.BUILT_IN_MCP_SERVERS.has(mcpServer)) {
-      return null;
-    }
-    return mcpServer;
-  }
-
-  /**
-   * Determine if the tool needs a permission prompt in ask mode.
-   * Returns null if no prompt needed, otherwise returns metadata for the prompt.
-   */
-  private shouldPromptForPermission(
-    toolName: string,
-    input: Record<string, unknown>
-  ): { type: PermissionPromptType; description: string; command?: string } | null {
-    // File writes
-    if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(toolName)) {
-      const filePath = (input.file_path || input.notebook_path) as string | undefined;
-      // Check if already whitelisted (use toolName as base for file operations)
-      if (!this.permissionManager.isCommandWhitelisted(toolName)) {
-        return {
-          type: 'file_write',
-          description: filePath ? `Write to ${filePath}` : `Modify file`,
-          command: filePath,
-        };
-      }
-    }
-
-    // Bash commands
-    if (toolName === 'Bash') {
-      const command = input.command as string | undefined;
-      if (command) {
-        const baseCommand = this.permissionManager.getBaseCommand(command);
-        if (!this.permissionManager.isCommandWhitelisted(baseCommand)) {
-          return {
-            type: 'bash',
-            description: command.length > 100 ? command.slice(0, 100) + '...' : command,
-            command,
-          };
-        }
-      }
-    }
-
-    // MCP mutations (non-read-only MCP tools)
-    if (toolName.startsWith('mcp__')) {
-      // For MCP tools, check if it's whitelisted
-      if (!this.permissionManager.isCommandWhitelisted(toolName)) {
-        return {
-          type: 'mcp_mutation',
-          description: toolName.replace('mcp__', '').replace('__', ' → '),
-          command: toolName,
-        };
-      }
-    }
-
-    return null;
   }
 
   // ============================================================
@@ -2694,6 +2537,7 @@ export class CodexAgent extends BaseAgent {
         await withTimeout(completionPromise, 30000, 'runMiniCompletion timed out after 30s');
       } catch (e) {
         this.debug(`[runMiniCompletion] Timeout waiting for completion`);
+        throw e;
       }
 
       const text = result.trim() || null;
