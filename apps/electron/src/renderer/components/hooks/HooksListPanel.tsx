@@ -328,9 +328,9 @@ export function HooksListPanel({
             <EmptyMedia variant="icon">
               <Webhook />
             </EmptyMedia>
-            <EmptyTitle>No tasks configured</EmptyTitle>
+            <EmptyTitle>No automations configured</EmptyTitle>
             <EmptyDescription>
-              Tasks run actions when events occur — execute commands on schedules,
+              Automations run actions when events occur — execute commands on schedules,
               react to label changes, or trigger prompts automatically.
             </EmptyDescription>
           </EmptyHeader>
@@ -350,7 +350,7 @@ export function HooksListPanel({
             setSearchActive(false)
             setSearchQuery('')
           }}
-          placeholder="Search tasks..."
+          placeholder="Search automations..."
           resultCount={isSearchMode ? filteredHooks.length : undefined}
         />
       )}
@@ -359,7 +359,7 @@ export function HooksListPanel({
       {filteredHooks.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-1">
           <p className="text-sm text-muted-foreground">
-            {isSearchMode ? 'No tasks found' : 'No tasks configured.'}
+            {isSearchMode ? 'No automations found' : 'No automations configured.'}
           </p>
           {isSearchMode && (
             <button

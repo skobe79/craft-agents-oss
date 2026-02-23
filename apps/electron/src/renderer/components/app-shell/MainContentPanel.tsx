@@ -237,7 +237,7 @@ export function MainContentPanel({
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>
         <div className="flex items-center justify-center h-full text-muted-foreground">
-          <p className="text-sm">No tasks configured</p>
+          <p className="text-sm">No automations configured</p>
         </div>
       </Panel>
     )

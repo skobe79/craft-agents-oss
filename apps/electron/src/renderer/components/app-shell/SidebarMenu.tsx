@@ -199,20 +199,20 @@ export function SidebarMenu({
     )
   }
 
-  // Tasks: show "Add Task" and "Learn More"
+  // Tasks: show "Add Automation" and "Learn More"
   if (type === 'tasks') {
     return (
       <>
         {onAddTask && (
           <MenuItem onClick={onAddTask}>
             <Plus className="h-3.5 w-3.5" />
-            <span className="flex-1">Add Task</span>
+            <span className="flex-1">Add Automation</span>
           </MenuItem>
         )}
         <Separator />
         <MenuItem onClick={() => window.electronAPI.openUrl(getDocUrl('tasks'))}>
           <ExternalLink className="h-3.5 w-3.5" />
-          <span className="flex-1">Learn More about Tasks</span>
+          <span className="flex-1">Learn More about Automations</span>
         </MenuItem>
       </>
     )

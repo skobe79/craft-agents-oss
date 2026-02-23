@@ -135,7 +135,7 @@ export function useHooks(
       hook.matcherIndex,
       !hook.enabled,
     ).catch(() => {
-      toast.error('Failed to toggle task')
+      toast.error('Failed to toggle automation')
     })
   }, [hooks, activeWorkspaceId])
 
@@ -143,7 +143,7 @@ export function useHooks(
     const hook = hooks.find(h => h.id === hookId)
     if (!hook || !activeWorkspaceId) return
     window.electronAPI.duplicateHook(activeWorkspaceId, hook.event, hook.matcherIndex)
-      .catch(() => toast.error('Failed to duplicate task'))
+      .catch(() => toast.error('Failed to duplicate automation'))
   }, [hooks, activeWorkspaceId])
 
   // Delete: show confirmation dialog
@@ -156,7 +156,7 @@ export function useHooks(
   const confirmDeleteHook = useCallback(() => {
     if (!pendingDeleteHook || !activeWorkspaceId) return
     window.electronAPI.deleteHook(activeWorkspaceId, pendingDeleteHook.event, pendingDeleteHook.matcherIndex)
-      .catch(() => toast.error('Failed to delete task'))
+      .catch(() => toast.error('Failed to delete automation'))
     setHookPendingDelete(null)
   }, [pendingDeleteHook, activeWorkspaceId])
 

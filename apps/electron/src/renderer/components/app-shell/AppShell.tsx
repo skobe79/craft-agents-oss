@@ -1774,8 +1774,8 @@ function AppShellContent({
     setTimeout(() => setEditPopoverOpen('add-skill'), 50)
   }, [captureContextMenuPosition])
 
-  // Handler for "Add Task" context menu action
-  // Opens the EditPopover for adding a new task (hook)
+  // Handler for "Add Automation" context menu action
+  // Opens the EditPopover for adding a new automation (hook)
   const openAddTask = useCallback(() => {
     captureContextMenuPosition()
     setTimeout(() => setEditPopoverOpen('hook-config'), 50)
@@ -1993,12 +1993,12 @@ function AppShellContent({
 
     // Tasks navigator
     if (isTasksNavigation(navState)) {
-      if (!taskFilter) return 'All Tasks'
+      if (!taskFilter) return 'All Automations'
       switch (taskFilter.taskType) {
         case 'scheduled': return 'Scheduled'
         case 'event': return 'Event-based'
         case 'agentic': return 'Agentic'
-        default: return 'All Tasks'
+        default: return 'All Automations'
       }
     }
 
@@ -2344,7 +2344,7 @@ function AppShellContent({
                     },
                     {
                       id: "nav:tasks",
-                      title: "Tasks",
+                      title: "Automations",
                       label: String(hooks.length),
                       icon: ListTodo,
                       variant: (isTasksNavigation(navState) && !taskFilter) ? "default" : "ghost",
@@ -3100,13 +3100,13 @@ function AppShellContent({
                       {...getEditConfig('add-skill', activeWorkspace.rootPath)}
                     />
                   )}
-                  {/* Add Task button (only for tasks mode) */}
+                  {/* Add Automation button (only for tasks mode) */}
                   {isTasksNavigation(navState) && activeWorkspace && (
                     <EditPopover
                       trigger={
                         <HeaderIconButton
                           icon={<Plus className="h-4 w-4" />}
-                          tooltip="Add Task"
+                          tooltip="Add Automation"
                         />
                       }
                       {...getEditConfig('hook-config', activeWorkspace.rootPath)}
@@ -3463,7 +3463,7 @@ function AppShellContent({
             align="start"
             {...getEditConfig('add-skill', activeWorkspace.rootPath)}
           />
-          {/* Add Task EditPopover - triggered from "Add Task" context menu on tasks */}
+          {/* Add Automation EditPopover - triggered from "Add Automation" context menu on tasks */}
           <EditPopover
             open={editPopoverOpen === 'hook-config'}
             onOpenChange={(isOpen) => setEditPopoverOpen(isOpen ? 'hook-config' : null)}
@@ -3530,9 +3530,9 @@ function AppShellContent({
       <Dialog open={!!hookPendingDelete} onOpenChange={(open) => { if (!open) setHookPendingDelete(null) }}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Delete Task</DialogTitle>
+            <DialogTitle>Delete Automation</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete <strong>{pendingDeleteHook?.name}</strong>? This will remove the task from your tasks.json configuration.
+              Are you sure you want to delete <strong>{pendingDeleteHook?.name}</strong>? This will remove the automation from your tasks.json configuration.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
