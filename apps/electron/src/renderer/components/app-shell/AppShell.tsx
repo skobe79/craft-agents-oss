@@ -320,7 +320,7 @@ function FilterLabelItems({
             <DropdownMenuSub key={label.id}>
               <StyledDropdownMenuSubTrigger>
                 <FilterMenuRow
-                  icon={<LabelIcon label={label} size="sm" hasChildren />}
+                  icon={<LabelIcon label={label} size="lg" hasChildren />}
                   label={label.name}
                   accessory={
                     showIndicator ? <Check className="h-3 w-3 text-muted-foreground" /> : undefined
@@ -335,7 +335,7 @@ function FilterLabelItems({
                       {/* Click the group title to clear, hover to open mode submenu */}
                       <StyledDropdownMenuSubTrigger onClick={(e) => { e.preventDefault(); toggleLabel(label.id) }}>
                         <FilterMenuRow
-                          icon={<LabelIcon label={label} size="sm" hasChildren />}
+                          icon={<LabelIcon label={label} size="lg" hasChildren />}
                           label={label.name}
                           accessory={<FilterModeBadge mode={mode} />}
                         />
@@ -364,7 +364,7 @@ function FilterLabelItems({
                       }}
                     >
                       <FilterMenuRow
-                        icon={<LabelIcon label={label} size="sm" hasChildren />}
+                        icon={<LabelIcon label={label} size="lg" hasChildren />}
                         label={label.name}
                         accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : undefined}
                       />
@@ -390,7 +390,7 @@ function FilterLabelItems({
               {/* Click the item itself to clear, hover to open mode submenu */}
               <StyledDropdownMenuSubTrigger onClick={(e) => { e.preventDefault(); toggleLabel(label.id) }}>
                 <FilterMenuRow
-                  icon={<LabelIcon label={label} size="sm" />}
+                  icon={<LabelIcon label={label} size="lg" />}
                   label={label.name}
                   accessory={<FilterModeBadge mode={mode} />}
                 />
@@ -414,7 +414,7 @@ function FilterLabelItems({
             }}
           >
             <FilterMenuRow
-              icon={<LabelIcon label={label} size="sm" />}
+              icon={<LabelIcon label={label} size="lg" />}
               label={label.name}
               accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : undefined}
             />
@@ -754,6 +754,7 @@ function AppShellContent({
   React.useEffect(() => {
     setSkillsAtom(skills)
   }, [skills, setSkillsAtom])
+
   // Whether local MCP servers are enabled (affects stdio source status)
   const [localMcpEnabled, setLocalMcpEnabled] = React.useState(true)
 
@@ -836,7 +837,7 @@ function AppShellContent({
 
   // Subscribe to live skill updates (when skills are added/removed dynamically)
   React.useEffect(() => {
-    const cleanup = window.electronAPI.onSkillsChanged?.((updatedSkills) => {
+    const cleanup = window.electronAPI.onSkillsChanged((updatedSkills) => {
       setSkills(updatedSkills || [])
     })
     return cleanup
@@ -998,7 +999,7 @@ function AppShellContent({
 
   // Zone navigation - explicit keyboard intent, always move DOM focus
   useAction('nav.focusSidebar', () => focusZone('sidebar', { intent: 'keyboard' }))
-  useAction('nav.focusSessionList', () => focusZone('session-list', { intent: 'keyboard' }))
+  useAction('nav.focusNavigator', () => focusZone('navigator', { intent: 'keyboard' }))
   useAction('nav.focusChat', () => focusZone('chat', { intent: 'keyboard' }))
 
   // Tab navigation between zones
@@ -1861,8 +1862,8 @@ function AppShellContent({
       }
       case 'ArrowRight': {
         e.preventDefault()
-        // Move to next zone (session list) - keyboard navigation
-        focusZone('session-list', { intent: 'keyboard' })
+        // Move to next zone (navigator) - keyboard navigation
+        focusZone('navigator', { intent: 'keyboard' })
         break
       }
       case 'Enter':
@@ -2566,7 +2567,7 @@ function AppShellContent({
                                   return (
                                     <StyledDropdownMenuItem disabled key={`pinned-label-${label.id}`}>
                                       <FilterMenuRow
-                                        icon={<LabelIcon label={label} size="sm" />}
+                                        icon={<LabelIcon label={label} size="lg" />}
                                         label={label.name}
                                         accessory={<Check className="h-3 w-3 text-muted-foreground" />}
                                       />
@@ -2614,7 +2615,7 @@ function AppShellContent({
                                     <DropdownMenuSub key={`sel-label-${labelId}`}>
                                       <StyledDropdownMenuSubTrigger onClick={(e) => { e.preventDefault(); setLabelFilter(prev => { const next = new Map(prev); next.delete(labelId); return next }) }}>
                                         <FilterMenuRow
-                                          icon={<LabelIcon label={label} size="sm" />}
+                                          icon={<LabelIcon label={label} size="lg" />}
                                           label={label.name}
                                           accessory={<FilterModeBadge mode={mode} />}
                                         />
@@ -2871,7 +2872,7 @@ function AppShellContent({
                                               onClick={(e) => { e.preventDefault(); setLabelFilter(prev => { const next = new Map(prev); next.delete(item.id); return next }) }}
                                             >
                                               <FilterMenuRow
-                                                icon={<LabelIcon label={item.config} size="sm" />}
+                                                icon={<LabelIcon label={item.config} size="lg" />}
                                                 label={labelDisplay}
                                                 accessory={<FilterModeBadge mode={currentMode} />}
                                               />
@@ -2918,7 +2919,7 @@ function AppShellContent({
                                           )}
                                         >
                                           <FilterMenuRow
-                                            icon={<LabelIcon label={item.config} size="sm" />}
+                                            icon={<LabelIcon label={item.config} size="lg" />}
                                             label={labelDisplay}
                                             accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : null}
                                           />
