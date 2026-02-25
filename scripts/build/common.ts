@@ -261,6 +261,12 @@ export function copyInterceptor(config: BuildConfig): void {
     copyFileSync(commonSource, join(destDir, 'interceptor-common.ts'));
   }
 
+  // Copy request utilities (imported by unified-network-interceptor.ts)
+  const requestUtilsSource = join(sourceDir, 'interceptor-request-utils.ts');
+  if (existsSync(requestUtilsSource)) {
+    copyFileSync(requestUtilsSource, join(destDir, 'interceptor-request-utils.ts'));
+  }
+
   // Copy feature flags (imported by unified-network-interceptor.ts for fast mode / source templates)
   const featureFlagsSource = join(sourceDir, 'feature-flags.ts');
   if (existsSync(featureFlagsSource)) {
