@@ -1,6 +1,6 @@
 {
   "name": "craft-agent",
-  "version": "0.4.8",
+  "version": "0.5.0",
   "description": "Claude Code-like agent for Craft documents",
   "type": "module",
   "private": true,
@@ -38,6 +38,7 @@
     "electron:dist:mac": "bun run electron:build && electron-builder --config electron-builder.yml --project apps/electron --mac",
     "electron:dist:win": "bun run electron:build && electron-builder --config electron-builder.yml --project apps/electron --win",
     "electron:dist:linux": "bun run electron:build && electron-builder --config electron-builder.yml --project apps/electron --linux",
+    "playground:dev": "lsof -ti:5173 | xargs kill -9 2>/dev/null; vite dev --config apps/electron/vite.config.ts --open /playground.html",
     "viewer:dev": "lsof -ti:5174 | xargs kill -9 2>/dev/null; vite dev --config apps/viewer/vite.config.ts --open /s/tz5-13I84pwK_he",
     "viewer:build": "vite build --config apps/viewer/vite.config.ts",
     "viewer:preview": "vite preview --config apps/viewer/vite.config.ts",

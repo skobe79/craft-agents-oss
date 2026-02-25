@@ -12,7 +12,7 @@ import { registerOnboardingHandlers } from './onboarding'
 import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type SendMessageOptions, type LlmConnectionSetup } from '../shared/types'
 import { readFileAttachment, perf, validateImageForClaudeAPI, IMAGE_LIMITS } from '@craft-agent/shared/utils'
 import { safeJsonParse } from '@craft-agent/shared/utils/files'
-import { getPreferencesPath, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, loadStoredConfig, saveConfig, type Workspace, getLlmConnections, getLlmConnection, addLlmConnection, updateLlmConnection, deleteLlmConnection, getDefaultLlmConnection, setDefaultLlmConnection, touchLlmConnection, isCompatProvider, isAnthropicProvider, isOpenAIProvider, getDefaultModelsForConnection, getDefaultModelForConnection, type LlmConnection, type LlmConnectionWithStatus, getGitBashPath, setGitBashPath, clearGitBashPath } from '@craft-agent/shared/config'
+import { getPreferencesPath, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, loadStoredConfig, saveConfig, type Workspace, getLlmConnections, getLlmConnection, addLlmConnection, updateLlmConnection, deleteLlmConnection, getDefaultLlmConnection, setDefaultLlmConnection, touchLlmConnection, isCompatProvider, isAnthropicProvider, getDefaultModelsForConnection, getDefaultModelForConnection, type LlmConnection, type LlmConnectionWithStatus, getGitBashPath, setGitBashPath, clearGitBashPath } from '@craft-agent/shared/config'
 import { getSessionAttachmentsPath, validateSessionId } from '@craft-agent/shared/sessions'
 import { loadWorkspaceSources, getSourcesBySlugs, type LoadedSource } from '@craft-agent/shared/sources'
 import { isValidThinkingLevel } from '@craft-agent/shared/agent/thinking-levels'
@@ -25,7 +25,7 @@ import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { MarkItDown } from 'markitdown-js'
 import { isUsableGitBashPath, validateGitBashPath } from './git-bash'
 import { getModelRefreshService } from './model-fetchers'
-import { parseTestConnectionError, createBuiltInConnection, validateModelList } from './connection-setup-logic'
+import { parseTestConnectionError, createBuiltInConnection, validateModelList, piAuthProviderDisplayName } from './connection-setup-logic'
 
 /**
  * Sanitizes a filename to prevent path traversal and filesystem issues.
@@ -1288,16 +1288,6 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
           }
         }
 
-        if (isOpenAIProvider(connection.providerType) && connection.authType !== 'oauth') {
-          const pt = hasCustomEndpoint ? 'openai_compat' as const : 'openai' as const
-          updates.providerType = pt
-          updates.authType = hasCustomEndpoint ? 'api_key_with_endpoint' : 'api_key'
-          if (!hasCustomEndpoint) {
-            updates.models = getDefaultModelsForConnection(pt)
-            updates.defaultModel = getDefaultModelForConnection(pt)
-          }
-        }
-
         // Pi API key flow: store baseUrl on the connection (Pi SDK doesn't use it yet,
         // but it's persisted for future backend support)
 
@@ -1312,8 +1302,13 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       // Pi API key flow: set piAuthProvider from setup data (e.g. 'anthropic', 'google', 'openai')
       if (setup.piAuthProvider) {
         updates.piAuthProvider = setup.piAuthProvider
-        // Only set default models when using standard Pi provider (not custom endpoint)
-        if (!hasCustomEndpoint) {
+        // Update connection name to show the actual provider (e.g. "Craft Agents Backend (Google AI Studio)")
+        const providerName = piAuthProviderDisplayName(setup.piAuthProvider)
+        if (providerName) {
+          updates.name = `Craft Agents Backend (${providerName})`
+        }
+        // Only set default models when using standard Pi provider AND user didn't pick explicit models
+        if (!hasCustomEndpoint && !setup.models?.length) {
           updates.models = getDefaultModelsForConnection('pi', setup.piAuthProvider)
           updates.defaultModel = getDefaultModelForConnection('pi', setup.piAuthProvider)
         }
@@ -1366,9 +1361,12 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
 
       // Fetch available models (non-blocking — validation will also trigger refresh)
-      getModelRefreshService().refreshNow(setup.slug).catch(err => {
-        ipcLog.warn(`Model refresh after setup failed for ${setup.slug}: ${err instanceof Error ? err.message : err}`)
-      })
+      // Skip when user explicitly provided models (tier selection) to avoid overwriting their choices
+      if (!setup.models?.length) {
+        getModelRefreshService().refreshNow(setup.slug).catch(err => {
+          ipcLog.warn(`Model refresh after setup failed for ${setup.slug}: ${err instanceof Error ? err.message : err}`)
+        })
+      }
 
       // Reinitialize auth with the newly-created connection's slug
       // (not the default, which may be a different connection)
@@ -1438,6 +1436,27 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   ipcMain.handle(IPC_CHANNELS.PI_GET_PROVIDER_BASE_URL, async (_event, provider: string) => {
     const { getPiProviderBaseUrl } = await import('@craft-agent/shared/config')
     return getPiProviderBaseUrl(provider)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.PI_GET_PROVIDER_MODELS, async (_event, provider: string) => {
+    const { getModels } = await import('@mariozechner/pi-ai')
+    try {
+      const models = getModels(provider as Parameters<typeof getModels>[0])
+      const sorted = [...models].sort((a, b) => b.cost.output - a.cost.output || b.cost.input - a.cost.input)
+      return {
+        models: sorted.map(m => ({
+          id: m.id,
+          name: m.name,
+          costInput: m.cost.input,
+          costOutput: m.cost.output,
+          contextWindow: m.contextWindow,
+          reasoning: m.reasoning,
+        })),
+        totalCount: models.length,
+      }
+    } catch {
+      return { models: [], totalCount: 0 }
+    }
   })
 
   // ============================================================
@@ -1885,37 +1904,68 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // GitHub Copilot OAuth
   // ============================================================
 
-  // Start GitHub Copilot OAuth flow (device flow)
+  let copilotOAuthAbort: AbortController | null = null
+
+  // Start GitHub Copilot OAuth flow (device flow via Pi SDK)
   ipcMain.handle(IPC_CHANNELS.COPILOT_START_OAUTH, async (event, connectionSlug: string): Promise<{
     success: boolean
     error?: string
   }> => {
     try {
-      const { startGithubOAuth } = await import('@craft-agent/shared/auth')
+      const { loginGitHubCopilot } = await import('@mariozechner/pi-ai')
       const credentialManager = getCredentialManager()
 
-      ipcLog.info(`Starting GitHub OAuth device flow for connection: ${connectionSlug}`)
+      // Cancel any previous in-flight flow
+      copilotOAuthAbort?.abort()
+      copilotOAuthAbort = new AbortController()
 
-      // Start device flow — tokens are returned directly once user authorizes
-      const tokens = await startGithubOAuth(
-        (status) => {
-          ipcLog.info(`[GitHub OAuth] ${status}`)
-        },
-        (deviceCode) => {
-          // Send device code to renderer so the UI can display it
-          event.sender.send(IPC_CHANNELS.COPILOT_DEVICE_CODE, deviceCode)
-        },
-      )
+      ipcLog.info(`Starting GitHub Copilot OAuth device flow for connection: ${connectionSlug}`)
 
-      // Store token in credential manager (no refresh token/expiry for device flow)
-      await credentialManager.setLlmOAuth(connectionSlug, {
-        accessToken: tokens.accessToken,
+      // Use Pi SDK's login flow — this handles the device code flow AND
+      // the critical Copilot token exchange that determines the correct
+      // API endpoint for the user's subscription tier (individual/business/enterprise).
+      const credentials = await loginGitHubCopilot({
+        onAuth: (url, instructions) => {
+          // Extract user code from instructions (format: "Enter code: XXXX-YYYY")
+          const codeMatch = instructions?.match(/:\s*(\S+)/)
+          const userCode = codeMatch?.[1] ?? ''
+          ipcLog.info(`[GitHub OAuth] Device code: ${userCode}`)
+          event.sender.send(IPC_CHANNELS.COPILOT_DEVICE_CODE, {
+            userCode,
+            verificationUri: url,
+          })
+          // Open GitHub device code page in default browser
+          shell.openExternal(url).catch(err => {
+            ipcLog.warn(`Failed to open browser for GitHub OAuth: ${err}`)
+          })
+        },
+        onPrompt: async () => {
+          // Pi SDK asks for GitHub Enterprise domain — return empty for github.com
+          return ''
+        },
+        onProgress: (message) => {
+          ipcLog.info(`[GitHub OAuth] ${message}`)
+        },
+        signal: copilotOAuthAbort.signal,
       })
 
-      ipcLog.info('GitHub OAuth completed successfully')
+      copilotOAuthAbort = null
+
+      // Store the full OAuth credential:
+      // - accessToken = Copilot API token (contains proxy-ep for correct endpoint)
+      // - refreshToken = GitHub access token (used to refresh the Copilot token)
+      // - expiresAt = Copilot token expiry (short-lived, ~1 hour)
+      await credentialManager.setLlmOAuth(connectionSlug, {
+        accessToken: credentials.access,
+        refreshToken: credentials.refresh,
+        expiresAt: credentials.expires,
+      })
+
+      ipcLog.info('GitHub Copilot OAuth completed successfully')
       return { success: true }
     } catch (error) {
-      ipcLog.error('GitHub OAuth failed:', error)
+      copilotOAuthAbort = null
+      ipcLog.error('GitHub Copilot OAuth failed:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'OAuth authentication failed',
@@ -1925,19 +1975,15 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
 
   // Cancel ongoing GitHub OAuth flow
   ipcMain.handle(IPC_CHANNELS.COPILOT_CANCEL_OAUTH, async (): Promise<{ success: boolean }> => {
-    try {
-      const { cancelGithubOAuth } = await import('@craft-agent/shared/auth')
-      cancelGithubOAuth()
-      ipcLog.info('GitHub OAuth cancelled')
-      return { success: true }
-    } catch (error) {
-      ipcLog.error('Failed to cancel GitHub OAuth:', error)
-      return { success: false }
+    if (copilotOAuthAbort) {
+      copilotOAuthAbort.abort()
+      copilotOAuthAbort = null
+      ipcLog.info('GitHub Copilot OAuth cancelled')
     }
+    return { success: true }
   })
 
   // Get GitHub Copilot authentication status
-  // Device flow tokens don't expire — just check if access token exists
   ipcMain.handle(IPC_CHANNELS.COPILOT_GET_AUTH_STATUS, async (_event, connectionSlug: string): Promise<{
     authenticated: boolean
   }> => {

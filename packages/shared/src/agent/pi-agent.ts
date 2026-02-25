@@ -101,7 +101,7 @@ import { LLM_QUERY_TIMEOUT_MS, type LLMQueryRequest, type LLMQueryResult } from 
  * planning heuristics, config watching, usage tracking).
  */
 export class PiAgent extends BaseAgent {
-  protected backendName = 'Pi';
+  protected backendName = 'Craft Agents Backend';
 
   // ============================================================
   // Subprocess State
@@ -296,6 +296,18 @@ export class PiAgent extends BaseAgent {
       this.eventQueue.complete();
     });
 
+    // For Copilot OAuth: preemptively refresh the short-lived Copilot token
+    // before sending it to the subprocess, so we always start with a valid token.
+    const piAuthProvider = getBackendRuntime(this.config).piAuthProvider;
+    if (this.config.authType === 'oauth' && piAuthProvider === 'github-copilot') {
+      const slug = this.config.connectionSlug || 'pi';
+      const stored = await getCredentialManager().getLlmOAuth(slug);
+      if (stored?.refreshToken && (!stored.expiresAt || stored.expiresAt < Date.now() + 5 * 60_000)) {
+        this.debug('Copilot token expired or expiring soon — refreshing before session start');
+        await this.refreshAndPushTokens();
+      }
+    }
+
     // Retrieve auth credentials for the subprocess
     const piAuth = await this.getPiAuth();
     const legacyApiKey = piAuth ? undefined : await this.getApiKey();
@@ -385,11 +397,25 @@ export class PiAgent extends BaseAgent {
       const slug = this.config.connectionSlug || 'pi';
 
       if (this.config.authType === 'oauth') {
-        // OAuth-based connections: the OAuth exchange already happened on the Craft side.
-        // Pass the resulting access token as api_key — Pi SDK providers use it as a
-        // bearer token directly (same as the legacy getApiKey() behavior).
         const oauth = await credentialManager.getLlmOAuth(slug);
         if (oauth?.accessToken) {
+          // Copilot: pass full OAuth credential so the Pi SDK can derive the
+          // correct API endpoint from the Copilot token's proxy-ep field.
+          // The refresh token is the GitHub access token used to obtain fresh
+          // Copilot tokens when they expire (~1 hour).
+          if (piAuthProvider === 'github-copilot' && oauth.refreshToken) {
+            this.debug(`Retrieved Copilot OAuth credential for Pi provider: ${piAuthProvider}`);
+            return {
+              provider: piAuthProvider,
+              credential: {
+                type: 'oauth',
+                access: oauth.accessToken,
+                refresh: oauth.refreshToken,
+                expires: oauth.expiresAt ?? 0,
+              },
+            };
+          }
+          // Other OAuth providers: pass as api_key (bearer token)
           this.debug(`Retrieved OAuth access token for Pi provider: ${piAuthProvider}`);
           return {
             provider: piAuthProvider,
@@ -418,8 +444,7 @@ export class PiAgent extends BaseAgent {
 
   /**
    * Refresh OAuth tokens and push updated credentials to the running subprocess.
-   * Uses the same refreshChatGptTokens() utility that CodexAgent uses.
-   * Only relevant for ChatGPT Plus OAuth connections (authType === 'oauth').
+   * Handles both Copilot (Pi SDK) and ChatGPT Plus token refresh.
    */
   private async refreshAndPushTokens(): Promise<void> {
     if (this.config.authType !== 'oauth') return;
@@ -432,6 +457,7 @@ export class PiAgent extends BaseAgent {
 
     this.tokenRefreshInProgress = (async () => {
       const slug = this.config.connectionSlug || 'pi';
+      const piAuthProvider = getBackendRuntime(this.config).piAuthProvider;
       const credentialManager = getCredentialManager();
       const stored = await credentialManager.getLlmOAuth(slug);
 
@@ -442,13 +468,25 @@ export class PiAgent extends BaseAgent {
       }
 
       try {
-        const newTokens = await refreshChatGptTokens(stored.refreshToken);
-        await credentialManager.setLlmOAuth(slug, {
-          accessToken: newTokens.accessToken,
-          idToken: newTokens.idToken,
-          refreshToken: newTokens.refreshToken,
-          expiresAt: newTokens.expiresAt,
-        });
+        if (piAuthProvider === 'github-copilot') {
+          // Copilot: refresh the short-lived Copilot token using the GitHub access token
+          const { refreshGitHubCopilotToken } = await import('@mariozechner/pi-ai');
+          const newCreds = await refreshGitHubCopilotToken(stored.refreshToken);
+          await credentialManager.setLlmOAuth(slug, {
+            accessToken: newCreds.access,
+            refreshToken: newCreds.refresh,
+            expiresAt: newCreds.expires,
+          });
+        } else {
+          // ChatGPT Plus: use existing refresh utility
+          const newTokens = await refreshChatGptTokens(stored.refreshToken);
+          await credentialManager.setLlmOAuth(slug, {
+            accessToken: newTokens.accessToken,
+            idToken: newTokens.idToken,
+            refreshToken: newTokens.refreshToken,
+            expiresAt: newTokens.expiresAt,
+          });
+        }
         this.debug('Token refresh successful');
 
         // Push refreshed credentials to running subprocess
@@ -592,7 +630,9 @@ export class PiAgent extends BaseAgent {
         // Detect auth errors and attempt token refresh for OAuth connections
         if (this.config.authType === 'oauth' && (
           errorMsg.includes('401') ||
+          errorMsg.includes('421') ||
           errorMsg.includes('unauthorized') ||
+          errorMsg.includes('misdirected') ||
           (errorMsg.includes('token') && errorMsg.includes('expired')) ||
           errorMsg.includes('authentication')
         )) {
@@ -1065,7 +1105,7 @@ export class PiAgent extends BaseAgent {
   // Chat (AsyncGenerator with event queue -- mirrors CopilotAgent)
   // ============================================================
 
-  async *chat(
+  protected async *chatImpl(
     messageParam: string,
     attachments?: FileAttachment[],
     options?: ChatOptions
@@ -1127,14 +1167,11 @@ export class PiAgent extends BaseAgent {
         this.config.workspace.rootPath,
         this.config.session?.workingDirectory,
         this.config.systemPromptPreset,
-        'Pi' // backendName
+        'Craft Agents Backend' // backendName
       );
 
       // Build context from sources
       const sourceContext = this.sourceManager.formatSourceState();
-
-      // Extract skills from message
-      const { skillContents, cleanMessage: effectiveMessage } = this.extractSkillContent(message);
 
       // Build context parts using centralized PromptBuilder
       const contextParts = this.promptBuilder.buildContextParts(
@@ -1170,14 +1207,14 @@ export class PiAgent extends BaseAgent {
       // blocks and will echo <session_state>, <sources>, etc. back in their response.
       const fullSystemPrompt = [
         systemPrompt,
-        ...skillContents,
         ...contextParts,
       ].filter(Boolean).join('\n\n');
 
-      // User message: only attachments + the actual message
+      // User message: attachments + the actual message
+      // (skill read directive is already prepended to message by BaseAgent.chat())
       const userParts = [
         ...attachmentParts,
-        effectiveMessage,
+        message,
       ].filter(Boolean);
       const userMessage = userParts.join('\n\n');
 
