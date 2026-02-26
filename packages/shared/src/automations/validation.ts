@@ -13,6 +13,8 @@ import { AutomationsConfigSchema, zodErrorToIssues, DEPRECATED_EVENT_ALIASES } f
 import { isValidLabelId } from '../labels/storage.ts';
 import { extractLabelId } from '../labels/values.ts';
 import { getLlmConnection } from '../config/storage.ts';
+import { getDefaultModelsForConnection } from '../config/llm-connections.ts';
+import type { ModelDefinition } from '../config/models.ts';
 import { Cron } from 'croner';
 import type { ValidationResult, ValidationIssue } from '../config/validators.ts';
 import type { AutomationsConfig, AutomationsValidationResult } from './types.ts';
@@ -280,11 +282,12 @@ export function validateAutomations(workspaceRoot: string): ValidationResult {
   }
 
   // Additional workspace-aware validations
+  const errors: ValidationIssue[] = [];
   const warnings = [...contentResult.warnings];
 
-  // Validate labels and llmConnection slugs exist
+  // Validate labels, llmConnection slugs, and model compatibility
   try {
-    const config = content as { automations?: Record<string, Array<{ labels?: string[]; actions?: Array<{ type: string; llmConnection?: string }> }>> };
+    const config = content as { automations?: Record<string, Array<{ labels?: string[]; actions?: Array<{ type: string; llmConnection?: string; model?: string }> }>> };
     const labelEntries = config.automations;
     if (labelEntries) {
       for (const [event, matchers] of Object.entries(labelEntries)) {
@@ -306,20 +309,44 @@ export function validateAutomations(workspaceRoot: string): ValidationResult {
               }
             }
           }
-          // Validate llmConnection slugs in prompt actions
+          // Validate llmConnection slugs and model compatibility in prompt actions
           const actions = matcher?.actions;
           if (actions) {
             for (const action of actions) {
-              if (action.type === 'prompt' && action.llmConnection) {
+              if (action.type !== 'prompt') continue;
+
+              if (action.llmConnection) {
                 const connection = getLlmConnection(action.llmConnection);
                 if (!connection) {
-                  warnings.push({
+                  // Missing connection is an error — the automation will fail at runtime
+                  // (falls back to default connection, which likely doesn't support the model)
+                  errors.push({
                     file,
                     path: `automations.${event}[${i}].actions`,
                     message: `LLM connection "${action.llmConnection}" not found in config`,
-                    severity: 'warning',
+                    severity: 'error',
                     suggestion: 'Check the connection slug in AI Settings or config.json',
                   });
+                } else if (action.model) {
+                  // Validate model is available for this connection
+                  const availableModels = connection.models ?? getDefaultModelsForConnection(connection.providerType, connection.piAuthProvider);
+                  const modelIds = availableModels.map(m => typeof m === 'string' ? m : (m as ModelDefinition).id);
+                  // Check exact match or suffix match (e.g. "haiku" matches "claude-haiku-4-5-20251001")
+                  const modelValue = action.model;
+                  const isAvailable = modelIds.some(id =>
+                    id === modelValue || id.endsWith(`/${modelValue}`) ||
+                    // Also match short aliases: "haiku" → any id containing "haiku", "sonnet" → "sonnet", etc.
+                    id.toLowerCase().includes(modelValue.toLowerCase())
+                  );
+                  if (!isAvailable) {
+                    warnings.push({
+                      file,
+                      path: `automations.${event}[${i}].actions`,
+                      message: `Model "${modelValue}" may not be available on connection "${action.llmConnection}" (${connection.providerType})`,
+                      severity: 'warning',
+                      suggestion: `Available models: ${modelIds.slice(0, 5).join(', ')}${modelIds.length > 5 ? `, ... (${modelIds.length} total)` : ''}`,
+                    });
+                  }
                 }
               }
             }
@@ -331,9 +358,10 @@ export function validateAutomations(workspaceRoot: string): ValidationResult {
     // JSON already validated, this shouldn't happen
   }
 
+  const allErrors = [...contentResult.errors, ...errors];
   return {
-    valid: contentResult.valid,
-    errors: contentResult.errors,
+    valid: allErrors.length === 0,
+    errors: allErrors,
     warnings,
   };
 }
