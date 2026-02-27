@@ -205,6 +205,14 @@ export interface CoreBackendConfig {
   getRecoveryMessages?: () => RecoveryMessage[];
 
   /**
+   * Optional callback to resize an oversized image for API compatibility.
+   * Called from PreToolUse when Read targets an image exceeding the base64 size limit.
+   * Returns path to the resized temp file, or null if resize not possible.
+   * Provided by the host app (Electron uses nativeImage, server could use sharp, etc.).
+   */
+  onImageResize?: (filePath: string, maxSizeBytes: number) => Promise<string | null>;
+
+  /**
    * Pre-computed source configurations for initial setup.
    * Passed at construction so backends can set up sources in postInit().
    */
