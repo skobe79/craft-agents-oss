@@ -51,6 +51,7 @@ import { refreshChatGptTokens } from '../auth/chatgpt-oauth.ts';
 // Session-scoped tool callbacks (for SubmitPlan, source auth, etc.)
 import {
   registerSessionScopedToolCallbacks,
+  mergeSessionScopedToolCallbacks,
   unregisterSessionScopedToolCallbacks,
   setLastPlanFilePath,
   getSessionScopedToolCallbacks,
@@ -110,6 +111,7 @@ export const PI_BACKEND_SESSION_TOOL_NAMES = new Set<string>([
   'browser_back',
   'browser_forward',
   'browser_evaluate',
+  'browser_tool',
 ]);
 
 /**
@@ -1105,8 +1107,17 @@ export class PiAgent extends BaseAgent {
             await browserFns.select(String(args.ref ?? ''), String(args.value ?? ''));
             return { content: `Selected "${String(args.value ?? '')}" in element ${String(args.ref ?? '')}`, isError: false };
           case 'browser_screenshot': {
-            const png = await browserFns.screenshot();
-            return { content: `Screenshot captured (${Math.round(png.length / 1024)}KB PNG, base64 omitted in Pi proxy mode)`, isError: false };
+            const result = await browserFns.screenshot({
+              mode: (args.mode as 'raw' | 'agent' | undefined),
+              refs: Array.isArray(args.refs) ? args.refs.map(String) : undefined,
+              includeLastAction: args.includeLastAction as boolean | undefined,
+              includeMetadata: args.includeMetadata as boolean | undefined,
+            });
+            let content = `Screenshot captured (${Math.round(result.png.length / 1024)}KB PNG, base64 omitted in Pi proxy mode)`;
+            if (result.metadata) {
+              content += `\n\nMetadata:\n${JSON.stringify(result.metadata, null, 2)}`;
+            }
+            return { content, isError: false };
           }
           case 'browser_scroll':
             await browserFns.scroll((args.direction as 'up' | 'down' | 'left' | 'right') ?? 'down', args.amount as number | undefined);
@@ -1121,6 +1132,131 @@ export class PiAgent extends BaseAgent {
             const result = await browserFns.evaluate(String(args.expression ?? ''));
             const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
             return { content: text || 'null', isError: false };
+          }
+          case 'browser_tool': {
+            const command = String(args.command ?? '').trim();
+            const help = [
+              'browser_tool command help',
+              '',
+              'Usage:',
+              '  --help',
+              '  open',
+              '  navigate <url>',
+              '  snapshot',
+              '  click <ref>',
+              '  fill <ref> <value>',
+              '  select <ref> <value>',
+              '  screenshot',
+              '  scroll <up|down|left|right> [amount]',
+              '  back',
+              '  forward',
+              '  evaluate <expression>',
+            ].join('\n');
+
+            if (!command) {
+              return { content: 'Missing command. Use "--help" to see supported browser_tool commands.', isError: true };
+            }
+
+            const parts = command.split(/\s+/);
+            const cmd = parts[0]?.toLowerCase();
+
+            if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') {
+              return { content: help, isError: false };
+            }
+
+            if (cmd === 'open') {
+              const result = await browserFns.openPanel();
+              return { content: `Opened in-app browser window (instance: ${result.instanceId})`, isError: false };
+            }
+
+            if (cmd === 'navigate') {
+              const url = parts.slice(1).join(' ').trim();
+              if (!url) return { content: 'navigate requires a URL. Example: navigate https://example.com', isError: true };
+              const result = await browserFns.navigate(url);
+              return { content: `Navigated to: ${result.url}\nTitle: ${result.title}`, isError: false };
+            }
+
+            if (cmd === 'snapshot') {
+              const snapshot = await browserFns.snapshot();
+              const lines: string[] = [
+                `URL: ${snapshot.url}`,
+                `Title: ${snapshot.title}`,
+                '',
+                `Elements (${snapshot.nodes.length}):`,
+              ];
+              for (const node of snapshot.nodes) {
+                let line = `  ${node.ref} [${node.role}] "${node.name}"`;
+                if (node.value !== undefined) line += ` value="${node.value}"`;
+                if (node.focused) line += ' (focused)';
+                if (node.checked) line += ' (checked)';
+                if (node.disabled) line += ' (disabled)';
+                if (node.description) line += ` — ${node.description}`;
+                lines.push(line);
+              }
+              return { content: lines.join('\n'), isError: false };
+            }
+
+            if (cmd === 'click') {
+              const ref = parts[1];
+              if (!ref) return { content: 'click requires a ref. Example: click @e1', isError: true };
+              await browserFns.click(ref);
+              return { content: `Clicked element ${ref}`, isError: false };
+            }
+
+            if (cmd === 'fill') {
+              const ref = parts[1];
+              const value = parts.slice(2).join(' ');
+              if (!ref || !value) return { content: 'fill requires ref and value. Example: fill @e5 hello world', isError: true };
+              await browserFns.fill(ref, value);
+              return { content: `Filled element ${ref} with "${value}"`, isError: false };
+            }
+
+            if (cmd === 'select') {
+              const ref = parts[1];
+              const value = parts.slice(2).join(' ');
+              if (!ref || !value) return { content: 'select requires ref and value. Example: select @e3 optionValue', isError: true };
+              await browserFns.select(ref, value);
+              return { content: `Selected "${value}" in element ${ref}`, isError: false };
+            }
+
+            if (cmd === 'screenshot') {
+              const result = await browserFns.screenshot();
+              return { content: `Screenshot captured (${Math.round(result.png.length / 1024)}KB PNG, base64 omitted in Pi proxy mode)`, isError: false };
+            }
+
+            if (cmd === 'scroll') {
+              const direction = parts[1] as 'up' | 'down' | 'left' | 'right' | undefined;
+              const amountRaw = parts[2];
+              if (!direction || !['up', 'down', 'left', 'right'].includes(direction)) {
+                return { content: 'scroll requires direction up|down|left|right. Example: scroll down 800', isError: true };
+              }
+              const amount = amountRaw ? Number(amountRaw) : undefined;
+              if (amountRaw && Number.isNaN(amount)) {
+                return { content: `Invalid scroll amount "${amountRaw}". Expected a number.`, isError: true };
+              }
+              await browserFns.scroll(direction, amount);
+              return { content: `Scrolled ${direction}${amount != null ? ` by ${amount}px` : ''}`, isError: false };
+            }
+
+            if (cmd === 'back') {
+              await browserFns.goBack();
+              return { content: 'Navigated back', isError: false };
+            }
+
+            if (cmd === 'forward') {
+              await browserFns.goForward();
+              return { content: 'Navigated forward', isError: false };
+            }
+
+            if (cmd === 'evaluate') {
+              const expression = parts.slice(1).join(' ').trim();
+              if (!expression) return { content: 'evaluate requires an expression. Example: evaluate document.title', isError: true };
+              const result = await browserFns.evaluate(expression);
+              const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+              return { content: text || 'null', isError: false };
+            }
+
+            return { content: `Unknown browser_tool command "${cmd}". Use "--help" to see supported commands.`, isError: true };
           }
           default:
             return { content: `Unknown session tool: ${toolName}`, isError: true };
@@ -1241,10 +1377,12 @@ export class PiAgent extends BaseAgent {
       prompt: message,
     });
 
-    // Register session-scoped tool callbacks (for SubmitPlan, source auth, etc.)
+    // Refresh session-scoped tool callbacks (for SubmitPlan, source auth, etc.)
+    // IMPORTANT: merge (don't replace) so SessionManager-provided browserPaneFns
+    // survives across turns.
     const sessionId = this.config.session?.id;
     if (sessionId) {
-      registerSessionScopedToolCallbacks(sessionId, {
+      mergeSessionScopedToolCallbacks(sessionId, {
         onPlanSubmitted: (planPath) => this.onPlanSubmitted?.(planPath),
         onAuthRequest: (request) => this.onAuthRequest?.(request),
         queryFn: (request) => this.queryLlm(request),

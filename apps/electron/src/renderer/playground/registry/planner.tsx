@@ -1,893 +1,766 @@
 import * as React from 'react'
+import type { ComponentEntry } from './types'
+import { DragDropManager } from '@dnd-kit/dom'
+import { Sortable } from '@dnd-kit/dom/sortable'
 import {
-  DndContext,
-  PointerSensor,
-  KeyboardSensor,
-  closestCenter,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  useDroppable,
-  DragOverlay,
-  type CollisionDetection,
-  type DropAnimation,
-  type DragStartEvent,
-  type DragEndEvent,
-  type DragOverEvent,
-  type DragCancelEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-  sortableKeyboardCoordinates,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { AnimatePresence, motion } from 'motion/react'
-import {
-  AlertTriangle,
+  CalendarDays,
   CheckCircle2,
   Circle,
-  Cloud,
+  Clock3,
   CloudAlert,
   CloudCheck,
   CloudOff,
   CloudUpload,
-  GripVertical,
+  FolderKanban,
+  History,
+  MoreHorizontal,
+  Link2,
   ListTodo,
-  PauseCircle,
-  XCircle,
+  User,
 } from 'lucide-react'
-import { Tooltip, TooltipTrigger, TooltipContent } from '@craft-agent/ui'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  StyledDropdownMenuContent,
+  StyledDropdownMenuItem,
+} from '@/components/ui/styled-dropdown'
 import { cn } from '@/lib/utils'
-import type { ComponentEntry } from './types'
+import './planner.css'
 
-type TaskState = 'todo' | 'in_progress' | 'blocked' | 'done' | 'cancelled'
+type TaskState = 'todo' | 'in_progress' | 'done' | 'cancelled'
 type SyncState = 'local_only' | 'pending_upload' | 'uploaded' | 'remote_only' | 'unavailable' | 'upload_failed'
+type PlannerEventType =
+  | 'task.created'
+  | 'task.updated'
+  | 'task.completed'
+  | 'task.cancelled'
+  | 'task.reopened'
+  | 'task.moved'
+  | 'task.session_linked'
+  | 'task.session_unlinked'
+  | 'task.session_snapshot_updated'
 
-function hasNoDndAncestor(element: HTMLElement | null): boolean {
-  while (element) {
-    if (element.dataset?.noDnd === 'true') return true
-    element = element.parentElement
-  }
-  return false
+type PlannerRow =
+  | { kind: 'heading'; headingId: string; key: string }
+  | { kind: 'task'; taskId: string; key: string }
+
+interface SessionSnapshot {
+  id: string
+  title: string
+  summary: string
+  lastUpdated: string
 }
 
-class SmartPointerSensor extends PointerSensor {
-  static activators = [
-    {
-      eventName: 'onPointerDown' as const,
-      handler: ({ nativeEvent }: { nativeEvent: PointerEvent }) => {
-        if (hasNoDndAncestor(nativeEvent.target as HTMLElement)) return false
-        return true
-      },
-    },
-  ]
+interface TaskSessionLinkLocal {
+  id: string
+  taskId: string
+  snapshotId: string
+  syncState: SyncState
 }
 
-const MIDPOINT_DEADZONE_PX = 8
-
-const composedCollisionDetection: CollisionDetection = (args) => {
-  const pointerCollisions = pointerWithin(args)
-  if (pointerCollisions.length > 0) return pointerCollisions
-  return closestCenter(args)
-}
-
-const overlayDropAnimation: DropAnimation = {
-  duration: 180,
-  easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+interface PlannerTaskEvent {
+  id: string
+  taskId: string
+  type: PlannerEventType
+  at: string
+  actor: string
+  payloadSummary: string
 }
 
 interface PlannerTask {
   id: string
+  headingId: string
   title: string
   notes: string
   state: TaskState
   due: string
-  syncState: SyncState
 }
 
 interface PlannerHeading {
   id: string
+  projectId: string
   title: string
-  tasks: PlannerTask[]
+  sortOrder: number
 }
 
-const TASK_STATE_META: Record<TaskState, { label: string; icon: React.ComponentType<{ className?: string }>; className: string }> = {
-  todo: { label: 'Todo', icon: Circle, className: 'text-foreground/40' },
-  in_progress: { label: 'In Progress', icon: PauseCircle, className: 'text-info' },
-  blocked: { label: 'Blocked', icon: AlertTriangle, className: 'text-warning' },
-  done: { label: 'Done', icon: CheckCircle2, className: 'text-success' },
-  cancelled: { label: 'Cancelled', icon: XCircle, className: 'text-destructive/80' },
+interface PlannerProject {
+  id: string
+  name: string
+  status: 'open' | 'archived'
+  sortOrder: number
+  installationHint: string
+  memberCount: number
 }
 
-const SYNC_META: Record<SyncState, { label: string; icon: React.ComponentType<{ className?: string }>; className: string }> = {
-  local_only: { label: 'Local only', icon: CloudOff, className: 'text-foreground/50 bg-foreground/5' },
-  pending_upload: { label: 'Pending upload', icon: CloudUpload, className: 'text-info bg-info/10' },
-  uploaded: { label: 'Uploaded', icon: CloudCheck, className: 'text-success bg-success/10' },
-  remote_only: { label: 'Remote only', icon: Cloud, className: 'text-accent bg-accent/10' },
-  unavailable: { label: 'Unavailable', icon: CloudAlert, className: 'text-warning bg-warning/10' },
-  upload_failed: { label: 'Upload failed', icon: AlertTriangle, className: 'text-destructive bg-destructive/10' },
+const projects: PlannerProject[] = [
+  { id: 'p1', name: 'Personal', status: 'open', sortOrder: 1, installationHint: 'MacBook · my-workspace', memberCount: 1 },
+  { id: 'p2', name: 'Planner V2', status: 'open', sortOrder: 2, installationHint: 'MacBook · my-workspace', memberCount: 3 },
+  { id: 'p3', name: 'Craft App', status: 'open', sortOrder: 3, installationHint: 'Import mounted locally', memberCount: 4 },
+]
+
+const initialHeadings: PlannerHeading[] = [
+  { id: 'h1', projectId: 'p2', title: 'Today', sortOrder: 1 },
+  { id: 'h2', projectId: 'p2', title: 'Upcoming', sortOrder: 2 },
+  { id: 'h3', projectId: 'p2', title: 'Later', sortOrder: 3 },
+]
+
+const initialTasks: PlannerTask[] = [
+  {
+    id: 't1',
+    headingId: 'h1',
+    title: 'Build Things-like planner shell in playground',
+    notes: 'Three-pane layout: projects, headings, tasks, and detail tabs. Keep rhythm calm and lightweight.',
+    state: 'in_progress',
+    due: 'Today · 21:00',
+  },
+  {
+    id: 't2',
+    headingId: 'h1',
+    title: 'Add linked session cards with sync-state badges',
+    notes: 'Snapshots should remain useful even if session cannot be resolved.',
+    state: 'todo',
+    due: 'Today · 22:00',
+  },
+  {
+    id: 't3',
+    headingId: 'h2',
+    title: 'Task timeline tab with append-only events',
+    notes: 'Map event types from task_events table to readable timeline rows.',
+    state: 'todo',
+    due: 'Tomorrow',
+  },
+  {
+    id: 't4',
+    headingId: 'h3',
+    title: 'Project sharing UX (members + roles)',
+    notes: 'Project ACL root with owner/editor/viewer hints.',
+    state: 'cancelled',
+    due: 'Next week',
+  },
+]
+
+const snapshots: SessionSnapshot[] = [
+  {
+    id: 's1',
+    title: 'Planner architecture review',
+    summary: 'Validated portable core + local integration split; queued DB schema migration checklist.',
+    lastUpdated: '5 min ago',
+  },
+  {
+    id: 's2',
+    title: 'Drag interaction tuning',
+    summary: 'Following the same dnd-kit/dom path as the vertical sample for consistency.',
+    lastUpdated: '1 hour ago',
+  },
+]
+
+const sessionLinks: TaskSessionLinkLocal[] = [
+  { id: 'l1', taskId: 't1', snapshotId: 's1', syncState: 'uploaded' },
+  { id: 'l2', taskId: 't1', snapshotId: 's2', syncState: 'pending_upload' },
+  { id: 'l3', taskId: 't2', snapshotId: 's1', syncState: 'unavailable' },
+]
+
+const events: PlannerTaskEvent[] = [
+  { id: 'e1', taskId: 't1', type: 'task.created', at: 'Today · 18:12', actor: 'Balint', payloadSummary: 'Task created in Today heading' },
+  { id: 'e2', taskId: 't1', type: 'task.session_linked', at: 'Today · 18:20', actor: 'Balint', payloadSummary: 'Linked session snapshot s1' },
+  { id: 'e3', taskId: 't1', type: 'task.updated', at: 'Today · 18:27', actor: 'Balint', payloadSummary: 'Updated notes and due date' },
+  { id: 'e4', taskId: 't1', type: 'task.session_snapshot_updated', at: 'Today · 18:42', actor: 'Craft Agent', payloadSummary: 'Refreshed snapshot summary' },
+]
+
+const stateStyles: Record<TaskState, string> = {
+  todo: 'text-foreground/45',
+  in_progress: 'text-info',
+  done: 'text-success',
+  cancelled: 'text-destructive/70',
 }
 
-function createBoard(dense: boolean): PlannerHeading[] {
-  const base: PlannerHeading[] = [
-    {
-      id: 'today',
-      title: 'Today',
-      tasks: [
-        {
-          id: 'task-1',
-          title: 'Refine planner drag interactions',
-          notes: 'Tune spring + overlay shadow for tactile movement.',
-          state: 'in_progress',
-          due: 'Today · 16:30',
-          syncState: 'pending_upload',
-        },
-        {
-          id: 'task-2',
-          title: 'Add animated completion checkmark',
-          notes: 'Morph icon and fade metadata with low-motion fallback.',
-          state: 'todo',
-          due: 'Today · 18:00',
-          syncState: 'uploaded',
-        },
-      ],
-    },
-    {
-      id: 'upcoming',
-      title: 'Upcoming',
-      tasks: [
-        {
-          id: 'task-3',
-          title: 'Session snapshot cards for missing links',
-          notes: 'Cards must remain useful even without live session resolution.',
-          state: 'blocked',
-          due: 'Tomorrow',
-          syncState: 'unavailable',
-        },
-        {
-          id: 'task-4',
-          title: 'Quick-add natural language parser',
-          notes: 'Parse “tomorrow 9am” and estimate defaults.',
-          state: 'todo',
-          due: 'Mon',
-          syncState: 'local_only',
-        },
-      ],
-    },
-  ]
-
-  if (!dense) return base
-
-  const filler: PlannerTask[] = Array.from({ length: 36 }).map((_, i) => {
-    const id = `dense-${i + 1}`
-    const states: TaskState[] = ['todo', 'in_progress', 'blocked', 'done', 'cancelled']
-    const syncStates: SyncState[] = ['local_only', 'pending_upload', 'uploaded', 'remote_only', 'unavailable', 'upload_failed']
-
-    return {
-      id,
-      title: `Design polish pass #${i + 1}`,
-      notes: 'Validate spacing rhythm, icon alignment, and hover depth.',
-      state: states[i % states.length],
-      due: i % 2 === 0 ? 'This week' : 'Next week',
-      syncState: syncStates[i % syncStates.length],
-    }
-  })
-
-  return [
-    {
-      id: 'today',
-      title: 'Today',
-      tasks: base[0].tasks,
-    },
-    {
-      id: 'upcoming',
-      title: 'Upcoming',
-      tasks: [...base[1].tasks, ...filler],
-    },
-  ]
+const syncMeta: Record<SyncState, { label: string; icon: React.ComponentType<{ className?: string }>; cls: string }> = {
+  local_only: { label: 'Local only', icon: CloudOff, cls: 'text-foreground/55 bg-foreground/7' },
+  pending_upload: { label: 'Pending upload', icon: CloudUpload, cls: 'text-info bg-info/12' },
+  uploaded: { label: 'Uploaded', icon: CloudCheck, cls: 'text-success bg-success/12' },
+  remote_only: { label: 'Remote only', icon: CloudCheck, cls: 'text-accent bg-accent/12' },
+  unavailable: { label: 'Unavailable', icon: CloudAlert, cls: 'text-warning bg-warning/12' },
+  upload_failed: { label: 'Upload failed', icon: CloudAlert, cls: 'text-destructive bg-destructive/12' },
 }
 
-function findContainer(headings: PlannerHeading[], id: string): string | undefined {
-  if (headings.some(h => h.id === id)) return id
-  return headings.find(h => h.tasks.some(t => t.id === id))?.id
-}
-
-function findTask(headings: PlannerHeading[], taskId: string): PlannerTask | undefined {
-  for (const heading of headings) {
-    const match = heading.tasks.find(t => t.id === taskId)
-    if (match) return match
-  }
-  return undefined
-}
-
-function shortDue(due: string): string {
-  const lower = due.toLowerCase()
-  if (lower.includes('today')) return 'Today'
-  if (lower.includes('tomorrow')) return 'Tom'
-  if (lower.includes('this week')) return 'Week'
-  if (lower.includes('next week')) return 'Nxt'
-  return due.length > 10 ? `${due.slice(0, 10)}…` : due
-}
-
-function shortSync(label: string): string {
-  if (label === 'Pending upload') return 'Pending'
-  if (label === 'Upload failed') return 'Failed'
-  if (label === 'Local only') return 'Local'
-  if (label === 'Remote only') return 'Remote'
-  return label
-}
-
-const TASK_DND_PREFIX = 'task:'
-const HEADING_DND_PREFIX = 'heading:'
-const HEADING_DROP_DND_PREFIX = 'heading-drop:'
-
-const taskDndId = (taskId: string) => `${TASK_DND_PREFIX}${taskId}`
-const headingDndId = (headingId: string) => `${HEADING_DND_PREFIX}${headingId}`
-const headingDropDndId = (headingId: string) => `${HEADING_DROP_DND_PREFIX}${headingId}`
-
-const parseTaskDndId = (id: string) => id.startsWith(TASK_DND_PREFIX) ? id.slice(TASK_DND_PREFIX.length) : null
-const parseHeadingDndId = (id: string) => id.startsWith(HEADING_DND_PREFIX) ? id.slice(HEADING_DND_PREFIX.length) : null
-const parseHeadingDropDndId = (id: string) => id.startsWith(HEADING_DROP_DND_PREFIX) ? id.slice(HEADING_DROP_DND_PREFIX.length) : null
-
-interface DropTarget {
-  containerId: string
+interface PlannerSortableEntry {
+  sortable: Sortable
+  element: HTMLDivElement
   index: number
 }
 
-function moveInArray<T>(arr: T[], fromIndex: number, toIndex: number): T[] {
-  const next = [...arr]
-  const [item] = next.splice(fromIndex, 1)
-  next.splice(toIndex, 0, item)
-  return next
+function buildFlatOrder(projectHeadings: PlannerHeading[], tasks: PlannerTask[]): string[] {
+  const rows: string[] = []
+
+  projectHeadings.forEach((heading) => {
+    rows.push(`heading:${heading.id}`)
+    tasks
+      .filter(task => task.headingId === heading.id)
+      .forEach(task => rows.push(`task:${task.id}`))
+  })
+
+  return rows
 }
 
-function resolveOverHeadingId(headings: PlannerHeading[], overDndId: string): string | null {
-  const headingId = parseHeadingDndId(overDndId)
-  if (headingId) return headingId
-
-  const dropHeadingId = parseHeadingDropDndId(overDndId)
-  if (dropHeadingId) return dropHeadingId
-
-  const overTaskId = parseTaskDndId(overDndId)
-  if (overTaskId) return findContainer(headings, overTaskId) ?? null
-
-  return null
+function parseHeadingIdFromKey(rowKey: string): string | null {
+  return rowKey.startsWith('heading:') ? rowKey.slice('heading:'.length) : null
 }
 
-function getDropTarget(
-  headings: PlannerHeading[],
-  activeTaskId: string,
-  overDndId: string,
-  isBelowOverItem: boolean,
-): DropTarget | null {
-  const activeContainer = findContainer(headings, activeTaskId)
-  if (!activeContainer) return null
-
-  const overTaskId = parseTaskDndId(overDndId)
-  const overHeadingId = resolveOverHeadingId(headings, overDndId)
-  if (!overHeadingId) return null
-
-  const targetHeading = headings.find(h => h.id === overHeadingId)
-  if (!targetHeading) return null
-
-  // Dropping over heading container/header means append
-  if (!overTaskId) {
-    const activeIndexInTarget = targetHeading.tasks.findIndex(t => t.id === activeTaskId)
-    const baseIndex = targetHeading.tasks.length
-    const adjustedIndex = activeContainer === overHeadingId && activeIndexInTarget >= 0 ? baseIndex - 1 : baseIndex
-    return { containerId: overHeadingId, index: Math.max(0, adjustedIndex) }
-  }
-
-  const overIndex = targetHeading.tasks.findIndex(t => t.id === overTaskId)
-  if (overIndex < 0) return null
-
-  let targetIndex = overIndex + (isBelowOverItem ? 1 : 0)
-
-  if (activeContainer === overHeadingId) {
-    const activeIndex = targetHeading.tasks.findIndex(t => t.id === activeTaskId)
-    if (activeIndex >= 0 && activeIndex < targetIndex) {
-      targetIndex -= 1
-    }
-  }
-
-  targetIndex = Math.max(0, Math.min(targetIndex, targetHeading.tasks.length))
-  return { containerId: overHeadingId, index: targetIndex }
+function parseTaskIdFromKey(rowKey: string): string | null {
+  return rowKey.startsWith('task:') ? rowKey.slice('task:'.length) : null
 }
 
-function applyDropTarget(headings: PlannerHeading[], activeTaskId: string, target: DropTarget | null): PlannerHeading[] {
-  if (!target) return headings
-
-  const sourceContainerId = findContainer(headings, activeTaskId)
-  if (!sourceContainerId) return headings
-
-  const sourceHeadingIndex = headings.findIndex(h => h.id === sourceContainerId)
-  const targetHeadingIndex = headings.findIndex(h => h.id === target.containerId)
-  if (sourceHeadingIndex < 0 || targetHeadingIndex < 0) return headings
-
-  const sourceTasks = headings[sourceHeadingIndex].tasks
-  const sourceIndex = sourceTasks.findIndex(t => t.id === activeTaskId)
-  if (sourceIndex < 0) return headings
-
-  const movingTask = sourceTasks[sourceIndex]
-
-  if (sourceContainerId === target.containerId) {
-    if (sourceIndex === target.index) return headings
-    const withoutTask = sourceTasks.filter(t => t.id !== activeTaskId)
-    const nextIndex = Math.max(0, Math.min(target.index, withoutTask.length))
-    const nextTasks = [...withoutTask.slice(0, nextIndex), movingTask, ...withoutTask.slice(nextIndex)]
-    const next = [...headings]
-    next[sourceHeadingIndex] = { ...next[sourceHeadingIndex], tasks: nextTasks }
-    return next
-  }
-
-  const targetTasks = headings[targetHeadingIndex].tasks
-  const cleanSourceTasks = sourceTasks.filter(t => t.id !== activeTaskId)
-  const insertIndex = Math.max(0, Math.min(target.index, targetTasks.length))
-  const nextTargetTasks = [...targetTasks.slice(0, insertIndex), movingTask, ...targetTasks.slice(insertIndex)]
-
-  const next = [...headings]
-  next[sourceHeadingIndex] = { ...next[sourceHeadingIndex], tasks: cleanSourceTasks }
-  next[targetHeadingIndex] = { ...next[targetHeadingIndex], tasks: nextTargetTasks }
-  return next
+function uniqueOrdered(values: string[]): string[] {
+  const seen = new Set<string>()
+  return values.filter((value) => {
+    if (seen.has(value)) return false
+    seen.add(value)
+    return true
+  })
 }
 
-function reorderHeadings(headings: PlannerHeading[], activeHeadingId: string, overDndId: string): PlannerHeading[] {
-  const fromIndex = headings.findIndex(h => h.id === activeHeadingId)
-  if (fromIndex < 0) return headings
-
-  const targetHeadingId = resolveOverHeadingId(headings, overDndId)
-  if (!targetHeadingId || targetHeadingId === activeHeadingId) return headings
-
-  const toIndex = headings.findIndex(h => h.id === targetHeadingId)
-  if (toIndex < 0 || toIndex === fromIndex) return headings
-
-  return moveInArray(headings, fromIndex, toIndex)
-}
-
-interface PlannerPlaygroundProps {
-  dense?: boolean
-  reducedMotion?: boolean
-}
-
-function PlannerPlayground({ dense = false, reducedMotion = false }: PlannerPlaygroundProps) {
-  const [headings, setHeadings] = React.useState<PlannerHeading[]>(() => createBoard(dense))
-  const [selectedTaskId, setSelectedTaskId] = React.useState<string>(() => createBoard(dense)[0].tasks[0]?.id ?? '')
+function PlannerThingsBoard() {
+  const [activeProjectId, setActiveProjectId] = React.useState('p2')
+  const [headingsState, setHeadingsState] = React.useState<PlannerHeading[]>(initialHeadings)
+  const [tasksState, setTasksState] = React.useState<PlannerTask[]>(initialTasks)
+  const [selectedTaskId, setSelectedTaskId] = React.useState('t1')
   const [quickAdd, setQuickAdd] = React.useState('')
-  const [activeTaskId, setActiveTaskId] = React.useState<string | null>(null)
-  const [activeHeadingId, setActiveHeadingId] = React.useState<string | null>(null)
-  const [activePreviewWidth, setActivePreviewWidth] = React.useState<number | null>(null)
-  const [dropTarget, setDropTarget] = React.useState<DropTarget | null>(null)
-  const lastOverIdRef = React.useRef<string | null>(null)
-  const lastSideRef = React.useRef<'before' | 'after'>('after')
+  const [flatOrder, setFlatOrder] = React.useState<string[]>(() => {
+    const initialProjectHeadings = initialHeadings
+      .filter(h => h.projectId === 'p2')
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+    return buildFlatOrder(initialProjectHeadings, initialTasks)
+  })
 
-  const sensors = useSensors(
-    useSensor(SmartPointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  const flatListRef = React.useRef<HTMLDivElement | null>(null)
+  const rowRefs = React.useRef<Map<string, HTMLDivElement>>(new Map())
+  const managerRef = React.useRef<DragDropManager | null>(null)
+  const sortableRegistryRef = React.useRef<Map<string, PlannerSortableEntry>>(new Map())
+  const headingsStateRef = React.useRef(headingsState)
+  const tasksStateRef = React.useRef(tasksState)
+  const activeProjectIdRef = React.useRef(activeProjectId)
+  const isDraggingRef = React.useRef(false)
+
+  const project = projects.find(p => p.id === activeProjectId) ?? projects[0]
+  const projectHeadings = React.useMemo(
+    () => headingsState.filter(h => h.projectId === project.id).sort((a, b) => a.sortOrder - b.sortOrder),
+    [headingsState, project.id]
   )
 
-  const selectedTask = React.useMemo(() => findTask(headings, selectedTaskId), [headings, selectedTaskId])
-  const activeTask = React.useMemo(() => (activeTaskId ? findTask(headings, activeTaskId) : undefined), [headings, activeTaskId])
-  const activeHeading = React.useMemo(() => (activeHeadingId ? headings.find(h => h.id === activeHeadingId) : undefined), [headings, activeHeadingId])
+  const selectedTask = tasksState.find(t => t.id === selectedTaskId)
+  const selectedLinks = sessionLinks.filter(link => link.taskId === selectedTaskId)
+  const selectedEvents = events.filter(e => e.taskId === selectedTaskId)
 
-  const updateTask = React.useCallback((taskId: string, patch: Partial<PlannerTask>) => {
-    setHeadings(prev => prev.map(heading => ({
-      ...heading,
-      tasks: heading.tasks.map(task => task.id === taskId ? { ...task, ...patch } : task),
-    })))
+  const flatRows = React.useMemo<PlannerRow[]>(() => {
+    const headingById = new Map(projectHeadings.map(heading => [heading.id, heading]))
+    const taskById = new Map(tasksState.map(task => [task.id, task]))
+
+    return flatOrder
+      .map((rowKey) => {
+        const headingId = parseHeadingIdFromKey(rowKey)
+        if (headingId) {
+          if (!headingById.has(headingId)) return null
+          return { kind: 'heading', headingId, key: rowKey } as PlannerRow
+        }
+
+        const taskId = parseTaskIdFromKey(rowKey)
+        if (taskId) {
+          const task = taskById.get(taskId)
+          if (!task) return null
+          if (!headingById.has(task.headingId)) return null
+          return { kind: 'task', taskId, key: rowKey } as PlannerRow
+        }
+
+        return null
+      })
+      .filter((row): row is PlannerRow => Boolean(row))
+  }, [flatOrder, projectHeadings, tasksState])
+
+  React.useEffect(() => {
+    headingsStateRef.current = headingsState
+  }, [headingsState])
+
+  React.useEffect(() => {
+    tasksStateRef.current = tasksState
+  }, [tasksState])
+
+  React.useEffect(() => {
+    activeProjectIdRef.current = activeProjectId
+  }, [activeProjectId])
+
+  React.useEffect(() => {
+    const canonical = buildFlatOrder(projectHeadings, tasksState)
+    setFlatOrder((prev) => {
+      const canonicalSet = new Set(canonical)
+      const preserved = uniqueOrdered(prev.filter(key => canonicalSet.has(key)))
+      const missing = canonical.filter(key => !preserved.includes(key))
+      const next = uniqueOrdered([...preserved, ...missing])
+
+      const unchanged = next.length === prev.length && next.every((key, index) => key === prev[index])
+      return unchanged ? prev : next
+    })
+  }, [projectHeadings, tasksState])
+
+  React.useEffect(() => {
+    if (!selectedTask || !projectHeadings.some(h => h.id === selectedTask.headingId)) {
+      const firstTask = tasksState.find(t => projectHeadings.some(h => h.id === t.headingId))
+      setSelectedTaskId(firstTask?.id ?? '')
+    }
+  }, [projectHeadings, tasksState, selectedTask])
+
+  const applyFlatOrderToState = React.useCallback((orderedKeys: string[]) => {
+    const activeProject = activeProjectIdRef.current
+    const headings = headingsStateRef.current
+    const tasks = tasksStateRef.current
+    const taskById = new Map(tasks.map(task => [task.id, task]))
+    const normalizedOrderedKeys = uniqueOrdered(orderedKeys)
+
+    const projectHeadingIds = new Set(
+      headings
+        .filter(heading => heading.projectId === activeProject)
+        .map(heading => heading.id)
+    )
+
+    const orderedHeadingIds = uniqueOrdered(
+      normalizedOrderedKeys
+        .map(parseHeadingIdFromKey)
+        .filter((headingId): headingId is string => Boolean(headingId && projectHeadingIds.has(headingId)))
+    )
+
+    if (orderedHeadingIds.length === 0) return
+
+    const orderedTaskIds: string[] = []
+    const seenTaskIds = new Set<string>()
+    const nextHeadingByTaskId = new Map<string, string>()
+    let currentHeadingId = orderedHeadingIds[0]
+
+    normalizedOrderedKeys.forEach((rowKey) => {
+      const headingId = parseHeadingIdFromKey(rowKey)
+      if (headingId && projectHeadingIds.has(headingId)) {
+        currentHeadingId = headingId
+        return
+      }
+
+      const taskId = parseTaskIdFromKey(rowKey)
+      if (!taskId) return
+      if (seenTaskIds.has(taskId)) return
+
+      const task = taskById.get(taskId)
+      if (!task) return
+      if (!projectHeadingIds.has(task.headingId)) return
+
+      seenTaskIds.add(taskId)
+      orderedTaskIds.push(taskId)
+      nextHeadingByTaskId.set(taskId, currentHeadingId)
+    })
+
+    setHeadingsState((prev) => {
+      const nextOrderByHeadingId = new Map(orderedHeadingIds.map((id, index) => [id, index + 1]))
+      return prev.map((heading) => {
+        if (heading.projectId !== activeProject) return heading
+        const sortOrder = nextOrderByHeadingId.get(heading.id)
+        return sortOrder ? { ...heading, sortOrder } : heading
+      })
+    })
+
+    setTasksState((prev) => {
+      const updated = prev.map((task) => {
+        const nextHeadingId = nextHeadingByTaskId.get(task.id)
+        if (!nextHeadingId || task.headingId === nextHeadingId) return task
+        return { ...task, headingId: nextHeadingId }
+      })
+
+      const byId = new Map(updated.map(task => [task.id, task]))
+      const ordered = orderedTaskIds.map(taskId => byId.get(taskId)).filter((task): task is PlannerTask => Boolean(task))
+      const remaining = updated.filter(task => !orderedTaskIds.includes(task.id))
+      return [...ordered, ...remaining]
+    })
   }, [])
 
-  const addTaskToToday = React.useCallback(() => {
-    const title = quickAdd.trim()
-    if (!title) return
+  React.useEffect(() => {
+    const manager = new DragDropManager()
+    const sortableRegistry = sortableRegistryRef.current
+    managerRef.current = manager
 
-    const next: PlannerTask = {
-      id: `task-${Date.now()}`,
+    const unsubDragStart = manager.monitor.addEventListener('dragstart', () => {
+      isDraggingRef.current = true
+    })
+
+    const unsubDragEnd = manager.monitor.addEventListener('dragend', (event) => {
+      requestAnimationFrame(() => { isDraggingRef.current = false })
+      if (event.canceled) return
+
+      const sourceId = String(event.operation.source?.id ?? '')
+      if (!sourceId.startsWith('heading:') && !sourceId.startsWith('task:')) return
+
+      const list = flatListRef.current
+      if (!list) return
+
+      const orderedKeys = uniqueOrdered(
+        Array.from(list.children)
+          .map(el => (el as HTMLElement).dataset.rowKey)
+          .filter((key): key is string => Boolean(key))
+      )
+
+      if (orderedKeys.length === 0) return
+
+      setFlatOrder(orderedKeys)
+      applyFlatOrderToState(orderedKeys)
+    })
+
+    return () => {
+      unsubDragStart()
+      unsubDragEnd()
+      sortableRegistry.forEach((entry) => entry.sortable.destroy())
+      sortableRegistry.clear()
+      manager.destroy()
+      managerRef.current = null
+    }
+  }, [applyFlatOrderToState])
+
+  React.useEffect(() => {
+    const manager = managerRef.current
+    if (!manager) return
+
+    const desiredEntries = new Map<string, { element: HTMLDivElement; index: number }>()
+
+    flatRows.forEach((row, index) => {
+      const element = rowRefs.current.get(row.key)
+      if (!element) return
+
+      desiredEntries.set(row.key, {
+        element,
+        index,
+      })
+    })
+
+    desiredEntries.forEach((desired, rowKey) => {
+      const existing = sortableRegistryRef.current.get(rowKey)
+
+      if (existing) {
+        if (existing.index !== desired.index) {
+          existing.sortable.index = desired.index
+          existing.index = desired.index
+        }
+        if (existing.element !== desired.element) {
+          existing.sortable.element = desired.element
+          existing.element = desired.element
+        }
+        return
+      }
+
+      const sortable = new Sortable({
+        id: rowKey,
+        index: desired.index,
+        element: desired.element,
+      }, manager)
+
+      sortableRegistryRef.current.set(rowKey, {
+        sortable,
+        element: desired.element,
+        index: desired.index,
+      })
+    })
+
+    Array.from(sortableRegistryRef.current.keys()).forEach((rowKey) => {
+      if (desiredEntries.has(rowKey)) return
+      const existing = sortableRegistryRef.current.get(rowKey)
+      existing?.sortable.destroy()
+      sortableRegistryRef.current.delete(rowKey)
+    })
+  }, [flatRows])
+
+  const addTask = React.useCallback(() => {
+    const title = quickAdd.trim()
+    if (!title || projectHeadings.length === 0) return
+
+    const task: PlannerTask = {
+      id: `t-${Date.now()}`,
+      headingId: projectHeadings[0].id,
       title,
       notes: '',
       state: 'todo',
       due: 'Inbox',
-      syncState: 'local_only',
     }
 
-    setHeadings(prev => prev.map(heading =>
-      heading.id === 'today'
-        ? { ...heading, tasks: [next, ...heading.tasks] }
-        : heading
-    ))
-
-    setSelectedTaskId(next.id)
+    setTasksState(prev => [task, ...prev])
+    setFlatOrder((prev) => {
+      const firstHeadingKey = `heading:${projectHeadings[0].id}`
+      const insertionIndex = prev.indexOf(firstHeadingKey)
+      if (insertionIndex === -1) return [...prev, `task:${task.id}`]
+      const next = [...prev]
+      next.splice(insertionIndex + 1, 0, `task:${task.id}`)
+      return next
+    })
+    setSelectedTaskId(task.id)
     setQuickAdd('')
-  }, [quickAdd])
-
-  const onDragStart = React.useCallback((event: DragStartEvent) => {
-    const activeDndId = String(event.active.id)
-    const taskId = parseTaskDndId(activeDndId)
-    const headingId = parseHeadingDndId(activeDndId)
-
-    if (taskId) {
-      setActiveTaskId(taskId)
-      setActiveHeadingId(null)
-    } else if (headingId) {
-      setActiveHeadingId(headingId)
-      setActiveTaskId(null)
-    }
-
-    setActivePreviewWidth(event.active.rect.current.initial?.width ?? null)
-    setDropTarget(null)
-    lastOverIdRef.current = null
-    lastSideRef.current = 'after'
-  }, [])
-
-  const onDragOver = React.useCallback((event: DragOverEvent) => {
-    if (!activeTaskId) return
-
-    const { active, over } = event
-    const resolvedOverId = over ? String(over.id) : lastOverIdRef.current
-    if (!resolvedOverId) {
-      setDropTarget(null)
-      return
-    }
-
-    const overRect = over?.rect
-    const pointerY = (active.rect.current.translated?.top ?? 0)
-      + (active.rect.current.translated?.height ?? active.rect.current.initial?.height ?? 0) / 2
-
-    let side: 'before' | 'after' = lastSideRef.current
-
-    if (overRect) {
-      const overMidY = overRect.top + overRect.height / 2
-      const delta = pointerY - overMidY
-      const deadzone = Math.min(MIDPOINT_DEADZONE_PX, overRect.height * 0.2)
-
-      if (Math.abs(delta) > deadzone || lastOverIdRef.current !== resolvedOverId) {
-        side = delta >= 0 ? 'after' : 'before'
-      }
-    }
-
-    lastOverIdRef.current = resolvedOverId
-    lastSideRef.current = side
-
-    setDropTarget(getDropTarget(headings, activeTaskId, resolvedOverId, side === 'after'))
-  }, [headings, activeTaskId])
-
-  const onDragEnd = React.useCallback((event: DragEndEvent) => {
-    const { over } = event
-    const resolvedOverId = over ? String(over.id) : lastOverIdRef.current
-
-    if (activeHeadingId && resolvedOverId) {
-      setHeadings(prev => reorderHeadings(prev, activeHeadingId, resolvedOverId))
-    }
-
-    if (activeTaskId && resolvedOverId) {
-      setHeadings(prev => applyDropTarget(prev, activeTaskId, getDropTarget(prev, activeTaskId, resolvedOverId, lastSideRef.current === 'after')))
-    }
-
-    setActiveTaskId(null)
-    setActiveHeadingId(null)
-    setActivePreviewWidth(null)
-    setDropTarget(null)
-    lastOverIdRef.current = null
-  }, [activeTaskId, activeHeadingId])
-
-  const onDragCancel = React.useCallback((_event: DragCancelEvent) => {
-    setActiveTaskId(null)
-    setActiveHeadingId(null)
-    setActivePreviewWidth(null)
-    setDropTarget(null)
-    lastOverIdRef.current = null
-  }, [])
+  }, [projectHeadings, quickAdd])
 
   return (
-    <div className="w-[1120px] h-[740px] border border-border rounded-xl bg-background shadow-sm overflow-hidden">
-      <div className="h-full grid grid-cols-[2fr_1fr]">
-        <div className="border-r border-border/60 flex flex-col">
-          <div className="px-5 pt-4 pb-3 border-b border-border/50">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="h-8 w-8 rounded-lg bg-accent/10 text-accent flex items-center justify-center">
-                <ListTodo className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="text-sm font-semibold">Planner</div>
-                <div className="text-xs text-foreground/50">Things-style interaction playground</div>
-              </div>
-              <Badge variant="secondary" className="ml-auto text-[10px]">Premium Motion</Badge>
-            </div>
+    <div className="w-[1180px] h-[760px] rounded-[16px] border border-border bg-background overflow-hidden shadow-sm">
+      <div className="grid h-full grid-cols-[220px_1fr_360px]">
+        <aside className="border-r border-border/60 bg-foreground/[0.015] p-3">
+          <div className="mb-3 flex items-center gap-2 px-2 py-1">
+            <ListTodo className="h-4 w-4 text-foreground/60" />
+            <span className="text-sm font-semibold">Planner</span>
+          </div>
 
+          <div className="space-y-1">
+            {projects.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setActiveProjectId(p.id)}
+                className={cn(
+                  'w-full rounded-[10px] px-2.5 py-2 text-left transition-colors',
+                  p.id === project.id
+                    ? 'bg-foreground/10 text-foreground'
+                    : 'text-foreground/65 hover:bg-foreground/5 hover:text-foreground'
+                )}
+              >
+                <div className="text-sm font-medium">{p.name}</div>
+                <div className="mt-0.5 text-[11px] text-foreground/45">{p.installationHint}</div>
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <section className="flex min-w-0 flex-col">
+          <div className="border-b border-border/60 px-5 py-3">
+            <div className="mb-2 flex items-center gap-2">
+              <FolderKanban className="h-4 w-4 text-foreground/50" />
+              <h3 className="text-base font-semibold">{project.name}</h3>
+              <Badge variant="secondary" className="text-[10px]">Portable Core</Badge>
+              <Badge variant="outline" className="text-[10px]">{project.memberCount} members</Badge>
+            </div>
             <div className="flex gap-2">
               <Input
                 value={quickAdd}
                 onChange={(e) => setQuickAdd(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') addTaskToToday()
+                  if (e.key === 'Enter') addTask()
                 }}
-                placeholder="Quick add task… (Enter)"
+                placeholder="Quick add task…"
                 className="h-8 text-sm"
               />
-              <Button size="sm" onClick={addTaskToToday}>Add</Button>
+              <Button size="sm" className="h-8" onClick={addTask}>Add</Button>
             </div>
           </div>
 
-          <ScrollArea className="flex-1">
-            <DndContext
-              sensors={sensors}
-              collisionDetection={composedCollisionDetection}
-              onDragStart={onDragStart}
-              onDragOver={onDragOver}
-              onDragEnd={onDragEnd}
-              onDragCancel={onDragCancel}
+          <ScrollArea
+            className="flex-1"
+            onPointerDown={(e) => {
+              const target = e.target as HTMLElement
+              if (target.closest('[data-row-key]')) return
+              setSelectedTaskId('')
+            }}
+          >
+            <div
+              className="px-5 py-4 min-h-full flex flex-col"
             >
-              <div className="px-4 py-4 space-y-5">
-                <SortableContext items={headings.map(heading => headingDndId(heading.id))} strategy={verticalListSortingStrategy}>
-                  {headings.map(heading => (
-                    <SortableHeading key={heading.id} heading={heading} reducedMotion={reducedMotion}>
-                      <HeadingDropZone id={headingDropDndId(heading.id)}>
-                        <SortableContext items={heading.tasks.map(task => taskDndId(task.id))} strategy={verticalListSortingStrategy}>
-                          <div className="space-y-1.5">
-                            <AnimatePresence initial={false}>
-                              {heading.tasks.map((task, index) => (
-                                <React.Fragment key={task.id}>
-                                  <AnimatePresence initial={false}>
-                                    {activeTaskId && dropTarget?.containerId === heading.id && dropTarget.index === index ? (
-                                      <InsertionMarker key={`marker-${heading.id}-${index}`} />
-                                    ) : null}
-                                  </AnimatePresence>
-                                  <SortableTaskRow
-                                    task={task}
-                                    selected={selectedTaskId === task.id}
-                                    reducedMotion={reducedMotion}
-                                    onSelect={() => setSelectedTaskId(task.id)}
-                                    onToggleDone={() => {
-                                      const next = task.state === 'done' ? 'todo' : 'done'
-                                      updateTask(task.id, { state: next })
-                                    }}
-                                  />
-                                </React.Fragment>
-                              ))}
-                              <AnimatePresence initial={false}>
-                                {activeTaskId && dropTarget?.containerId === heading.id && dropTarget.index === heading.tasks.length ? (
-                                  <InsertionMarker key={`marker-${heading.id}-end`} />
-                                ) : null}
-                              </AnimatePresence>
-                            </AnimatePresence>
-                          </div>
-                        </SortableContext>
-                      </HeadingDropZone>
-                    </SortableHeading>
-                  ))}
-                </SortableContext>
-              </div>
-
-              <DragOverlay dropAnimation={overlayDropAnimation}>
-                {activeTask ? <TaskDragPreview task={activeTask} width={activePreviewWidth ?? undefined} /> : null}
-                {activeHeading ? <HeadingDragPreview heading={activeHeading} width={activePreviewWidth ?? undefined} /> : null}
-              </DragOverlay>
-            </DndContext>
-          </ScrollArea>
-        </div>
-
-        <TaskEditorPanel
-          task={selectedTask}
-          onUpdate={(patch) => {
-            if (!selectedTask) return
-            updateTask(selectedTask.id, patch)
-          }}
-        />
-      </div>
-    </div>
-  )
-}
-
-function SortableHeading({ heading, reducedMotion, children }: { heading: PlannerHeading; reducedMotion: boolean; children: React.ReactNode }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: headingDndId(heading.id) })
-
-  return (
-    <motion.div
-      ref={setNodeRef}
-      layout={!reducedMotion}
-      initial={{ opacity: 0, y: reducedMotion ? 0 : 4 }}
-      animate={{ opacity: isDragging ? 0 : 1, y: 0 }}
-      exit={{ opacity: 0, y: reducedMotion ? 0 : -4 }}
-      transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 34 }}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="space-y-2"
-    >
-      <div
-        className="px-1 py-1 text-xs font-semibold tracking-wide uppercase text-foreground/45 cursor-grab active:cursor-grabbing flex items-center gap-1"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="h-3.5 w-3.5 text-foreground/30" />
-        {heading.title}
-      </div>
-      {children}
-    </motion.div>
-  )
-}
-
-function HeadingDropZone({ id, children }: { id: string; children: React.ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id })
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        'rounded-xl p-1 transition-colors',
-        isOver && 'bg-accent/5 ring-1 ring-accent/20'
-      )}
-    >
-      {children}
-    </div>
-  )
-}
-
-interface SortableTaskRowProps {
-  task: PlannerTask
-  selected: boolean
-  reducedMotion: boolean
-  onSelect: () => void
-  onToggleDone: () => void
-}
-
-function InsertionMarker() {
-  return (
-    <motion.div
-      layout
-      initial={{ height: 0, opacity: 0 }}
-      animate={{ height: 36, opacity: 1 }}
-      exit={{ height: 0, opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-      className="rounded-lg bg-foreground/25"
-    />
-  )
-}
-
-function TaskRowContent({ task, onToggleDone, showTooltips = true }: { task: PlannerTask; onToggleDone?: () => void; showTooltips?: boolean }) {
-  const TaskIcon = TASK_STATE_META[task.state].icon
-  const sync = SYNC_META[task.syncState]
-  const SyncIcon = sync.icon
-
-  const dueBadge = (
-    <span className="inline-flex items-center rounded-md bg-foreground/5 px-1.5 py-0.5 text-[10px] text-foreground/60">
-      {shortDue(task.due)}
-    </span>
-  )
-
-  const syncBadge = (
-    <span className={cn('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px]', sync.className)}>
-      <SyncIcon className="h-3 w-3" />
-      {shortSync(sync.label)}
-    </span>
-  )
-
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        data-no-dnd="true"
-        onClick={(e) => {
-          e.stopPropagation()
-          onToggleDone?.()
-        }}
-        className="h-5 w-5 rounded flex items-center justify-center hover:bg-foreground/5 shrink-0"
-      >
-        <TaskIcon className={cn('h-4 w-4 transition-all', TASK_STATE_META[task.state].className)} />
-      </button>
-
-      <div className={cn('min-w-0 flex-1 text-sm truncate', task.state === 'done' && 'line-through text-foreground/40')}>
-        {task.title}
-      </div>
-
-      <div className="flex items-center gap-1.5 shrink-0">
-        {showTooltips ? (
-          <Tooltip>
-            <TooltipTrigger asChild>{dueBadge}</TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">Due: {task.due}</TooltipContent>
-          </Tooltip>
-        ) : dueBadge}
-
-        {showTooltips ? (
-          <Tooltip>
-            <TooltipTrigger asChild>{syncBadge}</TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">Sync: {sync.label}</TooltipContent>
-          </Tooltip>
-        ) : syncBadge}
-
-        <div
-          className="h-6 w-6 rounded-md flex items-center justify-center text-foreground/35 hover:text-foreground/60 hover:bg-foreground/5"
-          aria-label="Drag handle"
-        >
-          <GripVertical className="h-4 w-4" />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SortableTaskRow({ task, selected, reducedMotion, onSelect, onToggleDone }: SortableTaskRowProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: taskDndId(task.id) })
-
-  return (
-    <motion.div
-      ref={setNodeRef}
-      layout={!reducedMotion}
-      initial={{ opacity: 0, y: reducedMotion ? 0 : 4 }}
-      animate={{ opacity: isDragging ? 0 : 1, y: 0 }}
-      exit={{ opacity: 0, y: reducedMotion ? 0 : -4 }}
-      transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 34 }}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-      }}
-      className={cn(
-        'group rounded-xl border px-2.5 py-2.5 cursor-grab active:cursor-grabbing',
-        selected
-          ? 'bg-accent/10 border-accent/25 shadow-[0_0_0_1px_rgba(149,112,190,0.18)]'
-          : 'bg-background border-border/60 hover:bg-foreground/[0.02] hover:border-border',
-      )}
-      onClick={onSelect}
-      {...attributes}
-      {...listeners}
-    >
-      <TaskRowContent task={task} onToggleDone={onToggleDone} showTooltips />
-    </motion.div>
-  )
-}
-
-function TaskDragPreview({ task, width }: { task: PlannerTask; width?: number }) {
-  return (
-    <div
-      className="rounded-xl border border-accent/30 bg-background px-2.5 py-2.5 shadow-[0_16px_38px_rgba(0,0,0,0.22)] scale-[1.01]"
-      style={{ width: width ?? 520 }}
-    >
-      <TaskRowContent task={task} showTooltips={false} />
-    </div>
-  )
-}
-
-function HeadingDragPreview({ heading, width }: { heading: PlannerHeading; width?: number }) {
-  return (
-    <div
-      className="rounded-lg border border-accent/30 bg-background px-2 py-1.5 shadow-[0_16px_38px_rgba(0,0,0,0.22)]"
-      style={{ width: width ?? 280 }}
-    >
-      <div className="text-xs font-semibold tracking-wide uppercase text-foreground/70 flex items-center gap-1">
-        <GripVertical className="h-3.5 w-3.5 text-foreground/35" />
-        {heading.title}
-      </div>
-    </div>
-  )
-}
-
-interface TaskEditorPanelProps {
-  task: PlannerTask | undefined
-  onUpdate: (patch: Partial<PlannerTask>) => void
-}
-
-function TaskEditorPanel({ task, onUpdate }: TaskEditorPanelProps) {
-  return (
-    <div className="h-full flex flex-col bg-foreground/[0.015]">
-      <div className="px-4 pt-4 pb-3 border-b border-border/50">
-        <div className="text-sm font-semibold">Task Editor</div>
-        <div className="text-xs text-foreground/50">Static detail panel + sync semantics</div>
-      </div>
-
-      {!task ? (
-        <div className="p-5 text-sm text-foreground/50">Select a task to edit.</div>
-      ) : (
-        <div className="flex-1 min-h-0">
-          <ScrollArea className="h-full">
-            <div className="p-4 space-y-4">
-              <div className="space-y-1.5">
-                <div className="text-xs text-foreground/50">Title</div>
-                <Input value={task.title} onChange={(e) => onUpdate({ title: e.target.value })} className="h-8 text-sm" />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="text-xs text-foreground/50">Notes</div>
-                <Textarea
-                  value={task.notes}
-                  onChange={(e) => onUpdate({ notes: e.target.value })}
-                  rows={5}
-                  className="text-sm resize-none"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-xs text-foreground/50">State</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {(Object.keys(TASK_STATE_META) as TaskState[]).map((state) => {
-                    const meta = TASK_STATE_META[state]
-                    const Icon = meta.icon
-                    const active = state === task.state
-                    return (
-                      <Button
-                        key={state}
-                        size="sm"
-                        variant={active ? 'default' : 'outline'}
-                        className={cn('h-7 text-xs gap-1.5', !active && 'text-foreground/70')}
-                        onClick={() => onUpdate({ state })}
-                      >
-                        <Icon className={cn('h-3.5 w-3.5', active ? '' : meta.className)} />
-                        {meta.label}
-                      </Button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-xs text-foreground/50">Linked Session Sync</div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {(Object.keys(SYNC_META) as SyncState[]).map((syncState) => {
-                    const meta = SYNC_META[syncState]
-                    const Icon = meta.icon
-                    const active = task.syncState === syncState
+              <div
+                ref={flatListRef}
+                className="flex flex-col gap-1.5 rounded-[10px] p-1"
+              >
+                {flatRows.map((row, index) => {
+                  if (row.kind === 'heading') {
+                    const heading = projectHeadings.find(h => h.id === row.headingId)
+                    if (!heading) return null
 
                     return (
-                      <button
-                        key={syncState}
-                        type="button"
+                      <div
+                        key={row.key}
+                        data-row-key={row.key}
+                        ref={(el) => {
+                          if (el) rowRefs.current.set(row.key, el)
+                          else rowRefs.current.delete(row.key)
+                        }}
                         className={cn(
-                          'text-left rounded-lg border px-2 py-1.5 transition-colors',
-                          active
-                            ? 'border-accent/35 bg-accent/10'
-                            : 'border-border/60 bg-background hover:bg-foreground/[0.02]',
+                          'w-full select-none',
+                          index === 0 ? 'pt-1' : 'pt-3'
                         )}
-                        onClick={() => onUpdate({ syncState })}
                       >
-                        <div className="flex items-center gap-1.5 text-xs">
-                          <Icon className={cn('h-3.5 w-3.5', meta.className.split(' ')[0])} />
-                          <span className="font-medium">{meta.label}</span>
+                        <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-1.5 px-1">
+                          <div className="text-[13px] font-semibold text-foreground">
+                            {heading.title}
+                          </div>
+                          <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                data-no-dnd="true"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                                className="h-6 w-6 inline-flex items-center justify-center rounded-[6px] hover:bg-foreground/5 data-[state=open]:bg-foreground/5"
+                                aria-label={`Open ${heading.title} menu`}
+                              >
+                                <MoreHorizontal className="h-4 w-4 text-foreground/45" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <StyledDropdownMenuContent align="end" minWidth="min-w-44">
+                              <StyledDropdownMenuItem onClick={(e) => e.preventDefault()}>
+                                <span className="flex-1">Rename section</span>
+                              </StyledDropdownMenuItem>
+                              <StyledDropdownMenuItem onClick={(e) => e.preventDefault()}>
+                                <span className="flex-1">Add task below</span>
+                              </StyledDropdownMenuItem>
+                              <StyledDropdownMenuItem onClick={(e) => e.preventDefault()}>
+                                <span className="flex-1">Delete section</span>
+                              </StyledDropdownMenuItem>
+                            </StyledDropdownMenuContent>
+                          </DropdownMenu>
                         </div>
-                      </button>
+                      </div>
                     )
-                  })}
-                </div>
+                  }
+
+                  const task = tasksState.find(t => t.id === row.taskId)
+                  if (!task) return null
+
+                  return (
+                    <div
+                      key={row.key}
+                      data-row-key={row.key}
+                      ref={(el) => {
+                        if (el) rowRefs.current.set(row.key, el)
+                        else rowRefs.current.delete(row.key)
+                      }}
+                      onClick={() => { if (!isDraggingRef.current) setSelectedTaskId(task.id) }}
+                      className={cn(
+                        'planner-sortable-item w-full rounded-[8px] px-3 py-2 text-left select-none',
+                        selectedTaskId === task.id
+                          ? 'planner-sortable-item--selected bg-background'
+                          : 'bg-transparent shadow-none hover:bg-transparent'
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        {task.state === 'done' ? (
+                          <CheckCircle2 className={cn('h-4 w-4', stateStyles[task.state])} />
+                        ) : (
+                          <Circle className={cn('h-4 w-4', stateStyles[task.state])} />
+                        )}
+                        <span className={cn('min-w-0 flex-1 truncate text-sm', task.state === 'done' && 'line-through text-foreground/45')}>
+                          {task.title}
+                        </span>
+                        <span className="text-[11px] text-foreground/45">{task.due}</span>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
+              <div className="flex-1 min-h-12" aria-hidden="true" />
             </div>
           </ScrollArea>
-        </div>
-      )}
+        </section>
+
+        <aside className="border-l border-border/60 bg-foreground/[0.015]">
+          {!selectedTask ? (
+            <div className="p-5 text-sm text-foreground/50">Select a task to inspect details.</div>
+          ) : (
+            <div className="h-full p-4">
+              <div className="mb-3">
+                <div className="text-xs text-foreground/50">Task</div>
+                <div className="mt-1 text-sm font-semibold leading-snug">{selectedTask.title}</div>
+              </div>
+
+              <Tabs defaultValue="details" className="h-[calc(100%-60px)]">
+                <TabsList className="grid w-full grid-cols-2 h-8">
+                  <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+                  <TabsTrigger value="history" className="text-xs">History</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="details" className="mt-3 h-[calc(100%-44px)]">
+                  <ScrollArea className="h-full pr-1">
+                    <div className="space-y-3">
+                      <div className="rounded-[10px] border border-border/60 bg-background p-3">
+                        <div className="mb-1 text-[11px] text-foreground/45">Notes</div>
+                        <p className="text-xs leading-relaxed text-foreground/75">{selectedTask.notes}</p>
+                      </div>
+
+                      <div className="rounded-[10px] border border-border/60 bg-background p-3">
+                        <div className="mb-2 text-[11px] text-foreground/45">Linked Sessions (snapshot-first)</div>
+                        <div className="space-y-2">
+                          {selectedLinks.map(link => {
+                            const snap = snapshots.find(s => s.id === link.snapshotId)
+                            if (!snap) return null
+                            const meta = syncMeta[link.syncState]
+                            const Icon = meta.icon
+                            return (
+                              <div key={link.id} className="rounded-lg border border-border/60 p-2.5 bg-foreground/[0.01]">
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                  <div className="min-w-0 flex items-center gap-1.5">
+                                    <Link2 className="h-3.5 w-3.5 text-foreground/45" />
+                                    <span className="truncate text-xs font-medium">{snap.title}</span>
+                                  </div>
+                                  <span className={cn('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px]', meta.cls)}>
+                                    <Icon className="h-3 w-3" />
+                                    {meta.label}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-foreground/60 leading-relaxed">{snap.summary}</p>
+                                <div className="mt-1 text-[10px] text-foreground/45">Updated {snap.lastUpdated}</div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+
+                <TabsContent value="history" className="mt-3 h-[calc(100%-44px)]">
+                  <ScrollArea className="h-full pr-1">
+                    <div className="space-y-2">
+                      {selectedEvents.map(ev => (
+                        <div key={ev.id} className="rounded-[10px] border border-border/60 bg-background p-2.5">
+                          <div className="mb-1 flex items-center gap-1.5 text-[11px] text-foreground/50">
+                            <History className="h-3.5 w-3.5" />
+                            <span>{ev.type}</span>
+                          </div>
+                          <div className="text-xs text-foreground/75">{ev.payloadSummary}</div>
+                          <div className="mt-1 flex items-center gap-2 text-[10px] text-foreground/45">
+                            <span className="inline-flex items-center gap-1"><User className="h-3 w-3" />{ev.actor}</span>
+                            <span className="inline-flex items-center gap-1"><Clock3 className="h-3 w-3" />{ev.at}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
+        </aside>
+      </div>
     </div>
   )
 }
 
-function SyncStatesShowcase() {
+function PlannerSyncStatePalette() {
   return (
-    <div className="w-[780px] border border-border rounded-xl bg-background p-4">
-      <div className="text-sm font-semibold mb-3">Session Link Sync State Cards</div>
+    <div className="w-[820px] rounded-[14px] border border-border bg-background p-4">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+        <CalendarDays className="h-4 w-4 text-foreground/60" />
+        Sync States (task_session_links_local)
+      </div>
       <div className="grid grid-cols-2 gap-2.5">
-        {(Object.keys(SYNC_META) as SyncState[]).map((syncState) => {
-          const meta = SYNC_META[syncState]
+        {(Object.keys(syncMeta) as SyncState[]).map((state) => {
+          const meta = syncMeta[state]
           const Icon = meta.icon
           return (
-            <motion.div
-              key={syncState}
-              whileHover={{ y: -1.5, transition: { type: 'spring', stiffness: 440, damping: 30 } }}
-              className="rounded-lg border border-border/60 px-3 py-2 bg-foreground/[0.015]"
-            >
-              <div className="flex items-center gap-2 text-sm font-medium mb-1">
-                <Icon className={cn('h-4 w-4', meta.className.split(' ')[0])} />
+            <div key={state} className="rounded-[10px] border border-border/60 bg-foreground/[0.015] p-3">
+              <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+                <Icon className={cn('h-4 w-4', meta.cls.split(' ')[0])} />
                 {meta.label}
               </div>
-              <div className="text-xs text-foreground/50">
-                Snapshot-first rendering keeps cards useful even when live sessions are missing.
+              <div className="text-xs text-foreground/60">
+                Snapshot card always visible; live session resolution is optional enhancement.
               </div>
-            </motion.div>
+            </div>
           )
         })}
       </div>
@@ -897,41 +770,20 @@ function SyncStatesShowcase() {
 
 export const plannerComponents: ComponentEntry[] = [
   {
-    id: 'planner-premium-board',
-    name: 'Planner Premium Board',
+    id: 'planner-things-board',
+    name: 'Planner Things Board',
     category: 'Planner',
-    description: 'Things/Superlist-inspired planner surface with tactile drag-and-drop, animated rows, and task editor.',
-    component: PlannerPlayground,
-    layout: 'centered',
-    props: [
-      { name: 'dense', description: 'Stress mode with many tasks', control: { type: 'boolean' }, defaultValue: false },
-      { name: 'reducedMotion', description: 'Disable spring-heavy motion for accessibility', control: { type: 'boolean' }, defaultValue: false },
-    ],
-    variants: [
-      {
-        name: 'Daily Planning',
-        description: 'Balanced list with focus on fluid interactions and editor transitions.',
-        props: { dense: false, reducedMotion: false },
-      },
-      {
-        name: 'Dense Stress Test',
-        description: 'High-density board for drag performance validation.',
-        props: { dense: true, reducedMotion: false },
-      },
-      {
-        name: 'Reduced Motion',
-        description: 'Accessible fallback behavior with motion minimized.',
-        props: { dense: false, reducedMotion: true },
-      },
-    ],
+    description: 'Things 3-like planner surface with @dnd-kit/dom sortable behavior matching the vertical sample path.',
+    component: PlannerThingsBoard,
+    layout: 'full',
+    props: [],
   },
   {
-    id: 'planner-sync-cards',
-    name: 'Planner Sync Cards',
+    id: 'planner-sync-palette',
+    name: 'Planner Sync Palette',
     category: 'Planner',
-    description: 'Polished sync-state visual language for linked sessions.',
-    component: SyncStatesShowcase,
-    layout: 'centered',
+    description: 'Visual language for task_session_links_local sync states.',
+    component: PlannerSyncStatePalette,
     props: [],
   },
 ]

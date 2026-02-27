@@ -537,7 +537,7 @@ const api: ElectronAPI = {
 
   // Browser pane management
   browserPane: {
-    create: (id?: string) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_PANE_CREATE, id),
+    create: (input?: string | import('../shared/types').BrowserPaneCreateOptions) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_PANE_CREATE, input),
     destroy: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_PANE_DESTROY, id),
     list: () => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_PANE_LIST),
     navigate: (id: string, url: string) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_PANE_NAVIGATE, id, url),

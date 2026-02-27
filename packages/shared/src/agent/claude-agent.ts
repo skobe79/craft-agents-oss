@@ -1185,13 +1185,9 @@ export class ClaudeAgent extends BaseAgent {
               this.resetPrerequisiteState();
             }
 
-            // Intercept large or binary tool results — save to disk and/or summarize
-            // Skip for image content blocks (e.g. browser_screenshot) — the SDK sends
-            // the image directly to the API; the serialized JSON here is just for display
-            // and would waste an LLM summarization call on base64 gibberish.
-            const hasImageContent = event.type === 'tool_result' && event.result
-              && event.result.includes('"type":"image"');
-            if (event.type === 'tool_result' && !event.isError && event.result && !hasImageContent) {
+            // Intercept large/binary/media-rich tool results — save assets to disk,
+            // preserve original JSON when needed, and/or summarize oversized text.
+            if (event.type === 'tool_result' && !event.isError && event.result) {
               const guarded = await guardLargeResult(event.result, {
                 sessionPath: metadataSessionDir,
                 toolName: event.toolName || 'unknown',

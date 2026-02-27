@@ -2,6 +2,12 @@
 
 Use browser tools to control built-in **browser windows** (Chromium) inside Craft Agents.
 
+## Browser usage paths
+
+1. **Primary (recommended):** direct `browser_*` tools (`browser_open`, `browser_navigate`, ...). These are stateful and session-bound.
+2. **Primary convenience wrapper:** `browser_tool` command tool (CLI-like string commands with strict validation).
+3. **Secondary helper:** `browser-tool` CLI helper (`bun run browser-tool --help`) for operation discovery and JSON templates.
+
 ---
 
 ## Core workflow
@@ -16,6 +22,25 @@ When the browser might not be open or focused, **start with `browser_open`**:
 
 ---
 
+## `browser_tool` command wrapper
+
+Use `browser_tool` when you want one command-style entry point:
+
+```text
+browser_tool({ command: "--help" })
+browser_tool({ command: "open" })
+browser_tool({ command: "navigate https://example.com" })
+browser_tool({ command: "snapshot" })
+browser_tool({ command: "click @e12" })
+browser_tool({ command: "fill @e5 user@example.com" })
+browser_tool({ command: "scroll down 800" })
+browser_tool({ command: "evaluate document.title" })
+```
+
+The wrapper validates commands and returns actionable errors when arguments are missing or invalid.
+
+---
+
 ## Tool details
 
 ### `browser_open`
@@ -24,6 +49,7 @@ Open or focus the session-bound in-app browser window.
 **Use when:**
 - Starting a browser workflow
 - Browser may be hidden or unfocused
+- You previously closed the browser window UI (close now hides by default)
 
 **Returns:** browser instance ID
 
@@ -142,6 +168,26 @@ browser_click({ ref: "@e11" })
 ```
 
 ---
+
+## `browser-tool` helper CLI (secondary path)
+
+Use the helper CLI to discover browser operations and get deterministic JSON templates:
+
+```bash
+bun run browser-tool --help
+bun run browser-tool list
+bun run browser-tool template browser_navigate
+bun run browser-tool all-templates
+```
+
+The helper prints structured payload templates (`{ tool, input }`) that map to native `browser_*` tools.
+
+## Behavior notes
+
+- Browser tools are allowed in **Explore/Safe mode** by default.
+- Before first browser tool usage, the agent must read this guide (`~/.craft-agent/docs/browser-tools.md`).
+- Closing a browser window UI now **hides** it (keeps session/browser context alive).
+- Use explicit destroy actions when you want full teardown/reset.
 
 ## Troubleshooting
 

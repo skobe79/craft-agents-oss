@@ -44,6 +44,15 @@ function createMockWebContents() {
   }
 }
 
+function createMockBrowserView() {
+  const webContents = createMockWebContents()
+  return {
+    webContents,
+    setBounds: mock(() => {}),
+    setAutoResize: mock(() => {}),
+  }
+}
+
 function createMockWindow() {
   const listeners: Record<string, Function[]> = {}
   const webContents = createMockWebContents()
@@ -60,10 +69,15 @@ function createMockWindow() {
     isMinimized: mock(() => false),
     restore: mock(() => {}),
     show: mock(() => {}),
+    hide: mock(() => {
+      win._emit('hide')
+    }),
     focus: mock(() => {}),
     destroy: mock(() => {
       win._emit('closed')
     }),
+    setBrowserView: mock((_view: any) => {}),
+    getContentSize: mock(() => [1200, 900]),
     loadURL: mock(async (_url: string) => {}),
   }
   createdWindows.push(win)
@@ -77,6 +91,14 @@ mock.module('electron', () => ({
       const win = createMockWindow()
       this.webContents = win.webContents
       Object.assign(this, win)
+    }
+  },
+  BrowserView: class MockBrowserView {
+    webContents: any
+    constructor(_opts?: any) {
+      const view = createMockBrowserView()
+      this.webContents = view.webContents
+      Object.assign(this, view)
     }
   },
   session: {
@@ -103,9 +125,31 @@ mock.module('../browser-cdp', () => ({
       title: 'Example',
       nodes: [],
     }))
-    clickElement = mock(async () => {})
-    fillElement = mock(async () => {})
-    selectOption = mock(async () => {})
+    clickElement = mock(async () => ({
+      ref: '@e1',
+      box: { x: 0, y: 0, width: 10, height: 10 },
+      clickPoint: { x: 5, y: 5 },
+    }))
+    fillElement = mock(async () => ({
+      ref: '@e1',
+      box: { x: 0, y: 0, width: 10, height: 10 },
+      clickPoint: { x: 5, y: 5 },
+    }))
+    selectOption = mock(async () => ({
+      ref: '@e1',
+      box: { x: 0, y: 0, width: 10, height: 10 },
+      clickPoint: { x: 5, y: 5 },
+    }))
+    setAgentVisualState = mock(async () => {})
+    clearAgentVisualState = mock(async () => {})
+    renderTemporaryOverlay = mock(async () => {})
+    clearTemporaryOverlay = mock(async () => {})
+    getViewportMetrics = mock(async () => ({ width: 1200, height: 900, dpr: 2, scrollX: 0, scrollY: 0 }))
+    getElementGeometry = mock(async () => ({
+      ref: '@e1',
+      box: { x: 0, y: 0, width: 10, height: 10 },
+      clickPoint: { x: 5, y: 5 },
+    }))
   },
 }))
 
@@ -145,9 +189,22 @@ describe('BrowserPaneManager', () => {
     manager.createInstance('b1')
     manager.bindSession('b1', 'session-abc')
     expect(manager.listInstances()[0].boundSessionId).toBe('session-abc')
+    expect(manager.listInstances()[0].ownerType).toBe('session')
 
     manager.unbindSession('b1')
     expect(manager.listInstances()[0].boundSessionId).toBeNull()
+    expect(manager.listInstances()[0].ownerType).toBe('manual')
+  })
+
+  it('createForSession returns canonical bound instance', () => {
+    const id1 = manager.createForSession('sess-1')
+    const id2 = manager.createForSession('sess-1')
+    const info = manager.listInstances()[0]
+
+    expect(id1).toBe(id2)
+    expect(info.ownerType).toBe('session')
+    expect(info.ownerSessionId).toBe('sess-1')
+    expect(manager.listInstances()).toHaveLength(1)
   })
 
   it('getOrCreateForSession reuses existing instance', () => {
@@ -161,14 +218,14 @@ describe('BrowserPaneManager', () => {
     manager.createInstance('nav-1')
     await manager.navigate('nav-1', 'example.com')
     const instance = (manager as any).instances.get('nav-1')
-    expect(instance.window.webContents.loadURL).toHaveBeenCalledWith('https://example.com')
+    expect(instance.pageView.webContents.loadURL).toHaveBeenCalledWith('https://example.com')
   })
 
   it('navigate treats plain text as search query', async () => {
     manager.createInstance('nav-2')
     await manager.navigate('nav-2', 'craft agents browser tools')
     const instance = (manager as any).instances.get('nav-2')
-    expect(instance.window.webContents.loadURL).toHaveBeenCalledWith(
+    expect(instance.pageView.webContents.loadURL).toHaveBeenCalledWith(
       'https://duckduckgo.com/?q=craft%20agents%20browser%20tools'
     )
   })
@@ -180,6 +237,19 @@ describe('BrowserPaneManager', () => {
     const instance = (manager as any).instances.get('f1')
     expect(instance.window.show).toHaveBeenCalled()
     expect(instance.window.focus).toHaveBeenCalled()
+  })
+
+  it('user close hides window and keeps instance alive', () => {
+    manager.createInstance('h1')
+    const instance = (manager as any).instances.get('h1')
+
+    const closeEvent = { preventDefault: mock(() => {}) }
+    instance.window._emit('close', closeEvent)
+
+    expect(closeEvent.preventDefault).toHaveBeenCalled()
+    expect(instance.window.hide).toHaveBeenCalled()
+    expect(manager.listInstances()).toHaveLength(1)
+    expect(manager.listInstances()[0].isVisible).toBe(false)
   })
 
   it('emits removed callback when window closes', () => {

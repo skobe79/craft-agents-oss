@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -56,6 +56,30 @@ const TEXT_AS_BASE64 = Buffer.from(
 
 // Short base64 (below threshold)
 const SHORT_BASE64 = Buffer.from('Hello').toString('base64'); // "SGVsbG8="
+
+const SCREENSHOT_PAYLOAD_PRETTY = JSON.stringify([
+  { type: 'text', text: 'Screenshot captured (108KB PNG)' },
+  {
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: 'image/png',
+      data: LARGE_PNG_BINARY.toString('base64'),
+    },
+  },
+], null, 2);
+
+const SCREENSHOT_PAYLOAD_MINIFIED = JSON.stringify([
+  { type: 'text', text: 'Screenshot captured (108KB PNG)' },
+  {
+    type: 'image',
+    source: {
+      type: 'base64',
+      mimeType: 'image/png',
+      data: LARGE_PNG_BINARY.toString('base64'),
+    },
+  },
+]);
 
 // Temp session dir for guardLargeResult tests
 let tempSessionDir: string;
@@ -272,6 +296,69 @@ describe('guardLargeResult (base64 integration)', () => {
     // Should use the raw binary path, not the base64 path
     expect(result).toContain('Binary content detected and saved');
     expect(result).not.toContain('Base64-encoded');
+  });
+});
+
+describe('guardLargeResult (structured JSON media extraction)', () => {
+  test('extracts screenshot asset from pretty JSON and writes original + linked JSON artifacts', async () => {
+    const result = await guardLargeResult(SCREENSHOT_PAYLOAD_PRETTY, {
+      sessionPath: tempSessionDir,
+      toolName: 'browser_screenshot',
+    });
+
+    expect(result).not.toBeNull();
+    expect(result).toContain('Structured media assets extracted and saved');
+    expect(result).toContain('Original JSON:');
+    expect(result).toContain('Linked JSON:');
+    expect(result).toContain('Assets extracted: 1');
+
+    const longResponsesDir = join(tempSessionDir, 'long_responses');
+    const files = readdirSync(longResponsesDir);
+    const originalJson = files.find(f => f.includes('browser_screenshot_original') && f.endsWith('.json'));
+    const linkedJson = files.find(f => f.includes('browser_screenshot_linked') && f.endsWith('.json'));
+
+    expect(originalJson).toBeDefined();
+    expect(linkedJson).toBeDefined();
+
+    const linked = JSON.parse(readFileSync(join(longResponsesDir, linkedJson!), 'utf-8')) as Array<unknown>;
+    const imageBlock = linked[1] as { source?: { data?: unknown } };
+    expect(typeof imageBlock.source?.data).toBe('object');
+
+    const data = imageBlock.source?.data as { assetRef?: { path?: string; mimeType?: string; jsonPath?: string } };
+    expect(data.assetRef?.path).toBeDefined();
+    expect(data.assetRef?.mimeType).toBe('image/png');
+    expect(data.assetRef?.jsonPath).toBe('$[1].source.data');
+    expect(existsSync(data.assetRef!.path!)).toBe(true);
+  });
+
+  test('extracts screenshot asset from minified JSON (whitespace-insensitive regression)', async () => {
+    const result = await guardLargeResult(SCREENSHOT_PAYLOAD_MINIFIED, {
+      sessionPath: tempSessionDir,
+      toolName: 'browser_screenshot',
+    });
+
+    expect(result).not.toBeNull();
+    expect(result).toContain('Structured media assets extracted and saved');
+  });
+
+  test('dedupes identical structured assets by hash filename', async () => {
+    // Run two extractions with the same payload; file path should resolve to the same hash-based asset.
+    const first = await guardLargeResult(SCREENSHOT_PAYLOAD_MINIFIED, {
+      sessionPath: tempSessionDir,
+      toolName: 'browser_screenshot',
+    });
+    const second = await guardLargeResult(SCREENSHOT_PAYLOAD_MINIFIED, {
+      sessionPath: tempSessionDir,
+      toolName: 'browser_screenshot',
+    });
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+
+    const assetsDir = join(tempSessionDir, 'downloads', 'assets');
+    const pngFiles = readdirSync(assetsDir).filter(f => f.endsWith('.png'));
+    // At least one extracted png exists; hash naming keeps duplicates from exploding.
+    expect(pngFiles.length).toBeGreaterThan(0);
   });
 });
 

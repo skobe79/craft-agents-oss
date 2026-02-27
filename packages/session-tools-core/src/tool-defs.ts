@@ -156,8 +156,17 @@ export const BrowserEvaluateSchema = z.object({
   expression: z.string().describe('JavaScript expression to evaluate in the page context'),
 });
 
+export const BrowserToolSchema = z.object({
+  command: z.string().describe('CLI-like browser command (e.g., "navigate https://example.com", "click @e1", "--help")'),
+});
+
 export const BrowserSnapshotSchema = z.object({});
-export const BrowserScreenshotSchema = z.object({});
+export const BrowserScreenshotSchema = z.object({
+  mode: z.enum(['raw', 'agent']).optional().describe('Capture mode. raw=plain screenshot, agent=adds semantic annotations and metadata'),
+  refs: z.array(z.string()).optional().describe('Element refs from browser_snapshot to annotate'),
+  includeLastAction: z.boolean().optional().describe('Include last browser action target when available'),
+  includeMetadata: z.boolean().optional().describe('Include compact metadata overlay and metadata payload in response text'),
+});
 export const BrowserBackSchema = z.object({});
 export const BrowserForwardSchema = z.object({});
 
@@ -347,7 +356,13 @@ Pass the option's value attribute. Get refs from browser_snapshot first.`,
 
   browser_screenshot: `Take a screenshot of the current browser page.
 
-Returns the screenshot as a base64-encoded PNG. Use browser_snapshot instead when you need to interact with elements — screenshots are better for visual verification.`,
+Supports optional agent-focused annotations and metadata:
+- mode: "raw" (default) or "agent"
+- refs: specific refs to annotate from browser_snapshot
+- includeLastAction: include last interaction target when available
+- includeMetadata: include compact overlay and metadata payload
+
+Use browser_snapshot instead when you need to interact with elements — screenshots are better for visual verification.`,
 
   browser_scroll: `Scroll the browser page in a given direction.
 
@@ -362,6 +377,23 @@ Useful for revealing content below the fold before taking a snapshot. Default sc
 Use this for advanced interactions not covered by other browser tools, like reading computed styles, extracting data from the DOM, or triggering custom events.
 
 The expression is evaluated in the page context. Return values are serialized to JSON.`,
+
+  browser_tool: `Run browser actions using a CLI-like command string.
+
+This is a convenience wrapper around browser_* tools with strict validation and actionable feedback.
+
+Examples:
+- \`--help\`
+- \`open\`
+- \`navigate https://example.com\`
+- \`snapshot\`
+- \`click @e12\`
+- \`fill @e5 user@example.com\`
+- \`select @e3 optionValue\`
+- \`scroll down 800\`
+- \`evaluate document.title\`
+
+Prefer direct browser_* tools when exact structured arguments are available.`,
 
   call_llm: `Invoke a secondary LLM for focused subtasks. Use for:
 - Cost optimization: use a smaller model for simple tasks (summarization, classification)
@@ -447,6 +479,7 @@ export const SESSION_TOOL_DEFS: SessionToolDef[] = [
   { name: 'browser_back', description: TOOL_DESCRIPTIONS.browser_back, inputSchema: BrowserBackSchema, executionMode: 'backend', handler: null },
   { name: 'browser_forward', description: TOOL_DESCRIPTIONS.browser_forward, inputSchema: BrowserForwardSchema, executionMode: 'backend', handler: null },
   { name: 'browser_evaluate', description: TOOL_DESCRIPTIONS.browser_evaluate, inputSchema: BrowserEvaluateSchema, executionMode: 'backend', handler: null },
+  { name: 'browser_tool', description: TOOL_DESCRIPTIONS.browser_tool, inputSchema: BrowserToolSchema, executionMode: 'backend', handler: null },
 ];
 
 // ============================================================

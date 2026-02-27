@@ -14,6 +14,7 @@ import { getSessionTitle, highlightMatch, hasUnreadMeta, shortTimeLocale } from 
 import { useSessionListContext } from "@/context/SessionListContext"
 import { navigate, routes } from "@/lib/navigate"
 import type { SessionMeta } from "@/atoms/sessions"
+import { extractLabelId } from "@craft-agent/shared/labels"
 
 export interface SessionItemProps {
   item: SessionMeta
@@ -43,7 +44,10 @@ export function SessionItem({
   const title = getSessionTitle(item)
   const chatMatchCount = ctx.contentSearchResults.get(item.id)?.matchCount
   const hasMatch = chatMatchCount != null && chatMatchCount > 0
-  const hasLabels = item.labels && item.labels.length > 0 && ctx.flatLabels.length > 0
+  const hasLabels = !!(item.labels && item.labels.length > 0 && ctx.flatLabels.length > 0 && item.labels.some(entry => {
+    const labelId = extractLabelId(entry)
+    return ctx.flatLabels.some(l => l.id === labelId)
+  }))
 
   const handleClick = (e: React.MouseEvent) => {
     ctx.onFocusZone()

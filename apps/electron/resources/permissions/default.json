@@ -1,5 +1,5 @@
 {
-  "version": "2026-02-26",
+  "version": "2026-02-27",
 
   "allowedBashPatterns": [
     { "pattern": "^ls\\b", "comment": "List directory contents" },
@@ -52,6 +52,7 @@
     { "pattern": "^yarn\\s+(list|info|why|outdated|audit)\\b", "comment": "Yarn read operations: list packages, check outdated" },
     { "pattern": "^pnpm\\s+(list|ls|why|outdated|audit)\\b", "comment": "pnpm read operations: list packages, check outdated" },
     { "pattern": "^bun\\s+(pm\\s+ls)\\b", "comment": "Bun package manager list" },
+    { "pattern": "^bun\\s+run\\s+browser-tool\\b", "comment": "Browser-tool helper CLI (templates/help)" },
     { "pattern": "^pip\\s+(list|show|freeze|check)\\b", "comment": "pip read operations: list packages, show info" },
     { "pattern": "^pip3\\s+(list|show|freeze|check)\\b", "comment": "pip3 read operations: list packages, show info" },
     { "pattern": "^cargo\\s+(tree|metadata|pkgid|verify-project)\\b", "comment": "Cargo read operations: dependency tree, metadata" },

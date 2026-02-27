@@ -8,9 +8,9 @@ import { execSync } from 'child_process'
 import { SessionManager } from './sessions'
 import { ipcLog, windowLog, searchLog } from './logger'
 import { WindowManager } from './window-manager'
-import type { BrowserPaneManager } from './browser-pane-manager'
+import type { BrowserPaneManager, BrowserScreenshotOptions } from './browser-pane-manager'
 import { registerOnboardingHandlers } from './onboarding'
-import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type SendMessageOptions, type LlmConnectionSetup, type SkillFile } from '../shared/types'
+import { IPC_CHANNELS, type FileAttachment, type StoredAttachment, type SendMessageOptions, type LlmConnectionSetup, type SkillFile, type BrowserPaneCreateOptions } from '../shared/types'
 import { readFileAttachment, perf, validateImageForClaudeAPI, IMAGE_LIMITS } from '@craft-agent/shared/utils'
 import { safeJsonParse } from '@craft-agent/shared/utils/files'
 import { getPreferencesPath, getSessionDraft, setSessionDraft, deleteSessionDraft, getAllSessionDrafts, getWorkspaceByNameOrId, addWorkspace, setActiveWorkspace, loadStoredConfig, saveConfig, type Workspace, getLlmConnections, getLlmConnection, addLlmConnection, updateLlmConnection, deleteLlmConnection, getDefaultLlmConnection, setDefaultLlmConnection, touchLlmConnection, isCompatProvider, isAnthropicProvider, getDefaultModelsForConnection, getDefaultModelForConnection, type LlmConnection, type LlmConnectionWithStatus, getGitBashPath, setGitBashPath, clearGitBashPath } from '@craft-agent/shared/config'
@@ -3220,8 +3220,16 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
   // =========================================================================
 
   if (browserPaneManager) {
-    ipcMain.handle(IPC_CHANNELS.BROWSER_PANE_CREATE, (_event, id?: string) => {
-      return browserPaneManager.createInstance(id)
+    ipcMain.handle(IPC_CHANNELS.BROWSER_PANE_CREATE, (_event, input?: string | BrowserPaneCreateOptions) => {
+      if (typeof input === 'string') {
+        return browserPaneManager.createInstance(input)
+      }
+
+      if (input?.bindToSessionId) {
+        return browserPaneManager.createForSession(input.bindToSessionId, { show: input.show ?? false })
+      }
+
+      return browserPaneManager.createInstance(input?.id, { show: input?.show })
     })
 
     ipcMain.handle(IPC_CHANNELS.BROWSER_PANE_DESTROY, (_event, id: string) => {
@@ -3307,10 +3315,13 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
       }
     })
 
-    ipcMain.handle(IPC_CHANNELS.BROWSER_PANE_SCREENSHOT, async (_event, id: string) => {
+    ipcMain.handle(IPC_CHANNELS.BROWSER_PANE_SCREENSHOT, async (_event, id: string, options?: BrowserScreenshotOptions) => {
       try {
-        const buffer = await browserPaneManager.screenshot(id)
-        return buffer.toString('base64')
+        const result = await browserPaneManager.screenshot(id, options)
+        return {
+          base64: result.png.toString('base64'),
+          metadata: result.metadata,
+        }
       } catch (err) {
         ipcLog.error(`[browser-pane] screenshot failed for ${id}:`, err)
         throw err

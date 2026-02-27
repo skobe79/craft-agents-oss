@@ -35,7 +35,6 @@ import {
   Info,
   Webhook,
 } from "lucide-react"
-import { PanelLeftRounded } from "../icons/PanelLeftRounded"
 // SessionStatusIcons no longer used - icons come from dynamic sessionStatuses
 import { SourceAvatar } from "@/components/ui/source-avatar"
 import { TopBar } from "./TopBar"
@@ -126,7 +125,6 @@ import { PanelHeader } from "./PanelHeader"
 import { EditPopover, getEditConfig, type EditContextKey } from "@/components/ui/EditPopover"
 import { getDocUrl } from "@craft-agent/shared/docs/doc-links"
 import SettingsNavigator from "@/pages/settings/SettingsNavigator"
-import { RightSidebar } from "./RightSidebar"
 import { PANEL_GAP, PANEL_EDGE_INSET, RADIUS_EDGE, RADIUS_INNER } from "./panel-constants"
 import type { RichTextInputHandle } from "@/components/ui/rich-text-input"
 import { hasOpenOverlay } from "@/lib/overlay-detection"
@@ -509,15 +507,6 @@ function AppShellContent({
     return storage.get(storage.KEYS.sessionListWidth, 300)
   })
 
-  // Right sidebar state (min 280, max 480)
-  const [isRightSidebarVisible, setIsRightSidebarVisible] = React.useState(() => {
-    return storage.get(storage.KEYS.rightSidebarVisible, false)
-  })
-  const [rightSidebarWidth, setRightSidebarWidth] = React.useState(() => {
-    return storage.get(storage.KEYS.rightSidebarWidth, 300)
-  })
-  const [skipRightSidebarAnimation, setSkipRightSidebarAnimation] = React.useState(false)
-
   // Hides both sidebar and navigator (CMD+. toggle)
   // Can be enabled via prop (URL param for new windows) or toggled via Cmd+.
   const [isSidebarAndNavigatorHidden, setIsSidebarAndNavigatorHidden] = React.useState(() => {
@@ -540,23 +529,11 @@ function AppShellContent({
     })
   }, [])
 
-  // Window width tracking for responsive behavior
-  const [windowWidth, setWindowWidth] = React.useState(window.innerWidth)
-
-  // Calculate overlay threshold dynamically based on baseline sidebar widths.
-  // Browser host lane is always inline; metadata sidebar switches to overlay when space is constrained.
-  const MIN_INLINE_SPACE = 600 // 300px metadata lane + 300px center content baseline
-  const leftSidebarEffectiveWidth = isSidebarVisible ? sidebarWidth : 0
-  const OVERLAY_THRESHOLD = MIN_INLINE_SPACE + leftSidebarEffectiveWidth + sessionListWidth
-  const shouldUseOverlay = windowWidth < OVERLAY_THRESHOLD
-
-  const [isResizing, setIsResizing] = React.useState<'sidebar' | 'session-list' | 'right-sidebar' | null>(null)
+  const [isResizing, setIsResizing] = React.useState<'sidebar' | 'session-list' | null>(null)
   const [sidebarHandleY, setSidebarHandleY] = React.useState<number | null>(null)
   const [sessionListHandleY, setSessionListHandleY] = React.useState<number | null>(null)
-  const [rightSidebarHandleY, setRightSidebarHandleY] = React.useState<number | null>(null)
   const resizeHandleRef = React.useRef<HTMLDivElement>(null)
   const sessionListHandleRef = React.useRef<HTMLDivElement>(null)
-  const rightSidebarHandleRef = React.useRef<HTMLDivElement>(null)
   const [session, setSession] = useSession()
   const { resolvedMode, isDark, setMode } = useTheme()
   const { canGoBack, canGoForward, goBack, goForward, navigateToSource, navigateToSession } = useNavigation()
@@ -755,26 +732,8 @@ function AppShellContent({
     setSearchQuery('')
   }, [navFilterKey])
 
-  // Auto-hide right sidebar when navigating away from chat sessions
-  React.useEffect(() => {
-    // Hide sidebar if not in chat view or no session selected
-    if (!isSessionsNavigation(navState) || !navState.details) {
-      setSkipRightSidebarAnimation(true)
-      setIsRightSidebarVisible(false)
-      // Reset skip flag after state update
-      setTimeout(() => setSkipRightSidebarAnimation(false), 0)
-    }
-  }, [navState])
-
   // Cmd+F to activate search
   useAction('app.search', () => setSearchActive(true))
-
-  // Track window width for responsive right sidebar behavior
-  React.useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
 
   // Unified sidebar keyboard navigation state
   // Load expanded folders from localStorage (default: all collapsed)
@@ -1230,14 +1189,6 @@ function AppShellContent({
           const rect = sessionListHandleRef.current.getBoundingClientRect()
           setSessionListHandleY(e.clientY - rect.top)
         }
-      } else if (isResizing === 'right-sidebar') {
-        // Calculate from right edge
-        const newWidth = Math.min(Math.max(window.innerWidth - e.clientX, 280), 480)
-        setRightSidebarWidth(newWidth)
-        if (rightSidebarHandleRef.current) {
-          const rect = rightSidebarHandleRef.current.getBoundingClientRect()
-          setRightSidebarHandleY(e.clientY - rect.top)
-        }
       }
     }
 
@@ -1248,9 +1199,6 @@ function AppShellContent({
       } else if (isResizing === 'session-list') {
         storage.set(storage.KEYS.sessionListWidth, sessionListWidth)
         setSessionListHandleY(null)
-      } else if (isResizing === 'right-sidebar') {
-        storage.set(storage.KEYS.rightSidebarWidth, rightSidebarWidth)
-        setRightSidebarHandleY(null)
       }
       setIsResizing(null)
     }
@@ -1266,10 +1214,7 @@ function AppShellContent({
     isResizing,
     sidebarWidth,
     sessionListWidth,
-    rightSidebarWidth,
     isSidebarVisible,
-    isRightSidebarVisible,
-    shouldUseOverlay,
   ])
 
   // Spring transition config - shared between sidebar and header
@@ -1519,20 +1464,6 @@ function AppShellContent({
     return onDeleteSession(sessionId, skipConfirmation)
   }, [session.selected, setSession, onDeleteSession])
 
-  // Right sidebar CLOSE button (shown in sidebar header when open)
-  const rightSidebarCloseButton = React.useMemo(() => {
-    if (!isRightSidebarVisible) return null
-
-    return (
-      <HeaderIconButton
-        icon={<PanelLeftRounded className="h-5 w-6" />}
-        onClick={() => setIsRightSidebarVisible(false)}
-        tooltip="Close sidebar"
-        className="text-foreground"
-      />
-    )
-  }, [isRightSidebarVisible])
-
   // Extend context value with local overrides (textareaRef, wrapped onDeleteSession, sources, skills, labels, enabledModes, rightSidebarOpenButton, effectiveSessionStatuses)
   const appShellContextValue = React.useMemo<AppShellContextType>(() => ({
     ...contextValue,
@@ -1569,11 +1500,6 @@ function AppShellContent({
   React.useEffect(() => {
     storage.set(storage.KEYS.sidebarVisible, isSidebarVisible)
   }, [isSidebarVisible])
-
-  // Persist right sidebar visibility to localStorage
-  React.useEffect(() => {
-    storage.set(storage.KEYS.rightSidebarVisible, isRightSidebarVisible)
-  }, [isRightSidebarVisible])
 
   // Persist focus mode state to localStorage
   React.useEffect(() => {
@@ -1847,13 +1773,16 @@ function AppShellContent({
   // Create a new dedicated browser window and focus it.
   const handleNewBrowserWindow = useCallback(async () => {
     try {
-      const instanceId = await window.electronAPI.browserPane.create()
+      const instanceId = await window.electronAPI.browserPane.create({
+        show: true,
+        bindToSessionId: effectiveSessionId ?? undefined,
+      })
       await window.electronAPI.browserPane.focus(instanceId)
     } catch (error) {
       console.error('[Chat] Failed to create browser window:', error)
       toast.error('Failed to create browser window')
     }
-  }, [])
+  }, [effectiveSessionId])
 
   // Delete Source - simplified since agents system is removed
   const handleDeleteSource = useCallback(async (sourceSlug: string) => {
@@ -2146,6 +2075,7 @@ function AppShellContent({
         {/* === TOP BAR === */}
         <TopBar
           workspaceName={activeWorkspace?.name}
+          activeSessionId={effectiveSessionId}
           onNewChat={() => handleNewChat()}
           onNewWindow={() => window.electronAPI.menuNewWindow()}
           onOpenSettings={onOpenSettings}
@@ -3225,7 +3155,7 @@ function AppShellContent({
           }
           navigatorWidth={effectiveSidebarAndNavigatorHidden ? 0 : sessionListWidth}
           isSidebarAndNavigatorHidden={effectiveSidebarAndNavigatorHidden}
-          isRightSidebarVisible={isRightSidebarVisible}
+          isRightSidebarVisible={false}
           isResizing={!!isResizing}
         />
 
@@ -3279,103 +3209,6 @@ function AppShellContent({
         </div>
         )}
 
-          {/* Right Sidebar - Inline Mode (≥ 920px) */}
-          {!shouldUseOverlay && (
-            <>
-              {/* Resize Handle */}
-              {isRightSidebarVisible && (
-                <div
-                  ref={rightSidebarHandleRef}
-                  onMouseDown={(e) => { e.preventDefault(); setIsResizing('right-sidebar') }}
-                  onMouseMove={(e) => {
-                    if (rightSidebarHandleRef.current) {
-                      const rect = rightSidebarHandleRef.current.getBoundingClientRect()
-                      setRightSidebarHandleY(e.clientY - rect.top)
-                    }
-                  }}
-                  onMouseLeave={() => { if (isResizing !== 'right-sidebar') setRightSidebarHandleY(null) }}
-                  className="relative w-0 h-full cursor-col-resize flex justify-center shrink-0"
-                >
-                  {/* Touch area */}
-                  <div className="absolute inset-y-0 -left-1.5 -right-1.5 flex justify-center cursor-col-resize">
-                    <div
-                      className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5"
-                      style={getResizeGradientStyle(rightSidebarHandleY)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Inline Sidebar */}
-              <motion.div
-                initial={false}
-                animate={{
-                  width: isRightSidebarVisible ? rightSidebarWidth : 0,
-                  marginLeft: isRightSidebarVisible ? 0 : -PANEL_GAP,
-                }}
-                transition={isResizing === 'right-sidebar' || skipRightSidebarAnimation ? { duration: 0 } : springTransition}
-                className="h-full shrink-0 overflow-visible"
-              >
-                <motion.div
-                  initial={false}
-                  animate={{
-                    x: isRightSidebarVisible ? 0 : rightSidebarWidth + PANEL_GAP,
-                    opacity: isRightSidebarVisible ? 1 : 0,
-                  }}
-                  transition={isResizing === 'right-sidebar' || skipRightSidebarAnimation ? { duration: 0 } : springTransition}
-                  className="h-full bg-foreground-2 shadow-middle"
-                  style={{
-                    width: rightSidebarWidth,
-                    borderTopLeftRadius: RADIUS_INNER,
-                    borderBottomLeftRadius: RADIUS_INNER,
-                    borderTopRightRadius: RADIUS_INNER,
-                    borderBottomRightRadius: RADIUS_EDGE,
-                  }}
-                >
-                  <RightSidebar
-                    panel={{ type: 'sessionMetadata' }}
-                    sessionId={isSessionsNavigation(navState) && navState.details ? navState.details.sessionId : undefined}
-                    closeButton={rightSidebarCloseButton}
-                  />
-                </motion.div>
-              </motion.div>
-            </>
-          )}
-
-          {/* Right Sidebar - Overlay Mode (< 920px) */}
-          {shouldUseOverlay && (
-            <AnimatePresence>
-              {isRightSidebarVisible && (
-                <>
-                  {/* Backdrop */}
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={skipRightSidebarAnimation ? { duration: 0 } : { duration: 0.2 }}
-                    className="fixed inset-0 bg-black/25 z-overlay"
-                    onClick={() => setIsRightSidebarVisible(false)}
-                  />
-                  {/* Drawer panel */}
-                  <motion.div
-                    initial={{ x: 316 }}
-                    animate={{ x: 0 }}
-                    exit={{ x: 316 }}
-                    transition={skipRightSidebarAnimation ? { duration: 0 } : springTransition}
-                    className="fixed inset-y-0 right-0 w-[316px] h-screen z-overlay p-1.5"
-                  >
-                    <div className="h-full bg-foreground-2 overflow-hidden shadow-strong rounded-[12px]">
-                      <RightSidebar
-                        panel={{ type: 'sessionMetadata' }}
-                        sessionId={isSessionsNavigation(navState) && navState.details ? navState.details.sessionId : undefined}
-                        closeButton={rightSidebarCloseButton}
-                      />
-                    </div>
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          )}
       </div>
 
       {/* ============================================================================

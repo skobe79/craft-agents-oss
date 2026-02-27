@@ -1488,9 +1488,22 @@ const ALWAYS_ALLOWED_TOOLS = new Set([
   'Read', 'Glob', 'Grep',           // File reading
   'Task', 'TaskOutput',             // Agent orchestration
   'WebFetch', 'WebSearch',          // Web research
-  'TodoWrite',                       // Task tracking
+  'TodoWrite',                      // Task tracking
   'SubmitPlan',                     // Plan submission
   'LSP',                            // Language server (read-only)
+  // Browser automation tools (stateful UI interactions, no direct local file mutation)
+  'browser_open',
+  'browser_navigate',
+  'browser_snapshot',
+  'browser_click',
+  'browser_fill',
+  'browser_select',
+  'browser_screenshot',
+  'browser_scroll',
+  'browser_back',
+  'browser_forward',
+  'browser_evaluate',
+  'browser_tool',
 ]);
 
 /**
@@ -1743,6 +1756,19 @@ export function shouldAllowToolInMode(
         'mcp__session__transform_data',
         'mcp__session__render_template',
         'mcp__session__call_llm',
+        // Browser session tools (agent-safe browsing workflow)
+        'mcp__session__browser_open',
+        'mcp__session__browser_navigate',
+        'mcp__session__browser_snapshot',
+        'mcp__session__browser_click',
+        'mcp__session__browser_fill',
+        'mcp__session__browser_select',
+        'mcp__session__browser_screenshot',
+        'mcp__session__browser_scroll',
+        'mcp__session__browser_back',
+        'mcp__session__browser_forward',
+        'mcp__session__browser_evaluate',
+        'mcp__session__browser_tool',
       ];
       if (readOnlySessionTools.includes(toolName)) {
         return { allowed: true };

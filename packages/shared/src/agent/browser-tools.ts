@@ -43,6 +43,18 @@ function successResponse(text: string): ToolResult {
  * The Electron session manager creates this by binding to a specific session's
  * browser instance via getOrCreateForSession(sessionId).
  */
+export interface BrowserScreenshotArgs {
+  mode?: 'raw' | 'agent'
+  refs?: string[]
+  includeLastAction?: boolean
+  includeMetadata?: boolean
+}
+
+export interface BrowserScreenshotResult {
+  png: Buffer
+  metadata?: Record<string, unknown>
+}
+
 export interface BrowserPaneFns {
   openPanel: () => Promise<{ instanceId: string }>;
   navigate: (url: string) => Promise<{ url: string; title: string }>;
@@ -50,7 +62,7 @@ export interface BrowserPaneFns {
   click: (ref: string) => Promise<void>;
   fill: (ref: string, value: string) => Promise<void>;
   select: (ref: string, value: string) => Promise<void>;
-  screenshot: () => Promise<Buffer>;
+  screenshot: (args?: BrowserScreenshotArgs) => Promise<BrowserScreenshotResult>;
   scroll: (direction: 'up' | 'down' | 'left' | 'right', amount?: number) => Promise<void>;
   goBack: () => Promise<void>;
   goForward: () => Promise<void>;
@@ -108,7 +120,13 @@ Pass the option's value attribute. Get refs from browser_snapshot first.`,
 
   browser_screenshot: `Take a screenshot of the current browser page.
 
-Returns the screenshot as a base64-encoded PNG. Use browser_snapshot instead when you need to interact with elements — screenshots are better for visual verification.`,
+Supports optional agent-focused annotations:
+- mode: "raw" (default) or "agent"
+- refs: specific refs to annotate from browser_snapshot
+- includeLastAction: include last interaction target when available
+- includeMetadata: render compact metadata overlay and return metadata payload
+
+Use browser_snapshot instead when you need to interact with elements — screenshots are primarily for visual verification.`,
 
   browser_scroll: `Scroll the browser page in a given direction.
 
@@ -123,6 +141,23 @@ Useful for revealing content below the fold before taking a snapshot. Default sc
 Use this for advanced interactions not covered by other browser tools, like reading computed styles, extracting data from the DOM, or triggering custom events.
 
 The expression is evaluated in the page context. Return values are serialized to JSON.`,
+
+  browser_tool: `Run browser actions using a CLI-like command string.
+
+This is a convenience wrapper around browser_* tools with strict validation and actionable feedback.
+
+Examples:
+- \`--help\`
+- \`open\`
+- \`navigate https://example.com\`
+- \`snapshot\`
+- \`click @e12\`
+- \`fill @e5 user@example.com\`
+- \`select @e3 optionValue\`
+- \`scroll down 800\`
+- \`evaluate document.title\`
+
+Prefer direct browser_* tools when exact structured arguments are available.`,
 } as const;
 
 // ============================================================================
@@ -136,6 +171,141 @@ export function createBrowserTools(options: BrowserToolsOptions) {
       throw new Error('Browser window controls are not available. This tool requires the desktop app.');
     }
     return fns;
+  }
+
+  function browserToolHelp(): string {
+    return [
+      'browser_tool command help',
+      '',
+      'Usage:',
+      '  --help',
+      '  open',
+      '  navigate <url>',
+      '  snapshot',
+      '  click <ref>',
+      '  fill <ref> <value>',
+      '  select <ref> <value>',
+      '  screenshot',
+      '  scroll <up|down|left|right> [amount]',
+      '  back',
+      '  forward',
+      '  evaluate <expression>',
+      '',
+      'Examples:',
+      '  navigate https://example.com',
+      '  click @e12',
+      '  fill @e5 user@example.com',
+      '  scroll down 800',
+      '  evaluate document.title',
+    ].join('\n');
+  }
+
+  async function runBrowserCommand(command: string): Promise<string> {
+    const fns = getBrowserFns();
+    const trimmed = command.trim();
+    if (!trimmed) {
+      throw new Error('Missing command. Use "--help" to see supported browser_tool commands.');
+    }
+
+    const parts = trimmed.split(/\s+/);
+    const cmd = parts[0]?.toLowerCase();
+
+    if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') {
+      return browserToolHelp();
+    }
+
+    if (cmd === 'open') {
+      const result = await fns.openPanel();
+      return `Opened in-app browser window (instance: ${result.instanceId})`;
+    }
+
+    if (cmd === 'navigate') {
+      const url = parts.slice(1).join(' ').trim();
+      if (!url) throw new Error('navigate requires a URL. Example: navigate https://example.com');
+      const result = await fns.navigate(url);
+      return `Navigated to: ${result.url}\nTitle: ${result.title}`;
+    }
+
+    if (cmd === 'snapshot') {
+      const snapshot = await fns.snapshot();
+      const lines: string[] = [
+        `URL: ${snapshot.url}`,
+        `Title: ${snapshot.title}`,
+        '',
+        `Elements (${snapshot.nodes.length}):`,
+      ];
+      for (const node of snapshot.nodes) {
+        let line = `  ${node.ref} [${node.role}] "${node.name}"`;
+        if (node.value !== undefined) line += ` value="${node.value}"`;
+        if (node.focused) line += ' (focused)';
+        if (node.checked) line += ' (checked)';
+        if (node.disabled) line += ' (disabled)';
+        if (node.description) line += ` — ${node.description}`;
+        lines.push(line);
+      }
+      return lines.join('\n');
+    }
+
+    if (cmd === 'click') {
+      const ref = parts[1];
+      if (!ref) throw new Error('click requires a ref. Example: click @e1');
+      await fns.click(ref);
+      return `Clicked element ${ref}`;
+    }
+
+    if (cmd === 'fill') {
+      const ref = parts[1];
+      const value = parts.slice(2).join(' ');
+      if (!ref || !value) throw new Error('fill requires ref and value. Example: fill @e5 hello world');
+      await fns.fill(ref, value);
+      return `Filled element ${ref} with "${value}"`;
+    }
+
+    if (cmd === 'select') {
+      const ref = parts[1];
+      const value = parts.slice(2).join(' ');
+      if (!ref || !value) throw new Error('select requires ref and value. Example: select @e3 optionValue');
+      await fns.select(ref, value);
+      return `Selected "${value}" in element ${ref}`;
+    }
+
+    if (cmd === 'screenshot') {
+      const result = await fns.screenshot();
+      return `Screenshot captured (${Math.round(result.png.length / 1024)}KB PNG)`;
+    }
+
+    if (cmd === 'scroll') {
+      const direction = parts[1] as 'up' | 'down' | 'left' | 'right' | undefined;
+      const amountRaw = parts[2];
+      if (!direction || !['up', 'down', 'left', 'right'].includes(direction)) {
+        throw new Error('scroll requires direction up|down|left|right. Example: scroll down 800');
+      }
+      const amount = amountRaw ? Number(amountRaw) : undefined;
+      if (amountRaw && Number.isNaN(amount)) {
+        throw new Error(`Invalid scroll amount "${amountRaw}". Expected a number.`);
+      }
+      await fns.scroll(direction, amount);
+      return `Scrolled ${direction}${amount != null ? ` by ${amount}px` : ''}`;
+    }
+
+    if (cmd === 'back') {
+      await fns.goBack();
+      return 'Navigated back';
+    }
+
+    if (cmd === 'forward') {
+      await fns.goForward();
+      return 'Navigated forward';
+    }
+
+    if (cmd === 'evaluate') {
+      const expression = parts.slice(1).join(' ').trim();
+      if (!expression) throw new Error('evaluate requires an expression. Example: evaluate document.title');
+      const result = await fns.evaluate(expression);
+      return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+    }
+
+    throw new Error(`Unknown browser_tool command "${cmd}". Use "--help" to see supported commands.`);
   }
 
   return [
@@ -268,15 +438,28 @@ export function createBrowserTools(options: BrowserToolsOptions) {
     tool(
       'browser_screenshot',
       BROWSER_DESCRIPTIONS.browser_screenshot,
-      {},
-      async () => {
+      {
+        mode: z.enum(['raw', 'agent']).optional().describe('Capture mode. raw=plain screenshot, agent=adds semantic annotations and metadata'),
+        refs: z.array(z.string()).optional().describe('Element refs from browser_snapshot to annotate'),
+        includeLastAction: z.boolean().optional().describe('Include last browser action target when available'),
+        includeMetadata: z.boolean().optional().describe('Include compact metadata overlay and metadata payload in response text'),
+      },
+      async (args) => {
         try {
           const fns = getBrowserFns();
-          const png = await fns.screenshot();
-          const base64 = png.toString('base64');
+          const result = await fns.screenshot(args);
+          const base64 = result.png.toString('base64');
+
+          const lines = [
+            `Screenshot captured (${Math.round(result.png.length / 1024)}KB PNG)`,
+          ];
+          if (result.metadata) {
+            lines.push('', 'Metadata:', JSON.stringify(result.metadata, null, 2));
+          }
+
           return {
             content: [
-              { type: 'text' as const, text: `Screenshot captured (${Math.round(png.length / 1024)}KB PNG)` },
+              { type: 'text' as const, text: lines.join('\n') },
               { type: 'image' as const, data: base64, mimeType: 'image/png' },
             ],
           };
@@ -350,6 +533,23 @@ export function createBrowserTools(options: BrowserToolsOptions) {
           const result = await fns.evaluate(args.expression);
           const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
           return successResponse(text);
+        } catch (error) {
+          return errorResponse(error instanceof Error ? error.message : String(error));
+        }
+      },
+    ),
+
+    // browser_tool
+    tool(
+      'browser_tool',
+      BROWSER_DESCRIPTIONS.browser_tool,
+      {
+        command: z.string().describe('CLI-like browser command (e.g., "navigate https://example.com", "click @e1", "--help")'),
+      },
+      async (args) => {
+        try {
+          const output = await runBrowserCommand(args.command);
+          return successResponse(output);
         } catch (error) {
           return errorResponse(error instanceof Error ? error.message : String(error));
         }

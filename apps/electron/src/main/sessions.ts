@@ -368,6 +368,7 @@ function resolveToolDisplayMeta(
           'browser_back': 'Browser Back',
           'browser_forward': 'Browser Forward',
           'browser_evaluate': 'Browser Evaluate',
+          'browser_tool': 'Browser Tool',
         },
         'craft-agents-docs': {
           'SearchCraftAgents': 'Search Docs',
@@ -2147,51 +2148,60 @@ export class SessionManager {
       if (this.browserPaneManager) {
         const bpm = this.browserPaneManager
         const sid = managed.id
+
+        const resolveSessionBrowserInstance = (toolName: string, options?: { show?: boolean }): string => {
+          const instanceId = bpm.createForSession(sid, { show: options?.show ?? false })
+          const info = bpm.getInstance(instanceId)
+          sessionLog.info(`[browser-pane] tool target resolved: ${toolName} session=${sid} instance=${instanceId} ownerType=${info?.ownerType ?? 'unknown'} ownerSessionId=${info?.ownerSessionId ?? 'none'} visible=${info?.isVisible ?? false}`)
+          return instanceId
+        }
+
         mergeSessionScopedToolCallbacks(sid, {
           browserPaneFns: {
             openPanel: async () => {
-              const instanceId = bpm.getOrCreateForSession(sid)
-              bpm.focus(instanceId)
+              const instanceId = bpm.focusBoundForSession(sid)
+              const info = bpm.getInstance(instanceId)
+              sessionLog.info(`[browser-pane] route decision: browser_open session=${sid} instance=${instanceId} ownerType=${info?.ownerType ?? 'unknown'} ownerSessionId=${info?.ownerSessionId ?? 'none'} visible=${info?.isVisible ?? false}`)
               return { instanceId }
             },
             navigate: (url) => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_navigate')
               return bpm.navigate(instanceId, url)
             },
             snapshot: () => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_snapshot')
               return bpm.getAccessibilitySnapshot(instanceId)
             },
             click: (ref) => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_click')
               return bpm.clickElement(instanceId, ref)
             },
             fill: (ref, value) => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_fill')
               return bpm.fillElement(instanceId, ref, value)
             },
             select: (ref, value) => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_select')
               return bpm.selectOption(instanceId, ref, value)
             },
-            screenshot: () => {
-              const instanceId = bpm.getOrCreateForSession(sid)
-              return bpm.screenshot(instanceId)
+            screenshot: (options) => {
+              const instanceId = resolveSessionBrowserInstance('browser_screenshot')
+              return bpm.screenshot(instanceId, options)
             },
             scroll: (direction, amount) => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_scroll')
               return bpm.scroll(instanceId, direction, amount)
             },
             goBack: () => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_back')
               return bpm.goBack(instanceId)
             },
             goForward: () => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_forward')
               return bpm.goForward(instanceId)
             },
             evaluate: (expression) => {
-              const instanceId = bpm.getOrCreateForSession(sid)
+              const instanceId = resolveSessionBrowserInstance('browser_evaluate')
               return bpm.evaluate(instanceId, expression)
             },
           } satisfies BrowserPaneFns,
@@ -3865,6 +3875,11 @@ export class SessionManager {
     // 1. Cleanup state
     managed.isProcessing = false
     managed.stopRequested = false  // Reset for next turn
+
+    // End turn-scoped browser visuals (if any browser instance is bound to this session)
+    if (this.browserPaneManager) {
+      await this.browserPaneManager.clearVisualsForSession(sessionId)
+    }
 
     // Notify power manager that a session stopped processing
     // (may allow display sleep if no other sessions are active)

@@ -141,6 +141,7 @@ Glob patterns for directories where writes are allowed.
 - Read, Glob, Grep
 - WebFetch, WebSearch
 - TodoWrite
+- Browser tools (`browser_*` and `mcp__session__browser_*`)
 - MCP tools with read semantics (list, get, search)
 - Plans folder writes (session plans only)
 
@@ -155,6 +156,7 @@ These commands are allowed in Explore mode without custom configuration:
 | **Git (read-only)** | `git status`, `git log`, `git diff`, `git show`, `git branch`, `git blame`, `git reflog` |
 | **GitHub CLI** | `gh pr view/list`, `gh issue view/list`, `gh repo view` |
 | **Package managers** | `npm ls/list/outdated`, `yarn list`, `pip list`, `cargo tree` |
+| **Browser helper** | `bun run browser-tool --help`, `bun run browser-tool list`, `bun run browser-tool template ...` |
 | **System info** | `pwd`, `whoami`, `env`, `ps`, `uname`, `hostname`, `date` |
 | **Text processing** | `jq`, `yq`, `sort`, `uniq`, `cut`, `column` |
 | **Network diagnostics** | `ping`, `dig`, `nslookup`, `netstat` |

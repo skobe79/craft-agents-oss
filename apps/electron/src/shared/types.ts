@@ -1239,7 +1239,7 @@ export interface ElectronAPI {
 
   // Browser pane management
   browserPane: {
-    create(id?: string): Promise<string>
+    create(input?: string | BrowserPaneCreateOptions): Promise<string>
     destroy(id: string): Promise<void>
     list(): Promise<BrowserInstanceInfo[]>
     navigate(id: string, url: string): Promise<{ url: string; title: string }>
@@ -1350,7 +1350,6 @@ export interface DeepLinkNavigation {
  * Defines the content displayed in the right sidebar
  */
 export type RightSidebarPanel =
-  | { type: 'sessionMetadata' }
   | { type: 'files'; path?: string }
   | { type: 'history' }
   | { type: 'none' }
@@ -1430,6 +1429,15 @@ export interface SettingsNavigationState {
 }
 
 /**
+ * Browser pane creation options
+ */
+export interface BrowserPaneCreateOptions {
+  id?: string
+  show?: boolean
+  bindToSessionId?: string
+}
+
+/**
  * Browser pane instance info (synced from main process)
  */
 export interface BrowserInstanceInfo {
@@ -1441,6 +1449,9 @@ export interface BrowserInstanceInfo {
   canGoBack: boolean
   canGoForward: boolean
   boundSessionId: string | null
+  ownerType: 'session' | 'manual'
+  ownerSessionId: string | null
+  isVisible: boolean
 }
 
 /**

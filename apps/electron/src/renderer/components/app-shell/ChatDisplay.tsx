@@ -1033,8 +1033,10 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
   // Helper to collect Edit/Write activities into FileChange array
   // Used by both onOpenActivityDetails and onOpenMultiFileDiff
-  // Supports both Claude Code format (file_path, old_string, new_string) and
-  // Codex format (changes array with path and diff fields)
+  // Supports:
+  // - Claude Code format: { file_path, old_string, new_string }
+  // - PI format: { path, oldText, newText }
+  // - Codex format: { changes: Array<{ path, kind, diff }> }
   const collectFileChanges = useCallback((activities: ActivityItem[]): FileChange[] => {
     const changes: FileChange[] = []
     for (const a of activities) {
@@ -1055,20 +1057,20 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
             })
           }
         } else {
-          // Claude Code format: { file_path, old_string, new_string }
+          // Claude fields take precedence; PI fields are additive fallbacks
           changes.push({
             id: a.id,
-            filePath: (input.file_path as string) || 'unknown',
+            filePath: (input.file_path as string) || (input.path as string) || 'unknown',
             toolType: 'Edit',
-            original: (input.old_string as string) || '',
-            modified: (input.new_string as string) || '',
+            original: (input.old_string as string) || (input.oldText as string) || '',
+            modified: (input.new_string as string) || (input.newText as string) || '',
             error: a.error || undefined,
           })
         }
       } else if (a.toolName === 'Write' && input) {
         changes.push({
           id: a.id,
-          filePath: (input.file_path as string) || 'unknown',
+          filePath: (input.file_path as string) || (input.path as string) || 'unknown',
           toolType: 'Write',
           original: '',
           modified: (input.content as string) || '',
@@ -1578,6 +1580,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
               onPermissionModeChange={onPermissionModeChange}
               tasks={backgroundTasks}
               sessionId={session.id}
+              sessionFolderPath={sessionFolderPath}
               onKillTask={(taskId) => killTask(taskId, backgroundTasks.find(t => t.id === taskId)?.type ?? 'shell')}
               onInsertMessage={onInputChange}
               sessionLabels={session.labels}

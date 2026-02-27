@@ -26,10 +26,7 @@ export const KEYS = {
   // Focus mode
   focusModeEnabled: 'focus-mode-enabled',
 
-  // Right sidebar (chat page)
-  rightSidebarVisible: 'right-sidebar-visible',
-  rightSidebarWidth: 'right-sidebar-width',
-  sessionInfoMetadataHeight: 'session-info-metadata-height', // Height of metadata section in session info panel
+  // Session files panel state
   sessionFilesExpandedFolders: 'session-files-expanded', // Expanded folders in session files tree (keyed by sessionId)
 
   // Theme

@@ -91,12 +91,14 @@ export {
   StyledDropdownMenuSeparator,
   StyledDropdownMenuSubTrigger,
   StyledDropdownMenuSubContent,
+  BrowserShader,
   type SpinnerProps,
   type SimpleDropdownProps,
   type SimpleDropdownItemProps,
   type PreviewHeaderProps,
   type PreviewHeaderBadgeProps,
   type PreviewBadgeVariant,
+  type BrowserShaderProps,
 } from './components/ui'
 
 // Tooltip

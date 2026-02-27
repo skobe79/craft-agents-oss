@@ -27,7 +27,7 @@ function createMockFns(): BrowserPaneFns {
     click: async (_ref: string) => {},
     fill: async (_ref: string, _value: string) => {},
     select: async (_ref: string, _value: string) => {},
-    screenshot: async () => Buffer.from('fake-png-data'),
+    screenshot: async () => ({ png: Buffer.from('fake-png-data') }),
     scroll: async (_dir: 'up' | 'down' | 'left' | 'right', _amount?: number) => {},
     goBack: async () => {},
     goForward: async () => {},
@@ -67,8 +67,8 @@ describe('createBrowserTools', () => {
     })
   })
 
-  it('returns exactly 11 tools', () => {
-    expect(tools.length).toBe(11)
+  it('returns exactly 12 tools', () => {
+    expect(tools.length).toBe(12)
   })
 
   it('includes all expected tool names', () => {
@@ -84,6 +84,7 @@ describe('createBrowserTools', () => {
     expect(names).toContain('browser_back')
     expect(names).toContain('browser_forward')
     expect(names).toContain('browser_evaluate')
+    expect(names).toContain('browser_tool')
   })
 
   describe('browser_open', () => {
@@ -169,6 +170,25 @@ describe('createBrowserTools', () => {
       mockFns.evaluate = async () => 'hello world'
       const result = await executeTool(tools, 'browser_evaluate', { expression: '"hello world"' })
       expect(result.content[0].text).toBe('hello world')
+    })
+  })
+
+  describe('browser_tool', () => {
+    it('returns help text for --help', async () => {
+      const result = await executeTool(tools, 'browser_tool', { command: '--help' })
+      expect(result.content[0].text).toContain('browser_tool command help')
+      expect(result.content[0].text).toContain('navigate <url>')
+    })
+
+    it('routes navigate command', async () => {
+      const result = await executeTool(tools, 'browser_tool', { command: 'navigate example.com' })
+      expect(result.content[0].text).toContain('Navigated to')
+    })
+
+    it('returns validation feedback for invalid command', async () => {
+      const result = await executeTool(tools, 'browser_tool', { command: 'scroll diagonal' })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain('scroll requires direction')
     })
   })
 

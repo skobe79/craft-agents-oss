@@ -11,6 +11,7 @@
 
 import type { WebContents } from 'electron'
 import { mainLog } from './logger'
+import { BROWSER_LIVE_FX } from '../shared/browser-live-fx'
 
 export interface AccessibilityNode {
   ref: string           // "@e1", "@e2", etc.
@@ -27,6 +28,29 @@ export interface AccessibilitySnapshot {
   url: string
   title: string
   nodes: AccessibilityNode[]
+}
+
+export interface ElementBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ElementGeometry {
+  ref: string
+  role?: string
+  name?: string
+  box: ElementBox
+  clickPoint: { x: number; y: number }
+}
+
+export interface ViewportMetrics {
+  width: number
+  height: number
+  dpr: number
+  scrollX: number
+  scrollY: number
 }
 
 // Roles that are typically interactive or contain meaningful content
@@ -52,6 +76,8 @@ export class BrowserCDP {
   private detachListenerRegistered = false
   // Map from "@eN" refs to backend node IDs (refreshed on each snapshot)
   private refMap: Map<string, number> = new Map()
+  // Map from "@eN" refs to semantic details captured during snapshot
+  private refDetails: Map<string, { role: string; name: string }> = new Map()
 
   constructor(webContents: WebContents) {
     this.webContents = webContents
@@ -102,6 +128,7 @@ export class BrowserCDP {
     const nodes = tree.nodes as any[]
 
     this.refMap.clear()
+    this.refDetails.clear()
     const result: AccessibilityNode[] = []
     let refCounter = 0
 
@@ -127,6 +154,7 @@ export class BrowserCDP {
       // Store mapping from ref to backend node ID
       if (node.backendDOMNodeId) {
         this.refMap.set(ref, node.backendDOMNodeId)
+        this.refDetails.set(ref, { role, name })
       }
 
       const accessNode: AccessibilityNode = {
@@ -162,10 +190,274 @@ export class BrowserCDP {
   }
 
   // ---------------------------------------------------------------------------
+  // Screenshot Annotation Helpers
+  // ---------------------------------------------------------------------------
+
+  async getElementGeometry(ref: string): Promise<ElementGeometry> {
+    const backendNodeId = this.refMap.get(ref)
+    if (!backendNodeId) {
+      throw new Error(`Element ${ref} not found. Run browser_snapshot first to get current element refs.`)
+    }
+
+    const { model } = await this.send('DOM.getBoxModel', { backendNodeId })
+    const content = model.content as number[]
+
+    const xs = [content[0], content[2], content[4], content[6]]
+    const ys = [content[1], content[3], content[5], content[7]]
+
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs)
+    const minY = Math.min(...ys)
+    const maxY = Math.max(...ys)
+
+    const clickX = (content[0] + content[2] + content[4] + content[6]) / 4
+    const clickY = (content[1] + content[3] + content[5] + content[7]) / 4
+
+    const details = this.refDetails.get(ref)
+
+    return {
+      ref,
+      role: details?.role,
+      name: details?.name,
+      box: {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+      },
+      clickPoint: { x: clickX, y: clickY },
+    }
+  }
+
+  async getViewportMetrics(): Promise<ViewportMetrics> {
+    const result = await this.send('Runtime.evaluate', {
+      expression: `(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+        dpr: window.devicePixelRatio || 1,
+        scrollX: window.scrollX || 0,
+        scrollY: window.scrollY || 0
+      }))()`,
+      returnByValue: true,
+    })
+
+    const v = result?.result?.value ?? {}
+    return {
+      width: Number(v.width || 0),
+      height: Number(v.height || 0),
+      dpr: Number(v.dpr || 1),
+      scrollX: Number(v.scrollX || 0),
+      scrollY: Number(v.scrollY || 0),
+    }
+  }
+
+  async renderTemporaryOverlay(params: {
+    geometries: ElementGeometry[]
+    includeMetadata?: boolean
+    metadataText?: string
+    includeClickPoints?: boolean
+  }): Promise<void> {
+    const payload = {
+      geometries: params.geometries,
+      includeMetadata: !!params.includeMetadata,
+      metadataText: params.metadataText || '',
+      includeClickPoints: params.includeClickPoints !== false,
+    }
+
+    await this.send('Runtime.evaluate', {
+      expression: `(() => {
+        const existing = document.getElementById('__craft_agent_screenshot_overlay__');
+        if (existing) existing.remove();
+
+        const root = document.createElement('div');
+        root.id = '__craft_agent_screenshot_overlay__';
+        root.style.position = 'fixed';
+        root.style.inset = '0';
+        root.style.pointerEvents = 'none';
+        root.style.zIndex = '2147483647';
+
+        const payload = ${JSON.stringify(payload)};
+
+        for (const g of payload.geometries || []) {
+          const box = document.createElement('div');
+          box.style.position = 'fixed';
+          box.style.left = g.box.x + 'px';
+          box.style.top = g.box.y + 'px';
+          box.style.width = g.box.width + 'px';
+          box.style.height = g.box.height + 'px';
+          box.style.border = '2px solid rgba(59, 130, 246, 0.95)';
+          box.style.borderRadius = '6px';
+          box.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.8) inset';
+          root.appendChild(box);
+
+          const label = document.createElement('div');
+          label.style.position = 'fixed';
+          label.style.left = g.box.x + 'px';
+          label.style.top = Math.max(4, g.box.y - 24) + 'px';
+          label.style.padding = '2px 6px';
+          label.style.borderRadius = '6px';
+          label.style.font = '12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+          label.style.background = 'rgba(15, 23, 42, 0.92)';
+          label.style.color = 'white';
+          label.style.maxWidth = '70vw';
+          label.style.whiteSpace = 'nowrap';
+          label.style.overflow = 'hidden';
+          label.style.textOverflow = 'ellipsis';
+          const labelText = [g.ref, g.role, g.name].filter(Boolean).join(' • ');
+          label.textContent = labelText;
+          root.appendChild(label);
+
+          if (payload.includeClickPoints && g.clickPoint) {
+            const point = document.createElement('div');
+            point.style.position = 'fixed';
+            point.style.left = (g.clickPoint.x - 4) + 'px';
+            point.style.top = (g.clickPoint.y - 4) + 'px';
+            point.style.width = '8px';
+            point.style.height = '8px';
+            point.style.borderRadius = '999px';
+            point.style.background = 'rgba(239, 68, 68, 0.98)';
+            point.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.8)';
+            root.appendChild(point);
+          }
+        }
+
+        if (payload.includeMetadata && payload.metadataText) {
+          const meta = document.createElement('div');
+          meta.style.position = 'fixed';
+          meta.style.right = '8px';
+          meta.style.bottom = '8px';
+          meta.style.padding = '4px 8px';
+          meta.style.borderRadius = '6px';
+          meta.style.font = '11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+          meta.style.background = 'rgba(15, 23, 42, 0.92)';
+          meta.style.color = 'white';
+          meta.textContent = payload.metadataText;
+          root.appendChild(meta);
+        }
+
+        document.documentElement.appendChild(root);
+      })()`,
+    })
+  }
+
+  async clearTemporaryOverlay(): Promise<void> {
+    await this.send('Runtime.evaluate', {
+      expression: `(() => {
+        const existing = document.getElementById('__craft_agent_screenshot_overlay__');
+        if (existing) existing.remove();
+      })()`,
+    })
+  }
+
+  async setAgentVisualState(params: {
+    active: boolean
+    label?: string
+    cursor?: { x: number; y: number } | null
+  }): Promise<void> {
+    const payload = {
+      active: params.active,
+      label: params.label || 'Agent is working…',
+      cursor: params.cursor ?? null,
+      fx: BROWSER_LIVE_FX,
+    }
+
+    await this.send('Runtime.evaluate', {
+      expression: `(() => {
+        const payload = ${JSON.stringify(payload)};
+        const fx = payload.fx;
+        const rootId = fx.rootId;
+
+        const remove = () => {
+          const existing = document.getElementById(rootId);
+          if (existing) existing.remove();
+        };
+
+        if (!payload.active) {
+          remove();
+          return;
+        }
+
+        let root = document.getElementById(rootId);
+        if (!root) {
+          root = document.createElement('div');
+          root.id = rootId;
+          root.style.position = 'fixed';
+          root.style.inset = '0';
+          root.style.pointerEvents = 'none';
+          root.style.zIndex = '2147483646';
+
+          const borderFx = document.createElement('div');
+          borderFx.id = fx.borderId;
+          borderFx.style.position = 'absolute';
+          borderFx.style.inset = '0';
+          borderFx.style.borderRadius = fx.borderRadius;
+          borderFx.style.backgroundImage = fx.borderBackgroundImage;
+          borderFx.style.backgroundSize = fx.borderBackgroundSize;
+          borderFx.style.backgroundPosition = fx.borderBackgroundPosition;
+          borderFx.style.boxShadow = fx.borderBoxShadow;
+          borderFx.style.maskImage = fx.borderMaskImage;
+          borderFx.style.webkitMaskImage = fx.borderMaskImage;
+          borderFx.style.animation = fx.borderAnimation;
+
+          const chip = document.createElement('div');
+          chip.id = fx.chipId;
+          chip.style.position = 'absolute';
+          chip.style.top = fx.chipTop;
+          chip.style.right = fx.chipRight;
+          chip.style.padding = fx.chipPadding;
+          chip.style.borderRadius = fx.chipRadius;
+          chip.style.font = fx.chipFont;
+          chip.style.background = fx.chipBackground;
+          chip.style.color = fx.chipColor;
+          chip.style.backdropFilter = fx.chipBackdropFilter;
+
+          const cursor = document.createElement('div');
+          cursor.id = fx.cursorId;
+          cursor.style.position = 'absolute';
+          cursor.style.width = fx.cursorWidth;
+          cursor.style.height = fx.cursorHeight;
+          cursor.style.transformOrigin = 'top left';
+          cursor.style.transition = fx.cursorTransition;
+          cursor.style.filter = fx.cursorFilter;
+          cursor.innerHTML = fx.cursorInnerHtml;
+
+          const style = document.createElement('style');
+          style.id = fx.styleId;
+          style.textContent = fx.keyframesCss;
+
+          root.appendChild(borderFx);
+          root.appendChild(chip);
+          root.appendChild(cursor);
+          root.appendChild(style);
+          document.documentElement.appendChild(root);
+        }
+
+        const chipEl = document.getElementById(fx.chipId);
+        if (chipEl) chipEl.textContent = payload.label;
+
+        const cursorEl = document.getElementById(fx.cursorId);
+        if (cursorEl) {
+          if (payload.cursor) {
+            cursorEl.style.display = 'block';
+            cursorEl.style.left = (payload.cursor.x - fx.cursorOffset) + 'px';
+            cursorEl.style.top = (payload.cursor.y - fx.cursorOffset) + 'px';
+          } else {
+            cursorEl.style.display = 'none';
+          }
+        }
+      })()`,
+    })
+  }
+
+  async clearAgentVisualState(): Promise<void> {
+    await this.setAgentVisualState({ active: false })
+  }
+
+  // ---------------------------------------------------------------------------
   // Element Interaction
   // ---------------------------------------------------------------------------
 
-  async clickElement(ref: string): Promise<void> {
+  async clickElement(ref: string): Promise<ElementGeometry> {
     const backendNodeId = this.refMap.get(ref)
     if (!backendNodeId) {
       throw new Error(`Element ${ref} not found. Run browser_snapshot first to get current element refs.`)
@@ -182,12 +474,9 @@ export class BrowserCDP {
       })
 
       // Get element box model after scroll for up-to-date click coordinates
-      const { model } = await this.send('DOM.getBoxModel', { backendNodeId })
-      const content = model.content as number[]
-
-      // Calculate center point of the element
-      const x = (content[0] + content[2] + content[4] + content[6]) / 4
-      const y = (content[1] + content[3] + content[5] + content[7]) / 4
+      const geometry = await this.getElementGeometry(ref)
+      const x = geometry.clickPoint.x
+      const y = geometry.clickPoint.y
 
       // Dispatch mouse events (mousedown + mouseup + click)
       await this.send('Input.dispatchMouseEvent', {
@@ -202,13 +491,15 @@ export class BrowserCDP {
         button: 'left',
         clickCount: 1,
       })
+
+      return geometry
     } catch (err) {
       mainLog.error(`[browser-cdp] Click failed for ${ref}:`, err)
       throw new Error(`Failed to click ${ref}: ${err}`)
     }
   }
 
-  async fillElement(ref: string, value: string): Promise<void> {
+  async fillElement(ref: string, value: string): Promise<ElementGeometry> {
     const backendNodeId = this.refMap.get(ref)
     if (!backendNodeId) {
       throw new Error(`Element ${ref} not found. Run browser_snapshot first to get current element refs.`)
@@ -247,13 +538,15 @@ export class BrowserCDP {
           this.dispatchEvent(new Event('change', { bubbles: true }));
         }`,
       })
+
+      return await this.getElementGeometry(ref)
     } catch (err) {
       mainLog.error(`[browser-cdp] Fill failed for ${ref}:`, err)
       throw new Error(`Failed to fill ${ref}: ${err}`)
     }
   }
 
-  async selectOption(ref: string, value: string): Promise<void> {
+  async selectOption(ref: string, value: string): Promise<ElementGeometry> {
     const backendNodeId = this.refMap.get(ref)
     if (!backendNodeId) {
       throw new Error(`Element ${ref} not found. Run browser_snapshot first to get current element refs.`)
@@ -270,6 +563,8 @@ export class BrowserCDP {
         }`,
         arguments: [{ value }],
       })
+
+      return await this.getElementGeometry(ref)
     } catch (err) {
       mainLog.error(`[browser-cdp] Select failed for ${ref}:`, err)
       throw new Error(`Failed to select option in ${ref}: ${err}`)

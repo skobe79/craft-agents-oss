@@ -1127,7 +1127,7 @@ export function NavigationProvider({
     const currentSidebar = rightSidebarRef.current
     const newPanel = panel || (currentSidebar && currentSidebar.type !== 'none'
       ? { type: 'none' as const }
-      : { type: 'sessionMetadata' as const })
+      : { type: 'none' as const })
     updateRightSidebar(newPanel)
   }, [updateRightSidebar])
 

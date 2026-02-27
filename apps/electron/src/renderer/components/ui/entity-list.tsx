@@ -185,7 +185,7 @@ export function EntityList<T>({
           className="flex flex-col pb-2"
           {...containerProps}
         >
-          <div className="pt-2">
+          <div className="pt-1">
             {hasGroups
               ? groups!.map((group) => {
                   const isCollapsed = group.collapsible && collapsedGroups?.has(group.key)

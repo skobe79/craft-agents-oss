@@ -153,6 +153,7 @@ export const CLAUDE_BACKEND_SESSION_TOOL_NAMES = new Set<string>([
   'browser_back',
   'browser_forward',
   'browser_evaluate',
+  'browser_tool',
 ]);
 
 /**

@@ -21,6 +21,7 @@ import remarkCollapsibleSections from './remarkCollapsibleSections'
 import { CollapsibleSection } from './CollapsibleSection'
 import { useCollapsibleMarkdown } from './CollapsibleMarkdownContext'
 import { wrapWithSafeProxy } from './safe-components'
+import { MARKDOWN_MATH_OPTIONS } from './math-options'
 
 /**
  * Render modes for markdown content:
@@ -460,9 +461,19 @@ export function Markdown({
     [children]
   )
 
-  // Conditionally include the collapsible sections plugin
+  // Conditionally include the collapsible sections plugin.
+  // IMPORTANT: Disable single-dollar inline math so currency like $2M–$4M
+  // stays plain text. Math should use $$...$$ delimiters.
   const remarkPlugins = React.useMemo(
-    () => collapsible ? [remarkGfm, remarkMath, remarkCollapsibleSections] : [remarkGfm, remarkMath],
+    () => {
+      const mathPlugin: [typeof remarkMath, typeof MARKDOWN_MATH_OPTIONS] = [
+        remarkMath,
+        MARKDOWN_MATH_OPTIONS
+      ]
+      return collapsible
+        ? [remarkGfm, mathPlugin, remarkCollapsibleSections]
+        : [remarkGfm, mathPlugin]
+    },
     [collapsible]
   )
 
