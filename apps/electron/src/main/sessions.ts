@@ -2,8 +2,9 @@ import { app, nativeImage } from 'electron'
 import * as Sentry from '@sentry/electron/main'
 import { basename, join, normalize, isAbsolute, sep } from 'path'
 import { existsSync } from 'fs'
-import { appendFile, readFile, realpath } from 'fs/promises'
+import { appendFile, readFile, writeFile, mkdir, realpath } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
+import { randomUUID } from 'node:crypto'
 import { type AgentEvent, setPermissionMode, type PermissionMode, unregisterSessionScopedToolCallbacks, mergeSessionScopedToolCallbacks, AbortReason, type AuthRequest, type AuthResult, type CredentialAuthRequest, type BrowserPaneFns } from '@craft-agent/shared/agent'
 import {
   resolveSessionConnection,
@@ -59,7 +60,7 @@ import { loadWorkspaceSources, loadAllSources, getSourcesBySlugs, isSourceUsable
 import { ConfigWatcher, type ConfigWatcherCallbacks } from '@craft-agent/shared/config'
 import { getValidClaudeOAuthToken } from '@craft-agent/shared/auth'
 import { resolveAuthEnvVars } from '@craft-agent/shared/config'
-import { toolMetadataStore } from '@craft-agent/shared/interceptor'
+import { toolMetadataStore, getLastApiError } from '@craft-agent/shared/interceptor'
 import { getCredentialManager } from '@craft-agent/shared/credentials'
 import { CraftMcpClient, McpClientPool, McpPoolServer } from '@craft-agent/shared/mcp'
 import { type Session, type Message, type SessionEvent, type FileAttachment, type StoredAttachment, type SendMessageOptions, type UnreadSummary, IPC_CHANNELS, generateMessageId } from '../shared/types'
@@ -78,6 +79,7 @@ import { AutomationSystem, AUTOMATIONS_HISTORY_FILE, type AutomationSystemMetada
 import { sanitizeForTitle } from './title-sanitizer'
 import { shouldActivateBrowserOverlay } from './browser-tool-detection'
 import { rollbackFailedBranchCreation } from './session-branch-cleanup'
+import { resizeImageForAPI } from './image-utils'
 export { sanitizeForTitle }
 
 function buildBackendHostRuntimeContext(): BackendHostRuntimeContext {
@@ -2229,6 +2231,27 @@ export class SessionManager {
         automationSystem: this.automationSystems.get(managed.workspace.rootPath),
         systemPromptPreset: managed.systemPromptPreset,
         debugMode: isDebugMode ? { enabled: true, logFilePath: getLogFilePath() } : undefined,
+        // Image resize callback — prevents oversized images from entering conversation history
+        onImageResize: async (filePath: string, maxSizeBytes: number): Promise<string | null> => {
+          try {
+            const buffer = await readFile(filePath)
+            const result = resizeImageForAPI(buffer, { maxSizeBytes })
+            if (!result) return null
+
+            // Write to session tmp directory (cleaned up with session)
+            const sessionTmpDir = join(sessionPath, 'tmp')
+            await mkdir(sessionTmpDir, { recursive: true })
+            const ext = result.format === 'jpeg' ? 'jpg' : 'png'
+            const outPath = join(sessionTmpDir, `resized-${randomUUID()}.${ext}`)
+            await writeFile(outPath, result.buffer)
+
+            sessionLog.info(`Image resized for Read: ${(buffer.length / 1024 / 1024).toFixed(1)}MB → ${(result.buffer.length / 1024 / 1024).toFixed(1)}MB (→ ${result.width}×${result.height})`)
+            return outPath
+          } catch (err) {
+            sessionLog.error('Image resize failed:', err)
+            return null
+          }
+        },
         // Source configs for postInit() — backends set up their own bridge/config
         initialSources: {
           enabledSources,
@@ -3901,9 +3924,49 @@ export class SessionManager {
           const lastUserMsg = [...managed.messages].reverse().find(m => m.role === 'user')
 
           // If the last user message is newer than any assistant response, we got no reply
-          // This can happen due to context overflow or API issues - log for debugging but don't show UI warning
+          // This can happen due to context overflow or API issues
           if (lastUserMsg && (!lastAssistantMsg || lastUserMsg.timestamp > lastAssistantMsg.timestamp)) {
             sessionLog.warn(`Session ${sessionId} completed without assistant response - possible context overflow or API issue`)
+
+            // Check if there's a captured API error that explains the silent failure.
+            // Pass explicit session path to avoid reading from the wrong session
+            // (_sessionDir singleton can be clobbered by concurrent sessions).
+            const sessionErrorPath = getSessionStoragePath(managed.workspace.rootPath, managed.id)
+            const apiError = getLastApiError(sessionErrorPath)
+
+            if (apiError && apiError.status === 400) {
+              const isImageError = apiError.message?.includes('image exceeds')
+
+              const errorMessage: Message = {
+                id: generateMessageId(),
+                role: 'error',
+                content: isImageError
+                  ? `Image Too Large: ${apiError.message}`
+                  : `Request Error: ${apiError.message}`,
+                timestamp: this.monotonic(),
+                errorCode: isImageError ? 'image_too_large' : 'invalid_request',
+                errorTitle: isImageError ? 'Image Too Large' : 'Invalid Request',
+                errorDetails: isImageError
+                  ? ['An image in the conversation exceeds the 5 MB API limit.',
+                     'This session cannot recover — the image is embedded in the history.',
+                     'Please start a new session to continue.']
+                  : [apiError.message],
+                errorCanRetry: false,
+              }
+              managed.messages.push(errorMessage)
+              this.sendEvent({
+                type: 'typed_error',
+                sessionId,
+                error: {
+                  code: isImageError ? 'image_too_large' as const : 'invalid_request' as const,
+                  title: errorMessage.errorTitle!,
+                  message: apiError.message,
+                  actions: [],
+                  canRetry: false,
+                  details: errorMessage.errorDetails,
+                },
+              }, managed.workspace.id)
+            }
           }
 
           sendSpan.mark('chat.complete')

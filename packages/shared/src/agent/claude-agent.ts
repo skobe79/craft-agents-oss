@@ -72,6 +72,11 @@ import type {
   SourceChangeCallback,
   SourceActivationCallback,
 } from './backend/types.ts';
+import { stat } from 'node:fs/promises';
+import { IMAGE_LIMITS } from '../utils/files.ts';
+
+/** Image extensions that may need size-guard in PreToolUse (matches Read tool's image detection) */
+const IMAGE_READ_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff']);
 
 // Re-export permission mode functions for application usage
 export {
@@ -819,6 +824,49 @@ export class ClaudeAgent extends BaseAgent {
               // Track Read tool calls for prerequisite checking
               if (input.tool_name === 'Read') {
                 this.prerequisiteManager.trackReadTool(input.tool_input as Record<string, unknown>);
+              }
+
+              // --- Image size guard for Read tool ---
+              // Must run before runPreToolUseChecks. Once an oversized image enters
+              // the conversation history, the session becomes permanently stuck
+              // (API rejects with 400, SDK reports success, no recovery).
+              if (input.tool_name === 'Read') {
+                const filePath = (input.tool_input as { file_path?: string }).file_path;
+                if (filePath) {
+                  const ext = filePath.toLowerCase().split('.').pop() || '';
+                  if (IMAGE_READ_EXTENSIONS.has(ext)) {
+                    try {
+                      const stats = await stat(filePath);
+
+                      if (stats.size > IMAGE_LIMITS.MAX_RAW_SIZE) {
+                        const sizeMB = (stats.size / (1024 * 1024)).toFixed(1);
+                        this.onDebug?.(`Image ${filePath} is ${sizeMB}MB, attempting resize...`);
+
+                        if (this.config.onImageResize) {
+                          const resizedPath = await this.config.onImageResize(filePath, IMAGE_LIMITS.MAX_RAW_SIZE);
+                          if (resizedPath) {
+                            this.onDebug?.(`Image resized, redirecting Read to: ${resizedPath}`);
+                            return {
+                              continue: true,
+                              hookSpecificOutput: {
+                                hookEventName: 'PreToolUse' as const,
+                                updatedInput: { ...input.tool_input as Record<string, unknown>, file_path: resizedPath },
+                              },
+                            };
+                          }
+                        }
+
+                        return blockWithReason(
+                          `Image too large (${sizeMB}MB). The API limit is 5MB base64 (~3.5MB raw). Use a smaller or compressed version.`
+                        );
+                      }
+                    } catch (err) {
+                      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+                        this.onDebug?.(`Image size check failed for ${filePath}: ${err}`);
+                      }
+                    }
+                  }
+                }
               }
 
               // Get current permission mode (single source of truth)

@@ -103,6 +103,12 @@ export type ContentBlock = ToolUseBlock | ToolResultBlock | TextBlock | { type: 
 // Pure extraction functions
 // ============================================================================
 
+/** Strip internal metadata fields (_displayName, _intent) from tool input */
+function stripInternalFields(input: unknown): Record<string, unknown> {
+  const { _displayName, _intent, ...clean } = input as Record<string, unknown>;
+  return clean;
+}
+
 /**
  * Extract tool_start events from assistant message content blocks.
  *
@@ -172,7 +178,7 @@ export function extractToolStarts(
           type: 'tool_start',
           toolName: toolBlock.name,
           toolUseId: toolBlock.id,
-          input: toolBlock.input,
+          input: stripInternalFields(toolBlock.input),
           intent,
           displayName,
           turnId,
@@ -190,7 +196,7 @@ export function extractToolStarts(
       type: 'tool_start',
       toolName: toolBlock.name,
       toolUseId: toolBlock.id,
-      input: toolBlock.input,
+      input: stripInternalFields(toolBlock.input),
       intent,
       displayName,
       turnId,
