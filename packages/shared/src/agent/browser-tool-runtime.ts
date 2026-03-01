@@ -19,6 +19,23 @@ export interface BrowserCommandResult {
   image?: BrowserCommandImage;
 }
 
+interface BrowserPageMetrics {
+  url: string;
+  title: string;
+  viewportWidth: number;
+  viewportHeight: number;
+  documentWidth: number;
+  documentHeight: number;
+  scrollX: number;
+  scrollY: number;
+  maxScrollX: number;
+  maxScrollY: number;
+  activeElementTag?: string;
+  activeElementRole?: string;
+  activeElementId?: string;
+  activeElementName?: string;
+}
+
 export function getBrowserToolHelp(): string {
   return [
     'browser_tool command help',
@@ -31,6 +48,7 @@ export function getBrowserToolHelp(): string {
     '  find <query>                                   search elements by keyword (matches role, name, value)',
     '  click <ref> [none|navigation|network-idle] [timeoutMs]',
     '  click-at <x> <y>                               click at pixel coordinates (canvas elements)',
+    '  drag <x1> <y1> <x2> <y2>                      drag from (x1,y1) to (x2,y2)',
     '  fill <ref> <value>',
     '  type <text>                                    type into focused element (no ref needed)',
     '  select <ref> <value>',
@@ -57,13 +75,18 @@ export function getBrowserToolHelp(): string {
     '  close                                          close & destroy the browser window',
     '  hide                                           hide the window (keeps state, "open" re-shows)',
     '',
-    'Batching (semicolon-separated, stops after navigation commands):',
+    'Batching (string mode, semicolon-separated, stops after navigation commands):',
     '  fill @e1 user@example.com; fill @e2 password123; click @e3',
+    '',
+    'Array mode (JSON array input, no batch splitting/tokenization):',
+    '  ["evaluate", "var x = 1; var y = 2; x + y"]',
+    '  ["paste", "Name\\tAge\\nAlice\\t30"]',
     '',
     'Examples:',
     '  navigate https://example.com',
     '  click @e12',
     '  click-at 350 200',
+    '  drag 100 200 300 400',
     '  fill @e5 user@example.com',
     '  type Hello World',
     '  set-clipboard Name\\tAge\\nAlice\\t30',
@@ -111,6 +134,95 @@ function formatNodeLine(
   return line;
 }
 
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
+function formatPercent(numerator: number, denominator: number): string {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return '0.0%';
+  return `${((numerator / denominator) * 100).toFixed(1)}%`;
+}
+
+function shortText(text: string, max = 160): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max - 1)}…`;
+}
+
+function statusBucket(status: number): '2xx' | '3xx' | '4xx' | '5xx' | 'other' {
+  if (status >= 200 && status < 300) return '2xx';
+  if (status >= 300 && status < 400) return '3xx';
+  if (status >= 400 && status < 500) return '4xx';
+  if (status >= 500 && status < 600) return '5xx';
+  return 'other';
+}
+
+async function safeEvaluate<T>(fns: BrowserPaneFns, expression: string): Promise<T | null> {
+  try {
+    const value = await fns.evaluate(expression);
+    return value as T;
+  } catch {
+    return null;
+  }
+}
+
+async function getPageMetrics(fns: BrowserPaneFns): Promise<BrowserPageMetrics | null> {
+  return safeEvaluate<BrowserPageMetrics>(
+    fns,
+    `(() => {
+      const doc = document.documentElement;
+      const body = document.body;
+      const scrollWidth = Math.max(doc?.scrollWidth || 0, body?.scrollWidth || 0, window.innerWidth || 0);
+      const scrollHeight = Math.max(doc?.scrollHeight || 0, body?.scrollHeight || 0, window.innerHeight || 0);
+      const viewportWidth = window.innerWidth || 0;
+      const viewportHeight = window.innerHeight || 0;
+      const scrollX = window.scrollX || window.pageXOffset || 0;
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const active = document.activeElement;
+      return {
+        url: window.location.href,
+        title: document.title || '',
+        viewportWidth,
+        viewportHeight,
+        documentWidth: scrollWidth,
+        documentHeight: scrollHeight,
+        scrollX,
+        scrollY,
+        maxScrollX: Math.max(0, scrollWidth - viewportWidth),
+        maxScrollY: Math.max(0, scrollHeight - viewportHeight),
+        activeElementTag: active?.tagName?.toLowerCase() || '',
+        activeElementRole: active?.getAttribute?.('role') || '',
+        activeElementId: active?.id || '',
+        activeElementName: active?.getAttribute?.('name') || active?.getAttribute?.('aria-label') || active?.textContent?.trim?.().slice(0, 80) || '',
+      };
+    })()`
+  );
+}
+
+function describeActive(metrics: BrowserPageMetrics | null): string {
+  if (!metrics) return 'unknown';
+  const tag = metrics.activeElementTag || 'unknown';
+  const id = metrics.activeElementId ? `#${metrics.activeElementId}` : '';
+  const role = metrics.activeElementRole ? ` role=${metrics.activeElementRole}` : '';
+  const name = metrics.activeElementName ? ` "${shortText(metrics.activeElementName, 60)}"` : '';
+  return `${tag}${id}${role}${name}`;
+}
+
+function summarizeWindows(windows: Awaited<ReturnType<BrowserPaneFns['listWindows']>>): string {
+  const visible = windows.filter((w) => w.isVisible).length;
+  const locked = windows.filter((w) => !!w.boundSessionId).length;
+  const withOverlay = windows.filter((w) => !!w.agentControlActive).length;
+  return `total=${windows.length}, visible=${visible}, locked=${locked}, overlays=${withOverlay}`;
+}
+
 const NAVIGATION_COMMANDS = new Set([
   'navigate',
   'click',
@@ -118,18 +230,160 @@ const NAVIGATION_COMMANDS = new Set([
   'forward',
 ]);
 
+function decodeEscapes(input: string): string {
+  return input.replace(/\\(.)/g, (_match, ch: string) => {
+    if (ch === 'n') return '\n';
+    if (ch === 't') return '\t';
+    if (ch === 'r') return '\r';
+    if (ch === '"') return '"';
+    if (ch === "'") return "'";
+    if (ch === '\\') return '\\';
+    return `\\${ch}`;
+  });
+}
+
+function splitBatchCommands(input: string): string[] {
+  const commands: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i]!;
+
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      current += ch;
+      escaped = true;
+      continue;
+    }
+
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      current += ch;
+      continue;
+    }
+
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      current += ch;
+      continue;
+    }
+
+    if (ch === ';' && !inSingle && !inDouble) {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) commands.push(trimmed);
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (escaped) {
+    current += '\\';
+  }
+
+  if (inSingle || inDouble) {
+    throw new Error('Parse error: unclosed quote in browser_tool command.');
+  }
+
+  const trimmed = current.trim();
+  if (trimmed.length > 0) commands.push(trimmed);
+  return commands;
+}
+
+function tokenizeCommand(input: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let tokenStarted = false;
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  const pushCurrent = () => {
+    if (!tokenStarted) return;
+    tokens.push(decodeEscapes(current));
+    current = '';
+    tokenStarted = false;
+  };
+
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i]!;
+
+    if (escaped) {
+      current += `\\${ch}`;
+      tokenStarted = true;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      tokenStarted = true;
+      continue;
+    }
+
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      tokenStarted = true;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && /\s/.test(ch)) {
+      pushCurrent();
+      continue;
+    }
+
+    current += ch;
+    tokenStarted = true;
+  }
+
+  if (escaped) {
+    current += '\\';
+    tokenStarted = true;
+  }
+
+  if (inSingle || inDouble) {
+    throw new Error('Parse error: unclosed quote in browser_tool command.');
+  }
+
+  pushCurrent();
+  return tokens;
+}
+
 export async function executeBrowserToolCommand(args: {
-  command: string;
+  command: string | string[];
   fns: BrowserPaneFns;
   sessionId: string;
   platform?: NodeJS.Platform;
 }): Promise<BrowserCommandResult> {
+  // Array mode: no batch splitting, pass directly to single command execution
+  if (Array.isArray(args.command)) {
+    if (args.command.length === 0) {
+      throw new Error('Missing command. Use "--help" to see supported browser_tool commands.');
+    }
+    return executeSingleCommand(args);
+  }
+
+  // String mode: existing behavior unchanged
   const trimmed = args.command.trim();
   if (!trimmed) {
     throw new Error('Missing command. Use "--help" to see supported browser_tool commands.');
   }
 
-  const commands = trimmed.split(/\s*;\s*/).filter(Boolean);
+  const commands = splitBatchCommands(trimmed);
   if (commands.length > 1) {
     return executeBatchCommands({ ...args, commands });
   }
@@ -155,7 +409,7 @@ async function executeBatchCommands(args: {
     if (result.image) lastImage = result.image;
     if (result.appendReleaseHint) appendReleaseHint = true;
 
-    const batchCmd = command.trim().split(/\s+/)[0]?.toLowerCase();
+    const batchCmd = tokenizeCommand(command)[0]?.toLowerCase();
     if (batchCmd && NAVIGATION_COMMANDS.has(batchCmd) && i < args.commands.length - 1) {
       outputs.push(`(stopped batch after "${batchCmd}" — page may have changed, re-snapshot before continuing)`);
       break;
@@ -170,13 +424,15 @@ async function executeBatchCommands(args: {
 }
 
 async function executeSingleCommand(args: {
-  command: string;
+  command: string | string[];
   fns: BrowserPaneFns;
   sessionId: string;
   platform?: NodeJS.Platform;
 }): Promise<BrowserCommandResult> {
-  const trimmed = args.command.trim();
-  const parts = trimmed.split(/\s+/);
+  // Array mode: use parts directly, no parsing needed
+  const parts = Array.isArray(args.command)
+    ? args.command
+    : tokenizeCommand(args.command.trim());
   const cmd = parts[0]?.toLowerCase();
 
   if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') {
@@ -187,23 +443,74 @@ async function executeSingleCommand(args: {
 
   if (cmd === 'open') {
     const foreground = parts.includes('--foreground') || parts.includes('-f');
+    const windowsBefore = await fns.listWindows();
     const result = await fns.openPanel({ background: !foreground });
+    const windowsAfter = await fns.listWindows();
+    const win = windowsAfter.find((w) => w.id === result.instanceId);
+    const reused = windowsBefore.some((w) => w.id === result.instanceId);
     const mode = foreground ? 'foreground' : 'background';
-    return { output: `Opened in-app browser window in ${mode} (instance: ${result.instanceId})`, appendReleaseHint: true };
+
+    const lines = [
+      `Opened in-app browser window in ${mode} (instance: ${result.instanceId})`,
+      `Window state: ${reused ? 'reused existing window' : 'created new window'}`,
+      `Session windows: ${summarizeWindows(windowsAfter)}`,
+    ];
+    if (win) {
+      lines.push(
+        `Visible: ${win.isVisible}, ownerType: ${win.ownerType}, boundSessionId: ${win.boundSessionId ?? 'none'}`,
+      );
+    }
+
+    return { output: lines.join('\n'), appendReleaseHint: true };
   }
 
   if (cmd === 'navigate') {
     const url = parts.slice(1).join(' ').trim();
     if (!url) throw new Error('navigate requires a URL. Example: navigate https://example.com');
+
+    const before = await getPageMetrics(fns);
+    const started = Date.now();
     const result = await fns.navigate(url);
-    return { output: `Navigated to: ${result.url}\nTitle: ${result.title}`, appendReleaseHint: true };
+    const elapsedMs = Date.now() - started;
+    const after = await getPageMetrics(fns);
+    const failed = await fns.getNetworkLogs({ limit: 200, status: 'failed' });
+
+    const lines = [
+      `Navigated to: ${result.url}`,
+      `Title: ${result.title}`,
+      `Elapsed: ${elapsedMs}ms`,
+      `URL changed: ${before ? before.url !== result.url : 'unknown'}`,
+      `Recent failed requests: ${failed.length}`,
+    ];
+    if (after) {
+      lines.push(`Viewport: ${after.viewportWidth}x${after.viewportHeight}, scroll=(${after.scrollX}, ${after.scrollY})`);
+    }
+
+    return { output: lines.join('\n'), appendReleaseHint: true };
   }
 
   if (cmd === 'snapshot') {
     const snapshot = await fns.snapshot();
+    const roles = new Map<string, number>();
+    let focusedRef: string | null = null;
+    let disabledCount = 0;
+    for (const node of snapshot.nodes) {
+      roles.set(node.role, (roles.get(node.role) ?? 0) + 1);
+      if (node.focused && !focusedRef) focusedRef = node.ref;
+      if (node.disabled) disabledCount += 1;
+    }
+
+    const roleSummary = Array.from(roles.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([role, count]) => `${role}:${count}`)
+      .join(', ');
+
     const lines: string[] = [
       `URL: ${snapshot.url}`,
       `Title: ${snapshot.title}`,
+      `Elements: ${snapshot.nodes.length}${roleSummary ? ` (${roleSummary})` : ''}`,
+      `Focused ref: ${focusedRef ?? 'none'}, disabled: ${disabledCount}`,
       '',
       `Elements (${snapshot.nodes.length}):`,
     ];
@@ -221,27 +528,40 @@ async function executeSingleCommand(args: {
     const queryLower = query.toLowerCase();
     const keywords = queryLower.split(/\s+/).filter(Boolean);
 
-    const matches = snapshot.nodes.filter((node) => {
-      const haystack = [node.role, node.name, node.value, node.description]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return keywords.every((kw) => haystack.includes(kw));
-    });
+    const scored = snapshot.nodes
+      .map((node) => {
+        const haystack = [node.role, node.name, node.value, node.description]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!keywords.every((kw) => haystack.includes(kw))) return null;
+        let score = 0;
+        for (const kw of keywords) {
+          if ((node.name ?? '').toLowerCase().includes(kw)) score += 3;
+          if ((node.role ?? '').toLowerCase().includes(kw)) score += 2;
+          if ((node.value ?? '').toLowerCase().includes(kw)) score += 1;
+          if ((node.description ?? '').toLowerCase().includes(kw)) score += 1;
+        }
+        return { node, score };
+      })
+      .filter((x): x is { node: typeof snapshot.nodes[number]; score: number } => !!x)
+      .sort((a, b) => b.score - a.score);
 
-    if (matches.length === 0) {
+    if (scored.length === 0) {
       return {
         output: `No elements found matching "${query}" (searched ${snapshot.nodes.length} elements).\nTry a broader search or run "snapshot" to see all elements.`,
         appendReleaseHint: true,
       };
     }
 
-    const lines: string[] = [`Found ${matches.length} element(s) matching "${query}":`];
-    for (const node of matches.slice(0, 20)) {
-      lines.push(formatNodeLine(node, { includeState: false }));
+    const lines: string[] = [
+      `Found ${scored.length} element(s) matching "${query}" from ${snapshot.nodes.length} scanned elements:`,
+    ];
+    for (const { node, score } of scored.slice(0, 20)) {
+      lines.push(`${formatNodeLine(node, { includeState: false })} (score=${score})`);
     }
-    if (matches.length > 20) {
-      lines.push(`  ... and ${matches.length - 20} more. Narrow your search.`);
+    if (scored.length > 20) {
+      lines.push(`  ... and ${scored.length - 20} more. Narrow your search.`);
     }
     return { output: lines.join('\n'), appendReleaseHint: true };
   }
@@ -261,8 +581,24 @@ async function executeSingleCommand(args: {
     if (timeoutRaw && Number.isNaN(timeoutMs)) {
       throw new Error(`Invalid click timeout "${timeoutRaw}". Expected a number.`);
     }
+
+    const before = await getPageMetrics(fns);
+    const started = Date.now();
     await fns.click(ref, { waitFor, timeoutMs });
-    return { output: `Clicked element ${ref}${waitFor ? ` (waitFor=${waitFor})` : ''}`, appendReleaseHint: true };
+    const elapsedMs = Date.now() - started;
+    const after = await getPageMetrics(fns);
+
+    const lines = [
+      `Clicked element ${ref}${waitFor ? ` (waitFor=${waitFor})` : ''}`,
+      `Elapsed: ${elapsedMs}ms`,
+      `URL changed: ${before && after ? before.url !== after.url : 'unknown'}`,
+      `Active element: ${describeActive(after)}`,
+    ];
+    if (before && after) {
+      lines.push(`Scroll Y: ${Math.round(before.scrollY)} → ${Math.round(after.scrollY)}`);
+    }
+
+    return { output: lines.join('\n'), appendReleaseHint: true };
   }
 
   if (cmd === 'click-at') {
@@ -274,43 +610,152 @@ async function executeSingleCommand(args: {
     if (Number.isNaN(x) || Number.isNaN(y)) {
       throw new Error('click-at coordinates must be numbers. Example: click-at 350 200');
     }
+
+    const before = await getPageMetrics(fns);
+    const started = Date.now();
     await fns.clickAt(x, y);
-    return { output: `Clicked at coordinates (${x}, ${y})`, appendReleaseHint: true };
+    const elapsedMs = Date.now() - started;
+    const after = await getPageMetrics(fns);
+
+    const lines = [
+      `Clicked at coordinates (${x}, ${y})`,
+      `Elapsed: ${elapsedMs}ms`,
+      `Within viewport: ${before ? x >= 0 && y >= 0 && x <= before.viewportWidth && y <= before.viewportHeight : 'unknown'}`,
+      `Active element: ${describeActive(after)}`,
+    ];
+    if (before && after) {
+      lines.push(`Scroll Y: ${Math.round(before.scrollY)} → ${Math.round(after.scrollY)}`);
+    }
+
+    return { output: lines.join('\n'), appendReleaseHint: true };
+  }
+
+  if (cmd === 'drag') {
+    const x1Raw = parts[1];
+    const y1Raw = parts[2];
+    const x2Raw = parts[3];
+    const y2Raw = parts[4];
+    if (!x1Raw || !y1Raw || !x2Raw || !y2Raw) {
+      throw new Error('drag requires 4 coordinates: x1 y1 x2 y2. Example: drag 100 200 300 400');
+    }
+    const x1 = Number(x1Raw);
+    const y1 = Number(y1Raw);
+    const x2 = Number(x2Raw);
+    const y2 = Number(y2Raw);
+    if (Number.isNaN(x1) || Number.isNaN(y1) || Number.isNaN(x2) || Number.isNaN(y2)) {
+      throw new Error('drag coordinates must be numbers. Example: drag 100 200 300 400');
+    }
+
+    const before = await getPageMetrics(fns);
+    const started = Date.now();
+    await fns.drag(x1, y1, x2, y2);
+    const elapsedMs = Date.now() - started;
+    const after = await getPageMetrics(fns);
+
+    const distance = Math.round(Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2));
+    const lines = [
+      `Dragged from (${x1}, ${y1}) to (${x2}, ${y2})`,
+      `Distance: ${distance}px`,
+      `Elapsed: ${elapsedMs}ms`,
+      `Active element: ${describeActive(after)}`,
+    ];
+    if (before && after) {
+      lines.push(`Scroll Y: ${Math.round(before.scrollY)} → ${Math.round(after.scrollY)}`);
+    }
+
+    return { output: lines.join('\n'), appendReleaseHint: true };
   }
 
   if (cmd === 'fill') {
     const ref = parts[1];
     const value = parts.slice(2).join(' ');
     if (!ref || value === undefined) throw new Error('fill requires ref and value. Example: fill @e5 hello world');
+
+    const before = await getPageMetrics(fns);
     await fns.fill(ref, value);
-    return { output: `Filled element ${ref} with "${value}"`, appendReleaseHint: true };
+    const after = await getPageMetrics(fns);
+
+    return {
+      output: [
+        `Filled element ${ref} with "${value}"`,
+        `Value length: ${value.length} characters`,
+        `Active element before: ${describeActive(before)}`,
+        `Active element after: ${describeActive(after)}`,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'type') {
     const text = parts.slice(1).join(' ');
     if (!text) throw new Error('type requires text. Example: type Hello World');
+
+    const before = await getPageMetrics(fns);
     await fns.type(text);
-    return { output: `Typed ${text.length} characters into focused element`, appendReleaseHint: true };
+    const after = await getPageMetrics(fns);
+
+    return {
+      output: [
+        `Typed ${text.length} characters into focused element`,
+        `Active element before: ${describeActive(before)}`,
+        `Active element after: ${describeActive(after)}`,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'select') {
     const ref = parts[1];
     const value = parts.slice(2).join(' ');
     if (!ref || !value) throw new Error('select requires ref and value. Example: select @e3 optionValue');
+
     await fns.select(ref, value);
-    return { output: `Selected "${value}" in element ${ref}`, appendReleaseHint: true };
+    const after = await getPageMetrics(fns);
+
+    return {
+      output: [
+        `Selected "${value}" in element ${ref}`,
+        `Value length: ${value.length} characters`,
+        `Active element after: ${describeActive(after)}`,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'set-clipboard') {
     const text = parts.slice(1).join(' ');
     if (!text) throw new Error('set-clipboard requires text. Example: set-clipboard Hello World');
     await fns.setClipboard(text);
-    return { output: `Clipboard set (${text.length} characters)`, appendReleaseHint: true };
+
+    const lineCount = text.length === 0 ? 0 : text.split(/\r?\n/).length;
+    const tabCount = (text.match(/\t/g) ?? []).length;
+
+    return {
+      output: [
+        `Clipboard set (${text.length} characters)`,
+        `Lines: ${lineCount}, tabs: ${tabCount}`,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'get-clipboard') {
     const text = await fns.getClipboard();
-    return { output: text || '(empty clipboard)', appendReleaseHint: true };
+    if (!text) {
+      return { output: '(empty clipboard)', appendReleaseHint: true };
+    }
+
+    const lineCount = text.split(/\r?\n/).length;
+    const tabCount = (text.match(/\t/g) ?? []).length;
+    const preview = text.length > 800 ? `${text.slice(0, 800)}\n... (truncated preview)` : text;
+
+    return {
+      output: [
+        `Clipboard content (${text.length} chars, ${lineCount} lines, ${tabCount} tabs):`,
+        preview,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'paste') {
@@ -320,7 +765,18 @@ async function executeSingleCommand(args: {
     const platform = args.platform ?? process.platform;
     const isMac = platform === 'darwin';
     await fns.sendKey({ key: 'v', modifiers: [isMac ? 'meta' : 'control'] });
-    return { output: `Pasted ${text.length} characters`, appendReleaseHint: true };
+
+    const lineCount = text.length === 0 ? 0 : text.split(/\r?\n/).length;
+    const tabCount = (text.match(/\t/g) ?? []).length;
+
+    return {
+      output: [
+        `Pasted ${text.length} characters`,
+        `Shortcut used: ${isMac ? 'Cmd+V' : 'Ctrl+V'}`,
+        `Lines: ${lineCount}, tabs: ${tabCount}`,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'screenshot') {
@@ -328,7 +784,9 @@ async function executeSingleCommand(args: {
     const usePng = parts.includes('--png');
     const format = usePng ? 'png' as const : 'jpeg' as const;
 
+    const started = Date.now();
     const result = await fns.screenshot({ annotate, format });
+    const elapsedMs = Date.now() - started;
     const buf = result.imageBuffer;
     const base64 = buf.toString('base64');
     if (!buf || buf.length === 0 || !base64) {
@@ -339,9 +797,19 @@ async function executeSingleCommand(args: {
     const mimeType = result.imageFormat === 'jpeg' ? 'image/jpeg' as const : 'image/png' as const;
     const lines = [
       annotate
-        ? `Annotated screenshot captured (${Math.round(buf.length / 1024)}KB ${ext}) — element refs (@eN) are overlaid on interactive elements`
-        : `Screenshot captured (${Math.round(buf.length / 1024)}KB ${ext})`,
+        ? `Annotated screenshot captured (${formatBytes(buf.length)} ${ext}) — element refs (@eN) are overlaid on interactive elements`
+        : `Screenshot captured (${formatBytes(buf.length)} ${ext})`,
+      `Capture time: ${elapsedMs}ms`,
     ];
+    const metadata = result.metadata as Record<string, unknown> | undefined;
+    const viewport = metadata?.viewport as { width?: number; height?: number; dpr?: number } | undefined;
+    if (viewport?.width && viewport?.height) {
+      lines.push(`Viewport: ${viewport.width}x${viewport.height} @ DPR ${viewport.dpr ?? 1}`);
+    }
+    const targets = (metadata?.targets as Array<unknown> | undefined)?.length;
+    if (typeof targets === 'number') {
+      lines.push(`Annotated targets: ${targets}`);
+    }
     if (result.metadata) {
       lines.push('', 'Metadata:', JSON.stringify(result.metadata, null, 2));
     }
@@ -365,7 +833,6 @@ async function executeSingleCommand(args: {
 
     const usePng = rest.includes('--png');
     const format = usePng ? 'png' as const : 'jpeg' as const;
-    // Strip format flags before parsing other args
     const filteredRest = rest.filter((t) => t !== '--png');
 
     const parsePadding = (tokens: string[]) => {
@@ -382,14 +849,17 @@ async function executeSingleCommand(args: {
     const { padding, cleaned } = parsePadding(filteredRest);
 
     let screenshotArgs: BrowserScreenshotRegionArgs;
+    let targetDescription = '';
     if (cleaned[0] === '--ref') {
       const ref = cleaned[1];
       if (!ref) throw new Error('screenshot-region --ref requires a ref value.');
       screenshotArgs = { ref, padding, format };
+      targetDescription = `ref ${ref}`;
     } else if (cleaned[0] === '--selector') {
       const selector = cleaned.slice(1).join(' ').trim();
       if (!selector) throw new Error('screenshot-region --selector requires a CSS selector value.');
       screenshotArgs = { selector, padding, format };
+      targetDescription = `selector ${selector}`;
     } else {
       if (cleaned.length < 4) {
         throw new Error('screenshot-region coordinates require: x y width height');
@@ -403,9 +873,12 @@ async function executeSingleCommand(args: {
         throw new Error('screenshot-region coordinates must be numbers.');
       }
       screenshotArgs = { x, y, width, height, padding, format };
+      targetDescription = `box (${x}, ${y}, ${width}x${height})`;
     }
 
+    const started = Date.now();
     const result = await fns.screenshotRegion(screenshotArgs);
+    const elapsedMs = Date.now() - started;
     const buf = result.imageBuffer;
     const base64 = buf.toString('base64');
     if (!buf || buf.length === 0 || !base64) {
@@ -414,7 +887,11 @@ async function executeSingleCommand(args: {
 
     const ext = result.imageFormat === 'jpeg' ? 'JPG' : 'PNG';
     const mimeType = result.imageFormat === 'jpeg' ? 'image/jpeg' as const : 'image/png' as const;
-    const lines = [`Region screenshot captured (${Math.round(buf.length / 1024)}KB ${ext})`];
+    const lines = [
+      `Region screenshot captured (${formatBytes(buf.length)} ${ext})`,
+      `Target: ${targetDescription}${typeof padding === 'number' ? `, padding=${padding}` : ''}`,
+      `Capture time: ${elapsedMs}ms`,
+    ];
     if (result.metadata) {
       lines.push('', 'Metadata:', JSON.stringify(result.metadata, null, 2));
     }
@@ -443,7 +920,19 @@ async function executeSingleCommand(args: {
     }
 
     const entries = await fns.getConsoleLogs({ limit, level });
-    const lines: string[] = [`Console entries (${entries.length}):`];
+    const levelCounts = entries.reduce<Record<string, number>>((acc, entry) => {
+      acc[entry.level] = (acc[entry.level] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const lines: string[] = [
+      `Console entries (${entries.length}) for level=${level}: log=${levelCounts.log ?? 0}, info=${levelCounts.info ?? 0}, warn=${levelCounts.warn ?? 0}, error=${levelCounts.error ?? 0}`,
+    ];
+
+    if (entries.length > 0) {
+      lines.push(`Range: ${new Date(entries[0]!.timestamp).toISOString()} → ${new Date(entries[entries.length - 1]!.timestamp).toISOString()}`);
+    }
+
     for (const entry of entries) {
       lines.push(`[${new Date(entry.timestamp).toISOString()}] [${entry.level}] ${entry.message}`);
     }
@@ -459,8 +948,17 @@ async function executeSingleCommand(args: {
     if (Number.isNaN(width) || Number.isNaN(height)) {
       throw new Error('window-resize width and height must be numbers.');
     }
+
     const resized = await fns.windowResize({ width, height });
-    return { output: `Window resized to ${resized.width}x${resized.height}`, appendReleaseHint: true };
+    const clamped = resized.width !== width || resized.height !== height;
+
+    return {
+      output: [
+        `Window resized to ${resized.width}x${resized.height}`,
+        `Requested: ${width}x${height}${clamped ? ' (adjusted by platform constraints)' : ''}`,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'network') {
@@ -475,7 +973,31 @@ async function executeSingleCommand(args: {
       throw new Error(`Invalid network status "${String(statusRaw)}". Use one of: all, failed, 2xx, 3xx, 4xx, 5xx.`);
     }
     const entries = await fns.getNetworkLogs({ limit, status });
-    const lines: string[] = [`Network entries (${entries.length}):`];
+    const buckets = { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0, other: 0 };
+    const hostCounts = new Map<string, number>();
+
+    for (const entry of entries) {
+      buckets[statusBucket(entry.status)] += 1;
+      try {
+        const host = new URL(entry.url).hostname;
+        hostCounts.set(host, (hostCounts.get(host) ?? 0) + 1);
+      } catch {
+        // ignore malformed urls
+      }
+    }
+
+    const failed = buckets['4xx'] + buckets['5xx'] + buckets.other;
+    const topHosts = Array.from(hostCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([host, count]) => `${host}(${count})`)
+      .join(', ');
+
+    const lines: string[] = [
+      `Network entries (${entries.length}) for status=${status}: 2xx=${buckets['2xx']} 3xx=${buckets['3xx']} 4xx=${buckets['4xx']} 5xx=${buckets['5xx']} other=${buckets.other}`,
+      `Failed ratio: ${formatPercent(failed, entries.length || 1)}${topHosts ? `, top hosts: ${topHosts}` : ''}`,
+    ];
+
     for (const entry of entries) {
       lines.push(`[${new Date(entry.timestamp).toISOString()}] ${entry.method} ${entry.status} ${entry.resourceType} ${entry.url}`);
     }
@@ -506,8 +1028,17 @@ async function executeSingleCommand(args: {
       }
     }
 
+    const started = Date.now();
     const result = await fns.waitFor({ kind, value, timeoutMs });
-    return { output: `Wait succeeded (${result.kind}) in ${result.elapsedMs}ms — ${result.detail}`, appendReleaseHint: true };
+    const totalElapsed = Date.now() - started;
+
+    return {
+      output: [
+        `Wait succeeded (${result.kind}) in ${result.elapsedMs}ms — ${result.detail}`,
+        `Configured timeout: ${timeoutMs ?? 'default'}, wall time: ${totalElapsed}ms`,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'key') {
@@ -519,8 +1050,19 @@ async function executeSingleCommand(args: {
         throw new Error(`Invalid key modifier "${m}". Use shift|control|alt|meta`);
       }
     }
+
+    const before = await getPageMetrics(fns);
     await fns.sendKey({ key, modifiers });
-    return { output: `Key sent: ${key}${modifiers.length ? ` (${modifiers.join('+')})` : ''}`, appendReleaseHint: true };
+    const after = await getPageMetrics(fns);
+
+    return {
+      output: [
+        `Key sent: ${key}${modifiers.length ? ` (${modifiers.join('+')})` : ''}`,
+        `Active element before: ${describeActive(before)}`,
+        `Active element after: ${describeActive(after)}`,
+      ].join('\n'),
+      appendReleaseHint: true,
+    };
   }
 
   if (cmd === 'downloads') {
@@ -531,13 +1073,25 @@ async function executeSingleCommand(args: {
     if (valueRaw && Number.isNaN(valueNum)) {
       throw new Error(`Invalid downloads numeric value "${valueRaw}".`);
     }
+
     const entries = await fns.getDownloads({
       action,
       ...(action === 'wait' ? { timeoutMs: valueNum } : { limit: valueNum }),
     });
-    const lines: string[] = [`Downloads (${entries.length}):`];
+
+    const states = entries.reduce<Record<string, number>>((acc, entry) => {
+      acc[entry.state] = (acc[entry.state] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const lines: string[] = [
+      `Downloads (${entries.length}) action=${action}: started=${states.started ?? 0}, completed=${states.completed ?? 0}, interrupted=${states.interrupted ?? 0}, cancelled=${states.cancelled ?? 0}`,
+    ];
+
     for (const entry of entries) {
-      lines.push(`[${new Date(entry.timestamp).toISOString()}] [${entry.state}] ${entry.filename} (${entry.bytesReceived}/${entry.totalBytes})`);
+      lines.push(
+        `[${new Date(entry.timestamp).toISOString()}] [${entry.state}] ${entry.filename} (${formatBytes(entry.bytesReceived)}/${formatBytes(entry.totalBytes)})`,
+      );
     }
     return { output: lines.join('\n'), appendReleaseHint: true };
   }
@@ -552,26 +1106,86 @@ async function executeSingleCommand(args: {
     if (amountRaw && Number.isNaN(amount)) {
       throw new Error(`Invalid scroll amount "${amountRaw}". Expected a number.`);
     }
+
+    const requested = amount ?? 500;
+    const before = await getPageMetrics(fns);
     await fns.scroll(direction, amount);
-    return { output: `Scrolled ${direction}${amount != null ? ` by ${amount}px` : ''}`, appendReleaseHint: true };
+    const after = await getPageMetrics(fns);
+
+    if (!before || !after) {
+      return { output: `Scrolled ${direction} by ${requested}px`, appendReleaseHint: true };
+    }
+
+    const axis = direction === 'left' || direction === 'right' ? 'x' : 'y';
+    const beforePos = axis === 'x' ? before.scrollX : before.scrollY;
+    const afterPos = axis === 'x' ? after.scrollX : after.scrollY;
+    const delta = Math.round(afterPos - beforePos);
+    const max = axis === 'x' ? after.maxScrollX : after.maxScrollY;
+    const progress = max > 0 ? `${((afterPos / max) * 100).toFixed(1)}%` : '0.0%';
+    const atEdge = axis === 'x'
+      ? (after.scrollX <= 0 || after.scrollX >= after.maxScrollX)
+      : (after.scrollY <= 0 || after.scrollY >= after.maxScrollY);
+
+    const lines = [
+      `Scrolled ${direction} by ${requested}px (actual ${delta >= 0 ? '+' : ''}${delta}px)`,
+      `${axis.toUpperCase()}: ${Math.round(beforePos)} → ${Math.round(afterPos)} / ${Math.round(max)} (${progress})`,
+      `Viewport: ${after.viewportWidth}x${after.viewportHeight}, document: ${after.documentWidth}x${after.documentHeight}`,
+      `Reached edge: ${atEdge}`,
+    ];
+
+    return { output: lines.join('\n'), appendReleaseHint: true };
   }
 
   if (cmd === 'back') {
+    const before = await getPageMetrics(fns);
     await fns.goBack();
-    return { output: 'Navigated back', appendReleaseHint: true };
+    const after = await getPageMetrics(fns);
+
+    const lines = ['Navigated back'];
+    if (before && after) {
+      lines.push(`URL: ${before.url} → ${after.url}`);
+      lines.push(`Title: ${before.title || '(untitled)'} → ${after.title || '(untitled)'}`);
+    }
+    return { output: lines.join('\n'), appendReleaseHint: true };
   }
 
   if (cmd === 'forward') {
+    const before = await getPageMetrics(fns);
     await fns.goForward();
-    return { output: 'Navigated forward', appendReleaseHint: true };
+    const after = await getPageMetrics(fns);
+
+    const lines = ['Navigated forward'];
+    if (before && after) {
+      lines.push(`URL: ${before.url} → ${after.url}`);
+      lines.push(`Title: ${before.title || '(untitled)'} → ${after.title || '(untitled)'}`);
+    }
+    return { output: lines.join('\n'), appendReleaseHint: true };
   }
 
   if (cmd === 'evaluate') {
     const expression = parts.slice(1).join(' ').trim();
     if (!expression) throw new Error('evaluate requires an expression. Example: evaluate document.title');
     const result = await fns.evaluate(expression);
+    const type = Array.isArray(result) ? 'array' : (result === null ? 'null' : typeof result);
+
+    let rendered: string;
+    if (typeof result === 'string') {
+      rendered = result;
+    } else {
+      try {
+        rendered = JSON.stringify(result, null, 2);
+      } catch {
+        rendered = String(result);
+      }
+    }
+
+    const wasTruncated = rendered.length > 6000;
+    if (wasTruncated) {
+      rendered = `${rendered.slice(0, 6000)}\n... (truncated)`;
+    }
+
     return {
-      output: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+      output: [`Evaluate result type: ${type}`, rendered].join('\n'),
       appendReleaseHint: true,
     };
   }
@@ -579,15 +1193,30 @@ async function executeSingleCommand(args: {
   if (cmd === 'focus') {
     const instanceId = parts[1];
     const result = await fns.focusWindow(instanceId);
+    const windows = await fns.listWindows();
+    const target = windows.find((w) => w.id === result.instanceId);
+
+    const lines = [
+      `Focused browser window ${result.instanceId}`,
+      `Title: ${result.title || 'New Tab'}`,
+      `URL: ${result.url || 'about:blank'}`,
+      `Session windows: ${summarizeWindows(windows)}`,
+    ];
+    if (target) {
+      const lockState = target.boundSessionId ? `locked-session(${target.boundSessionId})` : 'unlocked';
+      lines.push(`Lock state: ${lockState}, visible: ${target.isVisible}`);
+    }
+
     return {
-      output: `Focused browser window ${result.instanceId}\nTitle: ${result.title || 'New Tab'}\nURL: ${result.url || 'about:blank'}`,
+      output: lines.join('\n'),
       appendReleaseHint: true,
     };
   }
 
   if (cmd === 'windows') {
     const windows = await fns.listWindows();
-    const lines: string[] = [`Browser windows (${windows.length}):`];
+    const available = windows.filter((w) => !w.boundSessionId || w.boundSessionId === args.sessionId).length;
+    const lines: string[] = [`Browser windows (${windows.length}) — ${summarizeWindows(windows)}, availableToSession=${available}`];
 
     for (const w of windows) {
       const lockState = w.boundSessionId ? `locked-session(${w.boundSessionId})` : 'unlocked';
@@ -611,18 +1240,45 @@ async function executeSingleCommand(args: {
   }
 
   if (cmd === 'release') {
+    const before = await fns.listWindows();
+    const activeOverlays = before.filter((w) => !!w.agentControlActive).length;
     await fns.releaseControl();
-    return { output: 'Browser control released. Agent overlay dismissed.', appendReleaseHint: false };
+    const after = await fns.listWindows();
+    const activeAfter = after.filter((w) => !!w.agentControlActive).length;
+
+    return {
+      output: [
+        'Browser control released. Agent overlay dismissed.',
+        `Overlays active: ${activeOverlays} → ${activeAfter}`,
+      ].join('\n'),
+      appendReleaseHint: false,
+    };
   }
 
   if (cmd === 'close') {
+    const before = await fns.listWindows();
     await fns.closeWindow();
-    return { output: 'Browser window closed and destroyed.', appendReleaseHint: false };
+    const after = await fns.listWindows();
+    return {
+      output: [
+        'Browser window closed and destroyed.',
+        `Session windows: ${summarizeWindows(before)} → ${summarizeWindows(after)}`,
+      ].join('\n'),
+      appendReleaseHint: false,
+    };
   }
 
   if (cmd === 'hide') {
+    const before = await fns.listWindows();
     await fns.hideWindow();
-    return { output: 'Browser window hidden. Use "open" to show it again.', appendReleaseHint: false };
+    const after = await fns.listWindows();
+    return {
+      output: [
+        'Browser window hidden. Use "open" to show it again.',
+        `Session windows: ${summarizeWindows(before)} → ${summarizeWindows(after)}`,
+      ].join('\n'),
+      appendReleaseHint: false,
+    };
   }
 
   throw new Error(`Unknown browser_tool command "${cmd}". Use "--help" to see supported commands.`);

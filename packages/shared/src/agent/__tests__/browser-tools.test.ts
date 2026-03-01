@@ -26,6 +26,7 @@ function createMockFns(): BrowserPaneFns {
     }),
     click: async (_ref: string) => {},
     clickAt: async (_x: number, _y: number) => {},
+    drag: async (_x1: number, _y1: number, _x2: number, _y2: number) => {},
     fill: async (_ref: string, _value: string) => {},
     type: async (_text: string) => {},
     select: async (_ref: string, _value: string) => {},
@@ -114,13 +115,16 @@ describe('createBrowserTools', () => {
       const result = await executeTool(tools, 'browser_tool', { command: '--help' })
       expect(result.content[0].text).toContain('browser_tool command help')
       expect(result.content[0].text).toContain('navigate <url>')
+      expect(result.content[0].text).toContain('find <query>')
       expect(result.content[0].text).toContain('click-at <x> <y>')
       expect(result.content[0].text).toContain('type <text>')
       expect(result.content[0].text).toContain('set-clipboard <text>')
       expect(result.content[0].text).toContain('get-clipboard')
       expect(result.content[0].text).toContain('paste <text>')
+      expect(result.content[0].text).toContain('screenshot [--annotated|-a]')
       expect(result.content[0].text).toContain('focus [windowId]')
       expect(result.content[0].text).toContain('windows')
+      expect(result.content[0].text).toContain('Array mode (JSON array input, no batch splitting/tokenization):')
       expect(result.content[0].text).not.toContain('When you are done using the browser')
     })
 
@@ -164,6 +168,19 @@ describe('createBrowserTools', () => {
       expect(text).toContain('(focused)')
     })
 
+    it('routes find command and returns matching refs', async () => {
+      const result = await executeTool(tools, 'browser_tool', { command: 'find click button' })
+      const text = result.content[0].text
+      expect(text).toContain('Found 1 element(s)')
+      expect(text).toContain('@e1')
+      expect(text).toContain('[button]')
+    })
+
+    it('returns helpful message for find command with no matches', async () => {
+      const result = await executeTool(tools, 'browser_tool', { command: 'find this-does-not-exist' })
+      expect(result.content[0].text).toContain('No elements found matching')
+    })
+
     it('routes click command', async () => {
       let clickedRef = ''
       mockFns.click = async (ref) => { clickedRef = ref }
@@ -199,6 +216,26 @@ describe('createBrowserTools', () => {
       expect(result.content[0].text).toContain('click-at coordinates must be numbers')
     })
 
+    it('routes drag command with coordinates', async () => {
+      let draggedCoords = { x1: 0, y1: 0, x2: 0, y2: 0 }
+      mockFns.drag = async (x1, y1, x2, y2) => { draggedCoords = { x1, y1, x2, y2 } }
+      const result = await executeTool(tools, 'browser_tool', { command: 'drag 100 200 300 400' })
+      expect(draggedCoords).toEqual({ x1: 100, y1: 200, x2: 300, y2: 400 })
+      expect(result.content[0].text).toContain('Dragged from (100, 200) to (300, 400)')
+    })
+
+    it('returns error for drag with missing coordinates', async () => {
+      const result = await executeTool(tools, 'browser_tool', { command: 'drag 100 200' })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain('drag requires 4 coordinates')
+    })
+
+    it('returns error for drag with non-numeric coordinates', async () => {
+      const result = await executeTool(tools, 'browser_tool', { command: 'drag foo bar baz qux' })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain('drag coordinates must be numbers')
+    })
+
     it('routes fill command', async () => {
       let filledRef = ''
       let filledValue = ''
@@ -207,6 +244,60 @@ describe('createBrowserTools', () => {
       expect(filledRef).toBe('@e2')
       expect(filledValue).toBe('hello world')
       expect(result.content[0].text).toContain('Filled element @e2')
+    })
+
+    it('supports semicolon command batching', async () => {
+      const calls: string[] = []
+      mockFns.fill = async (ref, value) => { calls.push(`fill:${ref}:${value}`) }
+      mockFns.click = async (ref) => { calls.push(`click:${ref}`) }
+
+      const result = await executeTool(tools, 'browser_tool', {
+        command: 'fill @e1 user@example.com; fill @e2 password123; click @e3',
+      })
+
+      expect(calls).toEqual([
+        'fill:@e1:user@example.com',
+        'fill:@e2:password123',
+        'click:@e3',
+      ])
+      expect(result.content[0].text).toContain('Filled element @e1')
+      expect(result.content[0].text).toContain('Clicked element @e3')
+    })
+
+    it('does not split batch on semicolons inside quoted text', async () => {
+      const calls: string[] = []
+      mockFns.fill = async (ref, value) => { calls.push(`fill:${ref}:${value}`) }
+      mockFns.click = async (ref) => { calls.push(`click:${ref}`) }
+
+      const result = await executeTool(tools, 'browser_tool', {
+        command: 'fill @e1 "a;b;c"; click @e2',
+      })
+
+      expect(calls).toEqual([
+        'fill:@e1:a;b;c',
+        'click:@e2',
+      ])
+      expect(result.content[0].text).toContain('Filled element @e1 with "a;b;c"')
+      expect(result.content[0].text).toContain('Clicked element @e2')
+    })
+
+    it('stops batched commands after navigation-changing command', async () => {
+      const calls: string[] = []
+      mockFns.navigate = async (url) => {
+        calls.push(`navigate:${url}`)
+        return { url, title: 'Page' }
+      }
+      mockFns.fill = async (ref, value) => { calls.push(`fill:${ref}:${value}`) }
+
+      const result = await executeTool(tools, 'browser_tool', {
+        command: 'fill @e1 start; navigate https://example.com; fill @e2 should-not-run',
+      })
+
+      expect(calls).toEqual([
+        'fill:@e1:start',
+        'navigate:https://example.com',
+      ])
+      expect(result.content[0].text).toContain('stopped batch after "navigate"')
     })
 
     it('routes type command', async () => {
@@ -240,6 +331,25 @@ describe('createBrowserTools', () => {
       expect(result.content[0].text).toContain('Clipboard set (11 characters)')
     })
 
+    it('decodes escaped tab/newline sequences for set-clipboard', async () => {
+      let clipboardText = ''
+      mockFns.setClipboard = async (text) => { clipboardText = text }
+      const result = await executeTool(tools, 'browser_tool', {
+        command: 'set-clipboard Hello\\tWorld\\nFoo\\tBar',
+      })
+      expect(clipboardText).toBe('Hello\tWorld\nFoo\tBar')
+      expect(result.content[0].text).toContain('Clipboard set (19 characters)')
+    })
+
+    it('preserves unknown escapes for set-clipboard', async () => {
+      let clipboardText = ''
+      mockFns.setClipboard = async (text) => { clipboardText = text }
+      await executeTool(tools, 'browser_tool', {
+        command: 'set-clipboard keep\\xliteral',
+      })
+      expect(clipboardText).toBe('keep\\xliteral')
+    })
+
     it('returns error for set-clipboard with no text', async () => {
       const result = await executeTool(tools, 'browser_tool', { command: 'set-clipboard' })
       expect(result.isError).toBe(true)
@@ -249,7 +359,9 @@ describe('createBrowserTools', () => {
     it('routes get-clipboard command', async () => {
       mockFns.getClipboard = async () => 'some clipboard data'
       const result = await executeTool(tools, 'browser_tool', { command: 'get-clipboard' })
-      expect(result.content[0].text).toBe('some clipboard data\n\nWhen you are done using the browser, call browser_tool with command "close" to close the window entirely, or "release" to dismiss the overlay and let the user continue browsing.')
+      expect(result.content[0].text).toContain('Clipboard content (19 chars, 1 lines, 0 tabs):')
+      expect(result.content[0].text).toContain('some clipboard data')
+      expect(result.content[0].text).toContain('When you are done using the browser')
     })
 
     it('routes get-clipboard returns empty placeholder for empty clipboard', async () => {
@@ -269,6 +381,19 @@ describe('createBrowserTools', () => {
       expect(result.content[0].text).toContain('Pasted 11 characters')
     })
 
+    it('decodes escaped tab/newline sequences for paste', async () => {
+      let clipboardText = ''
+      let keySent = ''
+      mockFns.setClipboard = async (text) => { clipboardText = text }
+      mockFns.sendKey = async (args) => { keySent = args.key }
+      const result = await executeTool(tools, 'browser_tool', {
+        command: 'paste Hello\\tWorld\\nFoo\\tBar',
+      })
+      expect(clipboardText).toBe('Hello\tWorld\nFoo\tBar')
+      expect(keySent).toBe('v')
+      expect(result.content[0].text).toContain('Pasted 19 characters')
+    })
+
     it('returns error for paste with no text', async () => {
       const result = await executeTool(tools, 'browser_tool', { command: 'paste' })
       expect(result.isError).toBe(true)
@@ -280,6 +405,19 @@ describe('createBrowserTools', () => {
       expect(result.content[0].text).toContain('Screenshot captured')
       expect(result.content[1].type).toBe('image')
       expect((result.content[1] as any).mimeType).toBe('image/png')
+    })
+
+    it('routes annotated screenshot and passes annotate flag', async () => {
+      let screenshotArgs: any
+      mockFns.screenshot = async (args) => {
+        screenshotArgs = args
+        return { imageBuffer: Buffer.from('fake-png-data'), imageFormat: 'png' as const }
+      }
+
+      const result = await executeTool(tools, 'browser_tool', { command: 'screenshot --annotated' })
+      expect(screenshotArgs).toMatchObject({ annotate: true, format: 'jpeg' })
+      expect(result.content[0].text).toContain('Annotated screenshot captured')
+      expect(result.content[1].type).toBe('image')
     })
 
     it('routes screenshot-region command and returns image block', async () => {
@@ -315,6 +453,26 @@ describe('createBrowserTools', () => {
       expect(result.content[0].text).toContain('coordinates must be numbers')
     })
 
+    it('treats --padding-like text inside quoted selectors as selector content', async () => {
+      let screenshotRegionArgs: any
+      mockFns.screenshotRegion = async (args) => {
+        screenshotRegionArgs = args
+        return { imageBuffer: Buffer.from('fake-png-data'), imageFormat: 'png' as const }
+      }
+
+      const result = await executeTool(tools, 'browser_tool', {
+        command: 'screenshot-region --selector "div[data-tip=\'--padding 99\';data-x=\'a;b\']" --padding 8',
+      })
+
+      expect(result.isError).toBeUndefined()
+      expect(screenshotRegionArgs).toMatchObject({
+        selector: "div[data-tip='--padding 99';data-x='a;b']",
+        padding: 8,
+        format: 'jpeg',
+      })
+      expect(result.content[0].text).toContain('Region screenshot captured')
+    })
+
     it('routes console command', async () => {
       const result = await executeTool(tools, 'browser_tool', { command: 'console 10 warn' })
       expect(result.content[0].text).toContain('Console entries')
@@ -332,6 +490,21 @@ describe('createBrowserTools', () => {
 
     it('routes wait command', async () => {
       const result = await executeTool(tools, 'browser_tool', { command: 'wait network-idle 5000' })
+      expect(result.content[0].text).toContain('Wait succeeded')
+    })
+
+    it('parses quoted wait text values with spaces', async () => {
+      let waitArgs: any
+      mockFns.waitFor = async (args) => {
+        waitArgs = args
+        return { ok: true as const, kind: args.kind, elapsedMs: 42, detail: 'condition met' }
+      }
+
+      const result = await executeTool(tools, 'browser_tool', {
+        command: 'wait text "hello world" 5000',
+      })
+
+      expect(waitArgs).toEqual({ kind: 'text', value: 'hello world', timeoutMs: 5000 })
       expect(result.content[0].text).toContain('Wait succeeded')
     })
 
@@ -366,9 +539,24 @@ describe('createBrowserTools', () => {
       expect(result.content[0].text).toContain('"key"')
     })
 
+    it('preserves quoted evaluate expressions with semicolons', async () => {
+      let evaluatedExpression = ''
+      mockFns.evaluate = async (expression) => {
+        evaluatedExpression = expression
+        return 'ok'
+      }
+
+      const result = await executeTool(tools, 'browser_tool', {
+        command: 'evaluate "document.title + \';\' + location.href"',
+      })
+
+      expect(evaluatedExpression).toBe("document.title + ';' + location.href")
+      expect(result.content[0].text).toContain('ok')
+    })
+
     it('lists browser windows via windows command without release hint', async () => {
       const result = await executeTool(tools, 'browser_tool', { command: 'windows' })
-      expect(result.content[0].text).toContain('Browser windows (1):')
+      expect(result.content[0].text).toContain('Browser windows (1)')
       expect(result.content[0].text).toContain('browser-1')
       expect(result.content[0].text).toContain('ownerType: session')
       expect(result.content[0].text).toContain('lockState: locked-session(test-session)')
@@ -430,10 +618,87 @@ describe('createBrowserTools', () => {
       expect(result.content[0].text).toContain('scroll requires direction')
     })
 
+    it('returns parse error for unclosed quotes', async () => {
+      const result = await executeTool(tools, 'browser_tool', { command: 'fill @e1 "unterminated' })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain('Parse error: unclosed quote')
+    })
+
     it('returns error for unknown command', async () => {
       const result = await executeTool(tools, 'browser_tool', { command: 'teleport' })
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toContain('Unknown browser_tool command')
+    })
+  })
+
+  describe('array command mode', () => {
+    it('evaluate preserves semicolons without quoting', async () => {
+      let evaluatedExpression = ''
+      mockFns.evaluate = async (expression) => {
+        evaluatedExpression = expression
+        return 'ok'
+      }
+      const result = await executeTool(tools, 'browser_tool', {
+        command: ['evaluate', 'var x = 1; var y = 2; x + y'],
+      })
+      expect(evaluatedExpression).toBe('var x = 1; var y = 2; x + y')
+      expect(result.content[0].text).toContain('ok')
+    })
+
+    it('paste preserves tabs and newlines', async () => {
+      let clipboardText = ''
+      mockFns.setClipboard = async (text) => { clipboardText = text }
+      mockFns.sendKey = async () => {}
+      const result = await executeTool(tools, 'browser_tool', {
+        command: ['paste', 'Name\tAge\nAlice\t30'],
+      })
+      expect(clipboardText).toBe('Name\tAge\nAlice\t30')
+      expect(result.content[0].text).toContain('Pasted')
+    })
+
+    it('set-clipboard preserves semicolons and special characters', async () => {
+      let clipboardText = ''
+      mockFns.setClipboard = async (text) => { clipboardText = text }
+      const result = await executeTool(tools, 'browser_tool', {
+        command: ['set-clipboard', 'function foo() { return 1; }'],
+      })
+      expect(clipboardText).toBe('function foo() { return 1; }')
+      expect(result.content[0].text).toContain('Clipboard set')
+    })
+
+    it('click works with array input', async () => {
+      let clickedRef = ''
+      mockFns.click = async (ref) => { clickedRef = ref }
+      const result = await executeTool(tools, 'browser_tool', {
+        command: ['click', '@e1'],
+      })
+      expect(clickedRef).toBe('@e1')
+      expect(result.content[0].text).toContain('Clicked element @e1')
+    })
+
+    it('empty array returns error', async () => {
+      const result = await executeTool(tools, 'browser_tool', {
+        command: [],
+      })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain('Missing command')
+    })
+
+    it('type preserves whitespace characters', async () => {
+      let typedText = ''
+      mockFns.type = async (text) => { typedText = text }
+      const result = await executeTool(tools, 'browser_tool', {
+        command: ['type', 'Hello\tWorld'],
+      })
+      expect(typedText).toBe('Hello\tWorld')
+      expect(result.content[0].text).toContain('Typed')
+    })
+
+    it('--help works in array mode', async () => {
+      const result = await executeTool(tools, 'browser_tool', {
+        command: ['--help'],
+      })
+      expect(result.content[0].text).toContain('browser_tool command help')
     })
   })
 

@@ -18,6 +18,13 @@ const FILE_PATH_REGEX_SOURCE = `(?:^|[\\s([\\{<])((?:/|~/|\\./|\\.\\./|[A-Za-z0-
 const FILE_PATH_REGEX = new RegExp(FILE_PATH_REGEX_SOURCE, 'gi')
 const FILE_PATH_PRETEST_REGEX = new RegExp(FILE_PATH_REGEX_SOURCE, 'i')
 
+// File-path regex for markdown anchor targets (entire href/text value)
+// Used by Markdown.tsx click handler to route file links to onFileClick.
+const FILE_PATH_TARGET_REGEX = new RegExp(
+  `^(?!https?://|mailto:|ftp://|data:)(?:/|~/|\./|\.\./|[A-Za-z0-9_][\\w\\-./@]*)[\\w\\-./@]*\\.(?:${FILE_EXTENSIONS_PATTERN})$`,
+  'i'
+)
+
 interface DetectedLink {
   type: 'url' | 'email' | 'file'
   text: string
@@ -207,4 +214,12 @@ export function preprocessLinks(text: string): string {
  */
 export function hasLinks(text: string): boolean {
   return linkify.pretest(text) || FILE_PATH_PRETEST_REGEX.test(text)
+}
+
+/**
+ * Check whether a markdown anchor target should be treated as a local file path.
+ * Used by click handlers to route local paths to onFileClick instead of onUrlClick.
+ */
+export function isFilePathTarget(target: string): boolean {
+  return FILE_PATH_TARGET_REGEX.test(target.trim())
 }

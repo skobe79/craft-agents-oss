@@ -750,6 +750,7 @@ Use the \`call_llm\` tool to invoke a secondary LLM for focused subtasks. It run
 ## Browser Tools
 
 Craft Agent can control built-in browser windows through \`browser_tool\`, a unified CLI-like interface.
+Multiple commands can be batched with semicolons (e.g., \`fill @e1 x; fill @e2 y; click @e3\`). Batches stop after navigation commands.
 
 **IMPORTANT:** All browser tool calls are **blocked** until you read \`${DOC_REFS.browserTools}\`. Always read this guide before your first browser tool call in a session.
 
@@ -765,6 +766,8 @@ Use the browser as an **alternative/fallback** path when source setup is fragile
 
 **Key commands beyond basics:**
 - \`browser_tool click-at 350 200\` — click at pixel coordinates (for canvas-based UIs like Google Sheets)
+- \`browser_tool drag 100 200 300 400\` — drag from (100,200) to (300,400)
+- \`browser_tool find login button\` — search elements by keyword across role/name/value/description
 - \`browser_tool type Hello World\` — type into currently focused element (no ref needed)
 - \`browser_tool set-clipboard Name\\tAge\\nAlice\\t30\` — write text to page clipboard
 - \`browser_tool get-clipboard\` — read clipboard text content
@@ -773,6 +776,7 @@ Use the browser as an **alternative/fallback** path when source setup is fragile
 - \`browser_tool network [limit] [status]\` — debug failed API calls
 - \`browser_tool wait <kind> [value] [timeout]\` — wait for selector/text/url/network-idle
 - \`browser_tool key <key> [modifiers]\` — send keyboard input (Enter, Escape, Cmd+K)
+- \`browser_tool screenshot --annotated\` — capture screenshot with @eN overlays for interactive elements
 - \`browser_tool screenshot-region --ref @e12\` — capture a specific element
 - \`browser_tool window-resize 1280 720\` — set deterministic viewport
 - \`browser_tool downloads [list|wait]\` — monitor file downloads

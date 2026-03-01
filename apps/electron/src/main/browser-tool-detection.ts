@@ -42,3 +42,4 @@ export function shouldActivateBrowserOverlay(toolName: string, toolInput: unknow
 
   return !BROWSER_TOOL_OVERLAY_EXCLUDED_COMMANDS.has(verb)
 }
+

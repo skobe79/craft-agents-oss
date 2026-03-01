@@ -1315,6 +1315,10 @@ export class SessionManager {
             }
           }
 
+          // Initialize mode-manager state for restored sessions even before agent creation.
+          // This keeps diagnostics/effective mode aligned with persisted session metadata.
+          setPermissionMode(meta.id, managed.permissionMode ?? 'ask', { changedBy: 'restore' })
+
           this.sessions.set(meta.id, managed)
 
           // Initialize session metadata in AutomationSystem for diffing
@@ -2113,6 +2117,10 @@ export class SessionManager {
       }
     }
 
+    // Initialize mode-manager state immediately to avoid UI/enforcement races
+    // before the agent instance is lazily created.
+    setPermissionMode(storedSession.id, managed.permissionMode ?? 'ask', { changedBy: 'restore' })
+
     this.sessions.set(storedSession.id, managed)
 
     // Initialize session metadata in AutomationSystem for diffing
@@ -2412,6 +2420,10 @@ export class SessionManager {
               const instanceId = resolveSessionBrowserInstance('browser_click_at')
               return bpm.clickAtCoordinates(instanceId, x, y)
             },
+            drag: (x1, y1, x2, y2) => {
+              const instanceId = resolveSessionBrowserInstance('browser_drag')
+              return bpm.drag(instanceId, x1, y1, x2, y2)
+            },
             fill: (ref, value) => {
               const instanceId = resolveSessionBrowserInstance('browser_fill')
               return bpm.fillElement(instanceId, ref, value)
@@ -2571,6 +2583,9 @@ export class SessionManager {
           type: 'permission_mode_changed',
           sessionId: managed.id,
           permissionMode: managed.permissionMode,
+          modeVersion: diagnostics.modeVersion,
+          changedBy: diagnostics.lastChangedBy,
+          changedAt: diagnostics.lastChangedAt,
         }, managed.workspace.id)
       }
 
@@ -4288,7 +4303,9 @@ export class SessionManager {
     const turnStartFinalMessageId = managed.turnStartFinalMessageId
     managed.turnStartFinalMessageId = undefined
 
-    // End turn-scoped browser visuals (if any browser instance is bound to this session)
+    // Clear agent control overlay between turns. The session keeps browser
+    // ownership (boundSessionId) — only the visual overlay is removed.
+    // Full unbind happens below when the queue is empty (session truly done).
     if (this.browserPaneManager) {
       await this.browserPaneManager.clearVisualsForSession(sessionId)
     }
@@ -4342,6 +4359,14 @@ export class SessionManager {
       // Has queued messages - process next
       this.processNextQueuedMessage(sessionId)
     } else {
+      // Session is truly done — release browser ownership.
+      // The window stays alive (hidden) and becomes reusable by future sessions.
+      // On the next turn, getOrCreateForSession() will re-bind it.
+      if (this.browserPaneManager) {
+        await this.browserPaneManager.clearVisualsForSession(sessionId)
+        this.browserPaneManager.unbindAllForSession(sessionId)
+      }
+
       // No queue - emit complete to UI (include tokenUsage and hasUnread for state updates)
       this.sendEvent({
         type: 'complete',
@@ -4592,9 +4617,49 @@ To view this task's output:
         type: 'permission_mode_changed',
         sessionId: managed.id,
         permissionMode: mode,
+        modeVersion: diagnostics.modeVersion,
+        changedBy: diagnostics.lastChangedBy,
+        changedAt: diagnostics.lastChangedAt,
       }, managed.workspace.id)
       // Persist to disk
       this.persistSession(managed)
+    }
+  }
+
+  /**
+   * Get authoritative permission mode diagnostics for a session.
+   * Used by renderer to reconcile optimistic/stale mode state.
+   */
+  getSessionPermissionModeState(sessionId: string): {
+    permissionMode: PermissionMode
+    modeVersion: number
+    changedAt: string
+    changedBy: 'user' | 'system' | 'restore' | 'automation' | 'unknown'
+  } | null {
+    const managed = this.sessions.get(sessionId)
+    if (!managed) return null
+
+    let diagnostics = getPermissionModeDiagnostics(sessionId)
+
+    // Heal restore races where mode-manager still has default state while
+    // session metadata already has a persisted non-default mode.
+    if (managed.permissionMode && diagnostics.permissionMode !== managed.permissionMode) {
+      sessionLog.warn('Permission mode diagnostics mismatch, reconciling to managed session mode', {
+        sessionId,
+        managedMode: managed.permissionMode,
+        diagnosticsMode: diagnostics.permissionMode,
+        modeVersion: diagnostics.modeVersion,
+        changedBy: diagnostics.lastChangedBy,
+      })
+      setPermissionMode(sessionId, managed.permissionMode, { changedBy: 'restore' })
+      diagnostics = getPermissionModeDiagnostics(sessionId)
+    }
+
+    return {
+      permissionMode: diagnostics.permissionMode,
+      modeVersion: diagnostics.modeVersion,
+      changedAt: diagnostics.lastChangedAt,
+      changedBy: diagnostics.lastChangedBy,
     }
   }
 

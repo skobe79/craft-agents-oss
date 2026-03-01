@@ -20,6 +20,7 @@ describe('session-scoped tool callback merge', () => {
       snapshot: async () => ({ url: 'https://example.com', title: 'Example', nodes: [] }),
       click: async () => {},
       clickAt: async () => {},
+      drag: async () => {},
       fill: async () => {},
       type: async () => {},
       select: async () => {},

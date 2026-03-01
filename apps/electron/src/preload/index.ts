@@ -27,6 +27,9 @@ const api: ElectronAPI = {
   // Pending plan execution (for reload recovery)
   getPendingPlanExecution: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_PENDING_PLAN_EXECUTION, sessionId),
+  // Permission mode reconciliation
+  getSessionPermissionModeState: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_SESSION_PERMISSION_MODE_STATE, sessionId),
 
   // Workspace management
   getWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.GET_WORKSPACES),

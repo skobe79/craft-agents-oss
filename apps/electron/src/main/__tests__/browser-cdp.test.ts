@@ -244,6 +244,9 @@ describe('BrowserCDP', () => {
         if (method === 'DOM.resolveNode') {
           return { object: { objectId: 'obj-10' } }
         }
+        if (method === 'DOM.getBoxModel') {
+          return { model: { content: [10, 10, 50, 10, 50, 50, 10, 50] } }
+        }
         return {}
       })
 
@@ -275,6 +278,9 @@ describe('BrowserCDP', () => {
         if (method === 'DOM.resolveNode') {
           return { object: { objectId: 'obj-20' } }
         }
+        if (method === 'DOM.getBoxModel') {
+          return { model: { content: [10, 10, 50, 10, 50, 50, 10, 50] } }
+        }
         return {}
       })
 
@@ -285,6 +291,62 @@ describe('BrowserCDP', () => {
 
       expect(sentCommands).toContain('DOM.resolveNode')
       expect(sentCommands).toContain('Runtime.callFunctionOn')
+    })
+  })
+
+  describe('drag', () => {
+    it('dispatches pressed -> moved -> released with expected button state', async () => {
+      const mouseEvents: any[] = []
+      const wc = createMockWebContents(async (method, params) => {
+        if (method === 'Input.dispatchMouseEvent') {
+          mouseEvents.push(params)
+        }
+        return {}
+      })
+
+      const cdp = new BrowserCDP(wc as any)
+      await cdp.drag(10, 20, 110, 20)
+
+      expect(mouseEvents.length).toBeGreaterThan(2)
+      expect(mouseEvents[0]).toMatchObject({
+        type: 'mousePressed',
+        x: 10,
+        y: 20,
+        button: 'left',
+        buttons: 1,
+      })
+
+      const movedEvents = mouseEvents.filter((event) => event.type === 'mouseMoved')
+      expect(movedEvents.length).toBeGreaterThan(0)
+      for (const event of movedEvents) {
+        expect(event.buttons).toBe(1)
+      }
+
+      const lastEvent = mouseEvents[mouseEvents.length - 1]
+      expect(lastEvent).toMatchObject({
+        type: 'mouseReleased',
+        button: 'left',
+        buttons: 0,
+      })
+    })
+
+    it('attempts release even when a move event fails and rethrows original error', async () => {
+      const mouseEvents: any[] = []
+      let failedOnce = false
+      const wc = createMockWebContents(async (method, params) => {
+        if (method === 'Input.dispatchMouseEvent') {
+          mouseEvents.push(params)
+          if (params?.type === 'mouseMoved' && !failedOnce) {
+            failedOnce = true
+            throw new Error('move failed')
+          }
+        }
+        return {}
+      })
+
+      const cdp = new BrowserCDP(wc as any)
+      await expect(cdp.drag(0, 0, 100, 0)).rejects.toThrow('move failed')
+      expect(mouseEvents.some((event) => event.type === 'mouseReleased')).toBe(true)
     })
   })
 

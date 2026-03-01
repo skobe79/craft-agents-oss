@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import { preprocessLinks, detectLinks } from '../linkify'
+import { preprocessLinks, detectLinks, isFilePathTarget } from '../linkify'
 
 // ============================================================================
 // preprocessLinks — existing markdown links should NOT be corrupted
@@ -127,5 +127,27 @@ describe('detectLinks', () => {
     expect(links[0]).toBeDefined()
     expect(links[0]!.type).toBe('file')
     expect(links[0]!.url).toBe('../README.md')
+  })
+})
+
+describe('isFilePathTarget', () => {
+  it('accepts absolute unix image paths', () => {
+    expect(isFilePathTarget('/Users/balintorosz/.craft-agent/sessions/abc/image.jpg')).toBe(true)
+  })
+
+  it('accepts parent-relative image paths', () => {
+    expect(isFilePathTarget('../downloads/assets/screenshot.png')).toBe(true)
+  })
+
+  it('accepts repo-relative markdown paths', () => {
+    expect(isFilePathTarget('apps/electron/resources/docs/browser-tools.md')).toBe(true)
+  })
+
+  it('rejects web URLs', () => {
+    expect(isFilePathTarget('https://example.com/image.jpg')).toBe(false)
+  })
+
+  it('rejects non-file strings', () => {
+    expect(isFilePathTarget('not a link at all')).toBe(false)
   })
 })

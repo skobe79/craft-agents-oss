@@ -13,6 +13,7 @@ import type { WindowManager } from './window-manager'
 import { BrowserCDP, type AccessibilitySnapshot, type ElementGeometry } from './browser-cdp'
 import type { BrowserEmptyStateLaunchPayload, BrowserEmptyStateLaunchResult, BrowserInstanceInfo } from '../shared/types'
 import { DEFAULT_THEME, loadAppTheme } from '@craft-agent/shared/config'
+import { getBrowserLiveFxCornerRadii } from '../shared/browser-live-fx'
 
 export type { BrowserInstanceInfo }
 
@@ -115,10 +116,16 @@ interface AgentControlState {
   intent?: string
 }
 
+interface AgentControlLockState {
+  active: boolean
+  previousResizable: boolean
+}
+
 interface BrowserInstance {
   id: string
   window: BrowserWindow
   pageView: BrowserView
+  nativeOverlayView: BrowserView
   cdp: BrowserCDP
   currentUrl: string
   title: string
@@ -137,6 +144,8 @@ interface BrowserInstance {
   pendingShowToken: number
   lastAction: LastBrowserAction | null
   agentControl: AgentControlState | null
+  lockState: AgentControlLockState
+  nativeOverlayReady: boolean
   themeColor: string | null
   inPageThemeTimer: ReturnType<typeof setTimeout> | null
   themeObserverToken: string | null
@@ -362,9 +371,26 @@ export class BrowserPaneManager {
       },
     })
 
+    const supportsMultiView = typeof window.addBrowserView === 'function' && typeof window.setTopBrowserView === 'function'
+    if (!supportsMultiView) {
+      throw new Error('[browser-pane] Native overlay requires BrowserWindow.addBrowserView + setTopBrowserView')
+    }
+
+    const nativeOverlayView = new BrowserView({
+      webPreferences: {
+        partition: SESSION_PARTITION,
+        session: ses,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    })
+
     // Set pageView background to match theme so about:blank doesn't flash white
     const pageWcWithBg = pageView.webContents as typeof pageView.webContents & { setBackgroundColor?: (color: string) => void }
     pageWcWithBg.setBackgroundColor?.(bgColor)
+    const overlayWcWithBg = nativeOverlayView.webContents as typeof nativeOverlayView.webContents & { setBackgroundColor?: (color: string) => void }
+    overlayWcWithBg.setBackgroundColor?.('#00000000')
 
     const cdp = new BrowserCDP(pageView.webContents)
 
@@ -372,6 +398,7 @@ export class BrowserPaneManager {
       id: instanceId,
       window,
       pageView,
+      nativeOverlayView,
       cdp,
       currentUrl: 'about:blank',
       title: 'New Tab',
@@ -390,6 +417,11 @@ export class BrowserPaneManager {
       pendingShowToken: 0,
       lastAction: null,
       agentControl: null,
+      lockState: {
+        active: false,
+        previousResizable: this.getWindowResizable(window),
+      },
+      nativeOverlayReady: false,
       themeColor: null,
       inPageThemeTimer: null,
       themeObserverToken: null,
@@ -405,7 +437,11 @@ export class BrowserPaneManager {
       pageView.webContents.setUserAgent(sanitizedUa)
     }
 
-    window.setBrowserView(pageView)
+    window.addBrowserView(pageView)
+    window.addBrowserView(nativeOverlayView)
+    window.setTopBrowserView(nativeOverlayView)
+    void this.loadNativeOverlayPage(instance)
+
     this.layoutPageView(instance)
 
     // Show window only after toolbar content has painted to prevent flash
@@ -451,6 +487,9 @@ export class BrowserPaneManager {
     const wcId = instance.pageView.webContents.id
     this.inFlightRequestsByWebContentsId.delete(wcId)
     this.lastNetworkActivityByWebContentsId.delete(wcId)
+
+    this.applyAgentControlLock(instance, false)
+    this.updateNativeOverlayState(instance)
 
     if (!instance.window.isDestroyed()) {
       this.destroyingIds.add(id)
@@ -713,6 +752,27 @@ export class BrowserPaneManager {
     }
   }
 
+  async drag(id: string, x1: number, y1: number, x2: number, y2: number): Promise<void> {
+    const instance = this.instances.get(id)
+    if (!instance) throw new Error(`Browser instance not found: ${id}`)
+
+    try {
+      await instance.cdp.drag(x1, y1, x2, y2)
+      instance.lastAction = {
+        tool: 'browser_drag',
+        status: 'succeeded',
+        timestamp: Date.now(),
+      }
+    } catch (error) {
+      instance.lastAction = {
+        tool: 'browser_drag',
+        status: 'failed',
+        timestamp: Date.now(),
+      }
+      throw error
+    }
+  }
+
   async typeText(id: string, text: string): Promise<void> {
     const instance = this.instances.get(id)
     if (!instance) throw new Error(`Browser instance not found: ${id}`)
@@ -849,15 +909,27 @@ export class BrowserPaneManager {
     }
   }
 
+  private suspendOverlayForCapture(instance: BrowserInstance): boolean {
+    const shouldSuspend = !!instance.agentControl?.active
+      && instance.nativeOverlayReady
+
+    if (!shouldSuspend) return false
+
+    instance.nativeOverlayView.setBounds({ x: 0, y: 0, width: 0, height: 0 })
+    return true
+  }
+
+  private restoreOverlayAfterCapture(instance: BrowserInstance, suspended: boolean): void {
+    if (!suspended) return
+    this.updateNativeOverlayState(instance)
+  }
+
   async screenshot(id: string, options?: BrowserScreenshotOptions): Promise<BrowserScreenshotResult> {
     const instance = this.instances.get(id)
     if (!instance) throw new Error(`Browser instance not found: ${id}`)
 
-    // Hide the agent control overlay so it doesn't appear in captures
-    const hadAgentOverlay = !!instance.agentControl?.active
-    if (hadAgentOverlay) {
-      await instance.cdp.setAgentOverlayVisibility(false).catch(() => {})
-    }
+    // Hide native agent overlay so it doesn't appear in captures
+    const suspendedOverlay = this.suspendOverlayForCapture(instance)
 
     try {
       // When annotating, force agent mode and gather refs from accessibility tree
@@ -990,9 +1062,7 @@ export class BrowserPaneManager {
         }
       }
     } finally {
-      if (hadAgentOverlay) {
-        await instance.cdp.setAgentOverlayVisibility(true).catch(() => {})
-      }
+      this.restoreOverlayAfterCapture(instance, suspendedOverlay)
     }
   }
 
@@ -1012,11 +1082,7 @@ export class BrowserPaneManager {
       throw new Error('Region screenshot target is ambiguous. Provide only one of coordinates, ref, or selector')
     }
 
-    // Hide the agent control overlay so it doesn't appear in captures
-    const hadAgentOverlay = !!instance.agentControl?.active
-    if (hadAgentOverlay) {
-      await instance.cdp.setAgentOverlayVisibility(false).catch(() => {})
-    }
+    const suspendedOverlay = this.suspendOverlayForCapture(instance)
 
     try {
       let box: { x: number; y: number; width: number; height: number }
@@ -1088,9 +1154,7 @@ export class BrowserPaneManager {
         },
       }
     } finally {
-      if (hadAgentOverlay) {
-        await instance.cdp.setAgentOverlayVisibility(true).catch(() => {})
-      }
+      this.restoreOverlayAfterCapture(instance, suspendedOverlay)
     }
   }
 
@@ -1211,7 +1275,7 @@ export class BrowserPaneManager {
       })
     }
 
-    const fmt = options.format ?? 'jpeg'
+    const fmt = options.format ?? 'png'
     const encoded = fmt === 'jpeg'
       ? image.toJPEG(options.jpegQuality ?? 80)
       : image.toPNG()
@@ -1437,6 +1501,19 @@ export class BrowserPaneManager {
     }
   }
 
+  /** Unbind all instances bound to the given session (non-destructive — window stays alive and reusable). */
+  unbindAllForSession(sessionId: string): void {
+    for (const instance of this.instances.values()) {
+      if (instance.boundSessionId === sessionId) {
+        instance.boundSessionId = null
+        instance.ownerType = 'manual'
+        instance.ownerSessionId = null
+        this.emitStateChange(instance)
+        mainLog.info(`[browser-pane] Unbound instance ${instance.id} from session ${sessionId}`)
+      }
+    }
+  }
+
   getBoundForSession(sessionId: string): string | null {
     for (const instance of this.instances.values()) {
       if (instance.ownerType === 'session' && instance.ownerSessionId === sessionId) {
@@ -1508,15 +1585,14 @@ export class BrowserPaneManager {
   }
 
   async clearVisualsForSession(sessionId: string): Promise<void> {
-    const clears: Promise<void>[] = []
     for (const instance of this.instances.values()) {
       if (instance.boundSessionId === sessionId) {
         instance.agentControl = null
+        this.applyAgentControlLock(instance, false)
+        this.updateNativeOverlayState(instance)
         this.emitStateChange(instance)
-        clears.push(instance.cdp.clearAgentVisualState().catch(() => {}))
       }
     }
-    await Promise.all(clears)
   }
 
   private getAgentControlLabel(agentControl: Pick<AgentControlState, 'displayName' | 'intent'> | null | undefined): string {
@@ -1528,14 +1604,9 @@ export class BrowserPaneManager {
   }
 
   private reapplyAgentControlVisual(instance: BrowserInstance): void {
-    if (!instance.agentControl?.active) return
-
-    instance.cdp.setAgentVisualState({
-      active: true,
-      label: this.getAgentControlLabel(instance.agentControl),
-      cursor: null,
-      accentColor: this.getResolvedAccentColor(),
-    }).catch(() => {})
+    const active = !!instance.agentControl?.active
+    this.applyAgentControlLock(instance, active)
+    this.updateNativeOverlayState(instance)
   }
 
   /** Resolve the app's current accent color as a concrete CSS value (not a var reference). */
@@ -1548,6 +1619,143 @@ export class BrowserPaneManager {
     return accent
   }
 
+  private async loadNativeOverlayPage(instance: BrowserInstance): Promise<void> {
+    const liveFxPlatform: Parameters<typeof getBrowserLiveFxCornerRadii>[0] =
+      process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux'
+        ? process.platform
+        : 'other'
+    const cornerRadii = getBrowserLiveFxCornerRadii(liveFxPlatform)
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      #overlay {
+        position: fixed;
+        inset: 0;
+        border: 2px solid transparent;
+        border-top-left-radius: ${cornerRadii.topLeft};
+        border-top-right-radius: ${cornerRadii.topRight};
+        border-bottom-left-radius: ${cornerRadii.bottomLeft};
+        border-bottom-right-radius: ${cornerRadii.bottomRight};
+        box-sizing: border-box;
+        pointer-events: none;
+      }
+      #chip {
+        position: fixed;
+        top: 8px;
+        right: 8px;
+        padding: 4px 8px;
+        border-radius: 7px;
+        background: rgba(2, 6, 23, 0.82);
+        color: rgba(236, 254, 255, 0.95);
+        font-size: 11px;
+        line-height: 1.2;
+        backdrop-filter: blur(4px);
+        max-width: calc(100vw - 16px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #shield {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="overlay">
+      <div id="shield"></div>
+      <div id="chip">Agent is working…</div>
+    </div>
+  </body>
+</html>`
+
+    try {
+      await instance.nativeOverlayView.webContents.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`)
+      instance.nativeOverlayReady = true
+      mainLog.info(`[browser-pane] native overlay ready id=${instance.id} platform=${liveFxPlatform} corners=${cornerRadii.bottomLeft}/${cornerRadii.bottomRight}`)
+      this.updateNativeOverlayState(instance)
+    } catch (error) {
+      instance.nativeOverlayReady = false
+      mainLog.warn(`[browser-pane] native overlay load failed id=${instance.id}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  private updateNativeOverlayState(instance: BrowserInstance): void {
+    const control = instance.agentControl
+    const active = !!control?.active
+    const shouldShow = active
+
+    if (!shouldShow || !instance.nativeOverlayReady || instance.window.isDestroyed()) {
+      instance.nativeOverlayView.setBounds({ x: 0, y: 0, width: 0, height: 0 })
+      return
+    }
+
+    const [width, height] = instance.window.getContentSize()
+    const overlayHeight = Math.max(100, height - TOOLBAR_HEIGHT)
+    instance.nativeOverlayView.setBounds({ x: 0, y: TOOLBAR_HEIGHT, width, height: overlayHeight })
+    instance.nativeOverlayView.setAutoResize({ width: true, height: true })
+    instance.window.setTopBrowserView(instance.nativeOverlayView)
+
+    const label = this.getAgentControlLabel(control)
+    const accent = this.getResolvedAccentColor()
+
+    void instance.nativeOverlayView.webContents.executeJavaScript(`(() => {
+      const overlay = document.getElementById('overlay');
+      const chip = document.getElementById('chip');
+      const shield = document.getElementById('shield');
+      if (!overlay || !chip || !shield) return;
+
+      overlay.style.borderColor = ${JSON.stringify(accent)};
+      overlay.style.boxShadow = 'inset 0 0 0 1px color-mix(in oklab, ' + ${JSON.stringify(accent)} + ' 45%, transparent), inset 0 0 24px color-mix(in oklab, ' + ${JSON.stringify(accent)} + ' 28%, transparent)';
+      chip.textContent = ${JSON.stringify(label)};
+      shield.style.pointerEvents = 'auto';
+      shield.style.cursor = 'not-allowed';
+      shield.style.background = 'rgba(2, 6, 23, 0.03)';
+    })()`).catch(() => {})
+  }
+
+  private getWindowResizable(window: BrowserWindow): boolean {
+    return typeof window.isResizable === 'function' ? window.isResizable() : true
+  }
+
+  private setWindowResizable(window: BrowserWindow, value: boolean): void {
+    if (typeof window.setResizable === 'function') {
+      window.setResizable(value)
+    }
+  }
+
+  private applyAgentControlLock(instance: BrowserInstance, active: boolean): void {
+    const wantsLock = active && !!instance.agentControl?.active
+
+    if (wantsLock && !instance.lockState.active) {
+      instance.lockState.previousResizable = this.getWindowResizable(instance.window)
+      this.setWindowResizable(instance.window, false)
+      instance.lockState.active = true
+      mainLog.info(`[browser-pane] interaction lock enabled id=${instance.id}`)
+      return
+    }
+
+    if (!wantsLock && instance.lockState.active) {
+      this.setWindowResizable(instance.window, instance.lockState.previousResizable)
+      instance.lockState.active = false
+      mainLog.info(`[browser-pane] interaction lock released id=${instance.id}`)
+    }
+  }
+
   destroyAll(): void {
     for (const id of [...this.instances.keys()]) {
       this.destroyInstance(id)
@@ -1558,6 +1766,7 @@ export class BrowserPaneManager {
     const [width, height] = instance.window.getContentSize()
     instance.pageView.setBounds({ x: 0, y: TOOLBAR_HEIGHT, width, height: Math.max(100, height - TOOLBAR_HEIGHT) })
     instance.pageView.setAutoResize({ width: true, height: true })
+    this.updateNativeOverlayState(instance)
   }
 
   private isBrowserEmptyStateUrl(url: string): boolean {
@@ -1837,13 +2046,14 @@ export class BrowserPaneManager {
 
   /**
    * Clear the agent control overlay for the given session.
-   * Called on explicit browser_tool release or turn end.
+   * Called on explicit browser_tool release and session/window teardown.
    */
   clearAgentControl(sessionId: string): void {
     for (const instance of this.instances.values()) {
       if (instance.boundSessionId === sessionId && instance.agentControl?.active) {
         instance.agentControl = null
-        instance.cdp.clearAgentVisualState().catch(() => {})
+        this.applyAgentControlLock(instance, false)
+        this.updateNativeOverlayState(instance)
         this.emitStateChange(instance)
         mainLog.info(`[browser-pane] agent control released session=${sessionId}`)
       }
@@ -2220,6 +2430,11 @@ export class BrowserPaneManager {
     })
 
     pageWc.on('before-input-event', (_event, input) => {
+      if (instance.lockState.active) {
+        _event.preventDefault()
+        return
+      }
+
       if (input.type !== 'keyDown') return
       const cmdOrCtrl = process.platform === 'darwin' ? input.meta : input.control
       if (!cmdOrCtrl) return
@@ -2233,8 +2448,14 @@ export class BrowserPaneManager {
       }
     })
 
-    pageWc.on('did-navigate', (_event, _url) => {
-      const url = pageWc.getURL()
+    toolbarWc.on('before-input-event', (event) => {
+      if (instance.lockState.active) {
+        event.preventDefault()
+      }
+    })
+
+    pageWc.on('did-navigate', (_event, urlFromEvent) => {
+      const url = typeof pageWc.getURL === 'function' ? pageWc.getURL() : (urlFromEvent || instance.currentUrl)
       if (instance.inPageThemeTimer) {
         clearTimeout(instance.inPageThemeTimer)
         instance.inPageThemeTimer = null
@@ -2255,8 +2476,8 @@ export class BrowserPaneManager {
       this.reapplyAgentControlVisual(instance)
     })
 
-    pageWc.on('did-navigate-in-page', (_event, _url) => {
-      const url = pageWc.getURL()
+    pageWc.on('did-navigate-in-page', (_event, urlFromEvent) => {
+      const url = typeof pageWc.getURL === 'function' ? pageWc.getURL() : (urlFromEvent || instance.currentUrl)
       const normalized = this.normalizePageState(url, instance.title)
       instance.currentUrl = normalized.url
       instance.title = normalized.title
@@ -2367,6 +2588,7 @@ export class BrowserPaneManager {
       this.emitStateChange(instance)
       this.reapplyAgentControlVisual(instance)
       this.pushToolbarState(instance)
+      this.updateNativeOverlayState(instance)
       if (!instance.themeColor) {
         void this.extractThemeColor(instance)
       }
@@ -2375,13 +2597,14 @@ export class BrowserPaneManager {
     instance.window.on('hide', () => {
       instance.isVisible = false
       this.emitStateChange(instance)
-      void instance.cdp.clearAgentVisualState().catch(() => {})
+      this.updateNativeOverlayState(instance)
     })
 
     instance.window.on('closed', () => {
       if (!this.instances.has(instance.id)) return
       this.destroyingIds.delete(instance.id)
-      void instance.cdp.clearAgentVisualState().catch(() => {})
+      this.applyAgentControlLock(instance, false)
+      this.updateNativeOverlayState(instance)
       instance.cdp.detach()
       this.instances.delete(instance.id)
       this.removedCallback?.(instance.id)

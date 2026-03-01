@@ -10,7 +10,6 @@
  */
 
 import type { WebContents } from 'electron'
-import { BROWSER_LIVE_FX_BORDER, getBrowserLiveFxCornerRadii } from '../shared/browser-live-fx'
 import { mainLog } from './logger'
 
 export interface AccessibilityNode {
@@ -409,152 +408,6 @@ export class BrowserCDP {
     })
   }
 
-  async setAgentVisualState(params: {
-    active: boolean
-    label?: string
-    cursor?: { x: number; y: number } | null
-  }): Promise<void> {
-    const cornerRadii = getBrowserLiveFxCornerRadii(
-      process.platform === 'darwin' || process.platform === 'win32' || process.platform === 'linux'
-        ? process.platform
-        : 'other',
-    )
-
-    const payload = {
-      active: params.active,
-      label: params.label || 'Agent is working…',
-      cursor: params.cursor ?? null,
-      fx: {
-        rootId: '__craft_agent_live_fx__',
-        borderId: '__craft_agent_live_fx_border__',
-        chipId: '__craft_agent_live_fx_chip__',
-        cursorId: '__craft_agent_live_fx_cursor__',
-
-        borderTopLeftRadius: cornerRadii.topLeft,
-        borderTopRightRadius: cornerRadii.topRight,
-        borderBottomLeftRadius: cornerRadii.bottomLeft,
-        borderBottomRightRadius: cornerRadii.bottomRight,
-        borderWidth: BROWSER_LIVE_FX_BORDER.width,
-        borderStyle: BROWSER_LIVE_FX_BORDER.style,
-        borderColor: BROWSER_LIVE_FX_BORDER.color,
-        borderBoxShadow: BROWSER_LIVE_FX_BORDER.boxShadow,
-
-        chipTop: '8px',
-        chipRight: '8px',
-        chipPadding: '4px 8px',
-        chipRadius: '7px',
-        chipFont: '11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
-        chipBackground: 'rgba(2, 6, 23, 0.82)',
-        chipColor: 'rgba(236, 254, 255, 0.95)',
-        chipBackdropFilter: 'blur(4px)',
-
-        cursorWidth: '18px',
-        cursorHeight: '22px',
-        cursorFilter: 'drop-shadow(0 0 8px rgba(0,0,0,0.35))',
-        cursorTransition: 'left 120ms ease, top 120ms ease',
-        cursorOffset: 2,
-        cursorInnerHtml:
-          '<div style="width:100%;height:100%;background:black;clip-path:polygon(0% 0%,0% 100%,34% 73%,51% 100%,66% 94%,48% 67%,100% 67%);border-radius:2px;outline:1px solid rgba(255,255,255,0.75);"></div>',
-      },
-    }
-
-    await this.send('Runtime.evaluate', {
-      expression: `(() => {
-        const payload = ${JSON.stringify(payload)};
-        const fx = payload.fx;
-        const rootId = fx.rootId;
-
-        const remove = () => {
-          const existing = document.getElementById(rootId);
-          if (existing) existing.remove();
-        };
-
-        if (!payload.active) {
-          remove();
-          return;
-        }
-
-        let root = document.getElementById(rootId);
-        if (!root) {
-          root = document.createElement('div');
-          root.id = rootId;
-          root.style.position = 'fixed';
-          root.style.inset = '0';
-          root.style.pointerEvents = 'none';
-          root.style.zIndex = '2147483646';
-
-          const borderFx = document.createElement('div');
-          borderFx.id = fx.borderId;
-          borderFx.style.position = 'absolute';
-          borderFx.style.inset = '0';
-          borderFx.style.borderTopLeftRadius = fx.borderTopLeftRadius;
-          borderFx.style.borderTopRightRadius = fx.borderTopRightRadius;
-          borderFx.style.borderBottomLeftRadius = fx.borderBottomLeftRadius;
-          borderFx.style.borderBottomRightRadius = fx.borderBottomRightRadius;
-          borderFx.style.borderWidth = fx.borderWidth;
-          borderFx.style.borderStyle = fx.borderStyle;
-          borderFx.style.borderColor = fx.borderColor;
-          borderFx.style.boxShadow = fx.borderBoxShadow;
-
-          const chip = document.createElement('div');
-          chip.id = fx.chipId;
-          chip.style.position = 'absolute';
-          chip.style.top = fx.chipTop;
-          chip.style.right = fx.chipRight;
-          chip.style.padding = fx.chipPadding;
-          chip.style.borderRadius = fx.chipRadius;
-          chip.style.font = fx.chipFont;
-          chip.style.background = fx.chipBackground;
-          chip.style.color = fx.chipColor;
-          chip.style.backdropFilter = fx.chipBackdropFilter;
-
-          const cursor = document.createElement('div');
-          cursor.id = fx.cursorId;
-          cursor.style.position = 'absolute';
-          cursor.style.width = fx.cursorWidth;
-          cursor.style.height = fx.cursorHeight;
-          cursor.style.transformOrigin = 'top left';
-          cursor.style.transition = fx.cursorTransition;
-          cursor.style.filter = fx.cursorFilter;
-          cursor.innerHTML = fx.cursorInnerHtml;
-
-          root.appendChild(borderFx);
-          root.appendChild(chip);
-          root.appendChild(cursor);
-          document.documentElement.appendChild(root);
-        }
-
-        const chipEl = document.getElementById(fx.chipId);
-        if (chipEl) chipEl.textContent = payload.label;
-
-        const cursorEl = document.getElementById(fx.cursorId);
-        if (cursorEl) {
-          if (payload.cursor) {
-            cursorEl.style.display = 'block';
-            cursorEl.style.left = (payload.cursor.x - fx.cursorOffset) + 'px';
-            cursorEl.style.top = (payload.cursor.y - fx.cursorOffset) + 'px';
-          } else {
-            cursorEl.style.display = 'none';
-          }
-        }
-      })()`,
-    })
-  }
-
-  async clearAgentVisualState(): Promise<void> {
-    await this.setAgentVisualState({ active: false })
-  }
-
-  /** Hide or show the agent control overlay without destroying it. */
-  async setAgentOverlayVisibility(visible: boolean): Promise<void> {
-    await this.send('Runtime.evaluate', {
-      expression: `(() => {
-        const el = document.getElementById('__craft_agent_live_fx__');
-        if (el) el.style.display = ${visible ? "''" : "'none'"};
-      })()`,
-    })
-  }
-
   // ---------------------------------------------------------------------------
   // Element Interaction
   // ---------------------------------------------------------------------------
@@ -572,6 +425,70 @@ export class BrowserCDP {
       button: 'left',
       clickCount: 1,
     })
+  }
+
+  async drag(x1: number, y1: number, x2: number, y2: number): Promise<void> {
+    // Interpolate intermediate mouseMoved events for realistic drag
+    const dx = x2 - x1
+    const dy = y2 - y1
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    const steps = Math.max(5, Math.min(20, Math.round(distance / 20)))
+    let lastX = x1
+    let lastY = y1
+    let primaryError: unknown = null
+
+    // Press at start position
+    await this.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: x1, y: y1,
+      button: 'left',
+      buttons: 1,
+      clickCount: 1,
+    })
+
+    try {
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps
+        const x = Math.round(x1 + dx * t)
+        const y = Math.round(y1 + dy * t)
+        await this.send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x, y,
+          button: 'left',
+          buttons: 1,
+        })
+        lastX = x
+        lastY = y
+
+        // Small delay between moves for realistic drag behavior
+        if (i < steps) {
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+      }
+    } catch (error) {
+      primaryError = error
+    }
+
+    // Always attempt release so page state is not left in pressed/dragging mode.
+    try {
+      await this.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: lastX,
+        y: lastY,
+        button: 'left',
+        buttons: 0,
+        clickCount: 1,
+      })
+    } catch (releaseError) {
+      if (!primaryError) throw releaseError
+      mainLog.warn(
+        `[browser-cdp] drag release failed after primary error: ${
+          releaseError instanceof Error ? releaseError.message : String(releaseError)
+        }`,
+      )
+    }
+
+    if (primaryError) throw primaryError
   }
 
   async typeText(text: string): Promise<void> {

@@ -68,6 +68,25 @@ export function ActivityCardsOverlay({
 }: ActivityCardsOverlayProps) {
   const jsonTheme = useMemo(() => (theme === 'dark' ? craftAgentDarkTheme : craftAgentLightTheme), [theme])
 
+  const renderMarkdownCard = (card: OverlayCard, content: string) => {
+    return (
+      <ContentFrame title={card.label}>
+        <div className="px-10 pt-8 pb-8">
+          <div className="text-sm">
+            <Markdown
+              mode="minimal"
+              onUrlClick={onOpenUrl}
+              onFileClick={onOpenFile}
+              hideFirstMermaidExpand={false}
+            >
+              {content}
+            </Markdown>
+          </div>
+        </div>
+      </ContentFrame>
+    )
+  }
+
   const renderCard = (card: OverlayCard) => {
     const data = card.data
     const isInputCard = card.id === 'input'
@@ -142,26 +161,12 @@ export function ActivityCardsOverlay({
     }
 
     if (data.type === 'document') {
-      return (
-        <div className="w-full max-w-[900px] mx-auto px-6">
-          <div className="text-xs font-semibold text-muted-foreground/70 mb-2 px-1">{card.label}</div>
-          <div className="bg-background shadow-minimal rounded-[10px] px-8 py-8">
-            <Markdown mode="full" onUrlClick={onOpenUrl} onFileClick={onOpenFile}>{data.content}</Markdown>
-          </div>
-        </div>
-      )
+      return renderMarkdownCard(card, data.content)
     }
 
     const lang = detectLanguage(data.content)
     if (lang === 'markdown') {
-      return (
-        <div className="w-full max-w-[900px] mx-auto px-6">
-          <div className="text-xs font-semibold text-muted-foreground/70 mb-2 px-1">{card.label}</div>
-          <div className="bg-background shadow-minimal rounded-[10px] px-8 py-8">
-            <Markdown mode="full" onUrlClick={onOpenUrl} onFileClick={onOpenFile}>{data.content}</Markdown>
-          </div>
-        </div>
-      )
+      return renderMarkdownCard(card, data.content)
     }
 
     return (

@@ -459,6 +459,13 @@ export interface CreateSessionOptions {
   branchFromSessionId?: string
 }
 
+export interface PermissionModeState {
+  permissionMode: PermissionMode
+  modeVersion: number
+  changedAt: string
+  changedBy: 'user' | 'system' | 'restore' | 'automation' | 'unknown'
+}
+
 // Events sent from main to renderer
 // turnId: Correlation ID from the API's message.id, groups all events in an assistant turn
 export type SessionEvent =
@@ -480,7 +487,7 @@ export type SessionEvent =
   | { type: 'permission_request'; sessionId: string; request: PermissionRequest }
   | { type: 'credential_request'; sessionId: string; request: CredentialRequest }
   // Permission mode events
-  | { type: 'permission_mode_changed'; sessionId: string; permissionMode: PermissionMode }
+  | { type: 'permission_mode_changed'; sessionId: string; permissionMode: PermissionMode; modeVersion?: number; changedAt?: string; changedBy?: PermissionModeState['changedBy'] }
   | { type: 'plan_submitted'; sessionId: string; message: CoreMessage }
   // Source events
   | { type: 'sources_changed'; sessionId: string; enabledSourceSlugs: string[] }
@@ -596,6 +603,8 @@ export const IPC_CHANNELS = {
 
   // Pending plan execution (for reload recovery)
   GET_PENDING_PLAN_EXECUTION: 'sessions:getPendingPlanExecution',
+  // Authoritative permission mode diagnostics for renderer reconciliation
+  GET_SESSION_PERMISSION_MODE_STATE: 'sessions:getPermissionModeState',
 
   // Workspace management
   GET_WORKSPACES: 'workspaces:get',
@@ -966,6 +975,8 @@ export interface ElectronAPI {
 
   // Pending plan execution (for reload recovery)
   getPendingPlanExecution(sessionId: string): Promise<{ planPath: string; awaitingCompaction: boolean } | null>
+  // Permission mode reconciliation
+  getSessionPermissionModeState(sessionId: string): Promise<PermissionModeState | null>
 
   // Workspace management
   getWorkspaces(): Promise<Workspace[]>

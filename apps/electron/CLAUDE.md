@@ -935,7 +935,7 @@ bun run electron:start
 
 # Logs appear in:
 # 1. Terminal console (stderr) - immediate visibility
-# 2. File: ~/Library/Logs/Craft Agents/main.log - JSON Lines format
+# 2. File: ~/Library/Logs/@craft-agent/electron/main.log - JSON Lines format
 ```
 
 ### Main Process Loggers (electron-log)

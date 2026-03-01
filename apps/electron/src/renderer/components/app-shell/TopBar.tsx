@@ -1,7 +1,7 @@
 /**
  * TopBar - Persistent top bar above all panels (Slack-style)
  *
- * Layout: [Sidebar] [Menu] [flex] [Back] [Forward] [Workspace selector] [flex] [Settings]
+ * Layout: [Sidebar] [Menu] [Back] [Forward] [Workspace selector] ... [Browser strip] [+] [Help]
  *
  * Fixed at top of window, 48px tall.
  * macOS: offset left to avoid stoplight controls.
@@ -35,7 +35,7 @@ import {
 import type { MenuItem, MenuSection, SettingsMenuItem } from "../../../shared/menu-schema"
 import { SETTINGS_ICONS } from "../icons/SettingsIcons"
 import { SquarePenRounded } from "../icons/SquarePenRounded"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { BrowserTabStrip } from "../browser/BrowserTabStrip"
 import type { Workspace } from "../../../shared/types"
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher"
@@ -61,6 +61,9 @@ const roleHandlers: Record<string, () => void> = {
   minimize: () => window.electronAPI.menuMinimize(),
   zoom: () => window.electronAPI.menuMaximize(),
 }
+
+const RIGHT_SLOT_FULL_BADGES_THRESHOLD = 420
+const RIGHT_SLOT_TWO_BADGES_THRESHOLD = 300
 
 function getIcon(name: string): React.ComponentType<{ className?: string }> | null {
   const IconComponent = Icons[name as keyof typeof Icons] as React.ComponentType<{ className?: string }> | undefined
@@ -177,6 +180,8 @@ export function TopBar({
   onAddBrowserPanel,
 }: TopBarProps) {
   const [isDebugMode, setIsDebugMode] = useState(false)
+  const [maxVisibleBrowserBadges, setMaxVisibleBrowserBadges] = useState(3)
+  const rightSlotRef = useRef<HTMLDivElement | null>(null)
 
   const newChatHotkey = useActionLabel('app.newChat').hotkey
   const newWindowHotkey = useActionLabel('app.newWindow').hotkey
@@ -190,6 +195,38 @@ export function TopBar({
     window.electronAPI.isDebugMode().then(setIsDebugMode)
   }, [])
 
+  useEffect(() => {
+    const slotEl = rightSlotRef.current
+    if (!slotEl) return
+
+    let frame = 0
+
+    const updateBadgeDensity = () => {
+      const slotWidth = slotEl.getBoundingClientRect().width
+      const nextMaxVisibleBadges = slotWidth >= RIGHT_SLOT_FULL_BADGES_THRESHOLD
+        ? 3
+        : slotWidth >= RIGHT_SLOT_TWO_BADGES_THRESHOLD
+          ? 2
+          : 1
+
+      setMaxVisibleBrowserBadges((prev) => (prev === nextMaxVisibleBadges ? prev : nextMaxVisibleBadges))
+    }
+
+    const schedule = () => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(updateBadgeDensity)
+    }
+
+    const observer = new ResizeObserver(schedule)
+    observer.observe(slotEl)
+    updateBadgeDensity()
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [workspaces.length, activeWorkspaceId])
+
   const actionHandlers: MenuActionHandlers = {
     toggleFocusMode: onToggleFocusMode,
     toggleSidebar: onToggleSidebar,
@@ -199,11 +236,11 @@ export function TopBar({
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 h-[48px] z-panel flex items-center justify-between titlebar-drag-region"
-      style={{ paddingLeft: menuLeftPadding, paddingRight: 12 }}
+      className="fixed top-0 left-0 right-0 h-[48px] z-panel titlebar-drag-region"
     >
-      {/* === LEFT: Sidebar Toggle + Craft Menu === */}
-      <div className="pointer-events-auto titlebar-no-drag flex items-center gap-0.5">
+      <div className="flex h-full w-full items-center justify-between gap-2">
+      {/* === LEFT: Sidebar + Menu + Navigation + Workspace === */}
+      <div className="pointer-events-auto titlebar-no-drag flex min-w-0 flex-1 items-center gap-0.5" style={{ paddingLeft: menuLeftPadding }}>
         <Tooltip>
           <TooltipTrigger asChild>
             <TopBarButton onClick={onToggleSidebar} aria-label="Toggle sidebar">
@@ -324,15 +361,9 @@ export function TopBar({
             </StyledDropdownMenuItem>
           </StyledDropdownMenuContent>
         </DropdownMenu>
-      </div>
 
-      {/* === CENTER: Back / Forward / Workspace Selector (absolute centered) === */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div
-          className="pointer-events-auto titlebar-no-drag flex items-center gap-1"
-          style={{ width: '50%', maxWidth: 640 }}
-        >
-          {/* Back */}
+        {/* Back / Forward / Workspace selector (moved from center) */}
+        <div className="ml-1 flex w-full max-w-[640px] min-w-0 items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
               <TopBarButton onClick={onBack} disabled={!canGoBack} aria-label="Go back">
@@ -342,7 +373,6 @@ export function TopBar({
             <TooltipContent side="bottom">Back {goBackHotkey}</TooltipContent>
           </Tooltip>
 
-          {/* Forward */}
           <Tooltip>
             <TooltipTrigger asChild>
               <TopBarButton onClick={onForward} disabled={!canGoForward} aria-label="Go forward">
@@ -352,21 +382,24 @@ export function TopBar({
             <TooltipContent side="bottom">Forward {goForwardHotkey}</TooltipContent>
           </Tooltip>
 
-          {/* Workspace selector */}
-          <WorkspaceSwitcher
-            variant="topbar"
-            workspaces={workspaces}
-            activeWorkspaceId={activeWorkspaceId}
-            onSelect={onSelectWorkspace}
-            onWorkspaceCreated={onWorkspaceCreated}
-            workspaceUnreadMap={workspaceUnreadMap}
-          />
+          <div className="min-w-0 flex-1">
+            <WorkspaceSwitcher
+              variant="topbar"
+              workspaces={workspaces}
+              activeWorkspaceId={activeWorkspaceId}
+              onSelect={onSelectWorkspace}
+              onWorkspaceCreated={onWorkspaceCreated}
+              workspaceUnreadMap={workspaceUnreadMap}
+            />
+          </div>
         </div>
       </div>
 
-      {/* === RIGHT: Browser Tabs + Add Panel === */}
-      <div className="pointer-events-auto titlebar-no-drag flex items-center gap-1">
-        <BrowserTabStrip activeSessionId={activeSessionId} />
+      {/* === RIGHT: Browser strip + add + help === */}
+      <div ref={rightSlotRef} className="pointer-events-auto titlebar-no-drag flex min-w-0 shrink-0 items-center justify-end gap-1" style={{ paddingRight: 12 }}>
+        <div className="min-w-0">
+          <BrowserTabStrip activeSessionId={activeSessionId} maxVisibleBadges={maxVisibleBrowserBadges} />
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <TopBarButton aria-label="Add panel menu" className="ml-1 h-[26px] w-[26px] rounded-lg">
@@ -425,6 +458,7 @@ export function TopBar({
             </StyledDropdownMenuItem>
           </StyledDropdownMenuContent>
         </DropdownMenu>
+      </div>
       </div>
     </div>
   )

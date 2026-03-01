@@ -185,7 +185,7 @@ export const actions = {
     defaultHotkey: 'escape',
     category: 'Chat',
     scope: 'chat',
-    when: 'chatFocus && !hasSelection && !menuOpen',  // Let browser clear selection first; let inline menus handle Escape
+    when: '!hasSelection',  // Let browser clear selection first; overlays handled by hasOpenOverlay() in enabled callback
   },
   'chat.cyclePermissionMode': {
     id: 'chat.cyclePermissionMode',

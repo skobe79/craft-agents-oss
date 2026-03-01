@@ -465,6 +465,14 @@ export function registerIpcHandlers(sessionManager: SessionManager, windowManage
     return sessionManager.getPendingPlanExecution(sessionId)
   })
 
+  // Get authoritative permission mode diagnostics for renderer reconciliation
+  ipcMain.handle(IPC_CHANNELS.GET_SESSION_PERMISSION_MODE_STATE, async (
+    _event,
+    sessionId: string
+  ) => {
+    return sessionManager.getSessionPermissionModeState(sessionId)
+  })
+
   // Read a file (with path validation to prevent traversal attacks)
   ipcMain.handle(IPC_CHANNELS.READ_FILE, async (_event, path: string) => {
     try {

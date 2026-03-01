@@ -52,6 +52,8 @@ export interface BrowserScreenshotArgs {
   refs?: string[]
   includeLastAction?: boolean
   includeMetadata?: boolean
+  /** Annotate screenshot with @eN labels on all interactive elements */
+  annotate?: boolean
   format?: 'png' | 'jpeg'
   jpegQuality?: number
 }
@@ -116,6 +118,7 @@ export interface BrowserPaneFns {
   snapshot: () => Promise<{ url: string; title: string; nodes: Array<{ ref: string; role: string; name: string; value?: string; description?: string; focused?: boolean; checked?: boolean; disabled?: boolean }> }>;
   click: (ref: string, options?: { waitFor?: 'none' | 'navigation' | 'network-idle'; timeoutMs?: number }) => Promise<void>;
   clickAt: (x: number, y: number) => Promise<void>;
+  drag: (x1: number, y1: number, x2: number, y2: number) => Promise<void>;
   fill: (ref: string, value: string) => Promise<void>;
   type: (text: string) => Promise<void>;
   select: (ref: string, value: string) => Promise<void>;
@@ -166,17 +169,25 @@ export interface BrowserToolsOptions {
 // Tool Descriptions
 // ============================================================================
 
-const BROWSER_TOOL_DESCRIPTION = `Run browser actions using a CLI-like command string.
+const BROWSER_TOOL_DESCRIPTION = `Run browser actions using a CLI-like command (string or array input).
 
 All browser interactions use this single tool with strict validation and actionable feedback.
+String mode supports batching with semicolons: \`fill @e1 value; fill @e2 value; click @e3\`
+Batch stops after navigation commands (click, navigate, back, forward) since page state may change.
+
+Array mode bypasses string parsing and preserves raw arguments exactly (recommended for semicolons, tabs, and newlines):
+- \`["evaluate", "var x = 1; var y = 2; x + y"]\`
+- \`["paste", "Name\\tAge\\nAlice\\t30"]\`
 
 Examples:
 - \`--help\`
 - \`open\`
 - \`navigate https://example.com\`
 - \`snapshot\`
+- \`find login button\` — search elements by keyword
 - \`click @e12\`
 - \`click-at 350 200\` — click at pixel coordinates (for canvas elements)
+- \`drag 100 200 300 400\` — drag from (100,200) to (300,400)
 - \`fill @e5 user@example.com\`
 - \`type Hello World\` — type into currently focused element (no ref needed)
 - \`select @e3 optionValue\`
@@ -186,7 +197,8 @@ Examples:
 - \`scroll down 800\`
 - \`evaluate document.title\`
 - \`console 50 error\`
-- \`screenshot\`
+- \`screenshot\` — raw screenshot
+- \`screenshot --annotated\` — screenshot with @eN labels overlaid on interactive elements
 - \`screenshot-region 100 200 640 480\`
 - \`screenshot-region --ref @e12 --padding 8\`
 - \`screenshot-region --selector div[data-testid="chart"]\`
@@ -221,7 +233,10 @@ export function createBrowserTools(options: BrowserToolsOptions) {
       'browser_tool',
       BROWSER_TOOL_DESCRIPTION,
       {
-        command: z.string().describe('CLI-like browser command (e.g., "navigate https://example.com", "click @e1", "--help")'),
+        command: z.union([
+          z.string(),
+          z.array(z.string()),
+        ]).describe('Browser command as a string (e.g., "click @e1") or array (e.g., ["evaluate", "var x = 1; x + 2"]). Array mode preserves semicolons and whitespace in arguments.'),
       },
       async (args) => {
         try {

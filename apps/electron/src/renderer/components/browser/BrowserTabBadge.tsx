@@ -21,6 +21,7 @@ export const BrowserTabBadge = forwardRef<HTMLButtonElement, BrowserTabBadgeProp
   ref
 ) {
   const hostname = getHostname(instance.url)
+  const displayLabel = instance.title.trim() || hostname || 'Local File'
   const themedBackground = instance.themeColor || undefined
 
   const themeLuminance = instance.themeColor ? getThemeLuminance(instance.themeColor) : null
@@ -55,7 +56,7 @@ export const BrowserTabBadge = forwardRef<HTMLButtonElement, BrowserTabBadgeProp
         transition: 'background-color 200ms ease, border-color 200ms ease',
         ...style,
       }}
-      aria-label={`${instance.title || hostname} actions`}
+      aria-label={`${displayLabel} actions`}
       {...buttonProps}
     >
       <span className={`shrink-0 flex items-center justify-center ${isDarkThemeColor ? 'h-3.5 w-3.5' : 'h-3 w-3'}`}>
@@ -84,7 +85,7 @@ export const BrowserTabBadge = forwardRef<HTMLButtonElement, BrowserTabBadgeProp
         )}
       </span>
 
-      <span className="truncate ml-0.5 leading-[12px]">{hostname}</span>
+      <span className="truncate ml-0.5 leading-[12px]">{displayLabel}</span>
 
       <span className="shrink-0 h-3 w-3 flex items-center justify-center opacity-55 group-hover:opacity-90 transition-opacity">
         <Icons.ChevronDown className="h-2.5 w-2.5" />

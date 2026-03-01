@@ -31,14 +31,19 @@ import type { BrowserInstanceInfo } from '../../../shared/types'
 import { getHostname } from './utils'
 import { navigate, routes } from '@/lib/navigate'
 
-const MAX_VISIBLE_BADGES = 3
+const DEFAULT_MAX_VISIBLE_BADGES = 3
 
 interface BrowserTabStripProps {
   activeSessionId?: string | null
   instancesOverride?: BrowserInstanceInfo[]
+  maxVisibleBadges?: number
 }
 
-export function BrowserTabStrip({ activeSessionId, instancesOverride }: BrowserTabStripProps) {
+export function BrowserTabStrip({
+  activeSessionId,
+  instancesOverride,
+  maxVisibleBadges = DEFAULT_MAX_VISIBLE_BADGES,
+}: BrowserTabStripProps) {
   const instances = useAtomValue(browserInstancesAtom)
   const setInstances = useSetAtom(setBrowserInstancesAtom)
   const updateInstance = useSetAtom(updateBrowserInstanceAtom)
@@ -219,8 +224,9 @@ export function BrowserTabStrip({ activeSessionId, instancesOverride }: BrowserT
 
   if (orderedInstances.length === 0) return null
 
-  const visible = orderedInstances.slice(0, MAX_VISIBLE_BADGES)
-  const overflow = orderedInstances.slice(MAX_VISIBLE_BADGES)
+  const visibleBadgeCount = Math.max(1, maxVisibleBadges)
+  const visible = orderedInstances.slice(0, visibleBadgeCount)
+  const overflow = orderedInstances.slice(visibleBadgeCount)
 
   return (
     <div className="flex items-center gap-1.5">
@@ -251,6 +257,7 @@ export function BrowserTabStrip({ activeSessionId, instancesOverride }: BrowserT
           <StyledDropdownMenuContent align="end" minWidth="min-w-64">
             {overflow.map((instance) => {
               const hostname = getHostname(instance.url)
+              const displayLabel = instance.title.trim() || hostname || 'Local File'
               return (
                 <DropdownMenuSub key={instance.id}>
                   <StyledDropdownMenuSubTrigger>
@@ -259,7 +266,7 @@ export function BrowserTabStrip({ activeSessionId, instancesOverride }: BrowserT
                     ) : (
                       <Icons.Globe className="h-3.5 w-3.5" />
                     )}
-                    <span className="truncate">{instance.title || hostname}</span>
+                    <span className="truncate">{displayLabel}</span>
                   </StyledDropdownMenuSubTrigger>
                   <StyledDropdownMenuSubContent minWidth="min-w-56">
                     {renderBrowserActions(instance)}

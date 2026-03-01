@@ -51,6 +51,7 @@ function createMockWebContents() {
       return img
     }),
     executeJavaScript: mock(async (expr: string) => eval(expr)),
+    focus: mock(() => {}),
     setWindowOpenHandler: mock((_handler: any) => {}),
     send: mock((_channel: string, _payload?: unknown) => {}),
     debugger: {
@@ -114,6 +115,8 @@ function createMockWindow(opts?: { width?: number; height?: number; minWidth?: n
       win._emit('closed')
     }),
     setBrowserView: mock((_view: any) => {}),
+    addBrowserView: mock((_view: any) => {}),
+    setTopBrowserView: mock((_view: any) => {}),
     getContentSize: mock(() => [contentWidth, contentHeight]),
     setContentSize: mock((width: number, height: number) => {
       contentWidth = Math.max(minWidth, Math.floor(width))
@@ -201,8 +204,6 @@ mock.module('../browser-cdp', () => ({
       box: { x: 0, y: 0, width: 10, height: 10 },
       clickPoint: { x: 5, y: 5 },
     }))
-    setAgentVisualState = mock(async () => {})
-    clearAgentVisualState = mock(async () => {})
     renderTemporaryOverlay = mock(async () => {})
     clearTemporaryOverlay = mock(async () => {})
     getViewportMetrics = mock(async () => ({ width: 1200, height: 900, dpr: 2, scrollX: 0, scrollY: 0 }))
@@ -724,11 +725,12 @@ describe('BrowserPaneManager', () => {
   })
 
   describe('agent control overlay', () => {
-    it('setAgentControl activates overlay on bound instance', () => {
+    it('setAgentControl activates native overlay on bound instance', async () => {
       manager.createInstance('ac-1')
       manager.bindSession('ac-1', 'sess-1')
 
       manager.setAgentControl('sess-1', { displayName: 'Navigate Page', intent: 'Loading example.com' })
+      await Promise.resolve()
 
       const instance = (manager as any).instances.get('ac-1')
       expect(instance.agentControl).toEqual({
@@ -736,14 +738,32 @@ describe('BrowserPaneManager', () => {
         sessionId: 'sess-1',
         displayName: 'Navigate Page',
         intent: 'Loading example.com',
+        exclusive: true,
+        lockResize: true,
+        lockUserInput: true,
       })
-      expect(instance.cdp.setAgentVisualState).toHaveBeenCalledWith({
-        active: true,
-        label: 'Navigate Page — Loading example.com',
-        cursor: null,
-        accentColor: expect.any(String),
-      })
+      expect(instance.nativeOverlayView.webContents.executeJavaScript).toHaveBeenCalled()
+      expect(instance.nativeOverlayView.webContents.focus).not.toHaveBeenCalled()
       expect(manager.listInstances().find(i => i.id === 'ac-1')?.agentControlActive).toBe(true)
+    })
+
+    it('keeps native overlay visible for non-exclusive session control', async () => {
+      manager.createInstance('ac-idle')
+      manager.bindSession('ac-idle', 'sess-idle')
+
+      manager.setAgentControl('sess-idle', {
+        displayName: 'Browser',
+        intent: 'Session controls this window',
+        exclusive: false,
+        lockResize: false,
+        lockUserInput: false,
+      })
+      await Promise.resolve()
+
+      const instance = (manager as any).instances.get('ac-idle')
+      expect(instance.nativeOverlayView.setBounds).toHaveBeenCalledWith({ x: 0, y: 48, width: 1200, height: 852 })
+      expect(instance.nativeOverlayView.webContents.focus).not.toHaveBeenCalled()
+      expect(manager.listInstances().find(i => i.id === 'ac-idle')?.agentControlActive).toBe(true)
     })
 
     it('emits state change when agent control is set and cleared', () => {
@@ -761,78 +781,66 @@ describe('BrowserPaneManager', () => {
       expect(acStateEvents.some((event) => event.agentControlActive === false)).toBe(true)
     })
 
-    it('reapplies overlay after did-stop-loading while control is active', () => {
+    it('reapplies native overlay after did-stop-loading while control is active', async () => {
       manager.createInstance('ac-reapply')
       manager.bindSession('ac-reapply', 'sess-reapply')
 
       manager.setAgentControl('sess-reapply', { displayName: 'Navigate Page', intent: 'Loading example.com' })
+      await Promise.resolve()
 
       const instance = (manager as any).instances.get('ac-reapply')
-      const callCountAfterSet = instance.cdp.setAgentVisualState.mock.calls.length
+      const callCountAfterSet = instance.nativeOverlayView.webContents.executeJavaScript.mock.calls.length
 
       instance.pageView.webContents._emit('did-stop-loading')
+      await Promise.resolve()
 
-      expect(instance.cdp.setAgentVisualState.mock.calls.length).toBe(callCountAfterSet + 1)
-      expect(instance.cdp.setAgentVisualState).toHaveBeenLastCalledWith({
-        active: true,
-        label: 'Navigate Page — Loading example.com',
-        cursor: null,
-        accentColor: expect.any(String),
-      })
+      expect(instance.nativeOverlayView.webContents.executeJavaScript.mock.calls.length).toBeGreaterThan(callCountAfterSet)
     })
 
-    it('reapplies overlay after hide/show while control is active', () => {
+    it('reapplies native overlay after hide/show while control is active', async () => {
       manager.createInstance('ac-show-reapply')
       manager.bindSession('ac-show-reapply', 'sess-show-reapply')
 
       manager.setAgentControl('sess-show-reapply', { displayName: 'Click Button', intent: 'Clicking submit' })
+      await Promise.resolve()
 
       const instance = (manager as any).instances.get('ac-show-reapply')
-      const callCountAfterSet = instance.cdp.setAgentVisualState.mock.calls.length
+      const callCountAfterSet = instance.nativeOverlayView.webContents.executeJavaScript.mock.calls.length
 
       instance.window._emit('hide')
       instance.window._emit('show')
+      await Promise.resolve()
 
-      expect(instance.cdp.setAgentVisualState.mock.calls.length).toBe(callCountAfterSet + 1)
-      expect(instance.cdp.setAgentVisualState).toHaveBeenLastCalledWith({
-        active: true,
-        label: 'Click Button — Clicking submit',
-        cursor: null,
-        accentColor: expect.any(String),
-      })
+      expect(instance.nativeOverlayView.webContents.executeJavaScript.mock.calls.length).toBeGreaterThan(callCountAfterSet)
     })
 
-    it('setAgentControl uses fallback label when no intent', () => {
+    it('setAgentControl uses fallback label when no intent', async () => {
       manager.createInstance('ac-2')
       manager.bindSession('ac-2', 'sess-2')
 
       manager.setAgentControl('sess-2', { displayName: 'Browser Snapshot' })
+      await Promise.resolve()
 
       const instance = (manager as any).instances.get('ac-2')
-      expect(instance.cdp.setAgentVisualState).toHaveBeenCalledWith({
-        active: true,
-        label: 'Browser Snapshot',
-        cursor: null,
-        accentColor: expect.any(String),
-      })
+      const calls = instance.nativeOverlayView.webContents.executeJavaScript.mock.calls
+      expect(calls.length).toBeGreaterThan(0)
+      expect(String(calls[calls.length - 1][0])).toContain('Browser Snapshot')
     })
 
-    it('setAgentControl uses default label when no metadata', () => {
+    it('setAgentControl uses default label when no metadata', async () => {
       manager.createInstance('ac-3')
       manager.bindSession('ac-3', 'sess-3')
 
       manager.setAgentControl('sess-3', {})
+      await Promise.resolve()
 
       const instance = (manager as any).instances.get('ac-3')
-      expect(instance.cdp.setAgentVisualState).toHaveBeenCalledWith({
-        active: true,
-        label: 'Agent is working…',
-        cursor: null,
-        accentColor: expect.any(String),
-      })
+      const calls = instance.nativeOverlayView.webContents.executeJavaScript.mock.calls
+      expect(calls.length).toBeGreaterThan(0)
+      expect(String(calls[calls.length - 1][0])).toContain('Agent is working…')
     })
 
-    it('clearAgentControl dismisses the overlay', () => {
+    it('clearAgentControl dismisses native overlay', () => {
       manager.createInstance('ac-4')
       manager.bindSession('ac-4', 'sess-4')
 
@@ -841,7 +849,7 @@ describe('BrowserPaneManager', () => {
 
       const instance = (manager as any).instances.get('ac-4')
       expect(instance.agentControl).toBeNull()
-      expect(instance.cdp.clearAgentVisualState).toHaveBeenCalled()
+      expect(instance.nativeOverlayView.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 0, height: 0 })
     })
 
     it('clearAgentControl is a no-op when not active', () => {
@@ -851,7 +859,7 @@ describe('BrowserPaneManager', () => {
       manager.clearAgentControl('sess-5')
 
       const instance = (manager as any).instances.get('ac-5')
-      expect(instance.cdp.clearAgentVisualState).not.toHaveBeenCalled()
+      expect(instance.nativeOverlayView.webContents.executeJavaScript).not.toHaveBeenCalled()
     })
 
     it('clearVisualsForSession resets agent control state', async () => {
@@ -863,7 +871,7 @@ describe('BrowserPaneManager', () => {
 
       const instance = (manager as any).instances.get('ac-6')
       expect(instance.agentControl).toBeNull()
-      expect(instance.cdp.clearAgentVisualState).toHaveBeenCalled()
+      expect(instance.nativeOverlayView.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 0, height: 0 })
     })
 
     it('setAgentControl ignores unbound sessions', () => {
@@ -873,7 +881,7 @@ describe('BrowserPaneManager', () => {
 
       const instance = (manager as any).instances.get('ac-7')
       expect(instance.agentControl).toBeNull()
-      expect(instance.cdp.setAgentVisualState).not.toHaveBeenCalled()
+      expect(instance.nativeOverlayView.webContents.executeJavaScript).not.toHaveBeenCalled()
     })
 
     it('navigate does not trigger overlay by itself', async () => {
@@ -884,7 +892,7 @@ describe('BrowserPaneManager', () => {
 
       const instance = (manager as any).instances.get('ac-8')
       expect(instance.agentControl).toBeNull()
-      expect(instance.cdp.setAgentVisualState).not.toHaveBeenCalled()
+      expect(instance.nativeOverlayView.webContents.executeJavaScript).not.toHaveBeenCalled()
     })
   })
 

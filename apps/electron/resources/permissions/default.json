@@ -1,5 +1,5 @@
 {
-  "version": "2026-02-28",
+  "version": "2026-03-01",
 
   "allowedBashPatterns": [
     { "pattern": "^ls\\b", "comment": "List directory contents" },
@@ -11,6 +11,7 @@
     { "pattern": "^du\\b", "comment": "Estimate file/directory disk usage" },
     { "pattern": "^df\\b", "comment": "Report filesystem disk space usage" },
     { "pattern": "^wc\\b", "comment": "Count lines, words, bytes in files" },
+    { "pattern": "^nl\\b", "comment": "Add line numbers to text output" },
     { "pattern": "^head\\b", "comment": "Output first part of files" },
     { "pattern": "^tail\\b", "comment": "Output last part of files" },
     { "pattern": "^cat\\b", "comment": "Concatenate and display file contents" },
@@ -79,7 +80,7 @@
     { "pattern": "^uptime\\b", "comment": "Print system uptime and load" },
     { "pattern": "^env$", "comment": "Print all environment variables (bare command only, not env <cmd>)" },
     { "pattern": "^printenv\\b", "comment": "Print environment variables" },
-    { "pattern": "^echo\\s+\\$", "comment": "Echo environment variable values" },
+    { "pattern": "^echo\\b", "comment": "Print text to stdout (read-only; redirects/substitution still blocked)" },
     { "pattern": "^ps\\b", "comment": "List running processes" },
     { "pattern": "^top\\s+-[lb]", "comment": "Process viewer in batch/list mode only" },
     { "pattern": "^htop\\b", "comment": "Interactive process viewer" },
@@ -104,6 +105,7 @@
     { "pattern": "^cut\\b", "comment": "Remove sections from lines" },
     { "pattern": "^tr\\b", "comment": "Translate or delete characters" },
     { "pattern": "^column\\b", "comment": "Columnate lists" },
+    { "pattern": "^(?:gawk|mawk|nawk|awk)\\b", "comment": "Awk text processing (dangerous execution forms are blocked by validator)" },
     { "pattern": "^jq\\b", "comment": "JSON processor" },
     { "pattern": "^yq\\b", "comment": "YAML processor" },
     { "pattern": "^xq\\b", "comment": "XML processor (via yq)" },

@@ -6,7 +6,6 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import 'katex/dist/katex.min.css'
 import { cn } from '../../lib/utils'
-import { FILE_EXTENSIONS_PATTERN } from '../../lib/file-classification'
 import { CodeBlock, InlineCode } from './CodeBlock'
 import { MarkdownDiffBlock } from './MarkdownDiffBlock'
 import { MarkdownJsonBlock } from './MarkdownJsonBlock'
@@ -18,6 +17,7 @@ import { MarkdownImageBlock } from './MarkdownImageBlock'
 import { MarkdownLatexBlock } from './MarkdownLatexBlock'
 import { MarkdownPdfBlock } from './MarkdownPdfBlock'
 import { preprocessLinks } from './linkify'
+import { classifyMarkdownLinkTarget } from './link-target'
 import remarkCollapsibleSections from './remarkCollapsibleSections'
 import { CollapsibleSection } from './CollapsibleSection'
 import { useCollapsibleMarkdown } from './CollapsibleMarkdownContext'
@@ -79,10 +79,6 @@ interface CollapsibleContext {
   toggleSection: (id: string) => void
 }
 
-// File path detection regex - matches absolute, home-relative, explicit-relative, and bare relative paths.
-// Excludes URLs (http://, mailto:, etc.). Extensions derived from file-classification.ts to stay in sync.
-const FILE_PATH_REGEX = new RegExp(`^(?!https?://|mailto:|ftp://|data:)(?:[\\w~]|\\./)[\\w\\-./@]*\\.(?:${FILE_EXTENSIONS_PATTERN})$`, 'i')
-
 /**
  * Create custom components based on render mode.
  *
@@ -141,8 +137,8 @@ function createComponents(
         const target = (href?.trim() || fallbackText)
         if (!target) return
 
-        // Check if it's a file path
-        if (FILE_PATH_REGEX.test(target) && onFileClick) {
+        const targetType = classifyMarkdownLinkTarget(target)
+        if (targetType === 'file' && onFileClick) {
           onFileClick(target)
         } else if (onUrlClick) {
           onUrlClick(target)

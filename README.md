@@ -138,7 +138,7 @@ bun run electron:start
 # Type checking
 bun run typecheck:all
 
-# Debug logging (writes to ~/Library/Logs/Craft Agents/)
+# Debug logging (writes to ~/Library/Logs/@craft-agent/electron/)
 # Logs are automatically enabled in development
 ```
 

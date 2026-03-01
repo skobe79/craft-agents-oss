@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTheme } from '@/hooks/useTheme'
 import type { ThemeOverrides } from '@config/theme'
 import { useSetAtom, useStore, useAtomValue, useAtom } from 'jotai'
-import type { Session, Workspace, SessionEvent, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, SetupNeeds, SessionStatus, NewChatActionParams, ContentBadge, LlmConnectionWithStatus } from '../shared/types'
+import type { Session, Workspace, SessionEvent, Message, FileAttachment, StoredAttachment, PermissionRequest, CredentialRequest, CredentialResponse, SetupNeeds, SessionStatus, NewChatActionParams, ContentBadge, LlmConnectionWithStatus, PermissionModeState } from '../shared/types'
 import type { SessionOptions, SessionOptionUpdates } from './hooks/useSessionOptions'
 import { defaultSessionOptions, mergeSessionOptions } from './hooks/useSessionOptions'
 import { generateMessageId } from '../shared/types'
@@ -55,6 +55,7 @@ import {
 import { useLinkInterceptor, type FilePreviewState } from '@/hooks/useLinkInterceptor'
 import { getFileManagerName } from '@/lib/platform'
 import { ActionRegistryProvider } from '@/actions'
+import { toast } from 'sonner'
 
 type AppState = 'loading' | 'onboarding' | 'reauth' | 'ready'
 
@@ -262,6 +263,58 @@ export default function App() {
     sessionOptionsRef.current = sessionOptions
   }, [sessionOptions])
 
+  const applyPermissionModeState = useCallback((sessionId: string, state: PermissionModeState, source: 'event' | 'reconcile') => {
+    setSessionOptions(prev => {
+      const next = new Map(prev)
+      const current = next.get(sessionId) ?? defaultSessionOptions
+      const currentVersion = current.permissionModeVersion ?? -1
+
+      if (state.modeVersion < currentVersion) {
+        window.electronAPI.debugLog(
+          '[ModeSync] Ignoring stale permission mode update',
+          { sessionId, source, incoming: state.modeVersion, current: currentVersion }
+        )
+        return prev
+      }
+
+      if (
+        state.modeVersion === currentVersion &&
+        current.permissionMode !== state.permissionMode
+      ) {
+        window.electronAPI.debugLog(
+          '[ModeSync] Equal modeVersion with differing mode detected, applying and requesting reconciliation',
+          {
+            sessionId,
+            source,
+            modeVersion: state.modeVersion,
+            currentMode: current.permissionMode,
+            incomingMode: state.permissionMode,
+          }
+        )
+      }
+
+      next.set(sessionId, {
+        ...current,
+        permissionMode: state.permissionMode,
+        permissionModeVersion: state.modeVersion,
+      })
+      return next
+    })
+  }, [])
+
+  const reconcilePermissionModeState = useCallback(async (sessionId: string) => {
+    try {
+      const state = await window.electronAPI.getSessionPermissionModeState(sessionId)
+      if (!state) return
+      applyPermissionModeState(sessionId, state, 'reconcile')
+    } catch (error) {
+      window.electronAPI.debugLog('[ModeSync] Failed to reconcile permission mode', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }, [applyPermissionModeState])
+
   // Event processor hook - handles all agent events through pure functions
   const { processAgentEvent } = useEventProcessor()
 
@@ -384,7 +437,7 @@ export default function App() {
 
     window.electronAPI.getWorkspaces().then(setWorkspaces)
     window.electronAPI.getNotificationsEnabled().then(setNotificationsEnabled)
-    window.electronAPI.getSessions().then((loadedSessions) => {
+    window.electronAPI.getSessions().then(async (loadedSessions) => {
       // Initialize per-session atoms and metadata map
       // NOTE: No sessionsAtom used - sessions are only in per-session atoms
       initializeSessions(loadedSessions)
@@ -403,6 +456,12 @@ export default function App() {
         }
       }
       setSessionOptions(optionsMap)
+
+      // Reconcile permission mode state from backend diagnostics (mode + modeVersion)
+      await Promise.allSettled(
+        loadedSessions.map((s) => reconcilePermissionModeState(s.id))
+      )
+
       // Mark sessions as loaded for splash screen
       setSessionsLoaded(true)
 
@@ -427,7 +486,7 @@ export default function App() {
     })
     // Load app-level theme
     window.electronAPI.getAppTheme().then(setAppTheme)
-  }, [appState, initialSessionId, windowWorkspaceId, setSession, initializeSessions, resolveDefaultConnectionSlug])
+  }, [appState, initialSessionId, windowWorkspaceId, initializeSessions, resolveDefaultConnectionSlug, reconcilePermissionModeState])
 
   // Subscribe to theme change events (live updates when theme.json changes)
   useEffect(() => {
@@ -485,12 +544,23 @@ export default function App() {
             break
           }
           case 'permission_mode_changed': {
-            setSessionOptions(prevOpts => {
-              const next = new Map(prevOpts)
-              const current = next.get(effect.sessionId) ?? defaultSessionOptions
-              next.set(effect.sessionId, { ...current, permissionMode: effect.permissionMode })
-              return next
-            })
+            if (typeof effect.modeVersion === 'number' && effect.changedAt && effect.changedBy) {
+              applyPermissionModeState(effect.sessionId, {
+                permissionMode: effect.permissionMode,
+                modeVersion: effect.modeVersion,
+                changedAt: effect.changedAt,
+                changedBy: effect.changedBy,
+              }, 'event')
+            } else {
+              // Backward compatibility: apply mode optimistically then reconcile authoritative state.
+              setSessionOptions(prevOpts => {
+                const next = new Map(prevOpts)
+                const current = next.get(effect.sessionId) ?? defaultSessionOptions
+                next.set(effect.sessionId, { ...current, permissionMode: effect.permissionMode })
+                return next
+              })
+              void reconcilePermissionModeState(effect.sessionId)
+            }
             break
           }
           case 'credential_request': {
@@ -676,7 +746,18 @@ export default function App() {
     })
 
     return cleanup
-  }, [processAgentEvent, windowWorkspaceId, store, updateSessionDirect, showSessionNotification, initializeSessions, addSession, removeSession])
+  }, [
+    processAgentEvent,
+    windowWorkspaceId,
+    store,
+    updateSessionDirect,
+    showSessionNotification,
+    initializeSessions,
+    addSession,
+    removeSession,
+    applyPermissionModeState,
+    reconcilePermissionModeState,
+  ])
 
   // Listen for menu bar events
   useEffect(() => {
@@ -1138,16 +1219,37 @@ export default function App() {
   // handleOpenFile/handleOpenUrl that always opened in external apps.
   const linkInterceptor = useLinkInterceptor({
     openFileExternal: async (path) => {
-      try { await window.electronAPI.openFile(path) }
-      catch (error) { console.error('Failed to open file:', error) }
+      try {
+        await window.electronAPI.openFile(path)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        console.error('Failed to open file:', error)
+        toast.error('Failed to open file', {
+          description: message,
+        })
+      }
     },
     openUrl: async (url) => {
-      try { await window.electronAPI.openUrl(url) }
-      catch (error) { console.error('Failed to open URL:', error) }
+      try {
+        await window.electronAPI.openUrl(url)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        console.error('Failed to open URL:', error)
+        toast.error('Failed to open link', {
+          description: `${message}. If this is a local path, use Open File instead.`,
+        })
+      }
     },
     showInFolder: async (path) => {
-      try { await window.electronAPI.showInFolder(path) }
-      catch (error) { console.error('Failed to show in folder:', error) }
+      try {
+        await window.electronAPI.showInFolder(path)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        console.error('Failed to show in folder:', error)
+        toast.error(`Failed to reveal in ${getFileManagerName()}`, {
+          description: message,
+        })
+      }
     },
     readFile: (path) => window.electronAPI.readFile(path),
     readFileDataUrl: (path) => window.electronAPI.readFileDataUrl(path),

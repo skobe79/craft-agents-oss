@@ -7,7 +7,7 @@ Use `browser_tool` to control built-in browser windows (Chromium) inside Craft A
 ## Browser usage paths
 
 1. **Primary and only in-session tool surface:** `browser_tool`
-2. **Secondary helper CLI:** `bun run browser-tool --help` for command discovery/templates outside agent turns
+2. **Secondary helper CLI:** `bun run browser-tool --help` for command discovery/templates, and `bun run browser-tool parse-url <url>` for safe URL diagnostics outside agent turns
 
 ---
 
@@ -38,8 +38,9 @@ Recommended flow:
 1. `open` — ensure browser window exists (background by default)
 2. `navigate <url>` — load a URL
 3. `snapshot` — inspect accessible elements and get refs (`@e1`, `@e2`, ...)
-4. `click` / `fill` / `select` — interact using refs
-5. `screenshot` (or `screenshot-region`) — visual verification when needed
+4. `find <query>` — quickly narrow to matching refs by keyword
+5. `click` / `fill` / `select` — interact using refs
+6. `screenshot --annotated` (or `screenshot-region`) — visual verification when needed
 
 ---
 
@@ -51,8 +52,10 @@ browser_tool({ command: "open" })
 browser_tool({ command: "open --foreground" })
 browser_tool({ command: "navigate https://example.com" })
 browser_tool({ command: "snapshot" })
+browser_tool({ command: "find login button" })
 browser_tool({ command: "click @e12" })
 browser_tool({ command: "click-at 350 200" })
+browser_tool({ command: "drag 100 200 300 400" })
 browser_tool({ command: "fill @e5 user@example.com" })
 browser_tool({ command: "type Hello World" })
 browser_tool({ command: "select @e3 optionValue" })
@@ -63,6 +66,7 @@ browser_tool({ command: "scroll down 800" })
 browser_tool({ command: "evaluate document.title" })
 browser_tool({ command: "console 50 warn" })
 browser_tool({ command: "screenshot" })
+browser_tool({ command: "screenshot --annotated" })
 browser_tool({ command: "screenshot-region --ref @e12 --padding 8" })
 browser_tool({ command: "window-resize 1280 720" })
 browser_tool({ command: "network 50 failed" })
@@ -78,6 +82,27 @@ browser_tool({ command: "close" })
 
 The wrapper validates commands and returns actionable errors when arguments are missing or invalid.
 
+It also returns rich execution feedback for most commands, including before/after state where available (scroll positions, active element, URL/title transitions, resize clamping, request/error summaries, and window ownership/visibility details).
+
+You can batch commands with semicolons, for example:
+`fill @e1 user@example.com; fill @e2 password123; click @e3`
+
+Batches run left-to-right and stop automatically after navigation commands (`navigate`, `click`, `back`, `forward`) so refs don’t go stale silently.
+
+### Quoting and escaping
+
+`browser_tool` supports quoted arguments:
+- Double quotes: `fill @e5 "Hello world"`
+- Single quotes: `wait text 'welcome back' 5000`
+
+Semicolons inside quotes are treated as literal text (not batch separators):
+- `fill @e1 "a;b;c"; click @e2`
+- `screenshot-region --selector "div[data-x='a;b']" --padding 8`
+
+Use backslash escaping when needed:
+- `\;` for a literal semicolon outside quotes
+- `\"` for a literal `"` inside double-quoted text
+
 ---
 
 ## Key commands
@@ -90,11 +115,23 @@ Create or reuse the session browser window.
 ### `snapshot`
 Returns an accessibility tree with refs and element metadata.
 
+### `find <query>`
+Performs keyword search over the snapshot accessibility nodes (`role`, `name`, `value`, `description`) and returns matching refs.
+
 ### `click <ref> [waitFor] [timeoutMs]`
 Click an element ref from `snapshot`. Optional wait modes: `none`, `navigation`, `network-idle`.
 
 ### `click-at <x> <y>`
 Click at raw pixel coordinates. Use this for **canvas-based UIs** (e.g., Google Sheets cells, map elements, chart data points) where `snapshot` can't produce element refs. Get coordinates from `screenshot` or `screenshot-region`.
+
+### `drag <x1> <y1> <x2> <y2>`
+Drag from pixel coordinates (x1, y1) to (x2, y2). Performs mousedown, interpolated mousemove events, and mouseup. Use this for:
+- Moving charts or objects in canvas-based UIs (e.g., Google Sheets charts)
+- Reordering items via drag-and-drop
+- Resizing elements by dragging handles
+- Drawing or selecting regions
+
+Get coordinates from `screenshot` or `screenshot --annotated`.
 
 ### `fill <ref> <value>` / `select <ref> <value>`
 Fill text inputs or select dropdown values. Requires an element ref from `snapshot`.
@@ -109,14 +146,19 @@ Difference from `fill`: `fill` focuses a ref and replaces its value. `type` send
 
 ### `set-clipboard <text>` / `get-clipboard`
 Read or write the page clipboard programmatically.
-- `set-clipboard` writes text (supports `\t` for tabs, `\n` for newlines in TSV data)
-- `get-clipboard` reads the current clipboard text content
+- `set-clipboard` writes text and interprets common escape sequences:
+  - `\t` → tab
+  - `\n` → newline
+  - `\r` → carriage return
+  - `\\` → literal backslash
+- Unknown escapes are preserved literally (example: `\\x` stays `\\x`)
+- `get-clipboard` reads the current clipboard text content as raw text (tabs/newlines are returned as actual characters)
 
 ### `paste <text>`
-Convenience command: writes text to clipboard then triggers Ctrl+V (or Cmd+V on Mac). Equivalent to `set-clipboard <text>` followed by `key v meta`/`key v control`. Ideal for bulk data entry — e.g., pasting TSV data into a spreadsheet.
+Convenience command: writes text to clipboard then triggers Ctrl+V (or Cmd+V on Mac). Equivalent to `set-clipboard <text>` followed by `key v meta`/`key v control`. Escape handling is identical to `set-clipboard`, which makes TSV-style bulk data entry reliable.
 
-### `screenshot` / `screenshot-region ...`
-Capture full-window or targeted screenshots.
+### `screenshot` / `screenshot --annotated` / `screenshot-region ...`
+Capture full-window or targeted screenshots. `--annotated` overlays `@eN` labels on interactive elements for easier ref debugging.
 
 ### `console`, `network`, `wait`
 Debug runtime issues, requests, and synchronization points.
@@ -137,6 +179,19 @@ Manage and inspect browser window ownership and visibility.
 - `Unknown browser_tool command ...` → typo/unsupported verb; check help
 - `...requires ...` → required argument is missing for that command
 - `...must be numbers` → numeric argument parse failed
+
+---
+
+## Secondary helper: `browser-tool parse-url`
+
+Use this for safe URL debugging in Explore mode without running a generic interpreter snippet:
+
+```bash
+bun run browser-tool parse-url https://example.com/path?q=1#hash
+bun run browser-tool parse-url file:///Users/me/Desktop/report.html
+```
+
+Output is deterministic JSON (`href`, `protocol`, `host`, `hostname`, `pathname`, `search`, `hash`, `origin`, plus `basename` for `file://` URLs).
 
 ---
 
@@ -185,13 +240,17 @@ get-clipboard        # Returns TSV string
 # 6. Click a canvas cell by coordinates (from screenshot)
 click-at 350 200
 
-# 7. Read data via export URL (no editing needed)
+# 7. Move a chart by dragging (coordinates from screenshot)
+drag 400 300 100 50
+
+# 8. Read data via export URL (no editing needed)
 navigate https://docs.google.com/spreadsheets/d/{id}/export?format=csv&gid=0
 ```
 
 ### Key principles for canvas UIs
 - **Name Box and formula bar are DOM elements** — `snapshot` can find them
 - **Cells are canvas pixels** — use `click-at` or keyboard navigation, not `click`
+- **Charts and objects are moveable** — use `drag` to reposition elements on the canvas
 - **Keyboard shortcuts are more reliable than clicking** — use `key` for navigation
 - **Clipboard TSV is the fastest bulk data path** — `paste` with tab-separated values
 - **Export URLs work with session cookies** — no API key needed for reads

@@ -133,7 +133,10 @@ export const SendDeveloperFeedbackSchema = z.object({
 
 // Browser tool schema (single CLI-like tool for all browser actions)
 export const BrowserToolSchema = z.object({
-  command: z.string().describe('CLI-like browser command (e.g., "navigate https://example.com", "click @e1", "--help")'),
+  command: z.union([
+    z.string(),
+    z.array(z.string()),
+  ]).describe('Browser command as a string (e.g., "click @e1") or array (e.g., ["evaluate", "var x = 1; x + 2"]). Array mode preserves semicolons and whitespace in arguments.'),
 });
 
 export const SpawnSessionSchema = z.object({
@@ -289,15 +292,22 @@ Use this when a source provides HTML templates for rich rendering of its data (e
 
 Templates use Mustache syntax — the tool handles rendering and writes the output HTML to the session data folder.`,
 
-  browser_tool: `Run browser actions using a CLI-like command string.
+  browser_tool: `Run browser actions using a CLI-like command (string or array input).
 
 All browser interactions use this single tool with strict validation and actionable feedback.
+String mode supports batching with semicolons: \`fill @e1 value; fill @e2 value; click @e3\`
+Batch stops after navigation commands (click, navigate, back, forward) since page state may change.
+
+Array mode bypasses string parsing and preserves raw arguments exactly (recommended for semicolons, tabs, and newlines):
+- \`["evaluate", "var x = 1; var y = 2; x + y"]\`
+- \`["paste", "Name\\tAge\\nAlice\\t30"]\`
 
 Examples:
 - \`--help\`
 - \`open\`
 - \`navigate https://example.com\`
 - \`snapshot\`
+- \`find login button\` — search elements by keyword
 - \`click @e12\`
 - \`click-at 350 200\` — click at pixel coordinates (for canvas elements)
 - \`fill @e5 user@example.com\`
@@ -309,7 +319,8 @@ Examples:
 - \`scroll down 800\`
 - \`evaluate document.title\`
 - \`console 50 error\`
-- \`screenshot\`
+- \`screenshot\` — raw screenshot
+- \`screenshot --annotated\` — screenshot with @eN labels overlaid on interactive elements
 - \`screenshot-region 100 200 640 480\`
 - \`screenshot-region --ref @e12 --padding 8\`
 - \`screenshot-region --selector div[data-testid="chart"]\`

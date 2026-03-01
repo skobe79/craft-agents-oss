@@ -418,7 +418,7 @@ App-level only. **6-color system:** background, foreground, accent, info, succes
 
 | Environment | Console | File | Location |
 |-------------|---------|------|----------|
-| Electron Main | Yes | Yes | `~/Library/Logs/Craft Agents/main.log` |
+| Electron Main | Yes | Yes | `~/Library/Logs/@craft-agent/electron/main.log` |
 | Electron Renderer | Yes | No | DevTools console |
 | Fetch Interceptor | No | Yes | `~/.craft-agent/logs/interceptor.log` |
 
