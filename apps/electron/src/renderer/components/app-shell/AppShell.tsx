@@ -849,21 +849,23 @@ function AppShellContent({
 
   // Subscribe to live source updates (when sources are added/removed dynamically)
   React.useEffect(() => {
-    const cleanup = window.electronAPI.onSourcesChanged((updatedSources) => {
+    const cleanup = window.electronAPI.onSourcesChanged((workspaceId, updatedSources) => {
+      if (workspaceId !== activeWorkspaceId) return
       // Clear icon cache so updated source icons are re-fetched on render
       clearSourceIconCaches()
       setSources(updatedSources || [])
     })
     return cleanup
-  }, [])
+  }, [activeWorkspaceId])
 
   // Subscribe to live skill updates (when skills are added/removed dynamically)
   React.useEffect(() => {
-    const cleanup = window.electronAPI.onSkillsChanged((updatedSkills) => {
+    const cleanup = window.electronAPI.onSkillsChanged((workspaceId, updatedSkills) => {
+      if (workspaceId !== activeWorkspaceId) return
       setSkills(updatedSkills || [])
     })
     return cleanup
-  }, [])
+  }, [activeWorkspaceId])
 
   // Handle session source selection changes
   const handleSessionSourcesChange = React.useCallback(async (sessionId: string, sourceSlugs: string[]) => {
@@ -2136,8 +2138,8 @@ function AppShellContent({
 
       {/* === OUTER LAYOUT: Unified Panel Stack | Right Sidebar === */}
       <div
-        className="h-full flex items-stretch relative"
-        style={{ padding: PANEL_EDGE_INSET, paddingLeft: 0, paddingTop: 48, gap: PANEL_GAP }}
+        className="flex items-stretch relative"
+        style={{ height: 'calc(100% - 48px)', marginTop: 48, paddingRight: PANEL_EDGE_INSET, paddingBottom: PANEL_EDGE_INSET, paddingLeft: 0, gap: PANEL_GAP }}
       >
         <PanelStackContainer
           sidebarSlot={
