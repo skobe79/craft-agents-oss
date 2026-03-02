@@ -19,6 +19,7 @@ import {
 } from '@craft-agent/shared/agent/backend'
 import { getLlmConnection, getDefaultLlmConnection } from '@craft-agent/shared/config'
 import { sessionLog, isDebugMode, getLogFilePath } from './logger'
+import { PrivilegedExecutionBroker } from './privileged-execution-broker'
 import { updateBadgeCount } from './notifications'
 import { InitGate } from './init-gate'
 import type { WindowManager } from './window-manager'
@@ -803,6 +804,13 @@ export class SessionManager {
   private automationSystems: Map<string, AutomationSystem> = new Map()
   // Pending credential request resolvers (keyed by requestId)
   private pendingCredentialResolvers: Map<string, (response: import('../shared/types').CredentialResponse) => void> = new Map()
+  // Permission request metadata tracking (keyed by requestId)
+  private pendingPermissionRequests: Map<string, {
+    type?: 'bash' | 'file_write' | 'mcp_mutation' | 'api_mutation' | 'admin_approval'
+    commandHash?: string
+  }> = new Map()
+  // Privileged approval binding + audit logger
+  private privilegedExecutionBroker = new PrivilegedExecutionBroker()
   // Promise deduplication for lazy-loading messages (prevents race conditions)
   private messageLoadingPromises: Map<string, Promise<void>> = new Map()
   /**
@@ -2675,13 +2683,53 @@ export class SessionManager {
       managed.agentReadyResolve?.()
 
       // Set up permission handler to forward requests to renderer
-      managed.agent.onPermissionRequest = (request: { requestId: string; toolName: string; command?: string; description: string; type?: 'bash' | 'file_write' | 'mcp_mutation' | 'api_mutation' }) => {
+      managed.agent.onPermissionRequest = (request: {
+        requestId: string;
+        toolName: string;
+        command?: string;
+        description: string;
+        type?: 'bash' | 'file_write' | 'mcp_mutation' | 'api_mutation' | 'admin_approval';
+        appName?: string;
+        reason?: string;
+        impact?: string;
+        requiresSystemPrompt?: boolean;
+        rememberForMinutes?: number;
+        commandHash?: string;
+        approvalTtlSeconds?: number;
+      }) => {
         sessionLog.info(`Permission request for session ${managed.id}:`, request.command)
+        this.pendingPermissionRequests.set(request.requestId, {
+          type: request.type,
+          commandHash: request.commandHash,
+        })
+
+        let brokerMetadata: {
+          commandHash?: string
+          approvalTtlSeconds?: number
+        } = {}
+
+        if (request.type === 'admin_approval' && request.command) {
+          const brokerRequest = this.privilegedExecutionBroker.createRequest({
+            requestId: request.requestId,
+            sessionId: managed.id,
+            command: request.command,
+            reason: request.reason,
+            impact: request.impact,
+            approvalTtlSeconds: request.approvalTtlSeconds,
+          })
+
+          brokerMetadata = {
+            commandHash: brokerRequest.commandHash,
+            approvalTtlSeconds: brokerRequest.approvalTtlSeconds,
+          }
+        }
+
         this.sendEvent({
           type: 'permission_request',
           sessionId: managed.id,
           request: {
             ...request,
+            ...brokerMetadata,
             sessionId: managed.id,
           }
         }, managed.workspace.id)
@@ -2714,6 +2762,8 @@ export class SessionManager {
           modeVersion: diagnostics.modeVersion,
           changedBy: diagnostics.lastChangedBy,
           changedAt: diagnostics.lastChangedAt,
+          previousPermissionMode: diagnostics.previousPermissionMode,
+          transitionDisplay: diagnostics.transitionDisplay,
         }, managed.workspace.id)
       }
 
@@ -4678,6 +4728,21 @@ To view this task's output:
   respondToPermission(sessionId: string, requestId: string, allowed: boolean, alwaysAllow: boolean): boolean {
     const managed = this.sessions.get(sessionId)
     if (managed?.agent) {
+      const requestMeta = this.pendingPermissionRequests.get(requestId)
+      this.pendingPermissionRequests.delete(requestId)
+
+      if (requestMeta?.type === 'admin_approval') {
+        const brokerResult = this.privilegedExecutionBroker.resolveApproval(requestId, allowed, {
+          expectedCommandHash: requestMeta.commandHash,
+        })
+        if (!brokerResult.ok) {
+          sessionLog.warn(`Admin approval rejected by broker for ${requestId}: ${brokerResult.reason}`)
+          // Broker rejection should fail closed.
+          managed.agent.respondToPermission(requestId, false, false)
+          return false
+        }
+      }
+
       sessionLog.info(`Permission response for ${requestId}: allowed=${allowed}, alwaysAllow=${alwaysAllow}`)
       managed.agent.respondToPermission(requestId, allowed, alwaysAllow)
       return true
@@ -4755,6 +4820,8 @@ To view this task's output:
         modeVersion: diagnostics.modeVersion,
         changedBy: diagnostics.lastChangedBy,
         changedAt: diagnostics.lastChangedAt,
+        previousPermissionMode: diagnostics.previousPermissionMode,
+        transitionDisplay: diagnostics.transitionDisplay,
       }, managed.workspace.id)
       // Persist to disk
       this.persistSession(managed)
@@ -4767,6 +4834,8 @@ To view this task's output:
    */
   getSessionPermissionModeState(sessionId: string): {
     permissionMode: PermissionMode
+    previousPermissionMode?: PermissionMode
+    transitionDisplay?: string
     modeVersion: number
     changedAt: string
     changedBy: 'user' | 'system' | 'restore' | 'automation' | 'unknown'
@@ -4792,6 +4861,8 @@ To view this task's output:
 
     return {
       permissionMode: diagnostics.permissionMode,
+      previousPermissionMode: diagnostics.previousPermissionMode,
+      transitionDisplay: diagnostics.transitionDisplay,
       modeVersion: diagnostics.modeVersion,
       changedAt: diagnostics.lastChangedAt,
       changedBy: diagnostics.lastChangedBy,

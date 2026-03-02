@@ -541,6 +541,16 @@ export default function App() {
               next.set(sessionId, [...existingQueue, effect.request])
               return next
             })
+
+            // Native notification for approval-required pauses (same gating as completion notifications)
+            const notifySession = store.get(sessionAtomFamily(sessionId))
+            if (notifySession && !notifySession.hidden) {
+              const isAdminPrompt = effect.request.type === 'admin_approval'
+              const promptBody = isAdminPrompt
+                ? `Admin approval required: ${effect.request.appName || effect.request.toolName}`
+                : `Permission required: ${effect.request.toolName}`
+              showSessionNotification(notifySession, promptBody)
+            }
             break
           }
           case 'permission_mode_changed': {

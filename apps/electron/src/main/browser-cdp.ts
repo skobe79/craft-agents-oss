@@ -612,15 +612,178 @@ export class BrowserCDP {
 
     try {
       const { object } = await this.send('DOM.resolveNode', { backendNodeId })
-      await this.send('Runtime.callFunctionOn', {
+      const result = await this.send('Runtime.callFunctionOn', {
         objectId: object.objectId,
+        returnByValue: true,
         functionDeclaration: `function(val) {
-          this.value = val;
-          this.dispatchEvent(new Event('input', { bubbles: true }));
-          this.dispatchEvent(new Event('change', { bubbles: true }));
+          const normalize = (input) => String(input ?? '').trim().toLowerCase()
+          const desired = normalize(val)
+
+          const isVisible = (el) => {
+            if (!el || !(el instanceof Element)) return false
+            const style = window.getComputedStyle(el)
+            if (!style) return false
+            if (style.display === 'none' || style.visibility === 'hidden') return false
+            if (Number(style.opacity || '1') === 0) return false
+            const rect = el.getBoundingClientRect()
+            return rect.width > 0 && rect.height > 0
+          }
+
+          const fireClick = (el) => {
+            if (!el) return
+            const events = [
+              ['pointerdown', PointerEvent],
+              ['mousedown', MouseEvent],
+              ['pointerup', PointerEvent],
+              ['mouseup', MouseEvent],
+              ['click', MouseEvent],
+            ]
+            for (const [name, EventCtor] of events) {
+              try {
+                el.dispatchEvent(new EventCtor(name, { bubbles: true, cancelable: true, composed: true }))
+              } catch {
+                el.dispatchEvent(new Event(name, { bubbles: true, cancelable: true }))
+              }
+            }
+          }
+
+          const readOptionValue = (el) => {
+            if (!el || !(el instanceof Element)) return ''
+            return (
+              el.getAttribute('data-value')
+              || el.getAttribute('value')
+              || el.textContent
+              || ''
+            )
+          }
+
+          const hasDesired = (input) => normalize(input).includes(desired)
+
+          const isNativeSelect = this instanceof HTMLSelectElement || String(this.tagName || '').toLowerCase() === 'select'
+          if (isNativeSelect) {
+            this.value = val
+            this.dispatchEvent(new Event('input', { bubbles: true }))
+            this.dispatchEvent(new Event('change', { bubbles: true }))
+
+            const selected = this.selectedOptions && this.selectedOptions.length > 0 ? this.selectedOptions[0] : null
+            const selectedValue = selected ? (selected.value || selected.textContent || '') : (this.value || '')
+            const verified = hasDesired(selectedValue) || hasDesired(this.value)
+            return {
+              ok: verified,
+              strategy: 'native',
+              reason: verified ? undefined : 'native select value did not update as expected',
+              selectedValue: this.value || '',
+              selectedText: selected ? String(selected.textContent || '').trim() : '',
+            }
+          }
+
+          this.focus && this.focus()
+          fireClick(this)
+
+          const candidateContainers = []
+          const linkedIds = [this.getAttribute('aria-controls'), this.getAttribute('aria-owns')].filter(Boolean)
+          for (const id of linkedIds) {
+            const linked = document.getElementById(id)
+            if (linked && isVisible(linked)) candidateContainers.push(linked)
+          }
+
+          const expandedCombos = Array.from(document.querySelectorAll('[role="combobox"][aria-expanded="true"]'))
+          for (const combo of expandedCombos) {
+            if (isVisible(combo) && combo !== this) candidateContainers.push(combo)
+            const controls = combo.getAttribute('aria-controls') || combo.getAttribute('aria-owns')
+            if (controls) {
+              const linked = document.getElementById(controls)
+              if (linked && isVisible(linked)) candidateContainers.push(linked)
+            }
+          }
+
+          for (const listbox of Array.from(document.querySelectorAll('[role="listbox"]'))) {
+            if (isVisible(listbox)) candidateContainers.push(listbox)
+          }
+
+          const seen = new Set()
+          const uniqueContainers = candidateContainers.filter((el) => {
+            if (!el) return false
+            if (seen.has(el)) return false
+            seen.add(el)
+            return true
+          })
+
+          const gatherOptions = (container) => {
+            if (!container || !(container instanceof Element)) return []
+            const options = Array.from(container.querySelectorAll('[role="option"], option, [data-value]'))
+            return options.filter((opt) => isVisible(opt))
+          }
+
+          let options = []
+          for (const container of uniqueContainers) {
+            const local = gatherOptions(container)
+            if (local.length > 0) {
+              options = local
+              break
+            }
+          }
+
+          if (options.length === 0) {
+            options = Array.from(document.querySelectorAll('[role="option"], option, [data-value]')).filter((opt) => isVisible(opt))
+          }
+
+          let matched = options.find((opt) => normalize(readOptionValue(opt)) === desired)
+          if (!matched) matched = options.find((opt) => hasDesired(readOptionValue(opt)))
+
+          if (!matched) {
+            return {
+              ok: false,
+              strategy: 'aria',
+              reason: 'option "' + val + '" not found in active listbox',
+              selectedValue: '',
+              selectedText: '',
+            }
+          }
+
+          fireClick(matched)
+
+          const selfValue = (
+            this.value
+            || this.getAttribute('value')
+            || this.getAttribute('aria-valuetext')
+            || this.getAttribute('aria-label')
+            || this.textContent
+            || ''
+          )
+          const matchedValue = readOptionValue(matched)
+          const verified = hasDesired(selfValue) || hasDesired(matchedValue)
+
+          return {
+            ok: verified,
+            strategy: 'aria',
+            reason: verified ? undefined : 'option click succeeded but control state did not reflect selected value',
+            selectedValue: String(selfValue || ''),
+            selectedText: String(matchedValue || '').trim(),
+          }
         }`,
         arguments: [{ value }],
       })
+
+      const details = result?.result?.value as {
+        ok?: boolean
+        strategy?: string
+        reason?: string
+        selectedValue?: string
+        selectedText?: string
+      } | undefined
+
+      if (details?.ok === false) {
+        throw new Error(
+          [
+            `Selection did not bind to form state`,
+            details.strategy ? `strategy=${details.strategy}` : null,
+            details.reason ? `reason=${details.reason}` : null,
+            details.selectedValue ? `selectedValue=${details.selectedValue}` : null,
+            details.selectedText ? `selectedText=${details.selectedText}` : null,
+          ].filter(Boolean).join('; '),
+        )
+      }
 
       return await this.getElementGeometry(ref)
     } catch (err) {

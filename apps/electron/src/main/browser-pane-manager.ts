@@ -685,6 +685,7 @@ export class BrowserPaneManager {
       if (instance.pendingShowOnReady) return
       instance.pendingShowOnReady = true
       const token = ++instance.pendingShowToken
+      mainLog.info(`[browser-pane] focus deferred until ready id=${instance.id} token=${token}`)
       win.once('ready-to-show', () => {
         if (instance.pendingShowToken !== token) return
         instance.pendingShowOnReady = false
@@ -693,6 +694,7 @@ export class BrowserPaneManager {
           win.focus()
           instance.isVisible = true
           this.emitStateChange(instance)
+          mainLog.info(`[browser-pane] focus deferred show completed id=${instance.id} token=${token}`)
         }
       })
       return

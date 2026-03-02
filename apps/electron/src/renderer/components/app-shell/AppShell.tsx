@@ -485,6 +485,7 @@ function AppShellContent({
     onReset,
     onSendMessage,
     openNewChat,
+    pendingPermissions,
   } = contextValue
 
   // Get hotkey labels from centralized action registry
@@ -1223,6 +1224,10 @@ function AppShellContent({
   // This prevents closures from retaining full message arrays
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const setSessionMetaMap = useSetAtom(sessionMetaMapAtom)
+
+  const hasPendingPrompt = React.useCallback((sessionId: string) => {
+    return (pendingPermissions.get(sessionId)?.length ?? 0) > 0
+  }, [pendingPermissions])
 
   // Workspace-level unread indicators (needed for workspace selectors across all workspaces)
   const [workspaceUnreadMap, setWorkspaceUnreadMap] = useState<Record<string, boolean>>({})
@@ -3142,6 +3147,7 @@ function AppShellContent({
                   labelFilterMap={labelFilter}
                   focusedSessionId={panelCount === 0 ? null : panelCount > 1 ? focusedSessionId : undefined}
                   onNavigateToSession={panelCount > 1 ? navigateToSessionInPanel : undefined}
+                  hasPendingPrompt={hasPendingPrompt}
                 />
               </>
             )}

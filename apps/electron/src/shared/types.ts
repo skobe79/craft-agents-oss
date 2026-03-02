@@ -461,6 +461,8 @@ export interface CreateSessionOptions {
 
 export interface PermissionModeState {
   permissionMode: PermissionMode
+  previousPermissionMode?: PermissionMode
+  transitionDisplay?: string
   modeVersion: number
   changedAt: string
   changedBy: 'user' | 'system' | 'restore' | 'automation' | 'unknown'
@@ -487,7 +489,7 @@ export type SessionEvent =
   | { type: 'permission_request'; sessionId: string; request: PermissionRequest }
   | { type: 'credential_request'; sessionId: string; request: CredentialRequest }
   // Permission mode events
-  | { type: 'permission_mode_changed'; sessionId: string; permissionMode: PermissionMode; modeVersion?: number; changedAt?: string; changedBy?: PermissionModeState['changedBy'] }
+  | { type: 'permission_mode_changed'; sessionId: string; permissionMode: PermissionMode; previousPermissionMode?: PermissionMode; transitionDisplay?: string; modeVersion?: number; changedAt?: string; changedBy?: PermissionModeState['changedBy'] }
   | { type: 'plan_submitted'; sessionId: string; message: CoreMessage }
   // Source events
   | { type: 'sources_changed'; sessionId: string; enabledSourceSlugs: string[] }
