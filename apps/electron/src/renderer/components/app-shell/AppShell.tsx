@@ -485,6 +485,7 @@ function AppShellContent({
     onReset,
     onSendMessage,
     openNewChat,
+    pendingPermissions,
   } = contextValue
 
   // Get hotkey labels from centralized action registry
@@ -502,12 +503,11 @@ function AppShellContent({
   })
 
   // Hides both sidebar and navigator (CMD+. toggle)
-  // Can be enabled via prop (URL param for new windows) or toggled via Cmd+.
+  // Seed from either focused window param or persisted preference, then keep it toggleable.
   const [isSidebarAndNavigatorHidden, setIsSidebarAndNavigatorHidden] = React.useState(() => {
-    return storage.get(storage.KEYS.focusModeEnabled, false)
+    return isFocusedMode || storage.get(storage.KEYS.focusModeEnabled, false)
   })
-  // Combines prop-based (immutable) and state-based (toggleable)
-  const effectiveSidebarAndNavigatorHidden = isFocusedMode || isSidebarAndNavigatorHidden
+  const effectiveSidebarAndNavigatorHidden = isSidebarAndNavigatorHidden
 
   // What's New overlay
   const [showWhatsNew, setShowWhatsNew] = React.useState(false)
@@ -1054,8 +1054,16 @@ function AppShellContent({
     }
   })
 
+  const handleToggleSidebar = useCallback(() => {
+    if (isSidebarAndNavigatorHidden) {
+      setIsSidebarAndNavigatorHidden(false)
+      return
+    }
+    setIsSidebarVisible(v => !v)
+  }, [isSidebarAndNavigatorHidden])
+
   // Sidebar toggle (CMD+B)
-  useAction('view.toggleSidebar', () => setIsSidebarVisible(v => !v))
+  useAction('view.toggleSidebar', handleToggleSidebar)
 
   // Focus mode toggle (CMD+.) - hides both sidebars
   useAction('view.toggleFocusMode', () => setIsSidebarAndNavigatorHidden(v => !v))
@@ -1225,6 +1233,10 @@ function AppShellContent({
   // This prevents closures from retaining full message arrays
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const setSessionMetaMap = useSetAtom(sessionMetaMapAtom)
+
+  const hasPendingPrompt = React.useCallback((sessionId: string) => {
+    return (pendingPermissions.get(sessionId)?.length ?? 0) > 0
+  }, [pendingPermissions])
 
   // Workspace-level unread indicators (needed for workspace selectors across all workspaces)
   const [workspaceUnreadMap, setWorkspaceUnreadMap] = useState<Record<string, boolean>>({})
@@ -1557,10 +1569,10 @@ function AppShellContent({
   // Listen for sidebar toggle from menu (View → Toggle Sidebar)
   React.useEffect(() => {
     const cleanup = window.electronAPI.onMenuToggleSidebar?.(() => {
-      setIsSidebarVisible(v => !v)
+      handleToggleSidebar()
     })
     return cleanup
-  }, [])
+  }, [handleToggleSidebar])
 
   // Persist per-view filter map to localStorage (workspace-scoped)
   React.useEffect(() => {
@@ -2130,7 +2142,7 @@ function AppShellContent({
           onForward={goForward}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
-          onToggleSidebar={() => setIsSidebarVisible(prev => !prev)}
+          onToggleSidebar={handleToggleSidebar}
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
@@ -3144,6 +3156,7 @@ function AppShellContent({
                   labelFilterMap={labelFilter}
                   focusedSessionId={panelCount === 0 ? null : panelCount > 1 ? focusedSessionId : undefined}
                   onNavigateToSession={panelCount > 1 ? navigateToSessionInPanel : undefined}
+                  hasPendingPrompt={hasPendingPrompt}
                 />
               </>
             )}
