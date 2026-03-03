@@ -13,7 +13,7 @@
  */
 
 import '@sentry/electron/preload'
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, shell } from 'electron'
 import { WsRpcClient } from '../transport/client'
 import { buildClientApi } from '../transport/build-api'
 import { CHANNEL_MAP } from '../transport/channel-map'
@@ -80,8 +80,8 @@ const api = buildClientApi(client, CHANNEL_MAP)
     flowId = startResult.flowId
     state = startResult.state
 
-    // 3. Open browser for user consent
-    await client.invoke('shell:openUrl', startResult.authUrl)
+    // 3. Open browser for user consent (local — must open on the user's machine, not remote server)
+    await shell.openExternal(startResult.authUrl)
 
     // 4. Wait for OAuth provider to redirect to our callback server
     const callback = await callbackServer.promise
