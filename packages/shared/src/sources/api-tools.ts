@@ -241,7 +241,14 @@ export function createApiTool(
 
         // Add body for non-GET requests
         if (method !== 'GET' && params && Object.keys(params).length > 0) {
-          fetchOptions.body = JSON.stringify(params);
+          // Support raw text bodies via _rawBody param (e.g., for endpoints expecting plain text)
+          if (typeof params._rawBody === 'string') {
+            fetchOptions.body = params._rawBody;
+            (fetchOptions.headers as Record<string, string>)['Content-Type'] =
+              typeof params._contentType === 'string' ? params._contentType : 'text/plain';
+          } else {
+            fetchOptions.body = JSON.stringify(params);
+          }
         }
 
         const response = await fetch(url, fetchOptions);
