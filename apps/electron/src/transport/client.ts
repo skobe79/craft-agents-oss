@@ -247,6 +247,7 @@ export class WsRpcClient implements RpcClient {
         this.resolveReady?.()
         this.resolveReady = null
         this.rejectReady = null
+        this.readyPromise = null
         break
 
       case 'response': {

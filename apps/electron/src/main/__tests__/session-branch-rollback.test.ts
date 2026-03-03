@@ -25,11 +25,19 @@ mock.module('@sentry/electron/main', () => ({
   captureException: () => {},
 }))
 
-mock.module('../logger', () => ({
-  sessionLog: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
-  isDebugMode: false,
-  getLogFilePath: () => '/tmp/main.log',
-}))
+mock.module('../logger', () => {
+  const stubLog = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
+  return {
+    mainLog: stubLog,
+    sessionLog: stubLog,
+    handlerLog: stubLog,
+    windowLog: stubLog,
+    agentLog: stubLog,
+    searchLog: stubLog,
+    isDebugMode: false,
+    getLogFilePath: () => '/tmp/main.log',
+  }
+})
 
 mock.module('../notifications', () => ({
   updateBadgeCount: () => {},
@@ -58,6 +66,17 @@ mock.module('@craft-agent/shared/config', () => ({
   migrateLegacyLlmConnectionsConfig: async () => {},
   migrateOrphanedDefaultConnections: async () => {},
   MODEL_REGISTRY: [],
+  // Targeted stubs: prevent SyntaxError in tests that import these from the barrel
+  DEFAULT_MODEL: 'claude-sonnet-4-20250514',
+  DEFAULT_THEME: { mode: 'system' },
+  getDefaultModelsForConnection: () => ({ default: 'claude-sonnet-4-20250514', mini: 'claude-haiku-4-5-20251001' }),
+  getDefaultModelForConnection: () => 'claude-sonnet-4-20250514',
+  setGitBashPath: () => {},
+  clearGitBashPath: () => {},
+  setActiveWorkspace: () => {},
+  getSummarizationModel: () => 'claude-haiku-4-5-20251001',
+  ensureConfigDir: () => {},
+  ensureConfigDefaults: () => {},
 }))
 
 mock.module('@craft-agent/shared/workspaces', () => ({
@@ -78,6 +97,14 @@ mock.module('@craft-agent/shared/agent', () => ({
   AbortReason: {
     USER_REQUEST: 'user_request',
   },
+  // Targeted stubs: prevent SyntaxError in tests that import these from the barrel
+  hydratePreviousPermissionMode: () => {},
+  initializeModeState: () => {},
+  cleanupModeState: () => {},
+  getPermissionMode: () => 'ask',
+  registerSessionScopedToolCallbacks: () => {},
+  cleanupSessionScopedTools: () => {},
+  getSessionScopedTools: () => [],
 }))
 
 mock.module('@craft-agent/shared/agent/backend', () => ({
@@ -95,6 +122,19 @@ mock.module('@craft-agent/shared/agent/backend', () => ({
   },
   cleanupSourceRuntimeArtifacts: async () => {},
   providerTypeToAgentProvider: () => 'anthropic',
+  // Targeted stubs: prevent SyntaxError in tests that import these from the barrel
+  fetchBackendModels: async () => ({ models: [] }),
+  initializeBackendHostRuntime: () => {},
+  testBackendConnection: async () => ({ success: false, error: 'stub' }),
+  validateStoredBackendConnection: async () => ({ success: false, error: 'stub' }),
+  createBackend: () => { throw new Error('stub') },
+  createAgent: () => { throw new Error('stub') },
+  detectProvider: () => 'anthropic',
+  getAvailableProviders: () => ['anthropic'],
+  isProviderAvailable: () => true,
+  connectionTypeToProvider: () => 'anthropic',
+  connectionAuthTypeToBackendAuthType: () => 'api_key',
+  resolveSetupTestConnectionHint: () => ({}),
 }))
 
 mock.module('@craft-agent/shared/sources', () => ({
@@ -113,6 +153,9 @@ mock.module('@craft-agent/shared/sources', () => ({
     constructor(_mgr: unknown, _opts: unknown) {}
   },
   createTokenGetter: () => async () => null,
+  // Targeted stubs: prevent SyntaxError in tests that import these from the barrel
+  loadSource: () => null,
+  API_OAUTH_PROVIDERS: [],
 }))
 
 mock.module('@craft-agent/shared/automations', () => ({

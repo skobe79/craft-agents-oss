@@ -17,7 +17,11 @@ interface ClientSessionWatchState {
 // Per-client session file watcher state (supports concurrent windows/clients safely)
 const clientSessionWatches = new Map<string, ClientSessionWatchState>()
 
-function cleanupSessionWatchForClient(clientId: string): void {
+/**
+ * Clean up session file watcher for a client.
+ * Called from main process disconnect hooks to prevent watcher leaks.
+ */
+export function cleanupSessionFileWatchForClient(clientId: string): void {
   const state = clientSessionWatches.get(clientId)
   if (!state) return
 
@@ -28,13 +32,6 @@ function cleanupSessionWatchForClient(clientId: string): void {
 
   state.watcher.close()
   clientSessionWatches.delete(clientId)
-}
-
-/**
- * Called from main process disconnect hooks to prevent watcher leaks.
- */
-export function cleanupSessionFileWatchForClient(clientId: string): void {
-  cleanupSessionWatchForClient(clientId)
 }
 
 // Recursive directory scanner for session files
@@ -377,7 +374,7 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
   // Start watching a session directory for file changes (per client)
   server.handle(IPC_CHANNELS.sessions.WATCH_FILES, async (ctx, sessionId: string) => {
     const clientId = ctx.clientId
-    cleanupSessionWatchForClient(clientId)
+    cleanupSessionFileWatchForClient(clientId)
 
     const sessionPath = sessionManager.getSessionPath(sessionId)
     if (!sessionPath) return
@@ -415,7 +412,7 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
 
   // Stop watching session files for the calling client
   server.handle(IPC_CHANNELS.sessions.UNWATCH_FILES, async (ctx) => {
-    cleanupSessionWatchForClient(ctx.clientId)
+    cleanupSessionFileWatchForClient(ctx.clientId)
   })
 
   // Get session notes (reads notes.md from session directory)

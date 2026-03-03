@@ -114,7 +114,7 @@ function decodeWireValue(value: unknown): unknown {
 
 function isWireError(value: unknown): boolean {
   return isRecord(value)
-    && typeof value.code === 'string'
+    && value.code != null
     && typeof value.message === 'string'
 }
 
@@ -122,6 +122,10 @@ export function validateEnvelopeShape(value: unknown): value is MessageEnvelope 
   if (!isRecord(value)) return false
   if (typeof value.id !== 'string' || value.id.length === 0) return false
   if (typeof value.type !== 'string' || !MESSAGE_TYPES.has(value.type)) return false
+
+  if (value.type === 'handshake_ack' && (typeof value.clientId !== 'string' || value.clientId.length === 0)) {
+    return false
+  }
 
   if ((value.type === 'request' || value.type === 'event') && typeof value.channel !== 'string') {
     return false
