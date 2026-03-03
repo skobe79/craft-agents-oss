@@ -1484,95 +1484,6 @@ export class SessionManager {
     return `Authentication failed for ${result.sourceSlug}: ${result.error || 'Unknown error'}`
   }
 
-  /**
-   * Run OAuth flow for a given auth request (non-credential types)
-   * Called after forceAbort to execute the OAuth flow asynchronously
-   */
-  private async runOAuthFlow(managed: ManagedSession, request: AuthRequest): Promise<void> {
-    if (request.type === 'credential') return // Credentials handled by UI
-
-    sessionLog.info(`Running OAuth flow for ${request.sourceSlug} (type: ${request.type})`)
-
-    // Find the source in workspace sources
-    const sources = loadWorkspaceSources(managed.workspace.rootPath)
-    const source = sources.find(s => s.config.slug === request.sourceSlug)
-
-    if (!source) {
-      sessionLog.error(`Source ${request.sourceSlug} not found for OAuth`)
-      await this.completeAuthRequest(managed.id, {
-        requestId: request.requestId,
-        sourceSlug: request.sourceSlug,
-        success: false,
-        error: `Source ${request.sourceSlug} not found`,
-      })
-      return
-    }
-
-    // Get credential manager and run OAuth
-    const credManager = getSourceCredentialManager()
-
-    try {
-      const result = await credManager.authenticate(source, {
-        onStatus: (msg) => sessionLog.info(`[OAuth ${request.sourceSlug}] ${msg}`),
-        onError: (err) => sessionLog.error(`[OAuth ${request.sourceSlug}] ${err}`),
-      }, {
-        sessionId: managed.id,
-        deeplinkScheme: process.env.CRAFT_DEEPLINK_SCHEME || 'craftagents',
-      })
-
-      if (result.success) {
-        await this.completeAuthRequest(managed.id, {
-          requestId: request.requestId,
-          sourceSlug: request.sourceSlug,
-          success: true,
-          email: result.email,
-        })
-      } else {
-        await this.completeAuthRequest(managed.id, {
-          requestId: request.requestId,
-          sourceSlug: request.sourceSlug,
-          success: false,
-          error: result.error,
-        })
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      sessionLog.error(`OAuth flow failed for ${request.sourceSlug}:`, errorMessage)
-      await this.completeAuthRequest(managed.id, {
-        requestId: request.requestId,
-        sourceSlug: request.sourceSlug,
-        success: false,
-        error: errorMessage,
-      })
-    }
-  }
-
-  /**
-   * Start OAuth flow for a pending auth request (called when user clicks "Sign in")
-   * This is the user-initiated trigger - OAuth no longer starts automatically
-   */
-  async startSessionOAuth(sessionId: string, requestId: string): Promise<void> {
-    const managed = this.sessions.get(sessionId)
-    if (!managed) {
-      sessionLog.warn(`Cannot start OAuth - session ${sessionId} not found`)
-      return
-    }
-
-    // Find the pending auth request
-    if (managed.pendingAuthRequestId !== requestId || !managed.pendingAuthRequest) {
-      sessionLog.warn(`Cannot start OAuth - no pending request with id ${requestId}`)
-      return
-    }
-
-    const request = managed.pendingAuthRequest
-    if (request.type === 'credential') {
-      sessionLog.warn(`Cannot start OAuth for credential request`)
-      return
-    }
-
-    // Run the OAuth flow
-    await this.runOAuthFlow(managed, request)
-  }
 
   /**
    * Complete an auth request and send result back to agent
@@ -2956,8 +2867,8 @@ export class SessionManager {
         // Persist session state
         this.persistSession(managed)
 
-        // OAuth flow is now user-initiated via startSessionOAuth()
-        // The UI will call sessionCommand({ type: 'startOAuth' }) when user clicks "Sign in"
+        // OAuth flow is client-driven via performOAuth() (preload).
+        // The UI calls window.electronAPI.performOAuth() when user clicks "Sign in".
       }
 
       // Wire up onSpawnSession to create independent sessions from agent tool calls

@@ -14,6 +14,7 @@ import { registerAutomationsHandlers } from './automations'
 import { registerWorkspaceHandlers } from './workspace'
 import { registerSessionsHandlers } from './sessions'
 import { registerBrowserHandlers } from './browser'
+import { registerOAuthHandlers } from './oauth'
 import { registerOnboardingHandlers } from '../onboarding'
 
 export function registerAllRpcHandlers(server: RpcServer, deps: HandlerDeps): void {
@@ -30,5 +31,6 @@ export function registerAllRpcHandlers(server: RpcServer, deps: HandlerDeps): vo
   registerWorkspaceHandlers(server, deps)
   registerSessionsHandlers(server, deps)
   registerBrowserHandlers(server, deps)
+  registerOAuthHandlers(server, deps)
   registerOnboardingHandlers(server, deps)
 }

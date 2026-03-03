@@ -77,7 +77,6 @@ export function registerOnboardingHandlers(server: RpcServer, deps: HandlerDeps)
 
       return {
         success: true,
-        accessToken: tokens.accessToken,
         clientId,
       }
     } catch (error) {

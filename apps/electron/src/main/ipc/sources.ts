@@ -87,11 +87,8 @@ export function registerSourcesHandlers(server: RpcServer, deps: HandlerDeps): v
         return { success: false, error: result.error }
       }
 
-      // Get token to return to caller
-      const token = await credManager.getToken(source)
-
       log.info(`Source OAuth complete: ${sourceSlug}`)
-      return { success: true, accessToken: token }
+      return { success: true }
     } catch (error) {
       log.error(`Source OAuth failed:`, error)
       return {

@@ -66,6 +66,14 @@ function createMockDeps(): HandlerDeps {
       onRemoved: () => {},
       onInteracted: () => {},
     } as unknown as NonNullable<HandlerDeps['browserPaneManager']>,
+    oauthFlowStore: {
+      store: () => {},
+      getByState: () => null,
+      remove: () => {},
+      cleanup: () => {},
+      dispose: () => {},
+      size: 0,
+    } as unknown as HandlerDeps['oauthFlowStore'],
   }
 }
 
@@ -77,6 +85,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     files,
     labels,
     llm,
+    oauth,
     sessions,
     settings,
     skills,
@@ -92,6 +101,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     import('../files'),
     import('../labels'),
     import('../llm-connections'),
+    import('../oauth'),
     import('../sessions'),
     import('../settings'),
     import('../skills'),
@@ -109,6 +119,7 @@ async function getExpectedChannels(): Promise<Set<string>> {
     ...files.HANDLED_CHANNELS,
     ...labels.HANDLED_CHANNELS,
     ...llm.HANDLED_CHANNELS,
+    ...oauth.HANDLED_CHANNELS,
     ...sessions.HANDLED_CHANNELS,
     ...settings.HANDLED_CHANNELS,
     ...skills.HANDLED_CHANNELS,

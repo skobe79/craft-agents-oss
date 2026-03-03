@@ -9,6 +9,7 @@ import type { SessionManager } from '../sessions'
 import type { PlatformServices } from '../../runtime/platform'
 import type { WindowManager } from '../window-manager'
 import type { BrowserPaneManager } from '../browser-pane-manager'
+import type { OAuthFlowStore } from '@craft-agent/shared/auth'
 
 export interface HandlerDeps {
   sessionManager: SessionManager
@@ -16,4 +17,6 @@ export interface HandlerDeps {
   // Shell-only (undefined for headless)
   windowManager?: WindowManager
   browserPaneManager?: BrowserPaneManager
+  // Server-owned OAuth flow store
+  oauthFlowStore: OAuthFlowStore
 }

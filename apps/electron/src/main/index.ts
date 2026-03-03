@@ -86,6 +86,7 @@ import { initializeBackendHostRuntime } from '@craft-agent/shared/agent/backend'
 import { setPowerShellValidatorRoot } from '@craft-agent/shared/agent'
 import { handleDeepLink } from './deep-link'
 import { BrowserPaneManager } from './browser-pane-manager'
+import { OAuthFlowStore } from '@craft-agent/shared/auth'
 import { registerThumbnailScheme, registerThumbnailHandler } from './thumbnail-protocol'
 import log, { isDebugMode, mainLog, getLogFilePath } from './logger'
 import { setPerfEnabled, enableDebug } from '@craft-agent/shared/utils'
@@ -156,6 +157,7 @@ const DEEPLINK_SCHEME = process.env.CRAFT_DEEPLINK_SCHEME || 'craftagents'
 let windowManager: WindowManager | null = null
 let sessionManager: SessionManager | null = null
 let browserPaneManager: BrowserPaneManager | null = null
+let oauthFlowStore: OAuthFlowStore | null = null
 let moduleSink: EventSink | null = null
 
 // Store pending deep link if app not ready yet (cold start)
@@ -453,11 +455,14 @@ app.whenReady().then(async () => {
       e.returnValue = windowManager?.getWorkspaceForWindow(e.sender.id) ?? ''
     })
 
+    oauthFlowStore = new OAuthFlowStore()
+
     const deps: HandlerDeps = {
       sessionManager,
       platform,
       windowManager,
       browserPaneManager,
+      oauthFlowStore,
     }
 
     // Register RPC handlers (must happen before window creation)
@@ -616,6 +621,11 @@ app.on('before-quit', async (event) => {
     // Clean up browser pane instances
     if (browserPaneManager) {
       browserPaneManager.destroyAll()
+    }
+
+    // Clean up OAuth flow store (stop periodic cleanup timer)
+    if (oauthFlowStore) {
+      oauthFlowStore.dispose()
     }
 
     // Stop all model refresh timers

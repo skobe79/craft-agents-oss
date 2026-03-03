@@ -188,6 +188,9 @@ export const CHANNEL_MAP: ChannelMap = {
   // Session content search
   searchSessionContent: invoke(IPC_CHANNELS.sessions.SEARCH_CONTENT),
 
+  // OAuth (server-owned credentials)
+  oauthRevoke: invoke(IPC_CHANNELS.oauth.REVOKE),
+
   // Sources change listener
   onSourcesChanged: listener(IPC_CHANNELS.sources.CHANGED),
 
