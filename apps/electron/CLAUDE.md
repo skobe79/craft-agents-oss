@@ -255,6 +255,36 @@ When creating dropdowns or popovers that need consistent styling regardless of t
 </StyledDropdownMenuItem>
 ```
 
+### SimpleDropdown Keyboard Navigation (Technical Guideline)
+
+`SimpleDropdown` now has centralized keyboard navigation by default:
+- `ArrowDown` / `ArrowUp` → move highlighted item
+- `Enter` → activate highlighted item
+- `Escape` → close menu
+
+**Default rule:** keep `keyboardNavigation` enabled (default) and do not re-implement arrow/enter handling in consumers.
+
+```tsx
+<SimpleDropdown onOpenChange={setOpen} trigger={<button>Open</button>}>
+  <SimpleDropdownItem onClick={...}>Item A</SimpleDropdownItem>
+  <SimpleDropdownItem onClick={...}>Item B</SimpleDropdownItem>
+</SimpleDropdown>
+```
+
+**Editor/embed exception (Tiptap, Monaco, ProseMirror-like contexts):**
+If key events are intercepted by the host editor and centralized nav becomes unreliable, opt out and handle navigation locally.
+
+```tsx
+<SimpleDropdown keyboardNavigation={false} ...>
+  {/* local ArrowUp/ArrowDown/Enter handling in the embedded input */}
+</SimpleDropdown>
+```
+
+**When using an input inside dropdown content:**
+- Keep non-navigation keys local (`stopPropagation`) so editor shortcuts don't leak
+- If `keyboardNavigation={true}`, allow ArrowUp/ArrowDown/Enter to bubble to `SimpleDropdown`
+- If `keyboardNavigation={false}`, implement local ArrowUp/ArrowDown/Enter behavior explicitly
+
 ### Context Menu Styling
 
 **Always use `StyledContextMenu*` components** for right-click context menus. They match the `StyledDropdownMenu*` styling exactly.

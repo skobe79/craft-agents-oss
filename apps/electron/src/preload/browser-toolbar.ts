@@ -7,7 +7,20 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import { BROWSER_TOOLBAR_CHANNELS as CHANNELS } from '../shared/types'
+
+const CHANNELS = {
+  NAVIGATE: 'browser-toolbar:navigate',
+  GO_BACK: 'browser-toolbar:go-back',
+  GO_FORWARD: 'browser-toolbar:go-forward',
+  RELOAD: 'browser-toolbar:reload',
+  STOP: 'browser-toolbar:stop',
+  MENU_GEOMETRY: 'browser-toolbar:menu-geometry',
+  FORCE_CLOSE_MENU: 'browser-toolbar:force-close-menu',
+  HIDE: 'browser-toolbar:hide',
+  DESTROY: 'browser-toolbar:destroy',
+  STATE_UPDATE: 'browser-toolbar:state-update',
+  THEME_COLOR: 'browser-toolbar:theme-color',
+} as const
 
 // Instance ID is passed via query parameter by BrowserPaneManager
 const instanceId = new URLSearchParams(location.search).get('instanceId') || ''
@@ -19,7 +32,7 @@ contextBridge.exposeInMainWorld('browserToolbar', {
   goForward: () => ipcRenderer.invoke(CHANNELS.GO_FORWARD, instanceId),
   reload: () => ipcRenderer.invoke(CHANNELS.RELOAD, instanceId),
   stop: () => ipcRenderer.invoke(CHANNELS.STOP, instanceId),
-  openWindowMenu: (x: number, y: number) => ipcRenderer.invoke(CHANNELS.OPEN_MENU, instanceId, x, y),
+  setMenuGeometry: (open: boolean, height = 0) => ipcRenderer.invoke(CHANNELS.MENU_GEOMETRY, instanceId, open, height),
   hideWindow: () => ipcRenderer.invoke(CHANNELS.HIDE, instanceId),
   closeWindowEntirely: () => ipcRenderer.invoke(CHANNELS.DESTROY, instanceId),
   onStateUpdate: (callback: (state: unknown) => void) => {
@@ -31,5 +44,10 @@ contextBridge.exposeInMainWorld('browserToolbar', {
     const handler = (_event: Electron.IpcRendererEvent, color: string | null) => callback(color)
     ipcRenderer.on(CHANNELS.THEME_COLOR, handler)
     return () => { ipcRenderer.removeListener(CHANNELS.THEME_COLOR, handler) }
+  },
+  onForceCloseMenu: (callback: (payload: { reason?: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { reason?: string }) => callback(payload)
+    ipcRenderer.on(CHANNELS.FORCE_CLOSE_MENU, handler)
+    return () => { ipcRenderer.removeListener(CHANNELS.FORCE_CLOSE_MENU, handler) }
   },
 })
