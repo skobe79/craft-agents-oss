@@ -7,19 +7,13 @@ import { perf } from '@craft-agent/shared/utils'
 import { pushTyped, type RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from './handler-deps'
 
-export const HANDLED_CHANNELS = [
+export const CORE_HANDLED_CHANNELS = [
   IPC_CHANNELS.workspaces.GET,
   IPC_CHANNELS.workspaces.CREATE,
   IPC_CHANNELS.workspaces.CHECK_SLUG,
   IPC_CHANNELS.window.GET_WORKSPACE,
   IPC_CHANNELS.window.GET_MODE,
-  IPC_CHANNELS.window.OPEN_WORKSPACE,
-  IPC_CHANNELS.window.OPEN_SESSION_IN_NEW_WINDOW,
   IPC_CHANNELS.window.SWITCH_WORKSPACE,
-  IPC_CHANNELS.window.CLOSE,
-  IPC_CHANNELS.window.CONFIRM_CLOSE,
-  IPC_CHANNELS.window.CANCEL_CLOSE,
-  IPC_CHANNELS.window.SET_TRAFFIC_LIGHTS,
   IPC_CHANNELS.workspace.READ_IMAGE,
   IPC_CHANNELS.workspace.WRITE_IMAGE,
   IPC_CHANNELS.theme.GET_APP,
@@ -38,7 +32,21 @@ export const HANDLED_CHANNELS = [
   IPC_CHANNELS.logo.GET_URL,
 ] as const
 
-export function registerWorkspaceHandlers(server: RpcServer, deps: HandlerDeps): void {
+export const GUI_HANDLED_CHANNELS = [
+  IPC_CHANNELS.window.OPEN_WORKSPACE,
+  IPC_CHANNELS.window.OPEN_SESSION_IN_NEW_WINDOW,
+  IPC_CHANNELS.window.CLOSE,
+  IPC_CHANNELS.window.CONFIRM_CLOSE,
+  IPC_CHANNELS.window.CANCEL_CLOSE,
+  IPC_CHANNELS.window.SET_TRAFFIC_LIGHTS,
+] as const
+
+export const HANDLED_CHANNELS = [
+  ...CORE_HANDLED_CHANNELS,
+  ...GUI_HANDLED_CHANNELS,
+] as const
+
+export function registerWorkspaceCoreHandlers(server: RpcServer, deps: HandlerDeps): void {
   const { sessionManager } = deps
   const windowManager = deps.windowManager
 
@@ -65,10 +73,6 @@ export function registerWorkspaceHandlers(server: RpcServer, deps: HandlerDeps):
     return { exists, path: workspacePath }
   })
 
-  // ============================================================
-  // Window Management
-  // ============================================================
-
   // Get workspace ID for the calling window
   server.handle(IPC_CHANNELS.window.GET_WORKSPACE, (ctx) => {
     const workspaceId = ctx.workspaceId ?? windowManager?.getWorkspaceForWindow(ctx.webContentsId!)
@@ -82,53 +86,9 @@ export function registerWorkspaceHandlers(server: RpcServer, deps: HandlerDeps):
     return workspaceId
   })
 
-  // Open workspace in new window (or focus existing)
-  server.handle(IPC_CHANNELS.window.OPEN_WORKSPACE, async (_ctx, workspaceId: string) => {
-    if (!windowManager) return
-    windowManager.focusOrCreateWindow(workspaceId)
-  })
-
-  // Open a session in a new window
-  server.handle(IPC_CHANNELS.window.OPEN_SESSION_IN_NEW_WINDOW, async (_ctx, workspaceId: string, sessionId: string) => {
-    if (!windowManager) return
-    // Build deep link for session navigation
-    const deepLink = `craftagents://allSessions/session/${sessionId}`
-    windowManager.createWindow({
-      workspaceId,
-      focused: true,
-      initialDeepLink: deepLink,
-    })
-  })
-
   // Get mode for the calling window (always 'main' now)
   server.handle(IPC_CHANNELS.window.GET_MODE, () => {
     return 'main'
-  })
-
-  // Close the calling window (triggers close event which may be intercepted)
-  server.handle(IPC_CHANNELS.window.CLOSE, (ctx) => {
-    if (!windowManager) return
-    windowManager.closeWindow(ctx.webContentsId!)
-  })
-
-  // Confirm close - force close the window (bypasses interception).
-  // Called by renderer when it has no modals to close and wants to proceed.
-  server.handle(IPC_CHANNELS.window.CONFIRM_CLOSE, (ctx) => {
-    if (!windowManager) return
-    windowManager.forceCloseWindow(ctx.webContentsId!)
-  })
-
-  // Cancel close - renderer handled the request (closed a modal/panel).
-  // Clears the fallback timeout so the window stays open.
-  server.handle(IPC_CHANNELS.window.CANCEL_CLOSE, (ctx) => {
-    if (!windowManager) return
-    windowManager.cancelPendingClose(ctx.webContentsId!)
-  })
-
-  // Show/hide macOS traffic light buttons (for fullscreen overlays)
-  server.handle(IPC_CHANNELS.window.SET_TRAFFIC_LIGHTS, (ctx, visible: boolean) => {
-    if (!windowManager) return
-    windowManager.setTrafficLightsVisible(ctx.webContentsId!, visible)
   })
 
   // Switch workspace in current window (in-window switching)
@@ -437,4 +397,57 @@ export function registerWorkspaceHandlers(server: RpcServer, deps: HandlerDeps):
     const result = getLogoUrl(serviceUrl, provider)
     return result
   })
+}
+
+export function registerWorkspaceGuiHandlers(server: RpcServer, deps: HandlerDeps): void {
+  const windowManager = deps.windowManager
+
+  // Open workspace in new window (or focus existing)
+  server.handle(IPC_CHANNELS.window.OPEN_WORKSPACE, async (_ctx, workspaceId: string) => {
+    if (!windowManager) return
+    windowManager.focusOrCreateWindow(workspaceId)
+  })
+
+  // Open a session in a new window
+  server.handle(IPC_CHANNELS.window.OPEN_SESSION_IN_NEW_WINDOW, async (_ctx, workspaceId: string, sessionId: string) => {
+    if (!windowManager) return
+    // Build deep link for session navigation
+    const deepLink = `craftagents://allSessions/session/${sessionId}`
+    windowManager.createWindow({
+      workspaceId,
+      focused: true,
+      initialDeepLink: deepLink,
+    })
+  })
+
+  // Close the calling window (triggers close event which may be intercepted)
+  server.handle(IPC_CHANNELS.window.CLOSE, (ctx) => {
+    if (!windowManager) return
+    windowManager.closeWindow(ctx.webContentsId!)
+  })
+
+  // Confirm close - force close the window (bypasses interception).
+  // Called by renderer when it has no modals to close and wants to proceed.
+  server.handle(IPC_CHANNELS.window.CONFIRM_CLOSE, (ctx) => {
+    if (!windowManager) return
+    windowManager.forceCloseWindow(ctx.webContentsId!)
+  })
+
+  // Cancel close - renderer handled the request (closed a modal/panel).
+  // Clears the fallback timeout so the window stays open.
+  server.handle(IPC_CHANNELS.window.CANCEL_CLOSE, (ctx) => {
+    if (!windowManager) return
+    windowManager.cancelPendingClose(ctx.webContentsId!)
+  })
+
+  // Show/hide macOS traffic light buttons (for fullscreen overlays)
+  server.handle(IPC_CHANNELS.window.SET_TRAFFIC_LIGHTS, (ctx, visible: boolean) => {
+    if (!windowManager) return
+    windowManager.setTrafficLightsVisible(ctx.webContentsId!, visible)
+  })
+}
+
+export function registerWorkspaceHandlers(server: RpcServer, deps: HandlerDeps): void {
+  registerWorkspaceCoreHandlers(server, deps)
+  registerWorkspaceGuiHandlers(server, deps)
 }

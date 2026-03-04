@@ -129,20 +129,22 @@ async function getExpectedCoreChannels(): Promise<Set<string>> {
     ...sources.HANDLED_CHANNELS,
     ...statuses.HANDLED_CHANNELS,
     ...system.CORE_HANDLED_CHANNELS,
-    ...workspace.HANDLED_CHANNELS,
+    ...workspace.CORE_HANDLED_CHANNELS,
     ...onboarding.HANDLED_CHANNELS,
   ])
 }
 
 async function getExpectedGuiChannels(): Promise<Set<string>> {
-  const [browser, system] = await Promise.all([
+  const [browser, system, workspace] = await Promise.all([
     import('../browser'),
     import('../system'),
+    import('../workspace'),
   ])
 
   return new Set([
     ...browser.HANDLED_CHANNELS,
     ...system.GUI_HANDLED_CHANNELS,
+    ...workspace.GUI_HANDLED_CHANNELS,
   ])
 }
 

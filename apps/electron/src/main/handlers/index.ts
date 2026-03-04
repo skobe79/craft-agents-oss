@@ -11,7 +11,7 @@ import { registerSettingsHandlers } from './settings'
 import { registerSourcesHandlers } from './sources'
 import { registerLlmConnectionsHandlers } from './llm-connections'
 import { registerAutomationsHandlers } from './automations'
-import { registerWorkspaceHandlers } from './workspace'
+import { registerWorkspaceCoreHandlers, registerWorkspaceGuiHandlers } from './workspace'
 import { registerSessionsHandlers } from './sessions'
 import { registerBrowserHandlers } from './browser'
 import { registerOAuthHandlers } from './oauth'
@@ -28,7 +28,7 @@ export function registerCoreRpcHandlers(server: RpcServer, deps: HandlerDeps): v
   registerSourcesHandlers(server, deps)
   registerLlmConnectionsHandlers(server, deps)
   registerAutomationsHandlers(server, deps)
-  registerWorkspaceHandlers(server, deps)
+  registerWorkspaceCoreHandlers(server, deps)
   registerSessionsHandlers(server, deps)
   registerOAuthHandlers(server, deps)
   registerOnboardingHandlers(server, deps)
@@ -36,6 +36,7 @@ export function registerCoreRpcHandlers(server: RpcServer, deps: HandlerDeps): v
 
 export function registerGuiRpcHandlers(server: RpcServer, deps: HandlerDeps): void {
   registerSystemGuiHandlers(server, deps)
+  registerWorkspaceGuiHandlers(server, deps)
   registerBrowserHandlers(server, deps)
 }
 
