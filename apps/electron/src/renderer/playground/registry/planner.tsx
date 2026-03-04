@@ -892,9 +892,9 @@ function PlannerBoard() {
                       }}
                       onClick={() => { if (!isDraggingRef.current) setSelectedTaskId(task.id) }}
                       className={cn(
-                        'planner-sortable-item w-full rounded-[8px] px-3 py-2 text-left select-none',
+                        'planner-sortable-item w-full rounded-[8px] border-l border-transparent px-3 py-2 text-left select-none',
                         selectedTaskId === task.id
-                          ? 'planner-sortable-item--selected bg-background'
+                          ? 'planner-sortable-item--selected border-l-accent bg-background'
                           : 'bg-background shadow-none'
                       )}
                     >

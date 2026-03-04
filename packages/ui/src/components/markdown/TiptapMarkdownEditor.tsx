@@ -2,64 +2,25 @@ import * as React from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
 import { Mathematics } from '@tiptap/extension-mathematics'
 import Image from '@tiptap/extension-image'
 import FileHandler from '@tiptap/extension-file-handler'
 import { Markdown as OfficialMarkdown } from '@tiptap/markdown'
 import { Markdown as LegacyMarkdown } from 'tiptap-markdown'
-import { Extension, type Editor as CoreEditor } from '@tiptap/core'
-import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { tiptapCodeBlock } from './TiptapCodeBlockView'
 import { TiptapBubbleMenus, INLINE_MATH_EDIT_EVENT } from './TiptapBubbleMenus'
-import { TiptapSlashMenu, isSlashSuggestionActive } from './TiptapSlashMenu'
+import { TiptapSlashMenu } from './TiptapSlashMenu'
+import { MermaidBlock } from './extensions/MermaidBlock'
+import { LatexBlock } from './extensions/LatexBlock'
+import { RichBlockInteractions } from './extensions/RichBlockInteractions'
 import { cn } from '../../lib/utils'
 import 'katex/dist/katex.min.css'
 import './tiptap-editor.css'
 
 export type MarkdownEngine = 'legacy' | 'official'
 
-// Languages rendered as visual blocks (contentEditable={false} NodeViews)
-const VISUAL_LANGUAGES = new Set(['mermaid', 'latex', 'math', 'tex', 'katex'])
-
-/**
- * Plugin that adds an `is-selected` class via Decoration.node() to visual
- * code blocks (mermaid/latex) and inline math when they fall within a range
- * selection (e.g. Cmd+A). This gives a unified block-level highlight instead
- * of the browser highlighting individual text nodes inside SVGs / KaTeX.
- */
-const SelectionHighlight = Extension.create({
-  name: 'selectionHighlight',
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey('selectionHighlight'),
-        props: {
-          decorations(state) {
-            const { from, to } = state.selection
-            if (from === to) return DecorationSet.empty
-            if (state.selection instanceof NodeSelection) return DecorationSet.empty
-
-            const decorations: Decoration[] = []
-            state.doc.nodesBetween(from, to, (node, pos) => {
-              if (node.type.name === 'codeBlock') {
-                const lang = (node.attrs.language as string | undefined)?.toLowerCase()
-                if (lang && VISUAL_LANGUAGES.has(lang)) {
-                  decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: 'is-selected' }))
-                }
-              }
-              if (node.type.name === 'inlineMath') {
-                decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: 'is-selected' }))
-              }
-            })
-
-            return decorations.length > 0 ? DecorationSet.create(state.doc, decorations) : DecorationSet.empty
-          },
-        },
-      }),
-    ]
-  },
-})
 
 function getLegacyMarkdown(editor: { storage: { markdown?: { getMarkdown?: () => string } } }): string {
   return editor.storage.markdown?.getMarkdown?.() ?? ''
@@ -189,11 +150,25 @@ async function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
+async function readImageDimensions(src: string): Promise<{ width: number; height: number } | null> {
+  return await new Promise((resolve) => {
+    const image = new globalThis.Image()
+    image.onload = () => {
+      if (!image.naturalWidth || !image.naturalHeight) {
+        resolve(null)
+        return
+      }
+      resolve({ width: image.naturalWidth, height: image.naturalHeight })
+    }
+    image.onerror = () => resolve(null)
+    image.src = src
+  })
+}
+
 function insertMermaidBlock(editor: NonNullable<ReturnType<typeof useEditor>>, source: string, pos?: number) {
   const payload = {
-    type: 'codeBlock',
-    attrs: { language: 'mermaid' },
-    content: [{ type: 'text', text: source }],
+    type: 'mermaidBlock',
+    attrs: { code: source },
   }
 
   const chain = editor.chain().focus()
@@ -201,10 +176,20 @@ function insertMermaidBlock(editor: NonNullable<ReturnType<typeof useEditor>>, s
   chain.insertContent(payload).run()
 }
 
-function insertImageNode(editor: NonNullable<ReturnType<typeof useEditor>>, src: string, pos?: number) {
+function insertImageNode(
+  editor: NonNullable<ReturnType<typeof useEditor>>,
+  src: string,
+  pos?: number,
+  dimensions?: { width: number; height: number } | null,
+) {
   const chain = editor.chain().focus()
   if (typeof pos === 'number') chain.setTextSelection(pos)
-  chain.setImage({ src }).run()
+  chain.setImage({
+    src,
+    ...(dimensions?.width && dimensions?.height
+      ? { width: dimensions.width, height: dimensions.height }
+      : {}),
+  }).run()
 }
 
 async function handleDroppedOrPastedFiles(
@@ -215,7 +200,8 @@ async function handleDroppedOrPastedFiles(
   for (const file of files) {
     if (file.type.startsWith('image/')) {
       const src = await readFileAsDataUrl(file)
-      insertImageNode(editor, src, pos)
+      const dimensions = await readImageDimensions(src)
+      insertImageNode(editor, src, pos, dimensions)
       continue
     }
 
@@ -268,9 +254,15 @@ export function TiptapMarkdownEditor({
         codeBlock: false,
         heading: { levels: [1, 2, 3] },
       }),
+      TaskList,
+      TaskItem.configure({
+        nested: true,
+      }),
       tiptapCodeBlock.configure({
         themes: { light: 'github-light', dark: 'github-dark' },
       }),
+      MermaidBlock,
+      LatexBlock,
       Placeholder.configure({ placeholder }),
       Image.configure({
         inline: false,
@@ -286,7 +278,7 @@ export function TiptapMarkdownEditor({
           await handleDroppedOrPastedFiles(editor as NonNullable<ReturnType<typeof useEditor>>, files, pos)
         },
       }),
-      SelectionHighlight,
+      RichBlockInteractions,
       ...(editable ? [TiptapSlashMenu] : []),
     ]
 
@@ -383,95 +375,6 @@ export function TiptapMarkdownEditor({
   // Keep editorRef in sync for the Mathematics onClick callback
   editorRef.current = editor
 
-  // Capture-phase keydown handler for:
-  // 1. Enter on inlineMath → open edit popover
-  // 2. ArrowUp/Down → select visual code blocks (mermaid/latex) instead of skipping them
-  React.useEffect(() => {
-    if (!editor || !editable) return
-    const dom = editor.view.dom
-
-    const isVisualCodeBlock = (node: any) =>
-      node?.type.name === 'codeBlock' &&
-      VISUAL_LANGUAGES.has((node.attrs.language as string | undefined)?.toLowerCase() ?? '')
-
-    const handler = (e: KeyboardEvent) => {
-      // Enter on inlineMath → open edit popover
-      if (e.key === 'Enter') {
-        const { selection } = editor.state
-        if (selection instanceof NodeSelection && selection.node.type.name === 'inlineMath') {
-          e.preventDefault()
-          ;(editor as any).emit(INLINE_MATH_EDIT_EVENT)
-        }
-        return
-      }
-
-      // ArrowUp / ArrowDown → select visual code blocks (mermaid/latex) instead of skipping
-      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
-
-      // If slash menu is active, let Suggestion keyboard navigation own Arrow keys.
-      if (isSlashSuggestionActive(editor as CoreEditor)) return
-
-      const { state, view } = editor
-      const { selection, doc } = state
-      const down = e.key === 'ArrowDown'
-
-      // Exiting a selected visual code block → move to adjacent node
-      if (selection instanceof NodeSelection && isVisualCodeBlock(selection.node)) {
-        e.preventDefault()
-        if (down) {
-          const afterPos = selection.to
-          if (afterPos >= doc.content.size) return
-          const next = doc.nodeAt(afterPos)
-          if (next && isVisualCodeBlock(next)) {
-            editor.commands.setNodeSelection(afterPos)
-          } else {
-            editor.commands.setTextSelection(afterPos)
-          }
-        } else {
-          const beforePos = selection.from
-          if (beforePos <= 0) return
-          const $before = doc.resolve(beforePos)
-          const prev = $before.nodeBefore
-          if (prev && isVisualCodeBlock(prev)) {
-            editor.commands.setNodeSelection(beforePos - prev.nodeSize)
-          } else {
-            editor.commands.setTextSelection(beforePos)
-          }
-        }
-        return
-      }
-
-      // Only handle collapsed text cursors
-      if (selection.from !== selection.to) return
-      const $head = selection.$head
-      if ($head.depth < 1) return
-
-      // Use ProseMirror's endOfTextblock — correctly handles multi-line blocks
-      if (!view.endOfTextblock(down ? 'down' : 'up')) return
-
-      if (down) {
-        const afterPos = $head.after()
-        if (afterPos >= doc.content.size) return
-        const next = doc.nodeAt(afterPos)
-        if (next && isVisualCodeBlock(next)) {
-          e.preventDefault()
-          editor.commands.setNodeSelection(afterPos)
-        }
-      } else {
-        const beforePos = $head.before()
-        if (beforePos <= 0) return
-        const $before = doc.resolve(beforePos)
-        const prev = $before.nodeBefore
-        if (prev && isVisualCodeBlock(prev)) {
-          e.preventDefault()
-          editor.commands.setNodeSelection(beforePos - prev.nodeSize)
-        }
-      }
-    }
-
-    dom.addEventListener('keydown', handler, true)
-    return () => dom.removeEventListener('keydown', handler, true)
-  }, [editor, editable])
 
   // Sync editable prop
   React.useEffect(() => {
@@ -486,6 +389,11 @@ export function TiptapMarkdownEditor({
   React.useEffect(() => {
     if (editor && content !== prevContentRef.current) {
       prevContentRef.current = content
+
+      // Important: when this editor is currently focused, treat incoming content as
+      // local controlled echo and avoid setContent resets that can collapse transient
+      // block states (e.g. slash-inserted code blocks) and jump selection.
+      if (editor.isFocused) return
 
       const currentMd = useOfficialMarkdown
         ? postprocessMarkdownFromOfficial(getOfficialMarkdown(editor as { getMarkdown?: () => string }))

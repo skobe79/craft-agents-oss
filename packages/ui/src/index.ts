@@ -102,6 +102,7 @@ export {
   BrowserShader,
   BrowserControls,
   BrowserEmptyStateCard,
+  FilterableSelectPopover,
   type SpinnerProps,
   type SimpleDropdownProps,
   type SimpleDropdownItemProps,
@@ -112,6 +113,8 @@ export {
   type BrowserControlsProps,
   type BrowserEmptyStateCardProps,
   type BrowserEmptyPromptSample,
+  type FilterableSelectPopoverProps,
+  type FilterableSelectRenderState,
 } from './components/ui'
 
 // Tooltip

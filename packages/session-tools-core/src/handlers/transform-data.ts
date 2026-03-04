@@ -14,7 +14,7 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { createSanitizedEnv } from '../runtime/sandbox-env.ts';
+import { createScriptRuntimeEnv } from '../runtime/sandbox-env.ts';
 import { isPathWithinDirectory, isPathWithinDirectoryForCreation } from '../runtime/path-security.ts';
 import { resolveScriptRuntime } from '../runtime/resolve-script-runtime.ts';
 
@@ -85,8 +85,11 @@ export async function handleTransformData(
     const cmd = runtime.command;
     const spawnArgs = [...runtime.argsPrefix, tempScript, ...resolvedInputs, resolvedOutput];
 
-    // Strip sensitive env vars
-    const env = createSanitizedEnv();
+    // Strip sensitive env vars + redirect runtime cache/temp paths to session data dir
+    const env = createScriptRuntimeEnv({
+      language: args.language,
+      dataDir,
+    });
 
     // Spawn subprocess with manual timeout that escalates to SIGKILL.
     // We can't rely on spawn()'s built-in `timeout` option because it only sends

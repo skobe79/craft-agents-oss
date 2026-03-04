@@ -646,6 +646,7 @@ describe('BrowserPaneManager', () => {
   })
 
   it('replays full toolbar state when toolbar renderer finishes loading', () => {
+    toolbarLoadFailuresRemaining = 20
     manager.createInstance('toolbar-finish-load-replay')
     const instance = (manager as any).instances.get('toolbar-finish-load-replay')
 
@@ -656,8 +657,10 @@ describe('BrowserPaneManager', () => {
     instance.canGoForward = true
     instance.themeColor = '#654321'
 
+    instance.toolbarView.webContents.getURL = mock(() => 'http://localhost:5173/browser-toolbar.html?instanceId=toolbar-finish-load-replay')
+
     const sendsBeforeFinishLoad = instance.window.webContents.send.mock.calls.length
-    instance.window.webContents._emit('did-finish-load')
+    instance.toolbarView.webContents._emit('did-finish-load')
 
     const sendCallsAfterFinishLoad = instance.window.webContents.send.mock.calls.slice(sendsBeforeFinishLoad)
     expect(sendCallsAfterFinishLoad).toContainEqual([
@@ -671,6 +674,49 @@ describe('BrowserPaneManager', () => {
         themeColor: '#654321',
       },
     ])
+  })
+
+  it('does not mark toolbar ready for about:blank did-finish-load', () => {
+    toolbarLoadFailuresRemaining = 20
+    manager.createInstance('toolbar-ignore-about-blank')
+    const instance = (manager as any).instances.get('toolbar-ignore-about-blank')
+
+    instance.toolbarView.webContents.getURL = mock(() => 'about:blank')
+    instance.toolbarView.webContents._emit('did-finish-load')
+
+    expect(instance.toolbarReady).toBe(false)
+  })
+
+  it('marks toolbar ready for fallback data page did-finish-load', () => {
+    toolbarLoadFailuresRemaining = 20
+    manager.createInstance('toolbar-fallback-ready')
+    const instance = (manager as any).instances.get('toolbar-fallback-ready')
+
+    instance.toolbarView.webContents.getURL = mock(() => 'data:text/html;charset=UTF-8,%3Chtml%3E%3C%2Fhtml%3E')
+    instance.toolbarView.webContents._emit('did-finish-load')
+
+    expect(instance.toolbarReady).toBe(true)
+  })
+
+  it('keeps focus deferred until a valid toolbar document loads', () => {
+    toolbarLoadFailuresRemaining = 20
+    manager.createInstance('toolbar-focus-guard')
+    const instance = (manager as any).instances.get('toolbar-focus-guard')
+
+    manager.focus('toolbar-focus-guard')
+    expect(instance.pendingShowOnReady).toBe(true)
+    expect(instance.window.show).toHaveBeenCalledTimes(0)
+
+    instance.toolbarView.webContents.getURL = mock(() => 'about:blank')
+    instance.toolbarView.webContents._emit('did-finish-load')
+    expect(instance.window.show).toHaveBeenCalledTimes(0)
+
+    instance.toolbarView.webContents.getURL = mock(() => 'file:///mock/renderer/browser-toolbar.html')
+    instance.toolbarView.webContents._emit('did-finish-load')
+
+    expect(instance.toolbarReady).toBe(true)
+    expect(instance.window.show).toHaveBeenCalledTimes(1)
+    expect(instance.window.focus).toHaveBeenCalledTimes(1)
   })
 
   it('runs early theme extraction shortly after navigation', async () => {

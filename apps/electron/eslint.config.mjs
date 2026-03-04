@@ -15,6 +15,7 @@ import noDirectPlatformCheck from './eslint-rules/no-direct-platform-check.cjs'
 import noHardcodedPathSeparator from './eslint-rules/no-hardcoded-path-separator.cjs'
 import noDirectFileOpen from './eslint-rules/no-direct-file-open.cjs'
 import noInlineSourceAuthCheck from './eslint-rules/no-inline-source-auth-check.cjs'
+import noHardcodedZIndex from './eslint-rules/no-hardcoded-z-index.cjs'
 
 export default [
   // Ignore patterns
@@ -76,6 +77,12 @@ export default [
           'no-inline-source-auth-check': noInlineSourceAuthCheck,
         },
       },
+      // Custom style rules
+      'craft-styles': {
+        rules: {
+          'no-hardcoded-z-index': noHardcodedZIndex,
+        },
+      },
     },
     settings: {
       react: {
@@ -102,6 +109,9 @@ export default [
 
       // Custom source auth check rule — use isSourceUsable() instead of inline checks
       'craft-sources/no-inline-source-auth-check': 'error',
+
+      // Custom style rule — use z-index token scale instead of hardcoded literals
+      'craft-styles/no-hardcoded-z-index': 'error',
 
       // Enforce centralized action registry for keyboard shortcuts
       'no-restricted-imports': ['error', {

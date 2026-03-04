@@ -215,8 +215,17 @@ export function ThemeProvider({
       }
     }
 
-    // Load preset theme via IPC (app-level), then fallback to bundled themes
-    window.electronAPI?.loadPresetTheme?.(effectiveColorTheme).then((preset) => {
+    // Load preset theme via IPC (app-level), then fallback to bundled themes.
+    // In playground/browser mode electronAPI may exist without loadPresetTheme.
+    const loadPresetTheme = window.electronAPI?.loadPresetTheme
+    if (!loadPresetTheme) {
+      applyFallback(`electronAPI.loadPresetTheme is unavailable for "${effectiveColorTheme}".`)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    loadPresetTheme(effectiveColorTheme).then((preset) => {
       if (cancelled) return
 
       if (preset?.theme) {

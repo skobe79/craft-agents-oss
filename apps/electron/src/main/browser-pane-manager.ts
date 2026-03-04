@@ -2827,6 +2827,18 @@ export class BrowserPaneManager {
     }
   }
 
+  private isToolbarUiDocumentUrl(url: string): boolean {
+    if (!url) return false
+    if (url.startsWith('data:text/html')) return true
+
+    try {
+      const parsed = new URL(url)
+      return parsed.pathname.toLowerCase().endsWith('/browser-toolbar.html')
+    } catch {
+      return /browser-toolbar\.html(?:$|[?#])/i.test(url)
+    }
+  }
+
   private setupWindowListeners(instance: BrowserInstance): void {
     const pageWc = instance.pageView.webContents
     const toolbarWc = instance.toolbarView.webContents
@@ -2848,6 +2860,13 @@ export class BrowserPaneManager {
     })
 
     toolbarWc.on('did-finish-load', () => {
+      const loadedUrl = typeof toolbarWc.getURL === 'function' ? toolbarWc.getURL() : ''
+      if (!this.isToolbarUiDocumentUrl(loadedUrl)) {
+        mainLog.info(`[browser-pane] toolbar did-finish-load ignored id=${instance.id} url=${loadedUrl || 'unknown'}`)
+        this.pushToolbarState(instance)
+        return
+      }
+
       this.markToolbarReady(instance, 'did-finish-load')
       this.pushToolbarState(instance)
     })

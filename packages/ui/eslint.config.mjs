@@ -6,6 +6,7 @@
  */
 
 import tsParser from '@typescript-eslint/parser'
+import noHardcodedZIndex from './eslint-rules/no-hardcoded-z-index.cjs'
 
 export default [
   // Ignore patterns
@@ -29,6 +30,13 @@ export default [
         },
       },
     },
+    plugins: {
+      'craft-styles': {
+        rules: {
+          'no-hardcoded-z-index': noHardcodedZIndex,
+        },
+      },
+    },
     rules: {
       // Prevent direct Radix dropdown imports — use StyledDropdown wrappers instead
       'no-restricted-imports': ['error', {
@@ -39,6 +47,9 @@ export default [
           },
         ],
       }],
+
+      // Enforce centralized z-index token scale
+      'craft-styles/no-hardcoded-z-index': 'error',
     },
   },
 

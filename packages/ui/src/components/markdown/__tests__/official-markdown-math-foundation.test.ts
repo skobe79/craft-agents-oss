@@ -2,6 +2,8 @@ import { describe, it, expect } from 'bun:test'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { Mathematics } from '@tiptap/extension-mathematics'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
 import Image from '@tiptap/extension-image'
 import { Markdown } from '@tiptap/markdown'
 import {
@@ -9,6 +11,8 @@ import {
   postprocessMarkdownFromOfficial,
 } from '../TiptapMarkdownEditor'
 import { tiptapCodeBlock } from '../TiptapCodeBlockView'
+import { MermaidBlock } from '../extensions/MermaidBlock'
+import { LatexBlock } from '../extensions/LatexBlock'
 
 describe('official markdown + mathematics foundation', () => {
   it('parses markdown content when contentType is markdown', () => {
@@ -75,13 +79,17 @@ describe('official markdown + mathematics foundation', () => {
     editor.destroy()
   })
 
-  it('preserves fenced code blocks (including mermaid) with official markdown parser', () => {
+  it('parses mermaid/latex fences into dedicated rich nodes and keeps regular fences as codeBlock', () => {
     const source = [
       'before',
       '',
       '```mermaid',
       'graph TD',
       '  A --> B',
+      '```',
+      '',
+      '```latex',
+      'E = mc^2',
       '```',
       '',
       '```ts',
@@ -94,6 +102,8 @@ describe('official markdown + mathematics foundation', () => {
     const editor = new Editor({
       extensions: [
         StarterKit.configure({ codeBlock: false }),
+        MermaidBlock,
+        LatexBlock,
         tiptapCodeBlock,
         Markdown,
       ],
@@ -105,13 +115,49 @@ describe('official markdown + mathematics foundation', () => {
     const md = editor.getMarkdown()
     const jsonText = JSON.stringify(json)
 
+    expect(jsonText).toContain('"type":"mermaidBlock"')
+    expect(jsonText).toContain('"type":"latexBlock"')
     expect(jsonText).toContain('"type":"codeBlock"')
-    expect(jsonText).toContain('"language":"mermaid"')
     expect(jsonText).toContain('"language":"ts"')
     expect(md).toContain('```mermaid')
     expect(md).toContain('graph TD')
+    expect(md).toContain('```latex')
+    expect(md).toContain('E = mc^2')
     expect(md).toContain('```ts')
     expect(md).toContain('const x = 1')
+
+    editor.destroy()
+  })
+
+  it('round-trips markdown task lists in official markdown mode', () => {
+    const source = [
+      '- [ ] Draft release notes',
+      '- [x] Ship task list slash command',
+      '  - [ ] Add follow-up docs',
+    ].join('\n')
+
+    const editor = new Editor({
+      extensions: [
+        StarterKit,
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        Markdown,
+      ],
+      content: source,
+      contentType: 'markdown',
+    })
+
+    const json = editor.getJSON()
+    const md = editor.getMarkdown()
+    const jsonText = JSON.stringify(json)
+
+    expect(jsonText).toContain('"type":"taskList"')
+    expect(jsonText).toContain('"type":"taskItem"')
+    expect(jsonText).toContain('"checked":true')
+    expect(jsonText).toContain('"checked":false')
+    expect(md).toContain('- [ ] Draft release notes')
+    expect(md).toContain('- [x] Ship task list slash command')
+    expect(md).toContain('  - [ ] Add follow-up docs')
 
     editor.destroy()
   })

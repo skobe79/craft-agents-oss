@@ -8,7 +8,7 @@ import { applyNetworkIsolation } from '../runtime/network-isolation.ts';
 import { applyFilesystemIsolation } from '../runtime/filesystem-isolation.ts';
 import { isPathWithinDirectory } from '../runtime/path-security.ts';
 import { resolveScriptRuntime } from '../runtime/resolve-script-runtime.ts';
-import { createSanitizedEnv } from '../runtime/sandbox-env.ts';
+import { createScriptRuntimeEnv } from '../runtime/sandbox-env.ts';
 
 export interface ScriptSandboxArgs {
   language: 'python3' | 'node' | 'bun';
@@ -117,7 +117,10 @@ export async function handleScriptSandbox(
       );
     }
 
-    const env = createSanitizedEnv();
+    const env = createScriptRuntimeEnv({
+      language: args.language,
+      dataDir,
+    });
 
     const startedAt = Date.now();
     const result = await new Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }>((resolvePromise, reject) => {
