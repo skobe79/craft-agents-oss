@@ -503,6 +503,41 @@ app.whenReady().then(async () => {
       e.returnValue = windowManager?.getWorkspaceForWindow(e.sender.id) ?? ''
     })
 
+    // Transport diagnostics bridge — preload reports remote WS connection state changes
+    // so failures are visible in terminal/main.log (not only renderer console).
+    ipcMain.on('__transport:status', (_event, payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return
+      const p = payload as {
+        level?: 'info' | 'warn' | 'error'
+        message?: string
+        status?: string
+        attempt?: number
+        nextRetryInMs?: number
+        error?: unknown
+        close?: unknown
+        url?: string
+      }
+
+      const level = p.level ?? 'info'
+      const message = p.message ?? '[transport] status update'
+      const context = {
+        status: p.status,
+        attempt: p.attempt,
+        nextRetryInMs: p.nextRetryInMs,
+        error: p.error,
+        close: p.close,
+        url: p.url,
+      }
+
+      if (level === 'error') {
+        mainLog.error(message, context)
+      } else if (level === 'warn') {
+        mainLog.warn(message, context)
+      } else {
+        mainLog.info(message, context)
+      }
+    })
+
     // Dialog bridge — preload capability handlers use ipcRenderer.invoke to
     // call main-process-only dialog APIs (dialog, BrowserWindow).
     ipcMain.handle('__dialog:showMessageBox', async (event, spec) => {

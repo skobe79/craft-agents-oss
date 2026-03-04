@@ -109,19 +109,38 @@ function formatTransportReason(state: TransportConnectionState): string {
 
 if (wsMode === 'remote') {
   client.onConnectionStateChanged((state) => {
+    const emitToMain = (level: 'info' | 'warn' | 'error', message: string) => {
+      ipcRenderer.send('__transport:status', {
+        level,
+        message,
+        status: state.status,
+        attempt: state.attempt,
+        nextRetryInMs: state.nextRetryInMs,
+        error: state.lastError,
+        close: state.lastClose,
+        url: state.url,
+      })
+    }
+
     if (state.status === 'connected') {
-      console.info(`[transport] connected to ${state.url}`)
+      const message = `[transport] connected to ${state.url}`
+      console.info(message)
+      emitToMain('info', message)
       return
     }
 
     if (state.status === 'reconnecting') {
       const retry = state.nextRetryInMs != null ? ` retry in ${state.nextRetryInMs}ms` : ''
-      console.warn(`[transport] reconnecting (attempt ${state.attempt})${retry} — ${formatTransportReason(state)}`)
+      const message = `[transport] reconnecting (attempt ${state.attempt})${retry} — ${formatTransportReason(state)}`
+      console.warn(message)
+      emitToMain('warn', message)
       return
     }
 
     if (state.status === 'failed' || state.status === 'disconnected') {
-      console.error(`[transport] ${state.status} — ${formatTransportReason(state)}`)
+      const message = `[transport] ${state.status} — ${formatTransportReason(state)}`
+      console.error(message)
+      emitToMain('error', message)
     }
   })
 }

@@ -8,6 +8,7 @@
  */
 
 import { WebSocketServer, type WebSocket } from 'ws'
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
 import { randomUUID } from 'node:crypto'
 import {
   PROTOCOL_VERSION,
@@ -45,6 +46,17 @@ interface PendingInvoke {
 // Server options
 // ---------------------------------------------------------------------------
 
+export interface WsRpcTlsOptions {
+  /** PEM-encoded certificate (or Buffer). */
+  cert: string | Buffer
+  /** PEM-encoded private key (or Buffer). */
+  key: string | Buffer
+  /** Optional PEM-encoded CA chain for client certificate verification. */
+  ca?: string | Buffer
+  /** Optional passphrase for encrypted private keys. */
+  passphrase?: string
+}
+
 export interface WsRpcServerOptions {
   /** Host to bind to. Default: '127.0.0.1' */
   host?: string
@@ -56,6 +68,8 @@ export interface WsRpcServerOptions {
   validateToken?: (token: string) => Promise<boolean>
   /** Server identity stamp on outgoing events. Default: 'local' */
   serverId?: string
+  /** TLS configuration. When provided, the server listens on wss:// instead of ws://. */
+  tls?: WsRpcTlsOptions
   /** Called when a client completes handshake. */
   onClientConnected?: (info: { clientId: string; webContentsId: number | null; workspaceId: string | null }) => void
   /** Called when a client disconnects. */
@@ -68,17 +82,20 @@ export interface WsRpcServerOptions {
 
 export class WsRpcServer implements RpcServer {
   private wss: WebSocketServer | null = null
+  private httpsServer: HttpsServer | null = null
   private clients = new Map<string, ClientConnection>()
   private handlers = new Map<string, HandlerFn>()
   private pendingInvokes = new Map<string, PendingInvoke>()
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private _port = 0
+  private _protocol: 'ws' | 'wss' = 'ws'
 
   private readonly host: string
   private readonly requestedPort: number
   private readonly requireAuth: boolean
   private readonly validateToken: ((token: string) => Promise<boolean>) | null
   private readonly serverId: string
+  private readonly tlsOptions: WsRpcTlsOptions | null
   private readonly onClientConnected: WsRpcServerOptions['onClientConnected']
   private readonly onClientDisconnected: WsRpcServerOptions['onClientDisconnected']
 
@@ -88,6 +105,7 @@ export class WsRpcServer implements RpcServer {
     this.requireAuth = opts?.requireAuth ?? false
     this.validateToken = opts?.validateToken ?? null
     this.serverId = opts?.serverId ?? 'local'
+    this.tlsOptions = opts?.tls ?? null
     this.onClientConnected = opts?.onClientConnected
     this.onClientDisconnected = opts?.onClientDisconnected
   }
@@ -95,6 +113,11 @@ export class WsRpcServer implements RpcServer {
   /** The actual port the server is listening on (available after listen()). */
   get port(): number {
     return this._port
+  }
+
+  /** The protocol the server is using: 'wss' when TLS is configured, 'ws' otherwise. */
+  get protocol(): 'ws' | 'wss' {
+    return this._protocol
   }
 
   // -------------------------------------------------------------------------
@@ -172,23 +195,49 @@ export class WsRpcServer implements RpcServer {
 
   async listen(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.wss = new WebSocketServer({
-        host: this.host,
-        port: this.requestedPort,
-      })
+      if (this.tlsOptions) {
+        // TLS mode: create HTTPS server, attach WebSocketServer to it
+        this._protocol = 'wss'
+        this.httpsServer = createHttpsServer({
+          cert: this.tlsOptions.cert,
+          key: this.tlsOptions.key,
+          ca: this.tlsOptions.ca,
+          passphrase: this.tlsOptions.passphrase,
+        })
 
-      this.wss.on('listening', () => {
-        const addr = this.wss!.address()
-        if (typeof addr === 'object' && addr) {
-          this._port = addr.port
-        }
-        this.startHeartbeat()
-        resolve()
-      })
+        this.wss = new WebSocketServer({ server: this.httpsServer })
 
-      this.wss.on('error', (err) => {
-        reject(err)
-      })
+        this.httpsServer.on('error', (err) => reject(err))
+
+        this.httpsServer.listen(this.requestedPort, this.host, () => {
+          const addr = this.httpsServer!.address()
+          if (typeof addr === 'object' && addr) {
+            this._port = addr.port
+          }
+          this.startHeartbeat()
+          resolve()
+        })
+      } else {
+        // Plain WS mode (unchanged)
+        this._protocol = 'ws'
+        this.wss = new WebSocketServer({
+          host: this.host,
+          port: this.requestedPort,
+        })
+
+        this.wss.on('listening', () => {
+          const addr = this.wss!.address()
+          if (typeof addr === 'object' && addr) {
+            this._port = addr.port
+          }
+          this.startHeartbeat()
+          resolve()
+        })
+
+        this.wss.on('error', (err) => {
+          reject(err)
+        })
+      }
 
       this.wss.on('connection', (ws) => {
         this.onConnection(ws)
@@ -215,6 +264,8 @@ export class WsRpcServer implements RpcServer {
     this.clients.clear()
     this.wss?.close()
     this.wss = null
+    this.httpsServer?.close()
+    this.httpsServer = null
   }
 
   // -------------------------------------------------------------------------

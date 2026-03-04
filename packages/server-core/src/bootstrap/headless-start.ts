@@ -1,7 +1,7 @@
 import { OAuthFlowStore } from '@craft-agent/shared/auth'
 import { ensureConfigDir, loadStoredConfig, saveConfig } from '@craft-agent/shared/config'
 import { setBundledAssetsRoot } from '@craft-agent/shared/utils'
-import { WsRpcServer } from '../transport/server'
+import { WsRpcServer, type WsRpcTlsOptions } from '../transport/server'
 import type { EventSink, RpcServer } from '../transport/types'
 import { createHeadlessPlatform } from '../runtime/platform-headless'
 import type { PlatformServices } from '../runtime/platform'
@@ -31,6 +31,8 @@ export interface HeadlessServerBootstrapOptions<TSessionManager, THandlerDeps> {
   cleanupSessionManager?: (sessionManager: TSessionManager) => Promise<void> | void
   cleanupClientResources?: (clientId: string) => void
   serverId?: string
+  /** TLS configuration. When provided, the server listens on wss:// instead of ws://. */
+  tls?: WsRpcTlsOptions
 }
 
 export interface HeadlessServerInstance<TSessionManager> {
@@ -40,6 +42,7 @@ export interface HeadlessServerInstance<TSessionManager> {
   oauthFlowStore: OAuthFlowStore
   host: string
   port: number
+  protocol: 'ws' | 'wss'
   token: string
   stop: () => Promise<void>
 }
@@ -100,6 +103,7 @@ export async function startHeadlessServer<TSessionManager, THandlerDeps>(
     requireAuth: true,
     validateToken: async (t) => t === serverToken,
     serverId: options.serverId ?? 'headless',
+    tls: options.tls,
     onClientDisconnected: (clientId) => {
       options.cleanupClientResources?.(clientId)
     },
@@ -123,7 +127,7 @@ export async function startHeadlessServer<TSessionManager, THandlerDeps>(
 
   modelRefreshService.startAll()
 
-  platform.logger.info(`Craft Agent headless server listening on ${rpcHost}:${wsServer.port}`)
+  platform.logger.info(`Craft Agent headless server listening on ${wsServer.protocol}://${rpcHost}:${wsServer.port}`)
 
   let stopped = false
   const stop = async (): Promise<void> => {
@@ -164,6 +168,7 @@ export async function startHeadlessServer<TSessionManager, THandlerDeps>(
     oauthFlowStore,
     host: rpcHost,
     port: wsServer.port,
+    protocol: wsServer.protocol,
     token: serverToken,
     stop,
   }

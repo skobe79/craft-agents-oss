@@ -133,5 +133,17 @@ scripts/electron-build-assets.ts
 scripts/electron-clean.ts
 scripts/electron-dev.ts
 
+# Server build + distribution scripts
+scripts/build-server.ts
+scripts/generate-dev-cert.sh
+
+# Build common utilities (shared by electron-dev.ts and build-server.ts)
+scripts/build/**/*
+
 # Browser tool CLI (used by browser integration)
 scripts/browser-tool.ts
+
+# =============================================================================
+# PACKAGES - SERVER (Standalone Headless Server Entry)
+# =============================================================================
+packages/server/**/*

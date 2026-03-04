@@ -9,6 +9,9 @@
  *   CRAFT_SERVER_TOKEN   — required bearer token for client auth
  *   CRAFT_RPC_HOST       — bind address (default: 127.0.0.1)
  *   CRAFT_RPC_PORT       — bind port (default: 9100)
+ *   CRAFT_RPC_TLS_CERT   — path to PEM certificate file (enables TLS/wss)
+ *   CRAFT_RPC_TLS_KEY    — path to PEM private key file (required with cert)
+ *   CRAFT_RPC_TLS_CA     — path to PEM CA chain file (optional)
  *   CRAFT_APP_ROOT       — app root path (default: cwd)
  *   CRAFT_RESOURCES_PATH — resources path (default: cwd/resources)
  *   CRAFT_IS_PACKAGED    — 'true' for production (default: false)
@@ -17,7 +20,9 @@
  */
 
 import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { startHeadlessServer } from '@craft-agent/server-core/bootstrap'
+import type { WsRpcTlsOptions } from '@craft-agent/server-core/transport'
 import { registerCoreRpcHandlers, cleanupSessionFileWatchForClient } from '@craft-agent/server-core/handlers/rpc'
 import { SessionManager, setSessionPlatform, setSessionRuntimeHooks } from '@craft-agent/server-core/sessions'
 import { initModelRefreshService, setFetcherPlatform } from '@craft-agent/server-core/model-fetchers'
@@ -31,10 +36,27 @@ process.env.CRAFT_IS_PACKAGED ??= 'false'
 const bundledAssetsRoot = process.env.CRAFT_BUNDLED_ASSETS_ROOT
   ?? join(import.meta.dir, '..', '..', '..', '..')
 
+// TLS configuration — when cert + key paths are provided, server listens on wss://
+let tls: WsRpcTlsOptions | undefined
+const tlsCertPath = process.env.CRAFT_RPC_TLS_CERT
+const tlsKeyPath = process.env.CRAFT_RPC_TLS_KEY
+if (tlsCertPath || tlsKeyPath) {
+  if (!tlsCertPath || !tlsKeyPath) {
+    console.error('TLS requires both CRAFT_RPC_TLS_CERT and CRAFT_RPC_TLS_KEY.')
+    process.exit(1)
+  }
+  tls = {
+    cert: readFileSync(tlsCertPath),
+    key: readFileSync(tlsKeyPath),
+    ...(process.env.CRAFT_RPC_TLS_CA ? { ca: readFileSync(process.env.CRAFT_RPC_TLS_CA) } : {}),
+  }
+}
+
 const instance = await (async () => {
   try {
     return await startHeadlessServer<SessionManager, HandlerDeps>({
       bundledAssetsRoot,
+      tls,
       applyPlatformToSubsystems: (platform) => {
         setFetcherPlatform(platform)
         setSessionPlatform(platform)
@@ -90,7 +112,7 @@ const instance = await (async () => {
   }
 })()
 
-console.log(`CRAFT_SERVER_URL=ws://${instance.host}:${instance.port}`)
+console.log(`CRAFT_SERVER_URL=${instance.protocol}://${instance.host}:${instance.port}`)
 console.log(`CRAFT_SERVER_TOKEN=${instance.token}`)
 
 const shutdown = async () => {

@@ -547,7 +547,14 @@ echo "Binaries configured."
 # Generate token if not set
 if [ -z "\${CRAFT_SERVER_TOKEN:-}" ]; then
   TOKEN=\$(openssl rand -hex 32)
-  echo "CRAFT_SERVER_TOKEN=$TOKEN" > "$DIR/.env"
+  cat > "$DIR/.env" <<ENVFILE
+CRAFT_SERVER_TOKEN=$TOKEN
+
+# TLS — uncomment and set paths to enable wss://
+# CRAFT_RPC_TLS_CERT=/path/to/cert.pem
+# CRAFT_RPC_TLS_KEY=/path/to/key.pem
+# CRAFT_RPC_TLS_CA=/path/to/ca.pem
+ENVFILE
   echo ""
   echo "Generated server token (saved to $DIR/.env)"
 else
@@ -661,8 +668,13 @@ services:
     environment:
       - CRAFT_SERVER_TOKEN=\${CRAFT_SERVER_TOKEN:?Set CRAFT_SERVER_TOKEN}
       - CRAFT_RPC_PORT=9100
+      # TLS — uncomment to enable wss://
+      # - CRAFT_RPC_TLS_CERT=/certs/cert.pem
+      # - CRAFT_RPC_TLS_KEY=/certs/key.pem
     volumes:
       - craft-data:/root/.craft-agent
+      # TLS — mount cert directory
+      # - ./certs:/certs:ro
     restart: unless-stopped
 
 volumes:
