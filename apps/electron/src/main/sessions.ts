@@ -1,5 +1,5 @@
 import type { EventSink } from '@craft-agent/server-core/transport'
-import type { ISessionManager } from '@craft-agent/server-core/handlers'
+import type { ISessionManager, IBrowserPaneManager } from '@craft-agent/server-core/handlers'
 import { createScopedLogger, CONSOLE_LOGGER, type PlatformServices, type Logger } from '../runtime/platform'
 import { basename, join, normalize, isAbsolute, sep } from 'path'
 import { existsSync } from 'fs'
@@ -871,14 +871,14 @@ export class SessionManager implements ISessionManager {
     return this.initGate.wait()
   }
 
-  private browserPaneManager: import('./browser-pane-manager').BrowserPaneManager | null = null
+  private browserPaneManager: IBrowserPaneManager | null = null
   private eventSink: EventSink | null = null
 
   setEventSink(sink: EventSink): void {
     this.eventSink = sink
   }
 
-  setBrowserPaneManager(bpm: import('./browser-pane-manager').BrowserPaneManager): void {
+  setBrowserPaneManager(bpm: IBrowserPaneManager): void {
     this.browserPaneManager = bpm
     bpm.setSessionPathResolver((sessionId) => this.getSessionPath(sessionId))
   }

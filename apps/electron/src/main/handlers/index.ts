@@ -7,7 +7,7 @@ import { registerSkillsHandlers } from './skills'
 import { registerFilesHandlers } from './files'
 import { registerSystemCoreHandlers, registerSystemGuiHandlers } from './system'
 import { registerAuthHandlers } from './auth'
-import { registerSettingsHandlers } from './settings'
+import { registerSettingsHandlers, registerSettingsGuiHandlers } from './settings'
 import { registerSourcesHandlers } from './sources'
 import { registerLlmConnectionsHandlers } from './llm-connections'
 import { registerAutomationsHandlers } from './automations'
@@ -38,6 +38,7 @@ export function registerGuiRpcHandlers(server: RpcServer, deps: HandlerDeps): vo
   registerSystemGuiHandlers(server, deps)
   registerWorkspaceGuiHandlers(server, deps)
   registerBrowserHandlers(server, deps)
+  registerSettingsGuiHandlers(server, deps)
 }
 
 export function registerAllRpcHandlers(server: RpcServer, deps: HandlerDeps): void {

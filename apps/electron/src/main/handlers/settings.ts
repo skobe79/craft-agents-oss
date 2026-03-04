@@ -7,7 +7,7 @@ import type { RpcServer } from '@craft-agent/server-core/transport'
 import type { HandlerDeps } from './handler-deps'
 import { requestClientOpenFileDialog } from '@craft-agent/server-core/transport'
 
-export const HANDLED_CHANNELS = [
+export const CORE_HANDLED_CHANNELS = [
   RPC_CHANNELS.workspace.SETTINGS_GET,
   RPC_CHANNELS.workspace.SETTINGS_UPDATE,
   RPC_CHANNELS.preferences.READ,
@@ -23,13 +23,19 @@ export const HANDLED_CHANNELS = [
   RPC_CHANNELS.input.GET_SPELL_CHECK,
   RPC_CHANNELS.input.SET_SPELL_CHECK,
   RPC_CHANNELS.power.GET_KEEP_AWAKE,
-  RPC_CHANNELS.power.SET_KEEP_AWAKE,
   RPC_CHANNELS.appearance.GET_RICH_TOOL_DESCRIPTIONS,
   RPC_CHANNELS.appearance.SET_RICH_TOOL_DESCRIPTIONS,
   RPC_CHANNELS.sessions.GET_MODEL,
   RPC_CHANNELS.sessions.SET_MODEL,
   RPC_CHANNELS.dialog.OPEN_FOLDER,
 ] as const
+
+export const GUI_HANDLED_CHANNELS = [
+  RPC_CHANNELS.power.SET_KEEP_AWAKE,
+] as const
+
+/** @deprecated Use CORE_HANDLED_CHANNELS / GUI_HANDLED_CHANNELS */
+export const HANDLED_CHANNELS = [...CORE_HANDLED_CHANNELS, ...GUI_HANDLED_CHANNELS] as const
 
 export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): void {
   // ============================================================
@@ -229,16 +235,6 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
     return getKeepAwakeWhileRunning()
   })
 
-  // Set keep awake while running setting
-  server.handle(RPC_CHANNELS.power.SET_KEEP_AWAKE, async (_ctx, enabled: boolean) => {
-    const { setKeepAwakeWhileRunning } = await import('@craft-agent/shared/config/storage')
-    const { setKeepAwakeSetting } = await import('../power-manager')
-    // Save to config
-    setKeepAwakeWhileRunning(enabled)
-    // Update the power manager's cached value and power state
-    setKeepAwakeSetting(enabled)
-  })
-
   // ============================================================
   // Appearance Settings
   // ============================================================
@@ -253,5 +249,21 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
   server.handle(RPC_CHANNELS.appearance.SET_RICH_TOOL_DESCRIPTIONS, async (_ctx, enabled: boolean) => {
     const { setRichToolDescriptions } = await import('@craft-agent/shared/config/storage')
     setRichToolDescriptions(enabled)
+  })
+}
+
+// ============================================================
+// GUI-only settings (require Electron power-manager)
+// ============================================================
+
+export function registerSettingsGuiHandlers(server: RpcServer, deps: HandlerDeps): void {
+  // Set keep awake while running setting (requires Electron power-manager)
+  server.handle(RPC_CHANNELS.power.SET_KEEP_AWAKE, async (_ctx, enabled: boolean) => {
+    const { setKeepAwakeWhileRunning } = await import('@craft-agent/shared/config/storage')
+    const { setKeepAwakeSetting } = await import('../power-manager')
+    // Save to config
+    setKeepAwakeWhileRunning(enabled)
+    // Update the power manager's cached value and power state
+    setKeepAwakeSetting(enabled)
   })
 }

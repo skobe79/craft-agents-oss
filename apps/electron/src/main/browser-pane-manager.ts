@@ -21,6 +21,7 @@ import {
 } from '../shared/types'
 import { DEFAULT_THEME, loadAppTheme } from '@craft-agent/shared/config'
 import { getBrowserLiveFxCornerRadii } from '../shared/browser-live-fx'
+import type { IBrowserPaneManager } from '@craft-agent/server-core/handlers'
 
 export type { BrowserInstanceInfo }
 
@@ -307,7 +308,7 @@ interface LastBrowserAction {
 
 let instanceCounter = 0
 
-export class BrowserPaneManager {
+export class BrowserPaneManager implements IBrowserPaneManager {
   private instances: Map<string, BrowserInstance> = new Map()
   private destroyingIds: Set<string> = new Set()
   private stateChangeCallback: ((info: BrowserInstanceInfo) => void) | null = null
