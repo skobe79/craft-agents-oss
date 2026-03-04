@@ -166,10 +166,9 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
         })
       }
 
-      // Reinitialize auth with the newly-created connection's slug
-      // (not the default, which may be a different connection)
-      const authSlug = getDefaultLlmConnection() || setup.slug
-      await sessionManager.reinitializeAuth(authSlug)
+      // Reinitialize auth for the connection that was just created/updated,
+      // not the global default (which may be a different connection).
+      await sessionManager.reinitializeAuth(setup.slug)
       deps.platform.logger?.info('Reinitialized auth after LLM connection setup')
 
       return { success: true }
