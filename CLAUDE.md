@@ -15,7 +15,8 @@ craft-agent/
 │   └── viewer/      # Web viewer for session transcripts
 └── packages/
     ├── core/        # @craft-agent/core - Shared types
-    └── shared/      # @craft-agent/shared - Business logic
+    ├── shared/      # @craft-agent/shared - Business logic
+    └── server-core/ # @craft-agent/server-core - Reusable WS/headless server infrastructure
 ```
 
 **Imports:**

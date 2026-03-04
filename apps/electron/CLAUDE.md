@@ -414,6 +414,8 @@ apps/electron/
 │   ├── renderer/          # React UI (browser context)
 ```
 
+**Note:** `src/transport/{server,codec,capabilities}` and `src/runtime/{platform,platform-headless}` are compatibility wrappers that re-export shared implementations from `@craft-agent/server-core`.
+
 ## ⚠️ Common Mistake: Node.js APIs in Renderer
 
 **NEVER import `@craft-agent/shared` packages directly in the renderer!** The renderer runs in a browser context and doesn't have access to Node.js APIs.

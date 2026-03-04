@@ -84,6 +84,11 @@ packages/codex-types/**/*
 packages/session-tools-core/**/*
 
 # =============================================================================
+# PACKAGES - SERVER CORE (Reusable WS/headless server infrastructure)
+# =============================================================================
+packages/server-core/**/*
+
+# =============================================================================
 # PACKAGES - PI AGENT SERVER (Out-of-process Pi SDK agent via stdio)
 # =============================================================================
 packages/pi-agent-server/**/*
