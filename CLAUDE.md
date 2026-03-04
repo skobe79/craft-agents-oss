@@ -33,7 +33,8 @@ bun install                  # Install deps
 bun run electron:dev         # Hot reload dev mode
 bun run electron:start       # Build & run Electron
 bun run viewer:dev           # Web viewer at http://localhost:5174
-bun run typecheck:all        # Type check all packages
+bun run validate:dev         # High-signal validation suite for dev/PR
+bun run typecheck:all        # Type check core/shared/session-tools-core
 ```
 
 ## Multi-Instance Development
@@ -379,7 +380,7 @@ Three-level permission system (SHIFT+TAB cycles):
 | `'ask'` | Ask to Edit | Prompts for bash commands (default) |
 | `'allow-all'` | Execute | Auto-approves all commands |
 
-**In Explore mode blocked:** `api_*`, Bash, Write, Edit, MCP write tools
+**In Explore mode blocked:** `api_*` mutations, Write/Edit tools, MCP write tools, and non-allowlisted Bash commands (read-only allowlisted Bash remains permitted).
 
 ### Theme System (`packages/shared/src/config/theme.ts`)
 

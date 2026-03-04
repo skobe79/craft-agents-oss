@@ -1,5 +1,4 @@
 import * as React from 'react'
-import * as ReactDOM from 'react-dom'
 import { Command as CommandPrimitive } from 'cmdk'
 import { toast } from 'sonner'
 import {
@@ -9,10 +8,9 @@ import {
   Check,
   DatabaseZap,
   ChevronDown,
-  Loader2,
   AlertCircle,
 } from 'lucide-react'
-import { Icon_Home, Icon_Folder } from '@craft-agent/ui'
+import { Icon_Home, Icon_Folder, Spinner } from '@craft-agent/ui'
 
 import * as storage from '@/lib/local-storage'
 import { extractWorkspaceSlugFromPath } from '@craft-agent/shared/utils/workspace-slug'
@@ -60,6 +58,7 @@ import { resolveEffectiveConnectionSlug, isCompatProvider } from '@config/llm-co
 import { useOptionalAppShellContext } from '@/context/AppShellContext'
 import { EditPopover, getEditConfig } from '@/components/ui/EditPopover'
 import { SourceAvatar } from '@/components/ui/source-avatar'
+import { SourceSelectorPopover } from '@/components/ui/SourceSelectorPopover'
 import { ConnectionIcon } from '@/components/icons/ConnectionIcon'
 import { FreeFormInputContextBadge } from './FreeFormInputContextBadge'
 import type { FileAttachment, LoadedSource, LoadedSkill } from '../../../../shared/types'
@@ -443,7 +442,6 @@ export function FreeFormInput({
   const [isDraggingOver, setIsDraggingOver] = React.useState(false)
   const [loadingCount, setLoadingCount] = React.useState(0)
   const [sourceDropdownOpen, setSourceDropdownOpen] = React.useState(false)
-  const [sourceFilter, setSourceFilter] = React.useState('')
   const [isFocused, setIsFocused] = React.useState(false)
   const [inputMaxHeight, setInputMaxHeight] = React.useState(540)
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false)
@@ -490,8 +488,6 @@ export function FreeFormInput({
   const dragCounterRef = React.useRef(0)
   const containerRef = React.useRef<HTMLDivElement>(null)
   const sourceButtonRef = React.useRef<HTMLButtonElement>(null)
-  const sourceFilterInputRef = React.useRef<HTMLInputElement>(null)
-  const [sourceDropdownPosition, setSourceDropdownPosition] = React.useState<{ top: number; left: number } | null>(null)
 
   // Merge refs for RichTextInput
   const internalInputRef = React.useRef<RichTextInputHandle>(null)
@@ -1108,6 +1104,11 @@ export function FreeFormInput({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // During IME composition, ESC should cancel composition, not trigger app/menu ESC behavior.
+    if (e.key === 'Escape' && e.nativeEvent.isComposing) {
+      return
+    }
+
     // Don't submit when mention menu is open AND has visible content
     if (inlineMention.isOpen) {
       // Only intercept navigation/selection keys if menu actually shows items or is loading
@@ -1495,108 +1496,25 @@ export function FreeFormInput({
                 isOpen={sourceDropdownOpen}
                 disabled={disabled}
                 data-tutorial="source-selector-button"
-                onClick={() => {
-                  if (!sourceDropdownOpen && sourceButtonRef.current) {
-                    const rect = sourceButtonRef.current.getBoundingClientRect()
-                    setSourceDropdownPosition({
-                      top: rect.top,
-                      left: rect.left,
-                    })
-                    // Focus filter input after popover opens
-                    setTimeout(() => sourceFilterInputRef.current?.focus(), 0)
-                  } else {
-                    // Clear filter when closing
-                    setSourceFilter('')
-                  }
-                  setSourceDropdownOpen(!sourceDropdownOpen)
-                }}
+                onClick={() => setSourceDropdownOpen(prev => !prev)}
                 tooltip="Sources"
               />
-              {sourceDropdownOpen && sourceDropdownPosition && ReactDOM.createPortal(
-                <>
-                  <div
-                    className="fixed inset-0 z-floating-backdrop"
-                    onClick={() => {
-                      setSourceDropdownOpen(false)
-                      setSourceFilter('')
-                    }}
-                  />
-                  <div
-                    className="fixed z-floating-menu min-w-[200px] overflow-hidden rounded-[8px] bg-background text-foreground shadow-modal-small"
-                    style={{
-                      top: sourceDropdownPosition.top - 8,
-                      left: sourceDropdownPosition.left,
-                      transform: 'translateY(-100%)',
-                    }}
-                  >
-                    {sources.length === 0 ? (
-                      <div className="text-xs text-muted-foreground p-3 select-none">
-                        No sources configured.
-                        <br />
-                        Add sources in Settings.
-                      </div>
-                    ) : (
-                      <CommandPrimitive
-                        className="min-w-[200px]"
-                        shouldFilter={false}
-                      >
-                        <div className="border-b border-border/50 px-3 py-2">
-                          <CommandPrimitive.Input
-                            ref={sourceFilterInputRef}
-                            value={sourceFilter}
-                            onValueChange={setSourceFilter}
-                            placeholder="Search sources..."
-                            className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground placeholder:select-none"
-                          />
-                        </div>
-                        <CommandPrimitive.List className="max-h-[240px] overflow-y-auto p-1">
-                          {sources
-                            .filter(source => source.config.name.toLowerCase().includes(sourceFilter.toLowerCase()))
-                            .map((source, index) => {
-                              const isEnabled = optimisticSourceSlugs.includes(source.config.slug)
-                              return (
-                                <CommandPrimitive.Item
-                                  key={source.config.slug}
-                                  value={source.config.slug}
-                                  data-tutorial={index === 0 ? "source-dropdown-item-first" : undefined}
-                                  onSelect={() => {
-                                    const newSlugs = isEnabled
-                                      ? optimisticSourceSlugs.filter(slug => slug !== source.config.slug)
-                                      : [...optimisticSourceSlugs, source.config.slug]
-                                    // Optimistic update - UI updates immediately
-                                    setOptimisticSourceSlugs(newSlugs)
-                                    // Then trigger async server update
-                                    onSourcesChange?.(newSlugs)
-                                  }}
-                                  className={cn(
-                                    "flex cursor-pointer select-none items-center gap-3 rounded-[6px] px-3 py-2 text-[13px]",
-                                    "outline-none data-[selected=true]:bg-foreground/5",
-                                    isEnabled && "bg-foreground/3"
-                                  )}
-                                >
-                                  <div className="shrink-0 text-muted-foreground flex items-center">
-                                    <SourceAvatar
-                                      source={source}
-                                      size="sm"
-                                    />
-                                  </div>
-                                  <div className="flex-1 min-w-0 truncate">{source.config.name}</div>
-                                  <div className={cn(
-                                    "shrink-0 h-4 w-4 rounded-full bg-current flex items-center justify-center",
-                                    !isEnabled && "opacity-0"
-                                  )}>
-                                    <Check className="h-2.5 w-2.5 text-white dark:text-black" strokeWidth={3} />
-                                  </div>
-                                </CommandPrimitive.Item>
-                              )
-                            })}
-                        </CommandPrimitive.List>
-                      </CommandPrimitive>
-                    )}
-                  </div>
-                </>,
-                document.body
-              )}
+
+              <SourceSelectorPopover
+                open={sourceDropdownOpen}
+                onOpenChange={setSourceDropdownOpen}
+                anchorRef={sourceButtonRef}
+                sources={sources}
+                selectedSlugs={optimisticSourceSlugs}
+                onToggleSlug={(slug) => {
+                  const isEnabled = optimisticSourceSlugs.includes(slug)
+                  const newSlugs = isEnabled
+                    ? optimisticSourceSlugs.filter(currentSlug => currentSlug !== slug)
+                    : [...optimisticSourceSlugs, slug]
+                  setOptimisticSourceSlugs(newSlugs)
+                  onSourcesChange?.(newSlugs)
+                }}
+              />
             </div>
           )}
 
@@ -1824,7 +1742,7 @@ Model
                       <span>Context</span>
                       <span className="flex items-center gap-1.5">
                         {contextStatus.isCompacting && (
-                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <Spinner className="h-3 w-3" />
                         )}
                         {formatTokenCount(contextStatus.inputTokens)} tokens used
                       </span>
