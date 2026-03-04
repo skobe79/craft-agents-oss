@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import { pathToFileURL } from 'url'
 
 describe('startup migration (integration)', () => {
   it('repairs broken pi-api-key openai-codex provider on startup migration', () => {
@@ -61,11 +62,11 @@ describe('startup migration (integration)', () => {
       'utf-8',
     )
 
-    const storageModulePath = '/Users/balintorosz/Documents/GitHub/craft-agents/packages/shared/src/config/storage.ts'
+    const storageModuleUrl = pathToFileURL(join(import.meta.dir, '..', 'storage.ts')).href
     const run = Bun.spawnSync([
       process.execPath,
       '--eval',
-      `import { migrateLegacyLlmConnectionsConfig } from '${storageModulePath}'; migrateLegacyLlmConnectionsConfig();`,
+      `import { migrateLegacyLlmConnectionsConfig } from '${storageModuleUrl}'; migrateLegacyLlmConnectionsConfig();`,
     ], {
       env: {
         ...process.env,
