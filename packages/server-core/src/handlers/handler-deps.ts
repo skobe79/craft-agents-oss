@@ -1,17 +1,19 @@
 import type { PlatformServices } from '../runtime/platform'
 import type { ISessionManager } from './session-manager-interface'
+import type { IOAuthFlowStore } from './oauth-flow-store-interface'
 
 /**
  * Generic handler dependency bag.
  * Concrete hosts specialize these generics to their runtime implementations.
  *
- * TSessionManager defaults to ISessionManager so core handlers get
- * typed access without specialization.  Electron narrows it to the
- * concrete SessionManager class.
+ * TSessionManager defaults to ISessionManager and TOAuthFlowStore
+ * defaults to IOAuthFlowStore so core handlers get typed access
+ * without specialization.  Electron narrows both to their concrete
+ * implementations.
  */
 export interface HandlerDeps<
   TSessionManager extends ISessionManager = ISessionManager,
-  TOAuthFlowStore = unknown,
+  TOAuthFlowStore extends IOAuthFlowStore = IOAuthFlowStore,
   TWindowManager = unknown,
   TBrowserPaneManager = unknown,
 > {
