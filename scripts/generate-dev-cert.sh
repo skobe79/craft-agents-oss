@@ -14,7 +14,7 @@ OUT_DIR="${1:-certs}"
 mkdir -p "$OUT_DIR"
 
 openssl req -x509 \
-  -newkey ec -pkeyopt ec_paramgen_curve:prime256r1 \
+  -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
   -keyout "$OUT_DIR/key.pem" \
   -out "$OUT_DIR/cert.pem" \
   -days 365 -nodes \
