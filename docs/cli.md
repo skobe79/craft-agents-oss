@@ -5,7 +5,7 @@ Terminal client for Craft Agent server. Connects over WebSocket (`ws://` or `wss
 ## Prerequisites
 
 - [Bun](https://bun.sh/) runtime installed
-- For `run` and `--validate-server`: `ANTHROPIC_API_KEY` in the environment (server is auto-spawned)
+- For `run` and `--validate-server`: an API key via `--api-key`, `$LLM_API_KEY`, or a provider-specific env var (e.g., `$ANTHROPIC_API_KEY`)
 - For all other commands: a running Craft Agent headless server with URL and token
 
 ## Connection Options
@@ -95,7 +95,7 @@ craft-cli run <prompt>
 craft-cli run --workspace-dir ./project --source github "List open PRs"
 ```
 
-The `run` command is fully self-contained — it spawns a headless server, creates a session, sends the prompt, streams the response, and exits. No separate server setup needed. Requires `ANTHROPIC_API_KEY` in the environment.
+The `run` command is fully self-contained — it spawns a headless server, creates a session, sends the prompt, streams the response, and exits. No separate server setup needed. An API key is resolved from `--api-key`, `$LLM_API_KEY`, or a provider-specific env var (e.g., `$ANTHROPIC_API_KEY`, `$OPENAI_API_KEY`).
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -105,6 +105,22 @@ The `run` command is fully self-contained — it spawns a headless server, creat
 | `--mode <mode>` | `allow-all` | Permission mode for the session |
 | `--no-cleanup` | `false` | Skip session deletion on exit |
 | `--server-entry <path>` | — | Custom server entry point |
+
+**LLM Configuration:**
+
+| Flag | Env Fallback | Default | Description |
+|------|-------------|---------|-------------|
+| `--provider <name>` | `LLM_PROVIDER` | `anthropic` | Provider: `anthropic`, `openai`, `google`, `openrouter`, `groq`, `mistral`, `xai`, etc. |
+| `--model <id>` | `LLM_MODEL` | (provider default) | Model ID (e.g., `claude-sonnet-4-5-20250929`, `gpt-4o`, `gemini-2.0-flash`) |
+| `--api-key <key>` | `LLM_API_KEY` | (provider env) | API key — also checks provider-specific vars like `$OPENAI_API_KEY` |
+| `--base-url <url>` | `LLM_BASE_URL` | — | Custom endpoint for proxies, OpenRouter, or self-hosted models |
+
+```bash
+# Multi-provider examples
+craft-cli run --provider openai --model gpt-4o "Summarize this repo"
+GOOGLE_API_KEY=... craft-cli run --provider google --model gemini-2.0-flash "Hello"
+craft-cli run --provider anthropic --base-url https://openrouter.ai/api/v1 --api-key $OR_KEY "Hello"
+```
 
 Prompt can also be piped via stdin:
 ```bash

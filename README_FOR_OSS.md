@@ -301,8 +301,12 @@ For TLS connections (`wss://`), use `--tls-ca <path>` for self-signed certificat
 | `--mode <mode>` | `allow-all` | Permission mode for the session |
 | `--no-cleanup` | `false` | Skip session deletion on exit |
 | `--server-entry <path>` | — | Custom server entry point |
+| `--provider <name>` | `anthropic` | LLM provider (`anthropic`, `openai`, `google`, `openrouter`, `groq`, `mistral`, `xai`, etc.) |
+| `--model <id>` | (provider default) | Model ID (e.g., `claude-sonnet-4-5-20250929`, `gpt-4o`, `gemini-2.0-flash`) |
+| `--api-key <key>` | — | API key (or `$LLM_API_KEY`, or provider-specific env var) |
+| `--base-url <url>` | — | Custom API endpoint for proxies or self-hosted models |
 
-The `run` command is fully self-contained — it spawns a headless server, creates a session, sends the prompt, streams the response, and exits. No separate server setup needed. Requires `ANTHROPIC_API_KEY` in the environment.
+The `run` command is fully self-contained — it spawns a headless server, creates a session, sends the prompt, streams the response, and exits. No separate server setup needed. An API key is resolved from `--api-key`, `$LLM_API_KEY`, or a provider-specific env var (e.g., `$ANTHROPIC_API_KEY`, `$OPENAI_API_KEY`).
 
 ### Examples
 
@@ -325,6 +329,11 @@ craft-cli --json workspaces | jq '.[].name'
 # Self-contained run (spawns its own server)
 craft-cli run "Summarize the README"
 craft-cli run --workspace-dir ./my-project --source github "List open PRs"
+
+# Multi-provider support
+craft-cli run --provider openai --model gpt-4o "Summarize this repo"
+GOOGLE_API_KEY=... craft-cli run --provider google --model gemini-2.0-flash "Hello"
+craft-cli run --provider anthropic --base-url https://openrouter.ai/api/v1 --api-key $OR_KEY "Hello"
 
 # Validate the server (auto-spawns if no --url)
 craft-cli --validate-server

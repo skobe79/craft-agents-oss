@@ -52,11 +52,16 @@ craft-cli run "Summarize the project structure"
 # With a workspace directory and sources
 craft-cli run --workspace-dir ./my-project --source github "List open PRs"
 
+# Multi-provider support
+craft-cli run --provider openai --model gpt-4o "Summarize this repo"
+GOOGLE_API_KEY=... craft-cli run --provider google --model gemini-2.0-flash "Hello"
+craft-cli run --provider anthropic --base-url https://openrouter.ai/api/v1 --api-key $OR_KEY "Hello"
+
 # Stream JSON output for CI
 craft-cli run --output-format stream-json "Run the test suite"
 ```
 
-Requires `ANTHROPIC_API_KEY` in the environment. See the [CLI Reference](/reference/cli) for all `run` flags.
+An API key is resolved from `--api-key`, `$LLM_API_KEY`, or a provider-specific env var (e.g., `$ANTHROPIC_API_KEY`, `$OPENAI_API_KEY`). See the [CLI Reference](/reference/cli) for all `run` and LLM configuration flags.
 
 ### Validate a Server Deployment
 

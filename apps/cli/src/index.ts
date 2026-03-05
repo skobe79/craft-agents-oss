@@ -31,6 +31,11 @@ export interface CliArgs {
   noCleanup: boolean
   serverEntry?: string
   workspaceDir?: string
+  // LLM configuration
+  provider: string
+  model: string
+  apiKey: string
+  baseUrl: string
 }
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -50,6 +55,10 @@ export function parseArgs(argv: string[]): CliArgs {
   let noCleanup = false
   let serverEntry: string | undefined
   let workspaceDir: string | undefined
+  let provider = ''
+  let model = ''
+  let apiKey = ''
+  let baseUrl = ''
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
@@ -93,6 +102,18 @@ export function parseArgs(argv: string[]): CliArgs {
       case '--workspace-dir':
         workspaceDir = args[++i]
         break
+      case '--provider':
+        provider = args[++i] ?? ''
+        break
+      case '--model':
+        model = args[++i] ?? ''
+        break
+      case '--api-key':
+        apiKey = args[++i] ?? ''
+        break
+      case '--base-url':
+        baseUrl = args[++i] ?? ''
+        break
       case '--help':
       case '-h':
         command = 'help'
@@ -116,8 +137,12 @@ export function parseArgs(argv: string[]): CliArgs {
   if (!url) url = process.env.CRAFT_SERVER_URL ?? ''
   if (!token) token = process.env.CRAFT_SERVER_TOKEN ?? ''
   if (!tlsCa) tlsCa = process.env.CRAFT_TLS_CA
+  if (!provider) provider = process.env.LLM_PROVIDER ?? 'anthropic'
+  if (!model) model = process.env.LLM_MODEL ?? ''
+  if (!apiKey) apiKey = process.env.LLM_API_KEY ?? ''
+  if (!baseUrl) baseUrl = process.env.LLM_BASE_URL ?? ''
 
-  return { url, token, workspace, timeout, json, tlsCa, sendTimeout, command, rest, sources, mode, outputFormat, noCleanup, serverEntry, workspaceDir }
+  return { url, token, workspace, timeout, json, tlsCa, sendTimeout, command, rest, sources, mode, outputFormat, noCleanup, serverEntry, workspaceDir, provider, model, apiKey, baseUrl }
 }
 
 // ---------------------------------------------------------------------------
@@ -472,6 +497,78 @@ async function spawnLocalServer(args: CliArgs, opts?: { quiet?: boolean }): Prom
   return { client, stop: server.stop }
 }
 
+// ---------------------------------------------------------------------------
+// LLM connection helpers
+// ---------------------------------------------------------------------------
+
+const PROVIDER_ENV_KEYS: Record<string, string> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  google: 'GOOGLE_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  groq: 'GROQ_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  xai: 'XAI_API_KEY',
+  cerebras: 'CEREBRAS_API_KEY',
+  huggingface: 'HUGGINGFACE_API_KEY',
+}
+
+function resolveApiKey(provider: string, explicit: string): string {
+  if (explicit) return explicit
+  const envKey = PROVIDER_ENV_KEYS[provider]
+  if (envKey && process.env[envKey]) return process.env[envKey]!
+  throw new Error(
+    `No API key found. Use --api-key, set $LLM_API_KEY, or set $${envKey ?? `${provider.toUpperCase()}_API_KEY`}`,
+  )
+}
+
+async function setupLlmConnection(
+  client: CliRpcClient,
+  args: CliArgs,
+): Promise<{ connectionSlug: string }> {
+  const { provider, baseUrl } = args
+  const key = resolveApiKey(provider, args.apiKey)
+  const connectionSlug = `${provider}-cli`
+
+  let providerType: string
+  let authType: string
+  const setupPayload: Record<string, unknown> = { slug: connectionSlug, credential: key }
+
+  if (provider === 'anthropic') {
+    if (baseUrl) {
+      providerType = 'anthropic_compat'
+      authType = 'api_key_with_endpoint'
+      setupPayload.endpoint = baseUrl
+    } else {
+      providerType = 'anthropic'
+      authType = 'api_key'
+    }
+  } else {
+    if (baseUrl) {
+      providerType = 'pi_compat'
+      authType = 'api_key_with_endpoint'
+      setupPayload.endpoint = baseUrl
+    } else {
+      providerType = 'pi'
+      authType = 'api_key'
+    }
+    setupPayload.piAuthProvider = provider
+  }
+
+  await client.invoke('LLM_Connection:save', {
+    slug: connectionSlug,
+    name: provider.charAt(0).toUpperCase() + provider.slice(1),
+    providerType,
+    authType,
+    createdAt: Date.now(),
+  })
+  await client.invoke('settings:setupLlmConnection', setupPayload)
+  await client.invoke('LLM_Connection:setDefault', connectionSlug)
+  process.stderr.write(`LLM connection configured: ${provider}${baseUrl ? ` (${baseUrl})` : ''}\n`)
+
+  return { connectionSlug }
+}
+
 async function cmdRun(args: CliArgs): Promise<void> {
   // Prompt = all positional args (no session ID needed, unlike send)
   const message = await readPrompt(args.rest, args.rest)
@@ -516,26 +613,12 @@ async function cmdRun(args: CliArgs): Promise<void> {
       process.stderr.write(`Workspace registered: ${absPath}\n`)
     }
 
-    // Auto-setup LLM connection from ANTHROPIC_API_KEY
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    if (apiKey) {
-      const connections = (await client.invoke('LLM_Connection:list')) as any[]
-      if (!connections?.length) {
-        const now = Date.now()
-        await client.invoke('LLM_Connection:save', {
-          slug: 'anthropic-api',
-          name: 'Anthropic',
-          providerType: 'anthropic',
-          authType: 'api_key',
-          createdAt: now,
-        })
-        await client.invoke('settings:setupLlmConnection', {
-          slug: 'anthropic-api',
-          credential: apiKey,
-        })
-        await client.invoke('LLM_Connection:setDefault', 'anthropic-api')
-        process.stderr.write('LLM connection configured from ANTHROPIC_API_KEY\n')
-      }
+    // Auto-setup LLM connection from flags / env vars
+    const connections = (await client.invoke('LLM_Connection:list')) as any[]
+    let connectionSlug: string | undefined
+    if (!connections?.length) {
+      const result = await setupLlmConnection(client, args)
+      connectionSlug = result.connectionSlug
     }
 
     const workspaceId = bootstrappedWorkspaceId
@@ -553,6 +636,10 @@ async function cmdRun(args: CliArgs): Promise<void> {
       enabledSourceSlugs: args.sources.length > 0 ? args.sources : undefined,
     })) as { id: string }
     sessionId = session.id
+
+    if (args.model) {
+      await client.invoke('session:setModel', sessionId, workspaceId, args.model, connectionSlug)
+    }
 
     const exitCode = await sendAndStream(client, sessionId, message, args)
     await cleanup()
@@ -1100,6 +1187,13 @@ Connection:
   --tls-ca <path>        Custom CA cert for self-signed TLS
   --json                 Raw JSON output for scripting
 
+LLM Configuration (for 'run' command):
+  --provider <name>      LLM provider (default: anthropic, or $LLM_PROVIDER)
+                         Supported: anthropic, openai, google, openrouter, groq, mistral, xai, ...
+  --model <id>           Model to use (or $LLM_MODEL)
+  --api-key <key>        API key (or $LLM_API_KEY, or provider-specific e.g. $OPENAI_API_KEY)
+  --base-url <url>       Custom API endpoint (or $LLM_BASE_URL)
+
 Commands:
   run <message>          Spawn server, send message, stream response, exit
                          --workspace-dir <path>  Use directory as workspace (creates if needed)
@@ -1128,6 +1222,9 @@ Examples:
   craft-cli run "What files are in the current directory?"
   craft-cli run --source craft-kb "Summarize today's daily note"
   craft-cli run --workspace-dir .github/agents --source craft-public "Read the doc"
+  craft-cli run --provider openai --model gpt-4o "Summarize this repo"
+  OPENAI_API_KEY=sk-... craft-cli run --provider openai "Hello"
+  GOOGLE_API_KEY=... craft-cli run --provider google --model gemini-2.0-flash "Hello"
   echo "Analyze this code" | craft-cli run
   craft-cli ping
   craft-cli sessions
