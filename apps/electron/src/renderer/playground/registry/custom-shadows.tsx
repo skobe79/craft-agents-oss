@@ -17,70 +17,8 @@ interface ShadowSpec {
   previewStyle?: React.CSSProperties
 }
 
+// Only unresolved items stay here intentionally.
 const activeShadowSpecs: ShadowSpec[] = [
-  {
-    id: 'session-item-badge',
-    component: 'SessionItem (match badge)',
-    file: 'components/app-shell/SessionItem.tsx',
-    kind: 'inline',
-    shadow: "boxShadow: '0 1px 2px rgba(...)'",
-    border: "class: 'border border-yellow-500'",
-    hasExplicitBorder: true,
-    note: 'Selected / unselected match count badge uses inline shadow tint.',
-    previewClassName: 'rounded-[6px] bg-yellow-300/40 border border-yellow-500 px-2 py-1 text-[10px] font-medium',
-    previewStyle: { boxShadow: '0 1px 2px 0 rgba(234, 179, 8, 0.3)' },
-  },
-  {
-    id: 'ui-button',
-    component: 'Button',
-    file: 'components/ui/button.tsx',
-    kind: 'class',
-    shadow: 'shadow / shadow-sm',
-    border: "outline variant: 'border border-foreground/15' (default variant: none)",
-    hasExplicitBorder: true,
-    previewClassName: 'rounded-md bg-background border border-foreground/15 shadow-sm px-3 py-2 text-sm',
-  },
-  {
-    id: 'ui-input',
-    component: 'Input',
-    file: 'components/ui/input.tsx',
-    kind: 'class',
-    shadow: 'shadow-sm',
-    border: "class: 'border border-foreground/15'",
-    hasExplicitBorder: true,
-    previewClassName: 'rounded-md border border-foreground/15 bg-transparent shadow-sm px-3 py-2 text-sm w-full',
-  },
-  {
-    id: 'ui-select-trigger',
-    component: 'SelectTrigger',
-    file: 'components/ui/select.tsx',
-    kind: 'class',
-    shadow: 'shadow-sm',
-    border: "class: 'border border-foreground/15'",
-    hasExplicitBorder: true,
-    previewClassName: 'rounded-md border border-foreground/15 bg-transparent shadow-sm px-3 py-2 text-sm w-full',
-  },
-  {
-    id: 'ui-table-head',
-    component: 'TableHead / TableCell',
-    file: 'components/ui/table.tsx',
-    kind: 'arbitrary',
-    shadow: 'shadow-[inset_0_-1.5px_0_var(--color-border)]',
-    border: 'no explicit border class on cells; separator line encoded via inset shadow',
-    hasExplicitBorder: false,
-    previewClassName: 'rounded-md bg-card px-3 py-2 text-sm shadow-[inset_0_-1.5px_0_var(--color-border)]',
-  },
-  {
-    id: 'mention-menu',
-    component: 'InlineMentionMenu',
-    file: 'components/ui/mention-menu.tsx',
-    kind: 'class',
-    shadow: 'shadow-modal-small + shadow-[0_0_0_1px_var(--shadow-tinted)]',
-    border: 'container: none; badge ring simulated by arbitrary shadow + shadow-minimal',
-    hasExplicitBorder: false,
-    previewClassName: 'rounded-[8px] bg-background text-foreground shadow-modal-small p-2',
-    note: 'Container uses modal shadow; type badge uses arbitrary ring shadow + shadow-minimal.',
-  },
   {
     id: 'sortable-list-overlay',
     component: 'SortableList drag overlay',
@@ -91,38 +29,6 @@ const activeShadowSpecs: ShadowSpec[] = [
     hasExplicitBorder: false,
     previewClassName: 'rounded-[8px] bg-background px-3 py-2 text-sm',
     previewStyle: { boxShadow: '0 0 0 1px rgba(63, 63, 68, 0.05), 0px 15px 15px 0 rgba(34, 33, 81, 0.25)' },
-  },
-  {
-    id: 'edit-popover',
-    component: 'EditPopover surface',
-    file: 'components/ui/EditPopover.tsx',
-    kind: 'inline',
-    shadow: "boxShadow: '0 4px 24px rgba(...) , 0 0 0 1px rgba(...)'",
-    border: 'none (1px edge included via second shadow layer)',
-    hasExplicitBorder: false,
-    previewClassName: 'rounded-[8px] bg-background px-3 py-2 text-sm',
-    previewStyle: { boxShadow: '0 4px 24px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05)' },
-  },
-  {
-    id: 'shortcuts-kbd',
-    component: 'Settings Shortcuts kbd chip',
-    file: 'pages/settings/ShortcutsPage.tsx',
-    kind: 'class',
-    shadow: 'shadow-sm',
-    border: "class: 'border border-border'",
-    hasExplicitBorder: true,
-    previewClassName: 'inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-medium font-sans bg-muted border border-border rounded shadow-sm',
-  },
-  {
-    id: 'ui-tooltip',
-    component: 'Tooltip content',
-    file: 'packages/ui/components/tooltip.tsx',
-    kind: 'inline',
-    shadow: "boxShadow: '0 4px 12px rgba(0,0,0,0.15)'",
-    border: 'none (tooltip currently relies on shadow only)',
-    hasExplicitBorder: false,
-    previewClassName: 'rounded-md bg-popover px-3 py-2 text-xs',
-    previewStyle: { boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' },
   },
   {
     id: 'ui-browser-controls',
@@ -159,18 +65,6 @@ const runtimeShadowSpecs: ShadowSpec[] = [
     note: 'Main-process runtime overlay for browser live mode (not a React component).',
     previewClassName: 'rounded-[10px] bg-background px-3 py-2 text-sm border border-foreground/20',
     previewStyle: { boxShadow: 'inset 0 0 0 1px color-mix(in oklab, var(--accent) 45%, transparent), inset 0 0 20px color-mix(in oklab, var(--accent) 28%, transparent)' },
-  },
-  {
-    id: 'browser-cdp-annotation',
-    component: 'CDP annotation box/point',
-    file: 'main/browser-cdp.ts',
-    kind: 'runtime',
-    shadow: "box.style.boxShadow / point.style.boxShadow",
-    border: 'no explicit border (edge shown via inset/outset shadow)',
-    hasExplicitBorder: false,
-    note: 'Debug annotation overlays drawn directly in webContents.',
-    previewClassName: 'rounded-[6px] bg-black/80 text-white px-3 py-2 text-xs',
-    previewStyle: { boxShadow: '0 0 0 1px rgba(255,255,255,0.8) inset' },
   },
 ]
 
@@ -273,8 +167,9 @@ function CustomShadowsAudit() {
       <div className="space-y-2">
         <h2 className="text-lg font-semibold">Custom Shadows Audit</h2>
         <p className="text-sm text-foreground/70">
-          Consolidated review surface for components and runtime overlays that currently use non-standard shadow
-          styles (custom classes, inline boxShadow, arbitrary shadow values, or runtime-injected shadows).
+          Consolidated review surface for remaining components and runtime overlays that still use non-standard
+          shadow styles (custom classes, inline boxShadow, arbitrary shadow values, or runtime-injected shadows).
+          Resolved items are intentionally removed so you can focus on what still needs renaming/cleanup.
           Each card lists both the shadow value and border strategy.
         </p>
       </div>
@@ -315,7 +210,7 @@ export const customShadowsComponents: ComponentEntry[] = [
     id: 'custom-shadows-audit',
     name: 'Custom Shadows Audit',
     category: 'Custom Shadows',
-    description: 'Review all components and runtime overlays that currently use custom shadow styles and border strategies.',
+    description: 'Review remaining components/runtime overlays with unresolved custom shadow styles and border strategies.',
     component: CustomShadowsAudit,
     props: [],
     variants: [],
