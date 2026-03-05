@@ -137,9 +137,7 @@ export function ActiveOptionBadges({
   // Dynamic stacking with equal visible strips: ResizeObserver computes per-badge
   // margins directly on children. Wider badges get more negative margins so each
   // shows the same visible strip when stacked. No React re-renders needed.
-  // reservedStart: 24 matches the mask gradient width so stacking begins
-  // before badges reach the faded zone on the left edge.
-  const stackRef = useDynamicStack({ gap: 8, minVisible: 20, reservedStart: 24 })
+  const stackRef = useDynamicStack({ gap: 8, minVisible: 20, reservedStart: 0 })
 
   // Only render if badges or tasks are active
   if (!permissionMode && tasks.length === 0 && !hasState && !hasStackContent) {
@@ -149,7 +147,7 @@ export function ActiveOptionBadges({
   return (
     <div className={cn("flex items-start gap-2 mb-2 px-px pt-px pb-0.5", className)}>
       {/* Left side: mode → state → labels stack */}
-      <div className="flex items-start gap-2 min-w-0">
+      <div className="flex items-start gap-2 min-w-0 flex-1">
         {/* Permission Mode Badge */}
         {permissionMode && (
           <div className="shrink-0">
@@ -178,7 +176,7 @@ export function ActiveOptionBadges({
          * overflow: clip prevents scroll container while py/-my gives shadow room. */}
         {hasStackContent && (
           <div
-            className="min-w-0 max-w-[46vw] py-0.5 -my-0.5"
+            className="flex-1 min-w-0 max-w-full py-0.5 -my-0.5"
             style={{
               // shadow-minimal replicated as drop-shadow (traces masked alpha, no clipping).
               // Ring uses higher blur+opacity for visible border feel (hard 1px ring can't be replicated exactly).
@@ -220,9 +218,6 @@ export function ActiveOptionBadges({
         )}
 
       </div>
-
-      {/* Spacer */}
-      <div className="flex-1" />
 
       {/* Right side: Files popover button */}
       <div className="shrink-0">
