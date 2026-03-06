@@ -306,13 +306,19 @@ export function Island({
 
     setIsMorphWarmReady(false)
 
-    const raf = window.requestAnimationFrame(() => {
-      warmedViewIdsRef.current.add(activeView.id)
-      setIsMorphWarmReady(true)
+    let raf1 = 0
+    let raf2 = 0
+
+    raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        warmedViewIdsRef.current.add(activeView.id)
+        setIsMorphWarmReady(true)
+      })
     })
 
     return () => {
-      window.cancelAnimationFrame(raf)
+      window.cancelAnimationFrame(raf1)
+      window.cancelAnimationFrame(raf2)
     }
   }, [activeView, shouldMorph, isVisible, morphDelta])
 

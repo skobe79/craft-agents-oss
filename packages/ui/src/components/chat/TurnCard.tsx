@@ -2538,31 +2538,11 @@ export function ResponseCard({
   useEffect(() => {
     if (activeMenuAnchor) {
       setSelectionMenuRenderAnchor(activeMenuAnchor)
-      setIsSelectionMenuVisible(false)
-
-      if (typeof window === 'undefined') {
-        setIsSelectionMenuVisible(true)
-        return
-      }
-
-      let raf1 = 0
-      let raf2 = 0
-
-      raf1 = window.requestAnimationFrame(() => {
-        raf2 = window.requestAnimationFrame(() => {
-          setIsSelectionMenuVisible(true)
-        })
-      })
-
-      return () => {
-        window.cancelAnimationFrame(raf1)
-        window.cancelAnimationFrame(raf2)
-      }
+      setIsSelectionMenuVisible(true)
+      return
     }
 
-    if (selectionMenuRenderAnchor) {
-      setIsSelectionMenuVisible(false)
-    }
+    setIsSelectionMenuVisible(false)
   }, [activeMenuAnchor])
 
   const handleSelectionMenuExitComplete = useCallback(() => {
