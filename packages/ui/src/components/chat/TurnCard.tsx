@@ -1431,10 +1431,10 @@ function buildSelectionEntryTransition(from: PointerSnapshot | null, to: Pointer
   const deltaMs = Math.max(12, to.ts - from.ts)
   const speedPxPerSec = distancePx / (deltaMs / 1000)
 
-  // Pointer deltas use screen coordinates (Y grows downward). Flip Y to avoid vertical mirroring,
+  // Pointer deltas use screen coordinates (Y grows downward). Keep the native Y direction,
   // then add 180° so the island comes from *behind* the drag direction ("catching up" effect).
   // Example: drag left -> right => origin from left.
-  const angleDeg = (Math.atan2(-dy, dx) * 180 / Math.PI + 540) % 360
+  const angleDeg = (Math.atan2(dy, dx) * 180 / Math.PI + 540) % 360
   const derivedDistancePx = clamp(
     speedPxPerSec * SELECTION_MENU_SPEED_TO_DISTANCE_FACTOR,
     SELECTION_MENU_MIN_ENTRY_DISTANCE,
@@ -2461,9 +2461,19 @@ export function ResponseCard({
         anchorRect = range.getBoundingClientRect()
       }
 
-      const anchorX = (pointerX != null && pointerX >= anchorRect.left && pointerX <= anchorRect.right)
-        ? pointerX
-        : anchorRect.left + (anchorRect.width / 2)
+      const anchorRowRects = rects.length > 0
+        ? rects.filter(rect => Math.abs(rect.top - anchorRect.top) <= 2)
+        : []
+      const clampRects = anchorRowRects.length > 0 ? anchorRowRects : (rects.length > 0 ? rects : [anchorRect])
+
+      const selectionMinX = Math.min(...clampRects.map(rect => rect.left))
+      const selectionMaxX = Math.max(...clampRects.map(rect => rect.right))
+
+      // Prefer mouse-release position, but clamp to the chosen anchor row so
+      // multiline selections stay attached to actual text on that line.
+      const anchorX = pointerX != null
+        ? clamp(pointerX, selectionMinX, selectionMaxX)
+        : (anchorRect.left + (anchorRect.width / 2))
       const anchorY = anchorRect.top - 8
 
       setSelectionMenuTransitionConfig(buildSelectionEntryTransition(dragStartPointerRef.current, pointer))
@@ -2690,9 +2700,7 @@ export function ResponseCard({
               onCancel={handleCancelFollowUp}
               onSubmit={handleSubmitFollowUp}
               onDelete={activeAnnotationDetail ? handleDeleteActiveAnnotation : undefined}
-              title={activeAnnotationDetail
-                ? `Annotation ${activeAnnotationDetail.index ? `#${activeAnnotationDetail.index}` : ''}`
-                : 'Follow up'}
+              title="Follow-up"
               submitLabel={activeAnnotationDetail ? 'Save' : 'Continue'}
               placeholder="Add comments the agent should consider in the next turn…"
               maxInputHeight={320}

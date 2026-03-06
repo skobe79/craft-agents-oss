@@ -97,6 +97,51 @@ const CONTENT_EASE = [0.2, 0.8, 0.2, 1] as const
 let bodyScrollLockCount = 0
 let previousBodyOverflow: string | null = null
 let previousBodyTouchAction: string | null = null
+let removeGlobalScrollBlockers: (() => void) | null = null
+
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ', 'Spacebar'])
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+
+  const tag = target.tagName
+  if (tag === 'TEXTAREA') return true
+  if (tag !== 'INPUT') return false
+
+  const input = target as HTMLInputElement
+  const type = (input.type || 'text').toLowerCase()
+  const nonTextInputTypes = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'])
+  return !nonTextInputTypes.has(type)
+}
+
+function installGlobalScrollBlockers(): () => void {
+  if (typeof window === 'undefined') return () => {}
+
+  const onWheel = (event: WheelEvent) => {
+    event.preventDefault()
+  }
+
+  const onTouchMove = (event: TouchEvent) => {
+    event.preventDefault()
+  }
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (!SCROLL_KEYS.has(event.key)) return
+    if (isEditableTarget(event.target)) return
+    event.preventDefault()
+  }
+
+  window.addEventListener('wheel', onWheel, { passive: false, capture: true })
+  window.addEventListener('touchmove', onTouchMove, { passive: false, capture: true })
+  window.addEventListener('keydown', onKeyDown, { capture: true })
+
+  return () => {
+    window.removeEventListener('wheel', onWheel, true)
+    window.removeEventListener('touchmove', onTouchMove, true)
+    window.removeEventListener('keydown', onKeyDown, true)
+  }
+}
 
 function acquireBodyScrollLock(): void {
   if (typeof document === 'undefined') return
@@ -106,6 +151,7 @@ function acquireBodyScrollLock(): void {
     previousBodyTouchAction = document.body.style.touchAction
     document.body.style.overflow = 'hidden'
     document.body.style.touchAction = 'none'
+    removeGlobalScrollBlockers = installGlobalScrollBlockers()
   }
 
   bodyScrollLockCount += 1
@@ -121,6 +167,8 @@ function releaseBodyScrollLock(): void {
     document.body.style.touchAction = previousBodyTouchAction ?? ''
     previousBodyOverflow = null
     previousBodyTouchAction = null
+    removeGlobalScrollBlockers?.()
+    removeGlobalScrollBlockers = null
   }
 }
 
@@ -191,6 +239,7 @@ export function Island({
   onExitComplete,
   dismissOnPointerDownOutside = false,
   onRequestClose,
+  lockScrollWhileVisible = false,
 }: IslandProps) {
   const shellRef = React.useRef<HTMLDivElement | null>(null)
   const activeViewRef = React.useRef<HTMLDivElement | null>(null)
@@ -357,14 +406,16 @@ export function Island({
     setIsTransitionSettling(true)
   }, [activeView?.id])
 
+  const shouldLockScroll = (activeView?.lockScroll ?? false) || lockScrollWhileVisible
+
   React.useEffect(() => {
-    if (!activeView?.lockScroll || !isVisible) return
+    if (!shouldLockScroll || !isVisible) return
 
     acquireBodyScrollLock()
     return () => {
       releaseBodyScrollLock()
     }
-  }, [activeView?.id, activeView?.lockScroll, isVisible])
+  }, [activeView?.id, shouldLockScroll, isVisible])
 
   React.useEffect(() => {
     if (!dismissOnPointerDownOutside || !isVisible || !onRequestClose) return
