@@ -5728,6 +5728,11 @@ To view this task's output:
       model,
     })
 
+    // Notify renderer to hydrate full session metadata (including title)
+    // before streaming events arrive. Without this, the renderer may create
+    // a synthetic empty session and temporarily show "New chat".
+    this.sendEvent({ type: 'session_created', sessionId: session.id }, workspaceId)
+
     // Send the prompt
     await this.sendMessage(session.id, prompt, undefined, undefined, {
       skillSlugs: resolved?.skillSlugs,
