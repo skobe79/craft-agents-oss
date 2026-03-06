@@ -1126,12 +1126,8 @@ html.dark[data-scenic] .fullscreen-overlay-background {
   color: oklch(from var(--foreground) l c h / 0.7) !important;
   border: none !important;
   box-shadow:
-    rgba(0, 0, 0, 0) 0px 0px 0px 0px,
-    rgba(0, 0, 0, 0) 0px 0px 0px 0px,
     rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
-    rgba(0, 0, 0, var(--shadow-blur-opacity)) 0px 1px 1px -0.5px,
-    rgba(0, 0, 0, var(--shadow-blur-opacity)) 0px 3px 3px -1.5px,
-    rgba(0, 0, 0, var(--shadow-blur-opacity)) 0px 6px 6px -3px !important;
+    var(--shadow-minimal) !important;
 }
 
 [data-sonner-toast].group:hover [data-close-button],
@@ -1141,6 +1137,18 @@ html.dark[data-scenic] .fullscreen-overlay-background {
 
 [data-sonner-toast] [data-close-button]:hover {
   color: var(--foreground) !important;
+}
+
+[data-sonner-toast]:focus-visible {
+  box-shadow:
+    var(--shadow-modal-small),
+    0 0 0 2px rgba(var(--foreground-rgb), 0.18) !important;
+}
+
+[data-sonner-toast] [data-close-button]:focus-visible {
+  box-shadow:
+    var(--shadow-minimal),
+    0 0 0 2px rgba(var(--foreground-rgb), 0.18) !important;
 }
 
 /* Tinted backgrounds for toast states - use linear-gradient to layer
