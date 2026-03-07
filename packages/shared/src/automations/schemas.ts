@@ -20,9 +20,22 @@ export const PromptActionSchema = z.object({
   model: z.string().min(1).optional(),
 });
 
-/** Accepts prompt actions strictly; passes through legacy/unknown action types without erroring */
+export const WebhookActionSchema = z.object({
+  type: z.literal('webhook'),
+  url: z.string().url('Must be a valid URL').refine(
+    (url) => url.startsWith('http://') || url.startsWith('https://'),
+    'URL must use http or https protocol'
+  ),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  bodyFormat: z.enum(['json', 'raw']).optional(),
+  body: z.unknown().optional(),
+});
+
+/** Accepts prompt and webhook actions strictly; passes through legacy/unknown action types without erroring */
 export const ActionDefinitionSchema = z.union([
   PromptActionSchema,
+  WebhookActionSchema,
   z.object({ type: z.string() }).passthrough(),
 ]);
 

@@ -107,7 +107,7 @@ export function useAutomations(
       }
       const hasError = actions.some(a => !a.success)
       const state = hasError ? 'error' : 'success'
-      const stderr = actions.map(a => a.stderr).filter(Boolean).join('\n')
+      const stderr = actions.map(a => ('stderr' in a ? a.stderr : 'error' in a ? a.error : undefined)).filter(Boolean).join('\n')
       const duration = actions.reduce((sum, a) => sum + (a.duration ?? 0), 0)
       setAutomationTestResults(prev => ({
         ...prev,

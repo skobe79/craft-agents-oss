@@ -8,7 +8,7 @@
  * - utils.ts: Shared utilities (toSnakeCase, expandEnvVars, etc.)
  * - automation-system.ts: AutomationSystem facade (main entry point)
  * - event-bus.ts: WorkspaceEventBus
- * - handlers/: PromptHandler, EventLogHandler
+ * - handlers/: PromptHandler, WebhookHandler, EventLogHandler
  */
 
 // ============================================================================
@@ -20,11 +20,15 @@ export type {
   AgentEvent,
   AutomationEvent,
   PromptAction,
+  WebhookAction,
+  WebhookHttpMethod,
+  WebhookBodyFormat,
   AutomationAction,
   AutomationMatcher,
   AutomationsConfig,
   PromptReferences,
   PromptActionResult,
+  WebhookActionResult,
   ActionExecutionResult,
   PendingPrompt,
   AutomationResult,
@@ -109,8 +113,10 @@ export {
 export {
   PromptHandler,
   EventLogHandler,
+  WebhookHandler,
   type AutomationHandler,
   type PromptHandlerOptions,
   type EventLogHandlerOptions,
+  type WebhookHandlerOptions,
   type AutomationsConfigProvider,
 } from './handlers/index.ts';

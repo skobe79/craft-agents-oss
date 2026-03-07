@@ -74,6 +74,60 @@ export function registerAutomationsHandlers(server: RpcServer, deps: HandlerDeps
     for (const action of payload.actions) {
       const start = Date.now()
 
+      if (action.type === 'webhook') {
+        // Execute webhook action
+        try {
+          const method = action.method ?? 'POST'
+          const headers: Record<string, string> = { ...action.headers }
+          let body: string | undefined
+
+          if (method !== 'GET' && action.body !== undefined) {
+            const bodyFormat = action.bodyFormat ?? 'json'
+            if (bodyFormat === 'json') {
+              if (!headers['Content-Type'] && !headers['content-type']) {
+                headers['Content-Type'] = 'application/json'
+              }
+              body = typeof action.body === 'string' ? action.body : JSON.stringify(action.body)
+            } else {
+              body = String(action.body)
+            }
+          }
+
+          const response = await fetch(action.url, { method, headers, body })
+          const success = response.status >= 200 && response.status < 300
+
+          results.push({
+            type: 'webhook',
+            success,
+            url: action.url,
+            statusCode: response.status,
+            error: success ? undefined : `HTTP ${response.status} ${response.statusText}`,
+            duration: Date.now() - start,
+          })
+
+          if (payload.automationId) {
+            const entry = { id: payload.automationId, ts: Date.now(), ok: success, prompt: `Webhook ${method} ${action.url}`.slice(0, 200) }
+            appendFile(join(workspace.rootPath, HISTORY_FILE), JSON.stringify(entry) + '\n', 'utf-8').catch(e => log.warn('[Automations] Failed to write history:', e))
+          }
+        } catch (err: unknown) {
+          results.push({
+            type: 'webhook',
+            success: false,
+            url: action.url,
+            statusCode: 0,
+            error: (err as Error).message,
+            duration: Date.now() - start,
+          })
+
+          if (payload.automationId) {
+            const entry = { id: payload.automationId, ts: Date.now(), ok: false, error: ((err as Error).message ?? '').slice(0, 200), prompt: `Webhook ${action.method ?? 'POST'} ${action.url}`.slice(0, 200) }
+            appendFile(join(workspace.rootPath, HISTORY_FILE), JSON.stringify(entry) + '\n', 'utf-8').catch(e => log.warn('[Automations] Failed to write history:', e))
+          }
+        }
+        continue
+      }
+
+      // Prompt action
       // Parse @mentions from the prompt to resolve source/skill references
       const references = parsePromptReferences(action.prompt)
 
