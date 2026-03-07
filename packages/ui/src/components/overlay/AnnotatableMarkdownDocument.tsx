@@ -12,7 +12,6 @@ import {
   createTextSelectionAnnotation,
   getCanonicalText,
   resolveNodeOffset,
-  resolveRangeFromOffsets,
   type AnnotationOverlayRect,
 } from '../annotations/annotation-core'
 import {
@@ -37,9 +36,13 @@ import {
 import {
   type AnnotationIslandMode,
 } from '../annotations/interaction-state-machine'
-import { useAnnotationInteractionController } from '../annotations/use-annotation-interaction-controller'
+import { useAnnotationInteractionController, type ExternalOpenAnnotationRequest } from '../annotations/use-annotation-interaction-controller'
 import { useAnnotationIslandPresentation } from '../annotations/use-annotation-island-presentation'
 import { useAnnotationIslandEvents } from '../annotations/use-annotation-island-events'
+import { useAnnotationCancelRestore } from '../annotations/use-annotation-cancel-restore'
+import { canAnnotateMessage, shouldRenderAnnotationIslandInPortal } from '../annotations/annotation-host-config'
+import { clearDomSelection } from '../annotations/selection-restore'
+import { applyBlockAnnotationMarker, clearBlockAnnotationMarkers } from '../annotations/block-markers'
 
 export interface AnnotatableMarkdownDocumentProps {
   content: string
@@ -53,6 +56,8 @@ export interface AnnotatableMarkdownDocumentProps {
   onOpenFile?: (path: string) => void
   sendMessageKey?: 'enter' | 'cmd-enter'
   islandZIndex?: number
+  openAnnotationRequest?: ExternalOpenAnnotationRequest | null
+  isStreaming?: boolean
 }
 
 export function AnnotatableMarkdownDocument({
@@ -67,8 +72,14 @@ export function AnnotatableMarkdownDocument({
   onOpenFile,
   sendMessageKey = 'enter',
   islandZIndex = 420,
+  openAnnotationRequest,
+  isStreaming = false,
 }: AnnotatableMarkdownDocumentProps) {
-  const canAnnotate = !!onAddAnnotation
+  const canAnnotate = canAnnotateMessage({
+    hasAddAnnotationHandler: !!onAddAnnotation,
+    hasMessageId: !!messageId,
+    isStreaming,
+  })
   const interaction = useAnnotationInteractionController()
   const {
     state: interactionState,
@@ -81,6 +92,7 @@ export function AnnotatableMarkdownDocument({
     closeAll,
     markSubmitSuccess,
     markDeleteSuccess,
+    consumeExternalOpenRequest,
   } = interaction
 
   const pendingSelection = interactionState.pendingSelection
@@ -159,23 +171,44 @@ export function AnnotatableMarkdownDocument({
       return
     }
 
-    if (!renderedAnnotations.length) {
-      setAnnotationOverlay({ rects: [], chips: [] })
-      return
+    const recomputeOverlay = () => {
+      clearBlockAnnotationMarkers(root)
+
+      if (!renderedAnnotations.length) {
+        setAnnotationOverlay({ rects: [], chips: [] })
+        return
+      }
+
+      const geometry = computeAnnotationOverlayGeometry({
+        root,
+        renderedAnnotations,
+        persistedAnnotations: annotations,
+      })
+
+      for (const annotation of renderedAnnotations) {
+        applyBlockAnnotationMarker(root, annotation)
+      }
+
+      setAnnotationOverlay({ rects: geometry.rects, chips: geometry.chips })
     }
 
-    const geometry = computeAnnotationOverlayGeometry({
-      root,
-      renderedAnnotations,
-      persistedAnnotations: annotations,
-    })
+    recomputeOverlay()
+    window.addEventListener('resize', recomputeOverlay)
 
-    setAnnotationOverlay({ rects: geometry.rects, chips: geometry.chips })
+    return () => {
+      window.removeEventListener('resize', recomputeOverlay)
+    }
   }, [renderedAnnotations, annotations, content])
+
+  React.useEffect(() => {
+    if (!canAnnotate) {
+      closeSelectionMenu()
+    }
+  }, [canAnnotate, closeSelectionMenu])
 
   const handleOpenFollowUpView = React.useCallback(() => {
     if (!pendingSelection) return
-    window.getSelection()?.removeAllRanges()
+    clearDomSelection()
     openFollowUpFromSelection()
   }, [pendingSelection, openFollowUpFromSelection])
 
@@ -229,11 +262,13 @@ export function AnnotatableMarkdownDocument({
     const annotation = createTextSelectionAnnotation(messageId, pendingSelection, normalizedNote, sessionId ?? '')
     onAddAnnotation(messageId, annotation)
     markSubmitSuccess()
+    clearDomSelection()
   }, [activeAnnotationDetail, onUpdateAnnotation, activeAnnotation, closeSelectionMenu, pendingSelection, canAnnotate, onAddAnnotation, messageId, sessionId, markSubmitSuccess])
 
-  const handleCancelFollowUp = React.useCallback(() => {
-    cancelFollowUp()
-  }, [cancelFollowUp])
+  const handleCancelFollowUp = useAnnotationCancelRestore({
+    contentRootRef: contentLayerRef,
+    cancelFollowUp,
+  })
 
   const handleDeleteActiveAnnotation = React.useCallback(() => {
     if (!onRemoveAnnotation || !activeAnnotationDetail) return
@@ -256,6 +291,32 @@ export function AnnotatableMarkdownDocument({
     openFromAnnotation({ annotationId, index, anchorX, anchorY }, noteText, mode)
     selectionMenuOpenedAtRef.current = Date.now()
   }, [annotations, triggerSelectionMenuEntryReplay, openFromAnnotation])
+
+  React.useEffect(() => {
+    const contentRect = contentLayerRef.current?.getBoundingClientRect()
+    const fallbackAnchor = {
+      x: contentRect ? contentRect.left + contentRect.width / 2 : window.innerWidth / 2,
+      y: contentRect ? contentRect.top + 20 : Math.max(24, window.innerHeight * 0.2),
+    }
+
+    const consumed = consumeExternalOpenRequest(openAnnotationRequest, {
+      messageId,
+      annotations,
+      getNoteText: getAnnotationNoteText,
+      fallbackAnchor,
+    })
+
+    if (!consumed) return
+
+    setSelectionMenuTransitionConfig(buildAnnotationChipEntryTransition())
+    triggerSelectionMenuEntryReplay()
+  }, [
+    openAnnotationRequest,
+    messageId,
+    annotations,
+    consumeExternalOpenRequest,
+    triggerSelectionMenuEntryReplay,
+  ])
 
   const showSelectionMenuFromCurrentSelection = React.useCallback(() => {
     const root = contentLayerRef.current
@@ -549,7 +610,7 @@ export function AnnotatableMarkdownDocument({
       transitionConfig={selectionMenuTransitionConfig}
       onExitComplete={handleSelectionMenuExitComplete}
       zIndex={islandZIndex}
-      usePortal={false}
+      usePortal={shouldRenderAnnotationIslandInPortal('fullscreen')}
     />
   )
 

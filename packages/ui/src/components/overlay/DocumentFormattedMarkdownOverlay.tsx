@@ -14,6 +14,7 @@
 import { ListTodo } from 'lucide-react'
 import { Markdown } from '../markdown'
 import type { AnnotationV1 } from '@craft-agent/core'
+import type { ExternalOpenAnnotationRequest } from '../annotations/use-annotation-interaction-controller'
 import { FullscreenOverlayBase } from './FullscreenOverlayBase'
 import type { OverlayTypeBadge } from './FullscreenOverlayBaseHeader'
 import { AnnotatableMarkdownDocument } from './AnnotatableMarkdownDocument'
@@ -51,6 +52,10 @@ export interface DocumentFormattedMarkdownOverlayProps {
   onUpdateAnnotation?: (messageId: string, annotationId: string, patch: Partial<AnnotationV1>) => void
   /** Input send key behavior used by follow-up editor */
   sendMessageKey?: 'enter' | 'cmd-enter'
+  /** Whether source content is currently streaming (affects annotation eligibility parity) */
+  isStreaming?: boolean
+  /** Optional external request to open a specific annotation */
+  openAnnotationRequest?: ExternalOpenAnnotationRequest | null
 }
 
 export function DocumentFormattedMarkdownOverlay({
@@ -70,6 +75,8 @@ export function DocumentFormattedMarkdownOverlay({
   onRemoveAnnotation,
   onUpdateAnnotation,
   sendMessageKey = 'enter',
+  isStreaming = false,
+  openAnnotationRequest,
 }: DocumentFormattedMarkdownOverlayProps) {
   return (
     <FullscreenOverlayBase
@@ -109,6 +116,8 @@ export function DocumentFormattedMarkdownOverlay({
                   onOpenFile={onOpenFile}
                   sendMessageKey={sendMessageKey}
                   islandZIndex={420}
+                  openAnnotationRequest={openAnnotationRequest}
+                  isStreaming={isStreaming}
                 />
               ) : (
                 <Markdown

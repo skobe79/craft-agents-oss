@@ -50,12 +50,14 @@ import {
   collectTextSegments,
   getCanonicalText,
   resolveNodeOffset,
-  resolveRangeFromOffsets,
   type AnnotationOverlayRect,
 } from '../annotations/annotation-core'
 import {
   annotationColorToCss,
 } from '../annotations/annotation-style-tokens'
+import { clearBlockAnnotationMarkers, applyBlockAnnotationMarker } from '../annotations/block-markers'
+import { canAnnotateMessage, shouldRenderAnnotationIslandInPortal } from '../annotations/annotation-host-config'
+import { clearDomSelection } from '../annotations/selection-restore'
 import {
   shouldIgnoreSelectionMouseUpTarget,
 } from '../annotations/interaction-policy'
@@ -73,6 +75,7 @@ import {
 import { useAnnotationInteractionController } from '../annotations/use-annotation-interaction-controller'
 import { useAnnotationIslandPresentation } from '../annotations/use-annotation-island-presentation'
 import { useAnnotationIslandEvents } from '../annotations/use-annotation-island-events'
+import { useAnnotationCancelRestore } from '../annotations/use-annotation-cancel-restore'
 import { DocumentFormattedMarkdownOverlay } from '../overlay'
 import { AcceptPlanDropdown } from './AcceptPlanDropdown'
 import {
@@ -1604,40 +1607,6 @@ function applyTextHighlightRange(
   }
 }
 
-function clearBlockAnnotationMarkers(root: HTMLElement): void {
-  const blocks = root.querySelectorAll<HTMLElement>('[data-ca-block-annotated="true"]')
-  blocks.forEach((block) => {
-    block.removeAttribute('data-ca-block-annotated')
-    block.style.boxShadow = ''
-    block.style.borderRadius = ''
-  })
-}
-
-function applyBlockAnnotationMarker(root: HTMLElement, annotation: AnnotationV1): void {
-  const blockSelector = annotation.target.selectors.find(s => s.type === 'block') as Extract<
-    AnnotationV1['target']['selectors'][number],
-    { type: 'block' }
-  > | undefined
-
-  if (!blockSelector) return
-
-  const selector = blockSelector.blockId
-    ? `[data-ca-block-id="${CSS.escape(blockSelector.blockId)}"]`
-    : `[data-ca-block-path="${CSS.escape(blockSelector.path)}"]`
-
-  const target = root.querySelector<HTMLElement>(selector)
-  if (!target) return
-
-  target.setAttribute('data-ca-block-annotated', 'true')
-  const markerColor = annotationColorToCss(annotation.style?.color)
-  target.style.boxShadow = [
-    `inset 3px 0 0 ${markerColor}`,
-    `inset 0 1px 0 ${markerColor}`,
-    `inset 0 -1px 0 ${markerColor}`,
-  ].join(', ')
-  target.style.borderRadius = '6px'
-}
-
 /**
  * ResponseCard - Unified card component for AI responses and plans
  *
@@ -1720,7 +1689,11 @@ export function ResponseCard({
   const dragStartPointerRef = useRef<PointerSnapshot | null>(null)
   const selectionStartedInContentRef = useRef(false)
 
-  const canAnnotate = !!onAddAnnotation && !!messageId && !isStreaming
+  const canAnnotate = canAnnotateMessage({
+    hasAddAnnotationHandler: !!onAddAnnotation,
+    hasMessageId: !!messageId,
+    isStreaming,
+  })
 
   // Detect dark mode from document class and listen for changes
   useEffect(() => {
@@ -1945,7 +1918,7 @@ export function ResponseCard({
 
     // Native browser selection steals typing focus from the follow-up textarea.
     // Keep semantic selection in pendingSelection and clear only the DOM selection.
-    window.getSelection()?.removeAllRanges()
+    clearDomSelection()
     openFollowUpFromSelection()
   }, [pendingSelection, openFollowUpFromSelection])
 
@@ -2003,7 +1976,7 @@ export function ResponseCard({
     const annotation = createTextSelectionAnnotation(messageId, pendingSelection, normalizedNote, sessionId ?? '')
     onAddAnnotation(messageId, annotation)
     markSubmitSuccess()
-    window.getSelection()?.removeAllRanges()
+    clearDomSelection()
   }, [
     messageId,
     activeAnnotationDetail,
@@ -2017,27 +1990,10 @@ export function ResponseCard({
     markSubmitSuccess,
   ])
 
-  const handleCancelFollowUp = useCallback(() => {
-    const { pendingSelection: selectionToRestore } = cancelFollowUp()
-
-    if (!selectionToRestore || typeof window === 'undefined') {
-      return
-    }
-
-    window.requestAnimationFrame(() => {
-      const root = contentLayerRef.current
-      if (!root) return
-
-      const range = resolveRangeFromOffsets(root, selectionToRestore.start, selectionToRestore.end)
-      if (!range) return
-
-      const selection = window.getSelection()
-      if (!selection) return
-
-      selection.removeAllRanges()
-      selection.addRange(range)
-    })
-  }, [cancelFollowUp])
+  const handleCancelFollowUp = useAnnotationCancelRestore({
+    contentRootRef: contentLayerRef,
+    cancelFollowUp,
+  })
 
   const handleOpenAnnotationDetail = useCallback((
     annotationId: string,
@@ -2388,6 +2344,7 @@ export function ResponseCard({
       transitionConfig={selectionMenuTransitionConfig}
       onExitComplete={handleSelectionMenuExitComplete}
       zIndex={50}
+      usePortal={shouldRenderAnnotationIslandInPortal('turncard')}
     />
   )
 
@@ -2588,6 +2545,8 @@ export function ResponseCard({
           onRemoveAnnotation={onRemoveAnnotation}
           onUpdateAnnotation={onUpdateAnnotation}
           sendMessageKey={sendMessageKey}
+          openAnnotationRequest={openAnnotationRequest}
+          isStreaming={isStreaming}
         />
         {selectionMenu}
       </>

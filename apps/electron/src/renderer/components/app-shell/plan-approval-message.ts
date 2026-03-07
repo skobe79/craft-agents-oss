@@ -1,5 +1,4 @@
 export interface BuildPlanApprovalMessageOptions {
-  planPath?: string
   draftInput?: string
 }
 
@@ -13,10 +12,6 @@ export function buildPlanApprovalMessage(options: BuildPlanApprovalMessageOption
   const draftInput = normalizeDraftInput(options.draftInput)
 
   const sections: string[] = [PLAN_APPROVAL_LINE]
-
-  if (options.planPath?.trim()) {
-    sections.push(`Use this approved plan file as the source of truth: ${options.planPath.trim()}`)
-  }
 
   if (draftInput.length > 0) {
     sections.push(['---', '**Additional user context**', draftInput].join('\n\n'))
