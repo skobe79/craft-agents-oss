@@ -879,7 +879,8 @@ export class PiAgent extends BaseAgent {
     input: Record<string, unknown>;
   }): Promise<void> {
     const { requestId, toolName, toolCallId, input } = req;
-    this.debug(`PreToolUse request from subprocess: ${toolName} (${requestId})`);
+    const debugSessionId = this.config.session?.id || this._sessionId;
+    this.debug(`PreToolUse request from subprocess: ${toolName} (${requestId}, sessionId=${debugSessionId})`);
 
     // Capture metadata BEFORE centralized checks strip it out.
     // This bridge is deterministic and avoids relying solely on side-channel store lookups.
@@ -891,7 +892,7 @@ export class PiAgent extends BaseAgent {
         displayName: preDisplayName,
         capturedAt: Date.now(),
       });
-      this.debug(`Captured pre-tool metadata for ${toolName} (${toolCallId}): intent=${!!preIntent}, displayName=${!!preDisplayName}`);
+      this.debug(`Captured pre-tool metadata for ${toolName} (${toolCallId}, sessionId=${debugSessionId}): intent=${!!preIntent}, displayName=${!!preDisplayName}`);
     }
 
     // Fire PreToolUse automation event — await so automations run before tool executes
@@ -926,7 +927,7 @@ export class PiAgent extends BaseAgent {
       hasSourceActivation: !!this.onSourceActivationRequest,
       permissionManager: this.permissionManager,
       prerequisiteManager: this.prerequisiteManager,
-      onDebug: (msg) => this.debug(`PreToolUse: ${msg}`),
+      onDebug: (msg) => this.debug(`PreToolUse(sessionId=${sessionId}): ${msg}`),
     });
 
     switch (checkResult.type) {
@@ -955,7 +956,7 @@ export class PiAgent extends BaseAgent {
 
       case 'source_activation_needed': {
         const { sourceSlug, sourceExists } = checkResult;
-        this.debug(`PreToolUse: Source "${sourceSlug}" not active, attempting activation...`);
+        this.debug(`PreToolUse(sessionId=${sessionId}): Source "${sourceSlug}" not active, attempting activation...`);
 
         if (this.onSourceActivationRequest) {
           try {
@@ -967,7 +968,7 @@ export class PiAgent extends BaseAgent {
               this.send({ type: 'pre_tool_use_response', requestId, action: 'block', reason });
               return;
             }
-            this.debug(`PreToolUse: Source "${sourceSlug}" activated successfully`);
+            this.debug(`PreToolUse(sessionId=${sessionId}): Source "${sourceSlug}" activated successfully`);
             this.eventQueue.enqueue({
               type: 'source_activated' as const,
               sourceSlug,
@@ -998,7 +999,7 @@ export class PiAgent extends BaseAgent {
           hasSourceActivation: !!this.onSourceActivationRequest,
           permissionManager: this.permissionManager,
           prerequisiteManager: this.prerequisiteManager,
-          onDebug: (msg) => this.debug(`PreToolUse: ${msg}`),
+          onDebug: (msg) => this.debug(`PreToolUse(sessionId=${sessionId}): ${msg}`),
         });
 
         if (postResult.type === 'modify') {
@@ -1029,7 +1030,7 @@ export class PiAgent extends BaseAgent {
         }
 
         const permRequestId = `pi-perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        this.debug(`PreToolUse: Prompting user for ${toolName} - ${checkResult.description}`);
+        this.debug(`PreToolUse(sessionId=${sessionId}): Prompting user for ${toolName} - ${checkResult.description}`);
 
         // Wait for user response via pendingPermissions
         const permissionPromise = new Promise<boolean>((resolve) => {
@@ -1634,6 +1635,12 @@ export class PiAgent extends BaseAgent {
 
       // Build context from sources
       const sourceContext = this.sourceManager.formatSourceState();
+
+      const promptModeDiagnostics = getPermissionModeDiagnostics(this._sessionId)
+      this.debug(
+        `[ModeSnapshot] sessionId=${this._sessionId} chatPrompt mode=${promptModeDiagnostics.permissionMode} ` +
+        `modeVersion=${promptModeDiagnostics.modeVersion} changedBy=${promptModeDiagnostics.lastChangedBy} changedAt=${promptModeDiagnostics.lastChangedAt}`
+      )
 
       // Build context parts using centralized PromptBuilder
       const contextParts = this.promptBuilder.buildContextParts(

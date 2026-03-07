@@ -5,12 +5,14 @@ import { SetupAuthBanner } from '@/components/app-shell/SetupAuthBanner'
 import { TurnCard, type ActivityItem } from '@craft-agent/ui'
 import type { BackgroundTask } from '@/components/app-shell/ActiveTasksBar'
 import { ActiveOptionBadges } from '@/components/app-shell/ActiveOptionBadges'
-import { InputContainer } from '@/components/app-shell/input'
+import { ChatInputZone, InputContainer } from '@/components/app-shell/input'
 import type { StructuredResponse } from '@/components/app-shell/input/structured/types'
 import { EmptyStateHint, getHintCount, getHintTemplate } from '@/components/chat/EmptyStateHint'
 import { Button } from '@/components/ui/button'
 import { motion } from 'motion/react'
-import { ArrowUp, Paperclip, ChevronDown, Sparkles } from 'lucide-react'
+import { ArrowUp, Paperclip, ChevronDown, Circle, Sparkles } from 'lucide-react'
+import type { LabelConfig } from '@craft-agent/shared/labels'
+import type { SessionStatus } from '@/config/session-status-config'
 import type { FileAttachment, PermissionRequest, PermissionMode } from '../../../shared/types'
 import { cn } from '@/lib/utils'
 import {
@@ -21,6 +23,7 @@ import {
   sampleImageAttachment,
   samplePdfAttachment,
 } from '../mock-utils'
+import { mockAdminApprovalRequest } from '../adapters/input-adapters'
 
 const sampleCodeAttachment: FileAttachment = {
   type: 'text',
@@ -124,6 +127,40 @@ const longRunningTasks: BackgroundTask[] = [
     startTime: Date.now() - 12000, // 12s
     elapsedSeconds: 12,
     intent: 'Run tests',
+  },
+]
+
+const inputContainerSampleLabels: LabelConfig[] = [
+  { id: 'bug', name: 'Bug', color: { light: '#EF4444', dark: '#F87171' } },
+  { id: 'priority', name: 'Priority', color: { light: '#F59E0B', dark: '#FBBF24' }, valueType: 'number' },
+  { id: 'due-date', name: 'Due Date', color: { light: '#3B82F6', dark: '#60A5FA' }, valueType: 'date' },
+  { id: 'sprint', name: 'Sprint', color: { light: '#8B5CF6', dark: '#A78BFA' }, valueType: 'string' },
+]
+
+const inputContainerSampleStatuses: SessionStatus[] = [
+  {
+    id: 'todo',
+    label: 'Todo',
+    resolvedColor: 'var(--muted-foreground)',
+    icon: <Circle className="h-3.5 w-3.5" strokeWidth={1.5} />,
+    iconColorable: true,
+    category: 'open',
+  },
+  {
+    id: 'in-progress',
+    label: 'In Progress',
+    resolvedColor: 'var(--info)',
+    icon: <Circle className="h-3.5 w-3.5" strokeWidth={1.5} />,
+    iconColorable: true,
+    category: 'open',
+  },
+  {
+    id: 'done',
+    label: 'Done',
+    resolvedColor: 'var(--success)',
+    icon: <Circle className="h-3.5 w-3.5" strokeWidth={1.5} />,
+    iconColorable: true,
+    category: 'closed',
   },
 ]
 
@@ -440,6 +477,174 @@ const deepNestedActivities: ActivityItem[] = [
     depth: 1,
   },
 ]
+
+type InputContainerMode = 'freeform' | 'permission' | 'admin_approval'
+
+interface InputContainerPlaygroundProps {
+  disabled?: boolean
+  isProcessing?: boolean
+  placeholder?: string
+  currentModel?: string
+  permissionMode?: PermissionMode
+  workingDirectory?: string
+  inputMode?: InputContainerMode
+  compactMode?: boolean
+  showOptionBadges?: boolean
+  showTasks?: boolean
+  showLabels?: boolean
+  showStatuses?: boolean
+  labelCount?: number
+  showSources?: boolean
+  sourceCount?: number
+  showWorkingDirectory?: boolean
+  showFollowUps?: boolean
+  followUpCount?: number
+}
+
+function InputContainerPlayground({
+  disabled = false,
+  isProcessing = false,
+  placeholder = 'Message Craft Agent...',
+  currentModel = 'claude-sonnet-4-6',
+  permissionMode = 'ask',
+  workingDirectory = '/Users/demo/projects/craft-agent',
+  inputMode = 'freeform',
+  compactMode = false,
+  showOptionBadges = true,
+  showTasks = true,
+  showLabels = true,
+  showStatuses = true,
+  labelCount = 3,
+  showSources = true,
+  sourceCount = 2,
+  showWorkingDirectory = true,
+  showFollowUps = false,
+  followUpCount = 2,
+}: InputContainerPlaygroundProps) {
+  const [model, setModel] = React.useState(currentModel)
+  const [mode, setMode] = React.useState<PermissionMode>(permissionMode)
+  const [inputValue, setInputValue] = React.useState('')
+  const [currentSessionStatus, setCurrentSessionStatus] = React.useState('in-progress')
+  const [cwd, setCwd] = React.useState(workingDirectory)
+
+  React.useEffect(() => {
+    ensureMockElectronAPI()
+  }, [])
+
+  React.useEffect(() => {
+    setModel(currentModel)
+  }, [currentModel])
+
+  React.useEffect(() => {
+    setMode(permissionMode)
+  }, [permissionMode])
+
+  React.useEffect(() => {
+    setCwd(workingDirectory)
+  }, [workingDirectory])
+
+  const labels = React.useMemo(() => inputContainerSampleLabels.slice(0, Math.max(1, Math.min(labelCount, inputContainerSampleLabels.length))), [labelCount])
+
+  const [sessionLabels, setSessionLabels] = React.useState<string[]>(['bug', 'priority::2', 'sprint::Q1-S3'])
+
+  React.useEffect(() => {
+    const next = labels.map((label) => {
+      if (label.id === 'priority') return 'priority::2'
+      if (label.id === 'due-date') return 'due-date::2026-03-15'
+      if (label.id === 'sprint') return 'sprint::Q1-S3'
+      return label.id
+    })
+    setSessionLabels(next)
+  }, [labels])
+
+  const sources = React.useMemo(() => mockSources.slice(0, Math.max(1, Math.min(sourceCount, mockSources.length))), [sourceCount])
+  const defaultEnabled = React.useMemo(() => sources.slice(0, Math.min(2, sources.length)).map(source => source.config.slug), [sources])
+  const [enabledSourceSlugs, setEnabledSourceSlugs] = React.useState<string[]>(defaultEnabled)
+
+  React.useEffect(() => {
+    setEnabledSourceSlugs(defaultEnabled)
+  }, [defaultEnabled])
+
+  const followUpItems = React.useMemo(() => {
+    const samples = [
+      { id: 'fu-a', index: 1, excerpt: 'Include OAuth refresh edge cases', note: 'Prevent stale token from discarding draft input.' },
+      { id: 'fu-b', index: 2, excerpt: 'Validate animation with permission mode transitions', note: 'Check compact mode and quick mode switching.' },
+      { id: 'fu-c', index: 3, excerpt: 'Review label + source badge density on narrow widths' },
+      { id: 'fu-d', index: 4, excerpt: 'Add chip click affordance for jumping back to annotation' },
+    ]
+    if (!showFollowUps) return []
+    return samples.slice(0, Math.max(1, Math.min(followUpCount, samples.length)))
+  }, [showFollowUps, followUpCount])
+
+  const structuredInput = React.useMemo(() => {
+    if (inputMode === 'permission') {
+      return {
+        type: 'permission' as const,
+        data: samplePermissionRequest,
+      }
+    }
+
+    if (inputMode === 'admin_approval') {
+      return {
+        type: 'admin_approval' as const,
+        data: mockAdminApprovalRequest({
+          appName: 'Docker Desktop',
+          reason: 'Homebrew needs admin access to complete post-install steps.',
+          impact: 'May install files in /Applications and system-managed directories.',
+          command: 'brew install --cask docker',
+        }),
+      }
+    }
+
+    return undefined
+  }, [inputMode])
+
+  return (
+    <div className="w-full h-full flex flex-col bg-background">
+      <div className="flex-1" />
+
+      <ChatInputZone
+        compactMode={compactMode}
+        showOptionBadges={showOptionBadges}
+        permissionMode={mode}
+        onPermissionModeChange={setMode}
+        tasks={showTasks ? sampleBackgroundTasks : []}
+        sessionId="playground-session"
+        onKillTask={(taskId) => console.log('[Playground] Kill task:', taskId)}
+        onInsertMessage={setInputValue}
+        sessionLabels={showLabels ? sessionLabels : []}
+        labels={showLabels ? labels : []}
+        onLabelsChange={setSessionLabels}
+        sessionStatuses={showStatuses ? inputContainerSampleStatuses : []}
+        currentSessionStatus={showStatuses ? currentSessionStatus : undefined}
+        onSessionStatusChange={setCurrentSessionStatus}
+        inputProps={{
+          placeholder,
+          disabled,
+          isProcessing,
+          structuredInput,
+          onStructuredResponse: (response) => {
+            console.log('[Playground] Structured response:', response)
+          },
+          currentModel: model,
+          sources: showSources ? sources : [],
+          enabledSourceSlugs: showSources ? enabledSourceSlugs : [],
+          onSourcesChange: showSources ? setEnabledSourceSlugs : undefined,
+          workingDirectory: showWorkingDirectory ? cwd : undefined,
+          onWorkingDirectoryChange: showWorkingDirectory ? setCwd : undefined,
+          followUpItems,
+          onSubmit: mockInputCallbacks.onSubmit,
+          onModelChange: setModel,
+          onInputChange: setInputValue,
+          inputValue,
+          onHeightChange: mockInputCallbacks.onHeightChange,
+          onFocusChange: mockInputCallbacks.onFocusChange,
+          onStop: mockInputCallbacks.onStop,
+        }}
+      />
+    </div>
+  )
+}
 
 /**
  * Contextual wrapper for ActiveTasksBar showing it with messages and input
@@ -903,10 +1108,24 @@ export const chatComponents: ComponentEntry[] = [
     id: 'input-container',
     name: 'InputContainer',
     category: 'Chat Inputs',
-    description: 'Full-featured chat input with attachments, model selector, slash commands, permission mode, sources, and working directory',
-    component: InputContainer,
+    description: 'App-like input zone with max-width layout, active option badges, labels, statuses, tasks, and full InputContainer behavior',
+    component: InputContainerPlayground,
     layout: 'full',
+    previewOverflow: 'visible',
     props: [
+      {
+        name: 'inputMode',
+        description: 'Input mode rendered by InputContainer',
+        control: {
+          type: 'select',
+          options: [
+            { label: 'Freeform', value: 'freeform' },
+            { label: 'Permission', value: 'permission' },
+            { label: 'Admin Approval', value: 'admin_approval' },
+          ],
+        },
+        defaultValue: 'freeform',
+      },
       {
         name: 'disabled',
         description: 'Disable all inputs',
@@ -916,6 +1135,12 @@ export const chatComponents: ComponentEntry[] = [
       {
         name: 'isProcessing',
         description: 'Show processing state (disables send, shows stop)',
+        control: { type: 'boolean' },
+        defaultValue: false,
+      },
+      {
+        name: 'compactMode',
+        description: 'Compact mode used by embedded editors/popovers',
         control: { type: 'boolean' },
         defaultValue: false,
       },
@@ -952,46 +1177,152 @@ export const chatComponents: ComponentEntry[] = [
         defaultValue: 'ask',
       },
       {
+        name: 'showOptionBadges',
+        description: 'Show the ActiveOptionBadges row above input',
+        control: { type: 'boolean' },
+        defaultValue: true,
+      },
+      {
+        name: 'showTasks',
+        description: 'Include background tasks in badges row',
+        control: { type: 'boolean' },
+        defaultValue: true,
+      },
+      {
+        name: 'showLabels',
+        description: 'Include label badges and value editing',
+        control: { type: 'boolean' },
+        defaultValue: true,
+      },
+      {
+        name: 'labelCount',
+        description: 'Number of label configs to show',
+        control: { type: 'number', min: 1, max: 4, step: 1 },
+        defaultValue: 3,
+      },
+      {
+        name: 'showStatuses',
+        description: 'Include session status badge and menu',
+        control: { type: 'boolean' },
+        defaultValue: true,
+      },
+      {
+        name: 'showSources',
+        description: 'Enable sources selector badge and source mentions',
+        control: { type: 'boolean' },
+        defaultValue: true,
+      },
+      {
+        name: 'sourceCount',
+        description: 'How many sources are available in selector',
+        control: { type: 'number', min: 1, max: 4, step: 1 },
+        defaultValue: 2,
+      },
+      {
+        name: 'showWorkingDirectory',
+        description: 'Show working directory context badge',
+        control: { type: 'boolean' },
+        defaultValue: true,
+      },
+      {
         name: 'workingDirectory',
         description: 'Current working directory',
         control: { type: 'string', placeholder: '/path/to/project' },
         defaultValue: '/Users/demo/projects/craft-agent',
       },
+      {
+        name: 'showFollowUps',
+        description: 'Show follow-up annotation chips above editor',
+        control: { type: 'boolean' },
+        defaultValue: false,
+      },
+      {
+        name: 'followUpCount',
+        description: 'Number of follow-up chips to preview',
+        control: { type: 'number', min: 1, max: 4, step: 1 },
+        defaultValue: 2,
+      },
     ],
-    mockData: () => {
-      // Ensure electronAPI is available
-      ensureMockElectronAPI()
-
-      return {
-        sources: mockSources,
-        enabledSourceSlugs: ['github-api', 'local-files'],
-        sessionId: 'playground-session',
-        ...mockInputCallbacks,
-      }
-    },
+    mockData: () => ({}),
     variants: [
       {
-        name: 'Default',
-        description: 'Normal state',
+        name: 'Default (Comprehensive)',
+        description: 'App-like full setup with badges, labels, statuses, sources, and working directory',
         props: {},
       },
       {
-        name: 'Processing',
-        description: 'While agent is processing',
+        name: 'Minimal',
+        description: 'Input only — no badges, no sources, no cwd badge',
         props: {
-          isProcessing: true,
+          showOptionBadges: false,
+          showSources: false,
+          showWorkingDirectory: false,
         },
       },
       {
-        name: 'Safe Mode',
-        description: 'Read-only permission mode',
+        name: 'Processing + Tasks',
+        description: 'Streaming/processing state with background task badges',
+        props: {
+          isProcessing: true,
+          showTasks: true,
+          showOptionBadges: true,
+        },
+      },
+      {
+        name: 'Safe + Compact',
+        description: 'Explore mode style in compact embedding',
         props: {
           permissionMode: 'safe',
+          compactMode: true,
+          showTasks: false,
+        },
+      },
+      {
+        name: 'Permission Mode UI',
+        description: 'Structured permission request replaces freeform input',
+        props: {
+          inputMode: 'permission',
+          showFollowUps: false,
+        },
+      },
+      {
+        name: 'Admin Approval UI',
+        description: 'Structured admin approval request state',
+        props: {
+          inputMode: 'admin_approval',
+          showFollowUps: false,
+        },
+      },
+      {
+        name: 'Label-heavy Review',
+        description: 'Many labels + status for metadata density checks',
+        props: {
+          showLabels: true,
+          labelCount: 4,
+          showStatuses: true,
+          showTasks: false,
+        },
+      },
+      {
+        name: 'Source-heavy Review',
+        description: 'Multiple source avatars and source selector stress test',
+        props: {
+          showSources: true,
+          sourceCount: 4,
+          showWorkingDirectory: false,
+        },
+      },
+      {
+        name: 'Follow-up Review',
+        description: 'Follow-up annotation chips visible in input',
+        props: {
+          showFollowUps: true,
+          followUpCount: 3,
         },
       },
       {
         name: 'Disabled',
-        description: 'Fully disabled',
+        description: 'Fully disabled state',
         props: {
           disabled: true,
         },

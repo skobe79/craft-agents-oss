@@ -913,6 +913,13 @@ import { readdirSync } from 'fs';
 const APP_THEME_FILE = join(CONFIG_DIR, 'theme.json');
 const APP_THEMES_DIR = join(CONFIG_DIR, 'themes');
 
+/**
+ * Get the path to the app-level theme override file (~/.craft-agent/theme.json).
+ */
+export function getAppThemePath(): string {
+  return APP_THEME_FILE;
+}
+
 // Track if preset themes have been synced this session (prevents re-init on hot reload)
 let presetsInitialized = false;
 

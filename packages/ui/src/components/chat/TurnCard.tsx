@@ -1325,6 +1325,8 @@ export interface ResponseCardProps {
   onPopOut?: () => void
   /** Card variant - 'response' for AI messages, 'plan' for plan messages */
   variant?: 'response' | 'plan'
+  /** Parent session ID (used to reset local annotation/island UI state on session switches) */
+  sessionId?: string
   /** Underlying message ID for annotation actions */
   messageId?: string
   /** Persisted annotations for this response */
@@ -1967,6 +1969,7 @@ export function ResponseCard({
   onOpenUrl,
   onPopOut,
   variant = 'response',
+  sessionId,
   messageId,
   annotations,
   onAccept,
@@ -1997,6 +2000,7 @@ export function ResponseCard({
   const [activeSelectionMenuSize, setActiveSelectionMenuSize] = useState<IslandActiveViewSize | null>(null)
   const [selectionMenuRenderAnchor, setSelectionMenuRenderAnchor] = useState<{ x: number; y: number } | null>(null)
   const [selectionMenuRenderSourceKey, setSelectionMenuRenderSourceKey] = useState('none')
+  const [selectionMenuShowNonce, setSelectionMenuShowNonce] = useState(0)
   const [isSelectionMenuVisible, setIsSelectionMenuVisible] = useState(false)
   const [selectionMenuTransitionConfig, setSelectionMenuTransitionConfig] = useState<IslandTransitionConfig>(
     buildAnnotationChipEntryTransition()
@@ -2007,6 +2011,7 @@ export function ResponseCard({
   const selectionMenuRef = useRef<HTMLDivElement>(null)
   const lastPointerRef = useRef<PointerSnapshot | null>(null)
   const dragStartPointerRef = useRef<PointerSnapshot | null>(null)
+  const selectionMenuOpenedAtRef = useRef(0)
   const selectionStartedInContentRef = useRef(false)
 
   // Detect dark mode from document class and listen for changes
@@ -2028,6 +2033,30 @@ export function ResponseCard({
     setFollowUpDraft('')
     setActiveAnnotationDetail(null)
   }, [])
+
+  const debugSelectionIsland = useCallback((event: string, payload?: unknown) => {
+    if (typeof window === 'undefined') return
+
+    const electronApi = (window as typeof window & {
+      electronAPI?: { debugLog?: (...args: unknown[]) => void }
+    }).electronAPI
+
+    electronApi?.debugLog?.('[SelectionIsland]', event, payload ?? null)
+  }, [])
+
+  const triggerSelectionMenuEntryReplay = useCallback((reason: 'selection-open' | 'annotation-open') => {
+    setSelectionMenuShowNonce((prev) => {
+      const next = prev + 1
+      debugSelectionIsland('replay-trigger', {
+        reason,
+        prevNonce: prev,
+        nextNonce: next,
+        sessionId: sessionId ?? null,
+        messageId: messageId ?? null,
+      })
+      return next
+    })
+  }, [debugSelectionIsland, sessionId, messageId])
 
   const handleCopy = useCallback(async () => {
     try {
@@ -2154,7 +2183,19 @@ export function ResponseCard({
   }, [variant, isStreaming, messageId, closeSelectionMenu])
 
   useEffect(() => {
-    if (!pendingSelection && !activeAnnotationDetail) return
+    // Session switches should fully reset local island UI state to avoid stale
+    // "hot" instances suppressing entry animations in the newly focused session.
+    closeSelectionMenu()
+    setSelectionMenuRenderAnchor(null)
+    setSelectionMenuRenderSourceKey('none')
+    setIsSelectionMenuVisible(false)
+    setActiveSelectionMenuSize(null)
+    dragStartPointerRef.current = null
+    lastPointerRef.current = null
+  }, [sessionId, closeSelectionMenu])
+
+  useEffect(() => {
+    if ((!pendingSelection && !activeAnnotationDetail) || !isSelectionMenuVisible) return
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null
@@ -2180,6 +2221,12 @@ export function ResponseCard({
     const handleScroll = (event: Event) => {
       const target = event.target as Node | null
 
+      // Ignore transient scroll events emitted as part of the same interaction frame
+      // that opened the island (selection/layout side effects).
+      if (Date.now() - selectionMenuOpenedAtRef.current < 180) {
+        return
+      }
+
       // Never auto-dismiss while in expanded island views.
       if (selectionMenuView !== 'compact') {
         return
@@ -2194,6 +2241,10 @@ export function ResponseCard({
     }
 
     const handleSelectionChange = () => {
+      if (Date.now() - selectionMenuOpenedAtRef.current < 180) {
+        return
+      }
+
       const root = contentLayerRef.current
       if (!root) {
         closeSelectionMenu()
@@ -2234,7 +2285,7 @@ export function ResponseCard({
       window.removeEventListener('scroll', handleScroll, true)
       document.removeEventListener('selectionchange', handleSelectionChange)
     }
-  }, [pendingSelection, activeAnnotationDetail, closeSelectionMenu, selectionMenuView])
+  }, [pendingSelection, activeAnnotationDetail, isSelectionMenuVisible, closeSelectionMenu, selectionMenuView])
 
   const handleSelectionMenuMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null
@@ -2348,12 +2399,23 @@ export function ResponseCard({
       { type: 'note' }
     > | undefined
 
-    setSelectionMenuTransitionConfig(buildAnnotationChipEntryTransition())
+    const transition = buildAnnotationChipEntryTransition()
+    debugSelectionIsland('annotation-open-intent', {
+      sessionId: sessionId ?? null,
+      messageId: messageId ?? null,
+      annotationId,
+      anchorX,
+      anchorY,
+      transition,
+    })
+
+    setSelectionMenuTransitionConfig(transition)
+    triggerSelectionMenuEntryReplay('annotation-open')
     setPendingSelection(null)
     setFollowUpDraft(noteBody?.text ?? '')
     setActiveAnnotationDetail({ annotationId, index, anchorX, anchorY })
     setSelectionMenuView('confirm-follow-up')
-  }, [annotations])
+  }, [annotations, debugSelectionIsland, sessionId, messageId, triggerSelectionMenuEntryReplay])
 
   const handleDeleteActiveAnnotation = useCallback(() => {
     if (!onRemoveAnnotation || !messageId || !activeAnnotationDetail) return
@@ -2470,7 +2532,19 @@ export function ResponseCard({
         : (anchorRect.left + (anchorRect.width / 2))
       const anchorY = anchorRect.top - 8
 
-      setSelectionMenuTransitionConfig(buildSelectionEntryTransition(dragStartPointerRef.current, pointer))
+      const transition = buildSelectionEntryTransition(dragStartPointerRef.current, pointer)
+      debugSelectionIsland('selection-open-intent', {
+        sessionId: sessionId ?? null,
+        messageId: messageId ?? null,
+        selectionRange: { start, end },
+        pointer: pointer ?? null,
+        dragStart: dragStartPointerRef.current,
+        anchor: { x: anchorX, y: anchorY },
+        transition,
+      })
+
+      setSelectionMenuTransitionConfig(transition)
+      triggerSelectionMenuEntryReplay('selection-open')
       setSelectionMenuView('compact')
       setFollowUpDraft('')
       setActiveSelectionMenuSize(null)
@@ -2485,7 +2559,7 @@ export function ResponseCard({
       })
       dragStartPointerRef.current = null
     })
-  }, [annotations, closeSelectionMenu])
+  }, [annotations, closeSelectionMenu, debugSelectionIsland, sessionId, messageId, triggerSelectionMenuEntryReplay])
 
   const handleTextSelection = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (!onAddAnnotation || !messageId || variant !== 'response' || isStreaming) return
@@ -2606,34 +2680,89 @@ export function ResponseCard({
   }, [pendingSelection, activeAnnotationDetail])
 
   const selectionMenuSourceKey = useMemo(() => {
+    const sessionScope = sessionId ?? 'no-session'
+    const messageScope = messageId ?? 'no-message'
+
     if (pendingSelection) {
-      return `selection:${pendingSelection.start}:${pendingSelection.end}`
+      return `${sessionScope}:${messageScope}:selection:${pendingSelection.start}:${pendingSelection.end}`
     }
 
     if (activeAnnotationDetail) {
-      return `annotation:${activeAnnotationDetail.annotationId}`
+      return `${sessionScope}:${messageScope}:annotation:${activeAnnotationDetail.annotationId}`
     }
 
-    return 'none'
-  }, [pendingSelection, activeAnnotationDetail])
+    return `${sessionScope}:${messageScope}:none`
+  }, [sessionId, messageId, pendingSelection, activeAnnotationDetail])
 
   useEffect(() => {
     if (activeMenuAnchor) {
+      debugSelectionIsland('anchor-sync-open', {
+        sessionId: sessionId ?? null,
+        messageId: messageId ?? null,
+        activeMenuAnchor,
+        selectionMenuSourceKey,
+      })
+
+      selectionMenuOpenedAtRef.current = Date.now()
       setSelectionMenuRenderAnchor(activeMenuAnchor)
       setSelectionMenuRenderSourceKey(selectionMenuSourceKey)
       setIsSelectionMenuVisible(true)
+    }
+
+    const openedRecently = Date.now() - selectionMenuOpenedAtRef.current < 220
+    if (openedRecently && selectionMenuRenderAnchor) {
+      debugSelectionIsland('anchor-sync-close-skipped', {
+        sessionId: sessionId ?? null,
+        messageId: messageId ?? null,
+        selectionMenuSourceKey,
+        openedRecently,
+      })
       return
     }
 
+    debugSelectionIsland('anchor-sync-close', {
+      sessionId: sessionId ?? null,
+      messageId: messageId ?? null,
+      selectionMenuSourceKey,
+    })
     setIsSelectionMenuVisible(false)
-  }, [activeMenuAnchor, selectionMenuSourceKey])
+  }, [activeMenuAnchor, selectionMenuSourceKey, selectionMenuRenderAnchor, debugSelectionIsland, sessionId, messageId])
+
+  useEffect(() => {
+    debugSelectionIsland('render-state', {
+      sessionId: sessionId ?? null,
+      messageId: messageId ?? null,
+      isSelectionMenuVisible,
+      selectionMenuShowNonce,
+      selectionMenuRenderSourceKey,
+      selectionMenuSourceKey,
+      selectionMenuRenderAnchor,
+      activeMenuAnchor,
+    })
+  }, [
+    debugSelectionIsland,
+    sessionId,
+    messageId,
+    isSelectionMenuVisible,
+    selectionMenuShowNonce,
+    selectionMenuRenderSourceKey,
+    selectionMenuSourceKey,
+    selectionMenuRenderAnchor,
+    activeMenuAnchor,
+  ])
 
   const handleSelectionMenuExitComplete = useCallback(() => {
+    debugSelectionIsland('exit-complete', {
+      sessionId: sessionId ?? null,
+      messageId: messageId ?? null,
+      activeMenuAnchor,
+    })
+
     if (activeMenuAnchor) return
     setSelectionMenuRenderAnchor(null)
     setSelectionMenuRenderSourceKey('none')
     setActiveSelectionMenuSize(null)
-  }, [activeMenuAnchor])
+  }, [activeMenuAnchor, debugSelectionIsland, sessionId, messageId])
 
   const selectionMenuAnchorX = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -2668,6 +2797,8 @@ export function ResponseCard({
             onActiveViewSizeChange={setActiveSelectionMenuSize}
             isVisible={isSelectionMenuVisible}
             onExitComplete={handleSelectionMenuExitComplete}
+            replayEntryKey={`${selectionMenuRenderSourceKey}:${selectionMenuShowNonce}`}
+            replayOnVisible="always"
             transitionConfig={selectionMenuTransitionConfig}
           >
             <IslandContentView id="compact" anchorX="center" anchorY="bottom">
@@ -3461,6 +3592,7 @@ export const TurnCard = React.memo(function TurnCard({
           <ResponseCard
             text={planActivity.content || ''}
             isStreaming={false}
+            sessionId={sessionId}
             onOpenFile={onOpenFile}
             onOpenUrl={onOpenUrl}
             onPopOut={onPopOut ? () => onPopOut(planActivity.content || '') : undefined}
@@ -3490,6 +3622,7 @@ export const TurnCard = React.memo(function TurnCard({
                 text={response.text}
                 isStreaming={response.isStreaming}
                 streamStartTime={response.streamStartTime}
+                sessionId={sessionId}
                 onOpenFile={onOpenFile}
                 onOpenUrl={onOpenUrl}
                 onPopOut={onPopOut ? () => onPopOut(response.text) : undefined}
@@ -3517,6 +3650,7 @@ export const TurnCard = React.memo(function TurnCard({
             text={response.text}
             isStreaming={response.isStreaming}
             streamStartTime={response.streamStartTime}
+            sessionId={sessionId}
             onOpenFile={onOpenFile}
             onOpenUrl={onOpenUrl}
             onPopOut={onPopOut ? () => onPopOut(response.text) : undefined}
@@ -3563,7 +3697,8 @@ export const TurnCard = React.memo(function TurnCard({
   // Re-render when response object changes (e.g., annotation updates)
   if (prev.response !== next.response) return false
 
-  // For complete, non-streaming turns: skip re-render if same turn
-  // These are static and safe to cache
-  return prev.turnId === next.turnId
+  // For complete, non-streaming turns: skip re-render only when both
+  // session and turn identities match. Prevents stale local UI state from
+  // leaking across session switches that may reuse turn IDs/components.
+  return prev.sessionId === next.sessionId && prev.turnId === next.turnId
 })

@@ -45,8 +45,7 @@ import type { PermissionMode } from "@craft-agent/shared/agent/modes"
 import type { ThinkingLevel } from "@craft-agent/shared/agent/thinking-levels"
 import { TurnCard, UserMessageBubble, groupMessagesByTurn, formatTurnAsMarkdown, formatActivityAsMarkdown, getAssistantTurnUiKey, type Turn, type AssistantTurn, type UserTurn, type SystemTurn, type AuthRequestTurn } from "@craft-agent/ui"
 import { MemoizedAuthRequestCard } from "@/components/chat/AuthRequestCard"
-import { ActiveOptionBadges } from "./ActiveOptionBadges"
-import { InputContainer, type StructuredInputState, type StructuredResponse, type PermissionResponse, type AdminApprovalResponse } from "./input"
+import { ChatInputZone, type StructuredInputState, type StructuredResponse, type PermissionResponse, type AdminApprovalResponse } from "./input"
 import type { RichTextInputHandle } from "@/components/ui/rich-text-input"
 import { useBackgroundTasks } from "@/hooks/useBackgroundTasks"
 import { useTurnCardExpansion } from "@/hooks/useTurnCardExpansion"
@@ -54,7 +53,6 @@ import { useNavigation } from "@/contexts/NavigationContext"
 import { useAppShellContext } from "@/context/AppShellContext"
 import { routes } from "@/lib/navigate"
 import { CHAT_LAYOUT } from "@/config/layout"
-import { flattenLabels } from "@craft-agent/shared/labels"
 import { resolveBranchNewPanelOption } from "./branching"
 
 // ============================================================================
@@ -490,9 +488,6 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
     setExpandedActivityGroups,
   } = useTurnCardExpansion(session?.id)
 
-  // Track which label should auto-open its value popover after being added via # menu.
-  // Set when a valued label is selected, cleared once the popover opens.
-  const [autoOpenLabelId, setAutoOpenLabelId] = useState<string | null>(null)
 
   // ============================================================================
   // Search Highlighting (from session list search)
@@ -1723,94 +1718,57 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
           </div>
 
           {/* === INPUT CONTAINER: FreeForm or Structured Input === */}
-          <div className={cn(
-            CHAT_LAYOUT.maxWidth,
-            "mx-auto w-full px-4 mt-1",
-            compactMode ? "pb-4" : "pb-4"
-          )}>
-            {/* Active option badges and tasks - positioned above input */}
-            {!compactMode && (
-            <ActiveOptionBadges
-              permissionMode={permissionMode}
-              onPermissionModeChange={onPermissionModeChange}
-              tasks={backgroundTasks}
-              sessionId={session.id}
-              sessionFolderPath={sessionFolderPath}
-              onKillTask={(taskId) => killTask(taskId, backgroundTasks.find(t => t.id === taskId)?.type ?? 'shell')}
-              onInsertMessage={onInputChange}
-              sessionLabels={session.labels}
-              labels={labels}
-              onLabelsChange={onLabelsChange}
-              onRemoveLabel={(labelId) => {
-                // Remove label from session and persist (legacy fallback)
-                const newLabels = (session.labels || []).filter(id => id !== labelId)
-                onLabelsChange?.(newLabels)
-              }}
-              autoOpenLabelId={autoOpenLabelId}
-              onAutoOpenConsumed={() => setAutoOpenLabelId(null)}
-              sessionStatuses={sessionStatuses}
-              currentSessionStatus={session.sessionStatus || 'todo'}
-              onSessionStatusChange={onSessionStatusChange}
-            />
-            )}
-            <InputContainer
-              compactMode={compactMode}
-              placeholder={placeholder}
-              disabled={isInputDisabled}
-              isProcessing={session.isProcessing}
-              onAnimatedHeightChange={handleAnimatedHeightChange}
-              onSubmit={handleSubmit}
-              onStop={handleStop}
-              textareaRef={textareaRef}
-              currentModel={currentModel}
-              onModelChange={onModelChange}
-              thinkingLevel={thinkingLevel}
-              onThinkingLevelChange={onThinkingLevelChange}
-              permissionMode={permissionMode}
-              onPermissionModeChange={onPermissionModeChange}
-              enabledModes={enabledModes}
-              structuredInput={structuredInput}
-              onStructuredResponse={handleStructuredResponse}
-              inputValue={inputValue}
-              onInputChange={onInputChange}
-              sources={sources}
-              enabledSourceSlugs={session.enabledSourceSlugs}
-              onSourcesChange={onSourcesChange}
-              skills={skills}
-              labels={labels}
-              sessionLabels={session.labels}
-              onLabelAdd={(labelId) => {
-                // Add label to session (prevent duplicates) and persist
-                const current = session.labels || []
-                if (!current.includes(labelId)) {
-                  onLabelsChange?.([...current, labelId])
-                  // If the label has a valueType, auto-open its popover so the user
-                  // can set the value immediately without an extra click.
-                  const flat = flattenLabels(labels || [])
-                  const config = flat.find(l => l.id === labelId)
-                  if (config?.valueType) {
-                    setAutoOpenLabelId(labelId)
-                  }
-                }
-              }}
-              workspaceId={workspaceId}
-              workingDirectory={workingDirectory}
-              onWorkingDirectoryChange={onWorkingDirectoryChange}
-              sessionFolderPath={sessionFolderPath}
-              sessionId={session.id}
-              currentSessionStatus={session.sessionStatus || 'todo'}
-              disableSend={disableSend || connectionUnavailable}
-              connectionUnavailable={connectionUnavailable}
-              isEmptySession={session.messages.length === 0}
-              currentConnection={session.llmConnection}
-              onConnectionChange={onConnectionChange}
-              contextStatus={{
+          <ChatInputZone
+            compactMode={compactMode}
+            permissionMode={permissionMode}
+            onPermissionModeChange={onPermissionModeChange}
+            tasks={backgroundTasks}
+            sessionId={session.id}
+            sessionFolderPath={sessionFolderPath}
+            onKillTask={(taskId) => killTask(taskId, backgroundTasks.find(t => t.id === taskId)?.type ?? 'shell')}
+            onInsertMessage={onInputChange}
+            sessionLabels={session.labels}
+            labels={labels}
+            onLabelsChange={onLabelsChange}
+            sessionStatuses={sessionStatuses}
+            currentSessionStatus={session.sessionStatus || 'todo'}
+            onSessionStatusChange={onSessionStatusChange}
+            inputProps={{
+              placeholder,
+              disabled: isInputDisabled,
+              isProcessing: session.isProcessing,
+              onAnimatedHeightChange: handleAnimatedHeightChange,
+              onSubmit: handleSubmit,
+              onStop: handleStop,
+              textareaRef,
+              currentModel,
+              onModelChange,
+              thinkingLevel,
+              onThinkingLevelChange,
+              enabledModes,
+              structuredInput,
+              onStructuredResponse: handleStructuredResponse,
+              inputValue,
+              onInputChange,
+              sources,
+              enabledSourceSlugs: session.enabledSourceSlugs,
+              onSourcesChange,
+              skills,
+              workspaceId,
+              workingDirectory,
+              onWorkingDirectoryChange,
+              disableSend: disableSend || connectionUnavailable,
+              connectionUnavailable,
+              isEmptySession: session.messages.length === 0,
+              currentConnection: session.llmConnection,
+              onConnectionChange,
+              contextStatus: {
                 isCompacting: session.currentStatus?.statusType === 'compacting',
                 inputTokens: session.tokenUsage?.inputTokens,
                 contextWindow: session.tokenUsage?.contextWindow,
-              }}
-            />
-          </div>
+              },
+            }}
+          />
           </div>
         </div>
       ) : null}

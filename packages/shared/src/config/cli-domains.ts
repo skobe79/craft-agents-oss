@@ -1,4 +1,4 @@
-export type CliDomainNamespace = 'label' | 'source' | 'skill' | 'automation'
+export type CliDomainNamespace = 'label' | 'source' | 'skill' | 'automation' | 'permission' | 'theme'
 
 export interface CliDomainPolicy {
   namespace: CliDomainNamespace
@@ -15,7 +15,7 @@ const POLICIES: Record<CliDomainNamespace, CliDomainPolicy> = {
     namespace: 'label',
     helpCommand: 'craft-agent label --help',
     workspacePathScopes: ['labels/**'],
-    readActions: ['list', 'get'],
+    readActions: ['list', 'get', 'auto-rule-list', 'auto-rule-validate'],
     quickExamples: [
       'craft-agent label list',
       'craft-agent label create --name "Bug" --color "accent"',
@@ -27,7 +27,7 @@ const POLICIES: Record<CliDomainNamespace, CliDomainPolicy> = {
     namespace: 'source',
     helpCommand: 'craft-agent source --help',
     workspacePathScopes: ['sources/**'],
-    readActions: ['list', 'get', 'validate', 'test'],
+    readActions: ['list', 'get', 'validate', 'test', 'auth-help'],
     quickExamples: [
       'craft-agent source list',
       'craft-agent source get <slug>',
@@ -60,6 +60,33 @@ const POLICIES: Record<CliDomainNamespace, CliDomainPolicy> = {
       'craft-agent automation validate',
     ],
     bashGuardPaths: ['automations.json', 'automations-history.jsonl'],
+  },
+  permission: {
+    namespace: 'permission',
+    helpCommand: 'craft-agent permission --help',
+    workspacePathScopes: ['permissions.json', 'sources/*/permissions.json'],
+    readActions: ['list', 'get', 'validate'],
+    quickExamples: [
+      'craft-agent permission list',
+      'craft-agent permission get --source linear',
+      'craft-agent permission add-mcp-pattern "list" --comment "All list ops" --source linear',
+      'craft-agent permission validate',
+    ],
+    bashGuardPaths: ['permissions.json', 'sources/*/permissions.json'],
+  },
+  theme: {
+    namespace: 'theme',
+    helpCommand: 'craft-agent theme --help',
+    workspacePathScopes: ['config.json', 'theme.json', 'themes/*.json'],
+    readActions: ['get', 'validate', 'list-presets', 'get-preset'],
+    quickExamples: [
+      'craft-agent theme get',
+      'craft-agent theme list-presets',
+      'craft-agent theme set-color-theme nord',
+      'craft-agent theme set-workspace-color-theme default',
+      'craft-agent theme set-override --json "{\"accent\":\"#3b82f6\"}"',
+    ],
+    bashGuardPaths: ['config.json', 'theme.json', 'themes/*.json'],
   },
 }
 

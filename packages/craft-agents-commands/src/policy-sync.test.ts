@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'bun:test'
 import { getCliDomainPolicy } from '@craft-agent/shared/config'
+import type { CliDomainNamespace } from '@craft-agent/shared/config'
 import { commandPlugins } from './plugins/registry.ts'
 
 describe('command plugin policy sync', () => {
   it('keeps plugin preToolGuards and exploreAllowlist aligned with shared CLI domain policy', () => {
     for (const plugin of commandPlugins) {
-      const namespace = plugin.namespace as 'label' | 'source' | 'skill' | 'automation'
+      const namespace = plugin.namespace as CliDomainNamespace
       const sharedPolicy = getCliDomainPolicy(namespace)
 
       expect(plugin.policy?.preToolGuards?.redirectHelpCommand).toBe(sharedPolicy.helpCommand)

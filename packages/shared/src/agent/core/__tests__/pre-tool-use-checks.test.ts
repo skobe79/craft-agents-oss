@@ -23,13 +23,15 @@ let mockIsReadOnlyBashCommandWithConfig = mock(
   (_command: string, _config: any) => false
 );
 
+let mockEffectivePermissionMode: 'safe' | 'ask' | 'allow-all' = 'safe';
+
 // Paths resolve from THIS file's location (core/__tests__/)
 mock.module('../../mode-manager.ts', () => ({
   shouldAllowToolInMode: (a: any, b: any, c: any, d?: any) => mockShouldAllowToolInMode(a, b, c, d),
   isApiEndpointAllowed: (a: any, b: any, c?: any) => mockIsApiEndpointAllowed(a, b, c),
   isReadOnlyBashCommandWithConfig: (a: any, b: any) => mockIsReadOnlyBashCommandWithConfig(a, b),
   getPermissionModeDiagnostics: () => ({
-    permissionMode: 'safe',
+    permissionMode: mockEffectivePermissionMode,
     modeVersion: 7,
     lastChangedAt: '2026-02-28T18:00:00.000Z',
     lastChangedBy: 'user',
@@ -137,6 +139,7 @@ function createInput(overrides?: Partial<PreToolUseInput>): PreToolUseInput {
 
 describe('runPreToolUseChecks', () => {
   beforeEach(() => {
+    mockEffectivePermissionMode = 'safe';
     mockShouldAllowToolInMode.mockReset();
     mockShouldAllowToolInMode.mockImplementation(() => ({ allowed: true, reason: '' }));
     mockIsApiEndpointAllowed.mockReset();
@@ -209,6 +212,22 @@ describe('runPreToolUseChecks', () => {
             activeSourceSlugs: ['linear'],
           },
         }
+      );
+    });
+
+    it('uses effective mode from mode-manager diagnostics when incoming mode is stale', () => {
+      runPreToolUseChecks(createInput({
+        toolName: 'Bash',
+        input: { command: 'ls' },
+        permissionMode: 'allow-all', // stale incoming value
+      }));
+
+      // Mocked diagnostics returns permissionMode='safe', which must be authoritative.
+      expect(mockShouldAllowToolInMode).toHaveBeenCalledWith(
+        'Bash',
+        { command: 'ls' },
+        'safe',
+        expect.any(Object)
       );
     });
   });
@@ -588,6 +607,10 @@ describe('runPreToolUseChecks', () => {
   // ============================================================
 
   describe('step 6: ask-mode prompt decision', () => {
+    beforeEach(() => {
+      mockEffectivePermissionMode = 'ask';
+    });
+
     it('prompts for bash commands in ask mode', () => {
       const result = runPreToolUseChecks(createInput({
         toolName: 'Bash',
@@ -630,6 +653,8 @@ describe('runPreToolUseChecks', () => {
     });
 
     it('does not prompt in allow-all mode', () => {
+      mockEffectivePermissionMode = 'allow-all';
+
       const result = runPreToolUseChecks(createInput({
         toolName: 'Bash',
         input: { command: 'rm -rf /' },

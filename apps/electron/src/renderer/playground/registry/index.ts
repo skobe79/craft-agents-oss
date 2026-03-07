@@ -10,7 +10,6 @@ import { markdownComponents } from './markdown'
 import { iconComponents } from './icons'
 import { oauthComponents } from './oauth'
 import { toastsComponents } from './toasts'
-import { labelBadgeComponents } from './label-badges'
 import { sessionListComponents } from './session-list'
 import { editPopoverComponents } from './edit-popover'
 import { automationComponents } from './automations'
@@ -35,7 +34,6 @@ export const componentRegistry: ComponentEntry[] = [
   ...markdownComponents,
   ...iconComponents,
   ...oauthComponents,
-  ...labelBadgeComponents,
   ...sessionListComponents,
   ...editPopoverComponents,
   ...automationComponents,

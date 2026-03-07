@@ -882,7 +882,7 @@ export class ClaudeAgent extends BaseAgent {
 
               // Get current permission mode (single source of truth)
               const permissionMode = getPermissionMode(sessionId);
-              this.onDebug?.(`PreToolUse hook: ${input.tool_name} (permissionMode=${permissionMode})`);
+              this.onDebug?.(`PreToolUse hook: ${input.tool_name} (sessionId=${sessionId}, permissionMode=${permissionMode})`);
 
               const toolInput = input.tool_input as Record<string, unknown>;
 
@@ -1677,6 +1677,11 @@ export class ClaudeAgent extends BaseAgent {
     // Add context parts using centralized PromptBuilder
     // This includes: date/time, session state (with plansFolderPath),
     // workspace capabilities, and working directory context
+    const textPromptDiagnostics = getPermissionModeDiagnostics(this.modeSessionId)
+    this.debug(
+      `[ModeSnapshot] sessionId=${this.modeSessionId} buildTextPrompt mode=${textPromptDiagnostics.permissionMode} ` +
+      `modeVersion=${textPromptDiagnostics.modeVersion} changedBy=${textPromptDiagnostics.lastChangedBy} changedAt=${textPromptDiagnostics.lastChangedAt}`
+    )
     const contextParts = this.promptBuilder.buildContextParts(
       { plansFolderPath: getSessionPlansPath(this.workspaceRootPath, this.modeSessionId) },
       this.sourceManager.formatSourceState()
@@ -1718,6 +1723,11 @@ export class ClaudeAgent extends BaseAgent {
     // Add context parts using centralized PromptBuilder
     // This includes: date/time, session state (with plansFolderPath),
     // workspace capabilities, and working directory context
+    const sdkPromptDiagnostics = getPermissionModeDiagnostics(this.modeSessionId)
+    this.debug(
+      `[ModeSnapshot] sessionId=${this.modeSessionId} buildSDKUserMessage mode=${sdkPromptDiagnostics.permissionMode} ` +
+      `modeVersion=${sdkPromptDiagnostics.modeVersion} changedBy=${sdkPromptDiagnostics.lastChangedBy} changedAt=${sdkPromptDiagnostics.lastChangedAt}`
+    )
     const contextParts = this.promptBuilder.buildContextParts(
       { plansFolderPath: getSessionPlansPath(this.workspaceRootPath, this.modeSessionId) },
       this.sourceManager.formatSourceState()

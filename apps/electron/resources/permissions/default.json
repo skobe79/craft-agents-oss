@@ -1,5 +1,5 @@
 {
-  "version": "2026-03-01",
+  "version": "2026-03-07",
 
   "allowedBashPatterns": [
     { "pattern": "^ls\\b", "comment": "List directory contents" },
@@ -229,6 +229,63 @@
     { "pattern": "^gps\\b", "comment": "PowerShell: Get-Process alias" },
     { "pattern": "^gsv\\b", "comment": "PowerShell: Get-Service alias" },
     { "pattern": "^gcm\\b", "comment": "PowerShell: Get-Command alias" }
+  ],
+
+  "blockedCommandHints": [
+    {
+      "command": "printf",
+      "reason": "printf is not in the default Explore-mode read-only allowlist.",
+      "context": "Explore mode keeps a narrow command surface so harmless-looking shell forms do not accidentally expand capability.",
+      "tryInstead": [
+        "Use `echo` for simple separators and labels.",
+        "Switch to Ask mode for this command.",
+        "Allowlist printf in permissions.json if your workspace wants it in Explore mode."
+      ],
+      "example": "echo '--- files ---'"
+    },
+    {
+      "command": "sed",
+      "reason": "Only print-only sed is allowed in Explore mode by default.",
+      "context": "Default safe pattern is `^sed\\s+-n\\b` (inspection, not in-place transformation).",
+      "whenNotMatching": "^sed\\s+-n\\b",
+      "tryInstead": [
+        "Use `sed -n ...` for read-only inspection.",
+        "Switch to Ask mode for transform commands."
+      ],
+      "example": "sed -n '1,80p' file.txt"
+    },
+    {
+      "command": "awk",
+      "reason": "awk is blocked when the command appears to execute external commands.",
+      "context": "Forms like `system(...)`, command-pipe `getline`, or `print | \"cmd\"` can run arbitrary processes.",
+      "tryInstead": [
+        "Use awk without execution primitives for read-only text extraction.",
+        "Switch to Ask mode for advanced scripts."
+      ]
+    },
+    {
+      "command": "gawk",
+      "reason": "gawk is blocked when the command appears to execute external commands.",
+      "context": "Forms like `system(...)`, command-pipe `getline`, or `print | \"cmd\"` can run arbitrary processes."
+    },
+    {
+      "command": "mawk",
+      "reason": "mawk is blocked when the command appears to execute external commands.",
+      "context": "Forms like `system(...)`, command-pipe `getline`, or `print | \"cmd\"` can run arbitrary processes."
+    },
+    {
+      "command": "nawk",
+      "reason": "nawk is blocked when the command appears to execute external commands.",
+      "context": "Forms like `system(...)`, command-pipe `getline`, or `print | \"cmd\"` can run arbitrary processes."
+    },
+    {
+      "command": "xargs",
+      "reason": "xargs is not allowlisted in Explore mode because it can execute arbitrary commands from input.",
+      "tryInstead": [
+        "Use dedicated read-only commands directly.",
+        "Switch to Ask mode when command execution from piped input is necessary."
+      ]
+    }
   ],
 
   "allowedMcpPatterns": [

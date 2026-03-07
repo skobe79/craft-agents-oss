@@ -105,6 +105,26 @@ const PatternSchema = z.union([
 ]);
 
 /**
+ * Command-specific block hint for clearer Explore-mode rejection messages.
+ */
+const BlockedCommandHintSchema = z.object({
+  /** Command name (normalized lowercase base command, e.g. "printf") */
+  command: z.string(),
+  /** Primary reason shown when command is blocked */
+  reason: z.string(),
+  /** Additional policy/risk context */
+  context: z.string().optional(),
+  /** Suggested alternatives or next actions */
+  tryInstead: z.array(z.string()).optional(),
+  /** Concrete example command */
+  example: z.string().optional(),
+  /** Apply this hint only when the command does NOT match this regex */
+  whenNotMatching: z.string().optional(),
+});
+
+export type BlockedCommandHintRule = z.infer<typeof BlockedCommandHintSchema>;
+
+/**
  * Permissions JSON configuration schema
  *
  * Note: Core write tools (Write, Edit, MultiEdit, NotebookEdit) are hardcoded in
@@ -124,6 +144,8 @@ export const PermissionsConfigSchema = z.object({
   allowedWritePaths: z.array(PatternSchema).optional(),
   /** Additional tools to block (extends the hardcoded defaults) */
   blockedTools: z.array(PatternSchema).optional(),
+  /** Command-specific hint messages for blocked Bash commands */
+  blockedCommandHints: z.array(BlockedCommandHintSchema).optional(),
 });
 
 export type PermissionsConfigFile = z.infer<typeof PermissionsConfigSchema>;
@@ -152,6 +174,21 @@ export interface CompiledBashPattern {
   source: string;
   /** Human-readable comment explaining what this pattern allows */
   comment?: string;
+}
+
+/**
+ * Runtime command-specific hint for blocked Bash commands.
+ */
+export interface CompiledBlockedCommandHint {
+  /** Base command token (lowercase), e.g. "printf" */
+  command: string;
+  reason: string;
+  context?: string;
+  tryInstead?: string[];
+  example?: string;
+  /** Optional condition: hint applies only when command does NOT match this regex */
+  whenNotMatching?: string;
+  whenNotMatchingRegex?: RegExp;
 }
 
 /**
@@ -196,6 +233,8 @@ export interface ModeConfig {
   blockedTools: Set<string>;
   /** Read-only Bash command patterns with metadata for helpful error messages */
   readOnlyBashPatterns: CompiledBashPattern[];
+  /** Command-specific hints shown when blocked Bash commands are rejected */
+  blockedCommandHints?: CompiledBlockedCommandHint[];
   /** Read-only MCP patterns (tools matching these are allowed) */
   readOnlyMcpPatterns: RegExp[];
   /** Fine-grained API endpoint rules (method + path pattern) */
@@ -236,6 +275,7 @@ export const SAFE_MODE_CONFIG: ModeConfig = {
   // Empty fallbacks - actual patterns loaded from default.json
   // If default.json is missing, no bash commands will be auto-allowed in Explore mode
   readOnlyBashPatterns: [],
+  blockedCommandHints: [],
   readOnlyMcpPatterns: [],
   allowedApiEndpoints: [],
   displayName: 'Explore',

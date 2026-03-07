@@ -37,6 +37,8 @@ export interface ComponentEntry {
   wrapper?: ComponentType<{ children: ReactNode }>
   /** Layout mode: 'centered' (default), 'top' for scrollable content, 'full' for full-height flex layout */
   layout?: 'centered' | 'top' | 'full'
+  /** Optional preview overflow override for the component preview box */
+  previewOverflow?: 'auto' | 'hidden' | 'visible'
 }
 
 export interface CategoryGroup {

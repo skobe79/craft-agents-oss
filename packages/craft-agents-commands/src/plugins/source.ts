@@ -1,8 +1,9 @@
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { createSource, deleteSource, loadAllSources, loadSource, loadSourceConfig, saveSourceConfig } from '@craft-agent/shared/sources'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { createSource, deleteSource, loadAllSources, loadSource, loadSourceConfig, saveSourceConfig, saveSourceGuide } from '@craft-agent/shared/sources'
 import type { CreateSourceInput, FolderSourceConfig } from '@craft-agent/shared/sources'
-import { getCliDomainPolicy, validateSource, validateSourceConfig } from '@craft-agent/shared/config'
+import { getSourcePermissionsPath } from '@craft-agent/shared/agent'
+import { getCliDomainPolicy, validateSource, validateSourceConfig, validateSourcePermissions } from '@craft-agent/shared/config'
 import {
   assertKnownAction,
   parseBoolean,
@@ -12,7 +13,7 @@ import {
 } from '../utils.ts'
 import type { CommandPlugin } from './types.ts'
 
-const actions = ['list', 'get', 'create', 'update', 'delete', 'validate', 'test'] as const
+const actions = ['list', 'get', 'create', 'update', 'delete', 'validate', 'test', 'init-guide', 'init-permissions', 'auth-help'] as const
 const sourcePolicy = getCliDomainPolicy('source')
 
 function parseSourceType(value: unknown): 'mcp' | 'api' | 'local' {
@@ -179,6 +180,238 @@ function runSourceTest(
   return { valid, checks }
 }
 
+function buildGuideTemplate(config: FolderSourceConfig, template: 'generic' | 'mcp' | 'api' | 'local'): string {
+  const kind = template === 'generic' ? config.type : template
+  const title = config.name
+
+  if (kind === 'mcp') {
+    return `# ${title}
+
+MCP source for ${config.provider}. Use this source for repeatable, tool-driven workflows.
+
+## Scope
+
+- Provider: ${config.provider}
+- Type: MCP
+- Slug: ${config.slug}
+
+## Guidelines
+
+- Prefer read operations first (list/get/search) before mutations.
+- Confirm assumptions against current tool outputs.
+- Document rate limits and auth caveats for this provider.
+
+## Examples
+
+- List relevant entities for this workspace.
+- Fetch a specific entity by identifier.
+`
+  }
+
+  if (kind === 'api') {
+    return `# ${title}
+
+API source for ${config.provider}. Use this source for structured HTTP workflows.
+
+## Scope
+
+- Provider: ${config.provider}
+- Type: API
+- Base URL: ${config.api?.baseUrl ?? '(unset)'}
+
+## Guidelines
+
+- Keep requests minimal and explicit.
+- Prefer GET endpoints for exploration.
+- Record endpoint-specific constraints (auth, pagination, quotas).
+
+## API Notes
+
+- Auth type: ${config.api?.authType ?? '(unset)'}
+- Test endpoint: ${config.api?.testEndpoint ? `${config.api.testEndpoint.method} ${config.api.testEndpoint.path}` : '(unset)'}
+`
+  }
+
+  if (kind === 'local') {
+    return `# ${title}
+
+Local source for ${config.provider}. Use this source to work with files/folders on disk.
+
+## Scope
+
+- Provider: ${config.provider}
+- Type: Local
+- Path: ${config.local?.path ?? '(unset)'}
+
+## Guidelines
+
+- Prefer read-only file operations unless explicitly asked to modify files.
+- Keep path usage scoped and predictable.
+- Note any large directories or indexing constraints.
+`
+  }
+
+  return `# ${title}
+
+Brief description of what this source provides.
+
+## Scope
+
+What data/functionality this source provides access to.
+
+## Guidelines
+
+- Best practices for using this source
+- Rate limits or quotas to be aware of
+- Common patterns and examples
+`
+}
+
+function buildPermissionsTemplate(config: FolderSourceConfig): Record<string, unknown> {
+  if (config.type === 'mcp') {
+    return {
+      allowedMcpPatterns: [
+        { pattern: 'list', comment: 'Allow list operations' },
+        { pattern: 'get', comment: 'Allow get/read operations' },
+        { pattern: 'search', comment: 'Allow search operations' },
+        { pattern: 'find', comment: 'Allow find operations' },
+      ],
+    }
+  }
+
+  if (config.type === 'api') {
+    return {
+      allowedApiEndpoints: [
+        { method: 'GET', path: '.*', comment: 'Allow all GET requests (read-only)' },
+      ],
+    }
+  }
+
+  return {
+    allowedBashPatterns: [
+      {
+        pattern: '^(ls|cat|head|tail|grep|find|tree)\\s',
+        comment: 'Allow read-only local filesystem commands',
+      },
+    ],
+  }
+}
+
+function getSourceAuthHelp(source: FolderSourceConfig): {
+  state: 'authenticated' | 'needs_auth' | 'no_auth' | 'unknown'
+  recommendedTool?: string
+  mode?: string
+  hints: string[]
+} {
+  if (source.isAuthenticated === true) {
+    return {
+      state: 'authenticated',
+      hints: ['Source is already authenticated according to config.isAuthenticated.'],
+    }
+  }
+
+  if (source.type === 'mcp') {
+    const authType = source.mcp?.authType
+    if (authType === 'oauth') {
+      return {
+        state: 'needs_auth',
+        recommendedTool: 'mcp__session__source_oauth_trigger',
+        mode: 'oauth',
+        hints: ['Run source_oauth_trigger in-session to start OAuth login.'],
+      }
+    }
+    if (authType === 'bearer') {
+      return {
+        state: 'needs_auth',
+        recommendedTool: 'mcp__session__source_credential_prompt',
+        mode: 'bearer',
+        hints: ['Prompt for bearer token credentials in-session.'],
+      }
+    }
+    return { state: 'no_auth', hints: ['MCP source is configured as authType=none.'] }
+  }
+
+  if (source.type === 'api') {
+    if (source.provider === 'google') {
+      return {
+        state: 'needs_auth',
+        recommendedTool: 'mcp__session__source_google_oauth_trigger',
+        mode: 'oauth-google',
+        hints: ['Use Google OAuth trigger in-session. Ensure client credentials are configured if required.'],
+      }
+    }
+    if (source.provider === 'microsoft') {
+      return {
+        state: 'needs_auth',
+        recommendedTool: 'mcp__session__source_microsoft_oauth_trigger',
+        mode: 'oauth-microsoft',
+        hints: ['Use Microsoft OAuth trigger in-session.'],
+      }
+    }
+    if (source.provider === 'slack') {
+      return {
+        state: 'needs_auth',
+        recommendedTool: 'mcp__session__source_slack_oauth_trigger',
+        mode: 'oauth-slack',
+        hints: ['Use Slack OAuth trigger in-session.'],
+      }
+    }
+
+    const authType = source.api?.authType
+    if (authType === 'none') {
+      return { state: 'no_auth', hints: ['API source is configured as authType=none.'] }
+    }
+
+    if (authType === 'basic') {
+      return {
+        state: 'needs_auth',
+        recommendedTool: 'mcp__session__source_credential_prompt',
+        mode: 'basic',
+        hints: ['Prompt for basic auth credentials in-session.'],
+      }
+    }
+
+    if (authType === 'query') {
+      return {
+        state: 'needs_auth',
+        recommendedTool: 'mcp__session__source_credential_prompt',
+        mode: 'query',
+        hints: ['Prompt for query-param API key in-session.'],
+      }
+    }
+
+    if (authType === 'header') {
+      if (Array.isArray(source.api?.headerNames) && source.api.headerNames.length > 1) {
+        return {
+          state: 'needs_auth',
+          recommendedTool: 'mcp__session__source_credential_prompt',
+          mode: 'multi-header',
+          hints: [`Prompt for all required headers: ${source.api.headerNames.join(', ')}`],
+        }
+      }
+
+      return {
+        state: 'needs_auth',
+        recommendedTool: 'mcp__session__source_credential_prompt',
+        mode: 'header',
+        hints: ['Prompt for single-header API key in-session.'],
+      }
+    }
+
+    return {
+      state: 'needs_auth',
+      recommendedTool: 'mcp__session__source_credential_prompt',
+      mode: 'bearer',
+      hints: ['Prompt for bearer token credentials in-session.'],
+    }
+  }
+
+  return {
+    state: 'unknown',
+    hints: ['Local sources typically do not require auth.'],
+  }
+}
+
 export const sourcePlugin: CommandPlugin = {
   namespace: 'source',
   actions,
@@ -295,6 +528,70 @@ export const sourcePlugin: CommandPlugin = {
           'CLI source test performs structural/completeness checks only.',
           'For full runtime auth and connection probing, run mcp__session__source_test in-session.',
         ],
+      }
+    }
+
+    if (action === 'init-guide') {
+      const slug = positional[0]
+      if (!slug) usageError('source init-guide requires <slug>', 'Run: craft-agent source init-guide <slug>')
+
+      const existing = loadSourceConfig(workspaceRootPath, slug)
+      if (!existing) usageError(`Source not found: ${slug}`)
+
+      const templateRaw = (structured.template ?? options.template) as string | undefined
+      const template = templateRaw === 'generic' || templateRaw === 'mcp' || templateRaw === 'api' || templateRaw === 'local'
+        ? templateRaw
+        : existing.type
+
+      const raw = buildGuideTemplate(existing, template)
+      saveSourceGuide(workspaceRootPath, slug, { raw })
+
+      return {
+        sourceSlug: slug,
+        template,
+        guidePath: join(resolve(workspaceRootPath, 'sources', slug), 'guide.md'),
+      }
+    }
+
+    if (action === 'init-permissions') {
+      const slug = positional[0]
+      if (!slug) usageError('source init-permissions requires <slug>', 'Run: craft-agent source init-permissions <slug>')
+
+      const existing = loadSourceConfig(workspaceRootPath, slug)
+      if (!existing) usageError(`Source not found: ${slug}`)
+
+      const modeRaw = (structured.mode ?? options.mode) as string | undefined
+      if (modeRaw && modeRaw !== 'read-only') {
+        usageError('source init-permissions currently supports only --mode read-only')
+      }
+
+      const payload = buildPermissionsTemplate(existing)
+      const permissionsPath = getSourcePermissionsPath(workspaceRootPath, slug)
+      mkdirSync(resolve(workspaceRootPath, 'sources', slug), { recursive: true })
+      writeFileSync(permissionsPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8')
+
+      const validation = validateSourcePermissions(workspaceRootPath, slug)
+      return {
+        sourceSlug: slug,
+        permissionsPath,
+        valid: validation.valid,
+        errors: validation.errors,
+        warnings: validation.warnings,
+      }
+    }
+
+    if (action === 'auth-help') {
+      const slug = positional[0]
+      if (!slug) usageError('source auth-help requires <slug>', 'Run: craft-agent source auth-help <slug>')
+
+      const existing = loadSourceConfig(workspaceRootPath, slug)
+      if (!existing) usageError(`Source not found: ${slug}`)
+
+      return {
+        sourceSlug: slug,
+        type: existing.type,
+        provider: existing.provider,
+        auth: getSourceAuthHelp(existing),
       }
     }
 

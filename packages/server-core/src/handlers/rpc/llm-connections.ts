@@ -655,7 +655,7 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
     error?: string
   }> => {
     try {
-      const { loginGitHubCopilot } = await import('@mariozechner/pi-ai/oauth')
+      const { loginGitHubCopilot } = await import('@mariozechner/pi-ai')
       const credentialManager = getCredentialManager()
 
       // Cancel any previous in-flight flow

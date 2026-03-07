@@ -76,7 +76,7 @@ export function IslandFollowUpContentView({
 
   return (
     <IslandContentView id={id} anchorX="center" anchorY="top" morphFrom={morphFrom} lockScroll={lockScroll}>
-      <div className="w-[330px] px-3 pb-3 pt-2 space-y-2.5 select-none">
+      <div className="w-[330px] px-3 pb-3 pt-3 space-y-2.5 select-none">
         <div className="flex items-center">
           <div className="pl-[2px] text-sm font-medium">{title}</div>
         </div>

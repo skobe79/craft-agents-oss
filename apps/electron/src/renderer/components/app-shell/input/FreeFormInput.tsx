@@ -111,6 +111,14 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled
 }
 
+export interface FollowUpInputItem {
+  id: string
+  index?: number
+  excerpt: string
+  note?: string
+  color?: string
+}
+
 export interface FreeFormInputProps {
   /** Placeholder text(s) for the textarea - can be array for rotation */
   placeholder?: string | string[]
@@ -191,6 +199,8 @@ export interface FreeFormInputProps {
     /** Model's context window size in tokens */
     contextWindow?: number
   }
+  /** Follow-up annotations shown as context chips above the input */
+  followUpItems?: FollowUpInputItem[]
   /** Enable compact mode - hides attach, sources, working directory for popover embedding */
   compactMode?: boolean
   // Connection selection (hierarchical connection → model selector)
@@ -247,6 +257,7 @@ export function FreeFormInput({
   disableSend = false,
   isEmptySession = false,
   contextStatus,
+  followUpItems = [],
   compactMode = false,
   currentConnection,
   onConnectionChange,
@@ -1403,6 +1414,33 @@ export function FreeFormInput({
           disabled={disabled}
           loadingCount={loadingCount}
         />
+
+        {/* Follow-up context chips */}
+        {followUpItems.length > 0 && (
+          <div className="px-4 pt-2 pb-1">
+            <div className="flex flex-wrap gap-1.5">
+              {followUpItems.map((item, idx) => {
+                const chipIndex = item.index ?? idx + 1
+                const excerpt = item.excerpt.trim()
+                const hasNote = Boolean(item.note?.trim())
+
+                return (
+                  <div
+                    key={item.id}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-[7px] bg-foreground/5 px-2 py-1 text-[11px] text-foreground/80"
+                    title={item.note?.trim() || excerpt}
+                  >
+                    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-[4px] bg-background px-1 text-[10px] font-medium text-foreground/70">
+                      #{chipIndex}
+                    </span>
+                    <span className="max-w-[280px] truncate">{excerpt || 'Selected text'}</span>
+                    {hasNote && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-info/80" />}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Rich Text Input with inline mention badges */}
         {/* In compact mode, hide input while processing (collapses to just bottom bar) */}

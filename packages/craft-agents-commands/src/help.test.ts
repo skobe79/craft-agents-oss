@@ -70,6 +70,16 @@ describe('craft-agents-commands help sections', () => {
     expect(result.json.data.skill.markdown).toContain('craft-agent skill list')
   })
 
+  it('theme help returns relevant section markdown', () => {
+    const result = runCommands(['theme', '--help'])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.json?.ok).toBe(true)
+    expect(typeof result.json?.data?.theme?.markdown).toBe('string')
+    expect(result.json.data.theme.markdown).toContain('## Theme')
+    expect(result.json.data.theme.markdown).toContain('craft-agent theme get')
+  })
+
   it('discover output includes compatibility entity field and plugin metadata', () => {
     const result = runCommands(['--discover'])
 

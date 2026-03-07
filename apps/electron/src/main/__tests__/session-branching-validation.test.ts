@@ -73,9 +73,7 @@ function validateBranchLikeSessionManager(args: {
       sourceMessageId: request.branchFromMessageId,
       copiedMessages: sourceSession.messages.slice(0, branchIdx + 1),
       branchContextStrategy,
-      branchFromSdkSessionId: branchContextStrategy === 'sdk-fork'
-        ? (sourceManagedSdkSessionId || sourceSession.sdkSessionId)
-        : undefined,
+      branchFromSdkSessionId: undefined,
     }
   }
 

@@ -2274,6 +2274,8 @@ export class SessionManager implements ISessionManager {
         sdkCwd: managed.sdkCwd,
         model: managed.model,
         llmConnection: managed.llmConnection,
+        permissionMode: managed.permissionMode,
+        previousPermissionMode: managed.previousPermissionMode,
       }
 
       const onSdkSessionIdUpdate = (sdkSessionId: string) => {
@@ -5130,16 +5132,36 @@ To view this task's output:
   setSessionPermissionMode(sessionId: string, mode: PermissionMode): void {
     const managed = this.sessions.get(sessionId)
     if (managed) {
-      // No-op when unchanged to avoid duplicate logs/events
-      if (managed.permissionMode === mode) {
+      const previousManagedMode = managed.permissionMode ?? 'ask'
+      const diagnosticsBefore = getPermissionModeDiagnostics(sessionId)
+      const previousEffectiveMode = diagnosticsBefore.permissionMode
+
+      // No-op only when BOTH managed state and mode-manager state already match.
+      // If managed state matches but diagnostics drifted, heal authoritative mode state.
+      if (previousManagedMode === mode && previousEffectiveMode === mode) {
         return
       }
 
-      // Update permission mode
+      if (previousManagedMode === mode && previousEffectiveMode !== mode) {
+        sessionLog.warn('Permission mode drift detected on same-mode update; reconciling authoritative mode state', {
+          sessionId,
+          managedMode: previousManagedMode,
+          diagnosticsMode: previousEffectiveMode,
+          targetMode: mode,
+          modeVersion: diagnosticsBefore.modeVersion,
+          changedBy: diagnosticsBefore.lastChangedBy,
+        })
+      }
+
+      // Update in-memory managed mode first
       managed.permissionMode = mode
 
-      // Update the mode state for this specific session via mode manager
-      setPermissionMode(sessionId, mode, { changedBy: 'user' })
+      // Reconcile mode-manager state for this specific session.
+      if (previousEffectiveMode !== mode) {
+        const changedBy = previousManagedMode === mode ? 'restore' : 'user'
+        setPermissionMode(sessionId, mode, { changedBy })
+      }
+
       const diagnostics = getPermissionModeDiagnostics(sessionId)
       managed.previousPermissionMode = diagnostics.previousPermissionMode
       sessionLog.info('Permission mode changed', {
@@ -5150,10 +5172,36 @@ To view this task's output:
         changedAt: diagnostics.lastChangedAt,
       })
 
-      // Forward to the agent instance so backends (e.g. PiAgent) can
-      // propagate the mode change to their subprocess
+      // Forward to the agent instance so backends can propagate mode changes downstream.
       if (managed.agent) {
         managed.agent.setPermissionMode(mode)
+      }
+
+      // Restrictive transition guard:
+      // If a turn is actively processing and user switches into Explore mode,
+      // interrupt the current run so prompt snapshot and enforcement stay aligned.
+      const shouldInterruptForRestrictiveTransition =
+        managed.isProcessing &&
+        !managed.stopRequested &&
+        mode === 'safe' &&
+        previousEffectiveMode !== 'safe'
+
+      if (shouldInterruptForRestrictiveTransition && managed.agent) {
+        managed.wasInterrupted = true
+        managed.stopRequested = true
+        sessionLog.info('Interrupting active turn due to restrictive permission mode transition', {
+          sessionId,
+          fromMode: previousEffectiveMode,
+          toMode: mode,
+          modeVersion: diagnostics.modeVersion,
+        })
+        managed.agent.forceAbort(AbortReason.Redirect)
+        this.sendEvent({
+          type: 'info',
+          sessionId: managed.id,
+          message: 'Processing interrupted after switching to Explore mode. Send your next message to continue with updated permissions.',
+          level: 'info',
+        }, managed.workspace.id)
       }
 
       this.sendEvent({

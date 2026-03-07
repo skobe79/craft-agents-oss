@@ -50,7 +50,27 @@ function createWorkspaceFixture(): string {
   mkdirSync(join(root, 'sources'), { recursive: true })
   mkdirSync(join(root, 'skills'), { recursive: true })
   writeFileSync(join(root, 'automations.json'), JSON.stringify({ version: 2, automations: {} }, null, 2))
+  writeFileSync(join(root, 'config.json'), JSON.stringify({ id: 'ws-test', name: 'Test Workspace' }, null, 2))
   return root
+}
+
+function createConfigFixture(): string {
+  const configDir = mkdtempSync(join(tmpdir(), 'craft-config-'))
+  writeFileSync(join(configDir, 'config.json'), JSON.stringify({
+    workspaces: [],
+    activeWorkspaceId: null,
+    activeSessionId: null,
+    colorTheme: 'default',
+  }, null, 2))
+
+  mkdirSync(join(configDir, 'themes'), { recursive: true })
+  writeFileSync(join(configDir, 'themes', 'nord.json'), JSON.stringify({
+    name: 'Nord',
+    accent: '#88c0d0',
+    background: '#2e3440',
+  }, null, 2))
+
+  return configDir
 }
 
 describe('craft-agents-commands behavior', () => {
@@ -236,5 +256,125 @@ describe('craft-agents-commands behavior', () => {
 
     expect(create.exitCode).toBe(0)
     expect(create.stderr).toBe('')
+  })
+
+  it('label auto-rule commands manage regex rules end-to-end', () => {
+    const ws = createWorkspaceFixture()
+
+    const create = runCli(['label', 'create', '--name', 'Linear Issue'], ws)
+    expect(create.exitCode).toBe(0)
+    const id = create.json?.data?.label?.id as string
+
+    const add = runCli([
+      'label',
+      'auto-rule-add',
+      id,
+      '--pattern',
+      '\\b([A-Z]{2,5}-\\d+)\\b',
+      '--value-template',
+      '$1',
+      '--description',
+      'Issue key matcher',
+    ], ws)
+    expect(add.exitCode).toBe(0)
+    expect(add.json?.data?.autoRules?.length).toBe(1)
+
+    const list = runCli(['label', 'auto-rule-list', id], ws)
+    expect(list.exitCode).toBe(0)
+    expect(list.json?.data?.autoRules?.[0]?.pattern).toBe('\\b([A-Z]{2,5}-\\d+)\\b')
+
+    const validate = runCli(['label', 'auto-rule-validate', id], ws)
+    expect(validate.exitCode).toBe(0)
+    expect(Array.isArray(validate.json?.data?.issues)).toBe(true)
+
+    const remove = runCli(['label', 'auto-rule-remove', id, '--index', '0'], ws)
+    expect(remove.exitCode).toBe(0)
+    expect(remove.json?.data?.autoRules?.length).toBe(0)
+  })
+
+  it('source helper commands scaffold guide and permissions and provide auth help', () => {
+    const ws = createWorkspaceFixture()
+
+    const create = runCli([
+      'source',
+      'create',
+      '--name',
+      'Linear',
+      '--provider',
+      'linear',
+      '--type',
+      'mcp',
+      '--json',
+      JSON.stringify({ mcp: { transport: 'http', url: 'https://mcp.linear.app/sse', authType: 'oauth' } }),
+    ], ws)
+    expect(create.exitCode).toBe(0)
+    const slug = create.json?.data?.source?.config?.slug as string
+
+    const initGuide = runCli(['source', 'init-guide', slug, '--template', 'mcp'], ws)
+    expect(initGuide.exitCode).toBe(0)
+    expect(initGuide.json?.data?.template).toBe('mcp')
+
+    const initPermissions = runCli(['source', 'init-permissions', slug], ws)
+    expect(initPermissions.exitCode).toBe(0)
+    expect(initPermissions.json?.data?.valid).toBe(true)
+
+    const authHelp = runCli(['source', 'auth-help', slug], ws)
+    expect(authHelp.exitCode).toBe(0)
+    expect(authHelp.json?.data?.auth?.recommendedTool).toContain('source_oauth_trigger')
+  })
+
+  it('theme commands manage app defaults, workspace overrides, and theme.json overrides', () => {
+    const ws = createWorkspaceFixture()
+    const configDir = createConfigFixture()
+
+    const list = runCli(['theme', 'list-presets'], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(list.exitCode).toBe(0)
+    expect(Array.isArray(list.json?.data?.presets)).toBe(true)
+    expect(list.json?.data?.presets?.some((preset: any) => preset.id === 'nord')).toBe(true)
+
+    const setColor = runCli(['theme', 'set-color-theme', 'nord'], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(setColor.exitCode).toBe(0)
+    expect(setColor.json?.data?.colorTheme).toBe('nord')
+
+    const setWorkspace = runCli(['theme', 'set-workspace-color-theme', 'nord'], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(setWorkspace.exitCode).toBe(0)
+    expect(setWorkspace.json?.data?.workspaceColorTheme).toBe('nord')
+
+    const get = runCli(['theme', 'get'], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(get.exitCode).toBe(0)
+    expect(get.json?.data?.colorTheme).toBe('nord')
+    expect(get.json?.data?.workspaceColorTheme).toBe('nord')
+    expect(get.json?.data?.effectiveWorkspaceTheme).toBe('nord')
+
+    const setOverride = runCli([
+      'theme',
+      'set-override',
+      '--json',
+      JSON.stringify({ accent: '#3b82f6', dark: { accent: '#60a5fa' } }),
+    ], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(setOverride.exitCode).toBe(0)
+    expect(setOverride.json?.data?.appOverride?.accent).toBe('#3b82f6')
+
+    const validate = runCli(['theme', 'validate'], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(validate.exitCode).toBe(0)
+    expect(validate.json?.data?.target).toBe('app-override')
+    expect(validate.json?.data?.valid).toBe(true)
+
+    const resetWorkspace = runCli(['theme', 'set-workspace-color-theme', 'default'], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(resetWorkspace.exitCode).toBe(0)
+    expect(resetWorkspace.json?.data?.workspaceColorTheme).toBe(null)
+
+    const resetOverride = runCli(['theme', 'reset-override'], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(resetOverride.exitCode).toBe(0)
+    expect(resetOverride.json?.data?.reset).toBe(true)
+
+    const invalidOverride = runCli([
+      'theme',
+      'set-override',
+      '--json',
+      JSON.stringify({ nope: '#fff' }),
+    ], ws, { CRAFT_CONFIG_DIR: configDir })
+    expect(invalidOverride.exitCode).toBe(2)
+    expect(invalidOverride.json?.error?.message).toContain('Theme override is invalid')
   })
 })

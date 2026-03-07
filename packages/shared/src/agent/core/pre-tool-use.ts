@@ -701,19 +701,31 @@ export function runPreToolUseChecks(ctx: PreToolUseInput): PreToolUseCheckResult
     activeSourceSlugs,
   };
 
+  // Canonical mode source of truth for this session.
+  // Keep incoming permissionMode only for mismatch diagnostics.
+  const diagnostics = getPermissionModeDiagnostics(sessionId);
+  const effectivePermissionMode = diagnostics.permissionMode;
+
+  if (permissionMode !== effectivePermissionMode) {
+    onDebug?.(
+      `[ModeSync] sessionId=${sessionId} incomingMode=${permissionMode} effectiveMode=${effectivePermissionMode} ` +
+      `modeVersion=${diagnostics.modeVersion} changedBy=${diagnostics.lastChangedBy} changedAt=${diagnostics.lastChangedAt}`
+    );
+  }
+
   // ============================================================
   // 1. PERMISSION MODE CHECK
   // ============================================================
   const modeResult = shouldAllowToolInMode(
     toolName,
     input,
-    permissionMode,
+    effectivePermissionMode,
     { plansFolderPath, dataFolderPath, permissionsContext }
   );
 
   if (!modeResult.allowed) {
-    const reasonWithContext = withPermissionModeContext(modeResult.reason, sessionId, permissionMode);
-    onDebug?.(`Permission mode ${permissionMode}: blocking ${toolName} — ${reasonWithContext}`);
+    const reasonWithContext = withPermissionModeContext(modeResult.reason, sessionId, effectivePermissionMode);
+    onDebug?.(`Permission mode ${effectivePermissionMode}: blocking ${toolName} — ${reasonWithContext}`);
     return { type: 'block', reason: reasonWithContext };
   }
 
@@ -820,7 +832,7 @@ export function runPreToolUseChecks(ctx: PreToolUseInput): PreToolUseCheckResult
   // ============================================================
   // 6. ASK MODE PROMPT DECISION
   // ============================================================
-  if (permissionMode === 'ask') {
+  if (effectivePermissionMode === 'ask') {
     const promptInfo = shouldPromptInAskMode(
       toolName,
       input, // Use original input for permission decisions (before stripping)

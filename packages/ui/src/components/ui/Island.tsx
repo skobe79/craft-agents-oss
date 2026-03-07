@@ -75,6 +75,10 @@ export interface IslandProps {
   onRequestClose?: () => void
   /** Locks document scrolling while the island is visible, regardless of active view-level lockScroll flags. */
   lockScrollWhileVisible?: boolean
+  /** Force entry animation replay when this value changes (show(animated:true)-style control). */
+  replayEntryKey?: string | number
+  /** Controls whether visible transitions always run through an internal priming frame for deterministic entry replay. */
+  replayOnVisible?: 'auto' | 'always'
 }
 
 const DEFAULT_TRANSITION: Required<IslandTransitionConfig> = {
@@ -93,6 +97,16 @@ export function useIslandAnimationConfig(): Required<IslandTransitionConfig> {
 }
 
 const CONTENT_EASE = [0.2, 0.8, 0.2, 1] as const
+
+function debugIsland(event: string, payload?: unknown): void {
+  if (typeof window === 'undefined') return
+
+  const electronApi = (window as typeof window & {
+    electronAPI?: { debugLog?: (...args: unknown[]) => void }
+  }).electronAPI
+
+  electronApi?.debugLog?.('[IslandCore]', event, payload ?? null)
+}
 
 let bodyScrollLockCount = 0
 let previousBodyOverflow: string | null = null
@@ -240,6 +254,8 @@ export function Island({
   dismissOnPointerDownOutside = false,
   onRequestClose,
   lockScrollWhileVisible = false,
+  replayEntryKey,
+  replayOnVisible = 'auto',
 }: IslandProps) {
   const shellRef = React.useRef<HTMLDivElement | null>(null)
   const activeViewRef = React.useRef<HTMLDivElement | null>(null)
@@ -248,6 +264,9 @@ export function Island({
   const [morphDelta, setMorphDelta] = React.useState<{ x: number; y: number; scaleX: number; scaleY: number } | null>(null)
   const warmedViewIdsRef = React.useRef<Set<string>>(new Set())
   const [isMorphWarmReady, setIsMorphWarmReady] = React.useState(true)
+  const [isVisibilityPrimed, setIsVisibilityPrimed] = React.useState(true)
+  const prevVisibilityForReplayRef = React.useRef<boolean>(isVisible)
+  const prevReplayEntryKeyRef = React.useRef<string | number | undefined>(replayEntryKey)
   const hasRenderedVisibleRef = React.useRef<boolean>(false)
   const spawnHiddenPoseRef = React.useRef<{ opacity: number; x: number; y: number; scaleX: number; scaleY: number } | null>(null)
   const prevIsVisibleRef = React.useRef<boolean>(isVisible)
@@ -406,6 +425,45 @@ export function Island({
     setIsTransitionSettling(true)
   }, [activeView?.id])
 
+  React.useEffect(() => {
+    if (replayOnVisible !== 'always') {
+      setIsVisibilityPrimed(true)
+      prevVisibilityForReplayRef.current = isVisible
+      prevReplayEntryKeyRef.current = replayEntryKey
+      return
+    }
+
+    const becameVisible = !prevVisibilityForReplayRef.current && isVisible
+    const replayKeyChangedWhileVisible = isVisible && prevReplayEntryKeyRef.current !== replayEntryKey
+
+    prevVisibilityForReplayRef.current = isVisible
+    prevReplayEntryKeyRef.current = replayEntryKey
+
+    if (!isVisible) {
+      setIsVisibilityPrimed(true)
+      return
+    }
+
+    if (!becameVisible && !replayKeyChangedWhileVisible) {
+      return
+    }
+
+    setIsVisibilityPrimed(false)
+
+    if (typeof window === 'undefined') {
+      setIsVisibilityPrimed(true)
+      return
+    }
+
+    const raf = window.requestAnimationFrame(() => {
+      setIsVisibilityPrimed(true)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(raf)
+    }
+  }, [isVisible, replayEntryKey, replayOnVisible])
+
   const shouldLockScroll = (activeView?.lockScroll ?? false) || lockScrollWhileVisible
 
   React.useEffect(() => {
@@ -535,7 +593,8 @@ export function Island({
 
   const hasEntryTranslation = Math.abs(cfg.entryDistancePx) > 0.0001
   const hasEntryScale = transitionConfig?.entryStartScale != null && Math.abs(cfg.entryStartScale - 1) > 0.0001
-  const shouldAnimateFromHiddenOnMount = shouldMorph || hasEntryTranslation || hasEntryScale
+  const hasReplayEntryRequest = replayEntryKey != null
+  const shouldAnimateFromHiddenOnMount = shouldMorph || hasEntryTranslation || hasEntryScale || hasReplayEntryRequest
   const shouldUseConfiguredStartScale = transitionConfig?.entryStartScale != null
 
   const hiddenPose = {
@@ -577,7 +636,8 @@ export function Island({
   }, [isVisible, hiddenPose])
 
   const shouldHideForWarmup = shouldMorph && isVisible && !isMorphWarmReady && !hasRenderedVisibleRef.current
-  const effectiveVisible = isVisible && !shouldHideForWarmup
+  const shouldHideForReplayPriming = replayOnVisible === 'always' && isVisible && !isVisibilityPrimed
+  const effectiveVisible = isVisible && !shouldHideForWarmup && !shouldHideForReplayPriming
   const exitHiddenPose = spawnHiddenPoseRef.current ?? hiddenPose
 
   React.useEffect(() => {
@@ -598,9 +658,38 @@ export function Island({
     [isPreShowWarmup, layoutTransition]
   )
 
+  React.useEffect(() => {
+    debugIsland('state', {
+      activeViewId: activeView.id,
+      isVisible,
+      effectiveVisible,
+      replayEntryKey: replayEntryKey ?? null,
+      replayOnVisible,
+      isVisibilityPrimed,
+      shouldAnimateFromHiddenOnMount,
+      shouldHideForWarmup,
+      shouldHideForReplayPriming,
+      hasUsableMorphDelta,
+      hiddenPose,
+    })
+  }, [
+    activeView.id,
+    isVisible,
+    effectiveVisible,
+    replayEntryKey,
+    replayOnVisible,
+    isVisibilityPrimed,
+    shouldAnimateFromHiddenOnMount,
+    shouldHideForWarmup,
+    shouldHideForReplayPriming,
+    hasUsableMorphDelta,
+    hiddenPose,
+  ])
+
   return (
     <IslandAnimationContext.Provider value={cfg}>
       <motion.div
+        key={replayEntryKey != null ? `replay:${String(replayEntryKey)}` : 'replay:default'}
         ref={shellRef}
         layout
         initial={shouldAnimateFromHiddenOnMount ? hiddenPose : false}
@@ -617,6 +706,22 @@ export function Island({
               }
             }
           : undefined}
+        onAnimationStart={() => {
+          debugIsland('shell-animation-start', {
+            activeViewId: activeView.id,
+            isVisible,
+            effectiveVisible,
+            replayEntryKey: replayEntryKey ?? null,
+          })
+        }}
+        onAnimationComplete={() => {
+          debugIsland('shell-animation-complete', {
+            activeViewId: activeView.id,
+            isVisible,
+            effectiveVisible,
+            replayEntryKey: replayEntryKey ?? null,
+          })
+        }}
         className={cn('mx-auto w-fit overflow-hidden border border-border/50 bg-background shadow-strong', className)}
       >
         <div className="relative">
