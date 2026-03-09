@@ -2261,7 +2261,7 @@ export function setDefaultLlmConnection(slug: string): boolean {
  */
 export function getDefaultThinkingLevel(): ThinkingLevel | undefined {
   const config = loadStoredConfig();
-  return config?.defaultThinkingLevel ?? undefined;
+  return config?.defaultThinkingLevel;
 }
 
 /**

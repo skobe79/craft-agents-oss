@@ -13,7 +13,7 @@ import { EntityIcon } from '@/components/ui/entity-icon'
 import { useEntityIcon } from '@/lib/icon-cache'
 import type { IconSize } from '@craft-agent/shared/icons'
 
-const LOCAL_STATUS_ICON_FILENAME_PATTERN = /^[^/\\]+\.(svg|png|jpe?g)$/i
+const LOCAL_STATUS_ICON_FILENAME_PATTERN = /^[^/\\]+\.(svg|png|jpe?g|webp)$/i
 
 interface StatusIconProps {
   /** Status identifier (used to discover icon file) */

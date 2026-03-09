@@ -65,8 +65,9 @@ function getParentDir(relativePath: string): string {
   return relativePath.slice(0, lastSlash + 1)
 }
 
-/** Check if query characters appear in order within target (case-insensitive).
- *  Returns true if all characters of query are found sequentially in target. */
+/** Check if query characters appear in order within target.
+ *  Returns true if all characters of query are found sequentially in target.
+ *  Note: comparison is literal — pass lowercased inputs for case-insensitive matching. */
 function subsequenceMatch(target: string, query: string): boolean {
   let qi = 0
   for (let ti = 0; ti < target.length && qi < query.length; ti++) {

@@ -426,7 +426,7 @@ export async function startGoogleOAuth(
     // Check for error
     if (callback.query.error) {
       const isAccessBlocked =
-        callback.query.error === 'access_denied' ||
+        callback.query.error === 'access_denied' &&
         String(callback.query.error_description ?? '').toLowerCase().includes('verif');
       const error = isAccessBlocked
         ? 'Google has blocked this app (not yet verified).\n\n' +

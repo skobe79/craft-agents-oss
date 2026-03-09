@@ -3857,7 +3857,7 @@ export class SessionManager implements ISessionManager {
         const { VIEWER_URL } = await import('@craft-agent/shared/branding')
         const response = await fetch(
           `${VIEWER_URL}/s/api/${managed.sharedId}`,
-          { method: 'DELETE' }
+          { method: 'DELETE', signal: AbortSignal.timeout(5000) }
         )
         if (!response.ok) {
           sessionLog.warn(`Failed to revoke share for ${sessionId}: HTTP ${response.status}`)

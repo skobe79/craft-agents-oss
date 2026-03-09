@@ -5,6 +5,8 @@ export function resolvePiAuthProviderForSubmit(
   lastNonCustomPreset: PresetKey | null
 ): string | undefined {
   if (activePreset === 'custom') {
+    // Pi SDK needs a provider hint for auth header formatting even when
+    // the URL is user-provided — default to anthropic as the safest baseline.
     return lastNonCustomPreset && lastNonCustomPreset !== 'custom'
       ? lastNonCustomPreset
       : 'anthropic'
