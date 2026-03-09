@@ -282,12 +282,14 @@ function FilterLabelItems({
   labelFilter,
   setLabelFilter,
   pinnedLabelId,
+  altHeld,
 }: {
   labels: LabelConfig[]
   labelFilter: Map<string, FilterMode>
   setLabelFilter: (updater: Map<string, FilterMode> | ((prev: Map<string, FilterMode>) => Map<string, FilterMode>)) => void
   /** Label ID pinned by the current route (non-removable, shown as checked+disabled) */
   pinnedLabelId?: string | null
+  altHeld?: boolean
 }) {
   /** Toggle a label filter: if active → remove, if inactive → add as 'include' (or 'exclude' with Alt) */
   const toggleLabel = (id: string, altKey = false) => {
@@ -364,6 +366,7 @@ function FilterLabelItems({
                       labelFilter={labelFilter}
                       setLabelFilter={setLabelFilter}
                       pinnedLabelId={pinnedLabelId}
+                      altHeld={altHeld}
                     />
                   </>
                 ) : (
@@ -380,7 +383,7 @@ function FilterLabelItems({
                       <FilterMenuRow
                         icon={<LabelIcon label={label} size="lg" hasChildren />}
                         label={label.name}
-                        accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : undefined}
+                        accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : altHeld ? <FilterModeBadge mode="exclude" /> : undefined}
                       />
                     </StyledDropdownMenuItem>
                     <StyledDropdownMenuSeparator />
@@ -389,6 +392,7 @@ function FilterLabelItems({
                       labelFilter={labelFilter}
                       setLabelFilter={setLabelFilter}
                       pinnedLabelId={pinnedLabelId}
+                      altHeld={altHeld}
                     />
                   </>
                 )}
@@ -430,7 +434,7 @@ function FilterLabelItems({
             <FilterMenuRow
               icon={<LabelIcon label={label} size="lg" />}
               label={label.name}
-              accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : undefined}
+              accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : altHeld ? <FilterModeBadge mode="exclude" /> : undefined}
             />
           </StyledDropdownMenuItem>
         )
@@ -720,6 +724,7 @@ function AppShellContent({
   // Filter dropdown: inline search query for filtering statuses/labels in a flat list.
   // When empty, the dropdown shows hierarchical submenus. When typing, shows a flat filtered list.
   const [filterDropdownQuery, setFilterDropdownQuery] = React.useState('')
+  const [filterAltHeld, setFilterAltHeld] = React.useState(false)
 
   // Reset search only when navigator or filter changes (not when selecting sessions)
   const navFilterKey = React.useMemo(() => {
@@ -2479,7 +2484,7 @@ function AppShellContent({
                       Shows user-added filters (removable) and pinned filters (non-removable, derived from route).
                       Pinned filters: state views pin a status, label views pin a label, flagged pins the flag. */}
                   {isSessionsNavigation(navState) && (
-                    <DropdownMenu onOpenChange={(open) => { if (!open) setFilterDropdownQuery('') }}>
+                    <DropdownMenu onOpenChange={(open) => { if (!open) { setFilterDropdownQuery(''); setFilterAltHeld(false) } }}>
                       <DropdownMenuTrigger asChild>
                         <HeaderIconButton
                           icon={<ListFilter className="h-4 w-4" />}
@@ -2492,6 +2497,7 @@ function AppShellContent({
                         light
                         minWidth="min-w-[200px]"
                         onKeyDown={(e: React.KeyboardEvent) => {
+                          if (e.key === 'Alt') setFilterAltHeld(true)
                           // When on the first menu item and pressing Up, refocus the search input
                           if (e.key === 'ArrowUp' && !filterDropdownQuery.trim()) {
                             const menu = (e.target as HTMLElement).closest('[role="menu"]')
@@ -2502,6 +2508,9 @@ function AppShellContent({
                               filterDropdownInputRef.current?.focus()
                             }
                           }
+                        }}
+                        onKeyUp={(e: React.KeyboardEvent) => {
+                          if (e.key === 'Alt') setFilterAltHeld(false)
                         }}
                       >
                         {/* Header with title and clear button (only clears user-added filters, never pinned) */}
@@ -2773,7 +2782,7 @@ function AppShellContent({
                                       <FilterMenuRow
                                         icon={state.icon}
                                         label={state.label}
-                                        accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : null}
+                                        accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : filterAltHeld ? <FilterModeBadge mode="exclude" /> : null}
                                         iconStyle={applyColor ? { color: state.resolvedColor } : undefined}
                                         noIconContainer
                                       />
@@ -2800,6 +2809,7 @@ function AppShellContent({
                                     labelFilter={labelFilter}
                                     setLabelFilter={setLabelFilter}
                                     pinnedLabelId={pinnedFilters.pinnedLabelId}
+                                    altHeld={filterAltHeld}
                                   />
                                 )}
                               </StyledDropdownMenuSubContent>
@@ -2926,7 +2936,7 @@ function AppShellContent({
                                           <FilterMenuRow
                                             icon={state.icon}
                                             label={state.label}
-                                            accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : null}
+                                            accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : filterAltHeld ? <FilterModeBadge mode="exclude" /> : null}
                                             iconStyle={applyColor ? { color: state.resolvedColor } : undefined}
                                             noIconContainer
                                           />
@@ -3015,7 +3025,7 @@ function AppShellContent({
                                           <FilterMenuRow
                                             icon={<LabelIcon label={item.config} size="lg" />}
                                             label={labelDisplay}
-                                            accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : null}
+                                            accessory={isPinned ? <Check className="h-3 w-3 text-muted-foreground" /> : filterAltHeld ? <FilterModeBadge mode="exclude" /> : null}
                                           />
                                         </div>
                                       )
