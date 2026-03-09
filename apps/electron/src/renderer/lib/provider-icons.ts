@@ -11,6 +11,7 @@ import claudeIcon from '@/assets/provider-icons/claude.svg'
 import copilotIcon from '@/assets/provider-icons/copilot.svg'
 import googleIcon from '@/assets/provider-icons/google.svg'
 import huggingfaceIcon from '@/assets/provider-icons/huggingface.svg'
+import kimiIcon from '@/assets/provider-icons/kimi.svg'
 import minimaxIcon from '@/assets/provider-icons/minimax.svg'
 import mistralIcon from '@/assets/provider-icons/mistral.svg'
 import ollamaIcon from '@/assets/provider-icons/ollama.svg'
@@ -31,6 +32,7 @@ export const providerIcons = {
   copilot: copilotIcon,
   google: googleIcon,
   huggingface: huggingfaceIcon,
+  kimi: kimiIcon,
   minimax: minimaxIcon,
   mistral: mistralIcon,
   ollama: ollamaIcon,
@@ -49,6 +51,7 @@ const providerDisplayNames: Record<string, string> = {
   openai: 'OpenAI',
   openai_compat: 'OpenAI',
   copilot: 'GitHub Copilot',
+  kimi: 'Kimi',
   minimax: 'Minimax',
   ollama: 'Ollama',
   openrouter: 'OpenRouter',
@@ -64,6 +67,7 @@ export function getProviderDisplayName(providerType: string, baseUrl?: string | 
     const url = baseUrl.toLowerCase()
     if (url.includes('openrouter.ai')) return 'OpenRouter'
     if (url.includes('ollama')) return 'Ollama'
+    if (url.includes('kimi.com')) return 'Kimi'
     if (url.includes('minimax.io') || url.includes('minimaxi.com')) return 'Minimax'
     if (url.includes('v0.dev') || url.includes('vercel')) return 'Vercel'
   }
@@ -82,6 +86,7 @@ function detectProviderFromUrl(baseUrl: string): ProviderIconKey | null {
   if (url.includes('api.openai.com')) return 'openai'
   if (url.includes('v0.dev') || url.includes('vercel')) return 'vercel'
   if (url.includes('generativelanguage.googleapis.com') || url.includes('ai.google')) return 'google'
+  if (url.includes('kimi.com')) return 'kimi'
   if (url.includes('minimax.io') || url.includes('minimaxi.com')) return 'minimax'
   if (url.includes('mistral.ai')) return 'mistral'
   if (url.includes('bedrock')) return 'aws'
@@ -108,6 +113,8 @@ function piAuthProviderToIcon(piAuthProvider: string): ProviderIconKey | null {
       return 'openrouter'
     case 'google':
       return 'google'
+    case 'kimi-coding':
+      return 'kimi'
     case 'minimax':
       return 'minimax'
     case 'mistral':
