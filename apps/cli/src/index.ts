@@ -30,6 +30,7 @@ export interface CliArgs {
   outputFormat: string
   noCleanup: boolean
   noSpinner: boolean
+  verbose: boolean
   serverEntry?: string
   workspaceDir?: string
   // LLM configuration
@@ -55,6 +56,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let outputFormat = 'text'
   let noCleanup = false
   let noSpinner = false
+  let verbose = false
   let serverEntry: string | undefined
   let workspaceDir: string | undefined
   let provider = ''
@@ -102,6 +104,10 @@ export function parseArgs(argv: string[]): CliArgs {
       case '--no-spinner':
         noSpinner = true
         break
+      case '--verbose':
+      case '-v':
+        verbose = true
+        break
       case '--server-entry':
         serverEntry = args[++i]
         break
@@ -148,7 +154,7 @@ export function parseArgs(argv: string[]): CliArgs {
   if (!apiKey) apiKey = process.env.LLM_API_KEY ?? ''
   if (!baseUrl) baseUrl = process.env.LLM_BASE_URL ?? ''
 
-  return { url, token, workspace, timeout, json, tlsCa, sendTimeout, command, rest, sources, mode, outputFormat, noCleanup, noSpinner, serverEntry, workspaceDir, provider, model, apiKey, baseUrl }
+  return { url, token, workspace, timeout, json, tlsCa, sendTimeout, command, rest, sources, mode, outputFormat, noCleanup, noSpinner, verbose, serverEntry, workspaceDir, provider, model, apiKey, baseUrl }
 }
 
 // ---------------------------------------------------------------------------
@@ -672,7 +678,7 @@ async function cmdValidate(args: CliArgs): Promise<void> {
       connectTimeout: args.timeout,
     })
   } else {
-    server = await spawnLocalServer(args, { quiet: true })
+    server = await spawnLocalServer(args, { quiet: !args.verbose })
     client = server.client
   }
 
@@ -1494,6 +1500,7 @@ Commands:
   invoke <channel> [...] Raw RPC call with JSON args
   listen <channel>       Subscribe to push events (Ctrl+C to stop)
   --validate-server      Multi-step server integration test
+                         --verbose, -v       Show server stderr output
 
 Examples:
   craft-cli run "What files are in the current directory?"
