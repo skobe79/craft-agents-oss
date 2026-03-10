@@ -763,13 +763,17 @@ export interface ValidateContext {
   automationTestSessionId?: string
   automationName?: string
   createdLabelId?: string
+  /** Backup of existing automations.json before overwrite (undefined = didn't exist) */
+  automationsJsonBackup?: string | null
+  /** Backup of existing automations-history.jsonl before overwrite (undefined = didn't exist) */
+  automationsHistoryBackup?: string | null
   onEvent?: (ev: { type: string; [key: string]: unknown }) => void
 }
 
 /** Minimal shapes for RPC responses used in validation steps. */
 interface ValidateStatus {
   id?: string
-  name?: string
+  label?: string
 }
 
 interface ValidateSession {
@@ -867,14 +871,25 @@ async function cleanupAutomationArtifacts(
 ): Promise<string[]> {
   const cleaned: string[] = []
 
-  // Delete automation config files
+  // Restore or remove automation config files
   if (ctx.workspaceRootPath && ctx.createdAutomation) {
     try {
-      const { unlink } = await import('fs/promises')
-      await unlink(`${ctx.workspaceRootPath}/automations.json`).catch(() => {})
-      await unlink(`${ctx.workspaceRootPath}/automations-history.jsonl`).catch(() => {})
+      const { writeFile, unlink } = await import('fs/promises')
+      const configPath = `${ctx.workspaceRootPath}/automations.json`
+      const historyPath = `${ctx.workspaceRootPath}/automations-history.jsonl`
+      if (ctx.automationsJsonBackup != null) {
+        await writeFile(configPath, ctx.automationsJsonBackup).catch(() => {})
+        cleaned.push('automations.json (restored)')
+      } else {
+        await unlink(configPath).catch(() => {})
+        cleaned.push('automations.json (removed)')
+      }
+      if (ctx.automationsHistoryBackup != null) {
+        await writeFile(historyPath, ctx.automationsHistoryBackup).catch(() => {})
+      } else {
+        await unlink(historyPath).catch(() => {})
+      }
       ctx.createdAutomation = false
-      cleaned.push('automations.json')
     } catch { /* best effort */ }
   }
 
@@ -1119,13 +1134,18 @@ SKILLEOF`, 90_000, true, undefined, ctx.onEvent)
         if (!ctx.createdSessionId || !ctx.workspaceRootPath) return 'skipped (no session or workspace)'
         ctx.automationName = `CLI Validate Automation ${Date.now()}`
         const configPath = `${ctx.workspaceRootPath}/automations.json`
+        const historyPath = `${ctx.workspaceRootPath}/automations-history.jsonl`
+        // Backup existing files before overwriting (protects real workspace data)
+        const { readFile } = await import('fs/promises')
+        ctx.automationsJsonBackup = await readFile(configPath, 'utf-8').catch(() => null)
+        ctx.automationsHistoryBackup = await readFile(historyPath, 'utf-8').catch(() => null)
         const config = JSON.stringify({
           version: 2,
           automations: {
             SessionStatusChange: [{
               name: ctx.automationName,
               matcher: 'in-progress',
-              labels: ['__cli-validate-label'],
+              labels: ['cli-validate-label'],
               actions: [{ type: 'prompt', prompt: 'Reply with exactly: AUTOMATION_TRIGGERED' }],
             }],
           },
@@ -1145,10 +1165,10 @@ AUTOMATIONEOF`, 90_000, true, undefined, ctx.onEvent)
         // Get available statuses to find one containing "in-progress"
         const statuses = (await client.invoke('statuses:list', ctx.workspaceId)) as ValidateStatus[]
         const inProgress = statuses?.find((s) =>
-          (s.id ?? s.name ?? '').toLowerCase().includes('in-progress') ||
-          (s.name ?? '').toLowerCase().includes('in progress')
+          (s.id ?? '').toLowerCase().includes('in-progress') ||
+          (s.label ?? '').toLowerCase().includes('in progress')
         )
-        const statusValue = inProgress?.id ?? inProgress?.name ?? 'in-progress'
+        const statusValue = inProgress?.id ?? 'in-progress'
 
         // Change session status to trigger the automation
         await client.invoke('sessions:command', ctx.createdSessionId, {
@@ -1206,15 +1226,15 @@ AUTOMATIONEOF`, 90_000, true, undefined, ctx.onEvent)
         if (!ctx.automationTestSessionId || !ctx.workspaceId) return 'skipped (no automation session)'
         // Verify label was auto-created
         const labels = (await client.invoke('labels:list', ctx.workspaceId)) as ValidateLabel[]
-        const found = labels?.find((l) => (l.id ?? l.name ?? '') === '__cli-validate-label')
-        if (!found) throw new Error('Label __cli-validate-label was not auto-created')
-        ctx.createdLabelId = found.id ?? '__cli-validate-label'
+        const found = labels?.find((l) => (l.id ?? l.name ?? '') === 'cli-validate-label')
+        if (!found) throw new Error('Label cli-validate-label was not auto-created')
+        ctx.createdLabelId = found.id ?? 'cli-validate-label'
 
         // Verify the automation session has the label
         const sessions = (await client.invoke('sessions:get', ctx.workspaceId)) as ValidateSession[]
         const automationSession = sessions?.find((s) => s.id === ctx.automationTestSessionId)
         const sessionLabels: string[] = automationSession?.labels ?? []
-        const hasLabel = sessionLabels.some((l: string) => l.includes('__cli-validate-label'))
+        const hasLabel = sessionLabels.some((l: string) => l.includes('cli-validate-label'))
         if (!hasLabel) throw new Error(`Automation session missing label (has: ${sessionLabels.join(', ')})`)
         return `label created and assigned: ${ctx.createdLabelId}`
       },
@@ -1224,9 +1244,13 @@ AUTOMATIONEOF`, 90_000, true, undefined, ctx.onEvent)
       fn: async (client, ctx) => {
         if (!ctx.workspaceId) return 'skipped (no workspace)'
         const history = (await client.invoke('automations:getLastExecuted', ctx.workspaceId)) as Record<string, number>
-        const entries = Object.keys(history)
+        const entries = Object.entries(history)
         if (entries.length === 0) throw new Error('No automation execution history found')
-        return `${entries.length} automation(s) with history`
+        // Verify at least one automation ran recently (within last 2 minutes)
+        const recentThreshold = Date.now() - 120_000
+        const recent = entries.find(([, ts]) => ts > recentThreshold)
+        if (!recent) throw new Error(`No recent automation execution (latest: ${Math.max(...entries.map(([, ts]) => ts))})`)
+        return `${entries.length} automation(s), latest ran ${Math.round((Date.now() - recent[1]) / 1000)}s ago`
       },
     },
     {
