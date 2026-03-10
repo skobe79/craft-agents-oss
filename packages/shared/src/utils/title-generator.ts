@@ -8,7 +8,7 @@
  */
 
 /** Slice text at the last word boundary within `max` characters. */
-function sliceAtWord(text: string, max: number): string {
+export function sliceAtWord(text: string, max: number): string {
   if (text.length <= max) return text;
   const lastSpace = text.lastIndexOf(' ', max);
   return lastSpace > 0 ? text.slice(0, lastSpace) : text.slice(0, max);
@@ -48,16 +48,20 @@ export function buildTitlePrompt(message: string, options?: { language?: string 
 
 /**
  * Select a spread of user messages that captures the session's purpose:
- * first (original intent), middle (evolution), and last (current state).
+ * first (original intent), a recent-biased middle, and last (current state).
  * Falls back gracefully for short conversations.
+ *
+ * For 4+ messages, picks at indices 0, ~66%, and last — biasing toward
+ * where the conversation ended up rather than the exact midpoint.
  */
 export function selectSpreadMessages(allUserMessages: string[]): string[] {
   const count = allUserMessages.length;
   if (count === 0) return [];
   if (count === 1) return [allUserMessages[0]!];
   if (count === 2) return [allUserMessages[0]!, allUserMessages[1]!];
+  if (count === 3) return [allUserMessages[0]!, allUserMessages[1]!, allUserMessages[2]!];
 
-  const midIndex = Math.floor(count / 2);
+  const midIndex = Math.floor(count * 2 / 3);
   return [allUserMessages[0]!, allUserMessages[midIndex]!, allUserMessages[count - 1]!];
 }
 
@@ -108,11 +112,14 @@ export function buildRegenerateTitlePrompt(
   return lines.join('\n');
 }
 
+/** Max word count for a valid title. Anything above this is likely preamble leakage. */
+const MAX_TITLE_WORDS = 10;
+
 /**
  * Validate and clean a generated title.
  *
  * Strips common LLM preamble artifacts (leading "Title:", quotes, markdown)
- * then checks length bounds.
+ * then checks length and word-count bounds.
  *
  * @param title - The raw title from the model
  * @returns Cleaned title, or null if invalid
@@ -122,21 +129,38 @@ export function validateTitle(title: string | null | undefined): string | null {
 
   let cleaned = title.trim();
 
-  // Strip common LLM preamble prefixes
-  cleaned = cleaned.replace(/^(?:Title|Topic|Sure|Here(?:'s| is))[:\s,]*/i, '');
+  // Two-pass preamble stripping:
+  // 1. If text has a colon and the part before it looks like preamble, take everything after the LAST colon
+  const colonIndex = cleaned.indexOf(':');
+  if (colonIndex > 0 && colonIndex < 40) {
+    const beforeColon = cleaned.slice(0, colonIndex).toLowerCase();
+    if (/^(?:title|topic|sure|here(?:'s| is)|the (?:title|topic) is|okay|ok)[\s,!.]*$/i.test(beforeColon) ||
+        /(?:title|topic)\s*(?:is|would be)?$/i.test(beforeColon)) {
+      cleaned = cleaned.slice(colonIndex + 1).trim();
+    }
+  }
+
+  // 2. Fallback: strip simple single-word preamble prefixes without colons
+  cleaned = cleaned.replace(/^(?:Title|Topic)\s+/i, '');
 
   // Strip surrounding quotes
   if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
     cleaned = cleaned.slice(1, -1);
   }
 
-  // Strip leading markdown markers
-  cleaned = cleaned.replace(/^[#\-*]\s+/, '');
+  // Strip surrounding bold markers **title**
+  if (cleaned.startsWith('**') && cleaned.endsWith('**')) {
+    cleaned = cleaned.slice(2, -2);
+  }
+
+  // Strip leading markdown heading markers (one or more #, -, *)
+  cleaned = cleaned.replace(/^[#\-*]+\s+/, '');
 
   cleaned = cleaned.trim();
 
-  if (cleaned.length > 0 && cleaned.length < 100) {
-    return cleaned;
-  }
-  return null;
+  // Reject empty, too long, or too many words (likely preamble leakage)
+  if (cleaned.length === 0 || cleaned.length >= 100) return null;
+  if (cleaned.split(/\s+/).length > MAX_TITLE_WORDS) return null;
+
+  return cleaned;
 }

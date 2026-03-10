@@ -1173,7 +1173,6 @@ ${formattedMessages}
    *
    * @param recentUserMessages - Spread of user messages
    * @param lastAssistantResponse - The most recent assistant response
-   * @param options.currentTitle - Current title for refinement context
    * @param options.language - Preferred language for the title
    * @returns Generated title (2-5 words), or null if generation fails
    */
