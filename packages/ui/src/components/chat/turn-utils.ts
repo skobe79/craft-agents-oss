@@ -199,7 +199,7 @@ export function deriveTurnPhase(turn: AssistantTurn): TurnPhase {
   // Check if any TOOL activities are currently running.
   // Only tool-type activities count - intermediate text and status activities
   // with 'running' status should show "Thinking...", not tool spinners.
-  const hasRunningTools = turn.activities.some(a => a.type === 'tool' && a.status === 'running')
+  const hasRunningTools = turn.activities.some(a => a.type === 'tool' && (a.status === 'running' || a.status === 'backgrounded'))
   if (hasRunningTools) {
     return 'tool_active'
   }
@@ -242,6 +242,9 @@ function getToolStatus(message: Message): ActivityStatus {
   // response_too_large is success (data was saved, just too large for inline display)
   if (message.errorCode === 'response_too_large') return 'completed'
   if (message.isError) return 'error'
+  // Backgrounded takes priority — tool_result arrives before task_backgrounded,
+  // so toolResult is set but the task is still running in the background
+  if (message.toolStatus === 'backgrounded') return 'backgrounded'
   // Check explicit toolStatus first (set by tool_result handler)
   if (message.toolStatus === 'completed') return 'completed'
   // Fallback: check if toolResult exists (handles empty string results)
@@ -276,6 +279,11 @@ function messageToActivity(message: Message, existingActivities: ActivityItem[] 
     // This is tracked by session manager's parentToolStack, NOT the SDK's
     // parent_tool_use_id which is for result-matching, not hierarchy.
     parentId: message.parentToolUseId,
+    // Background task fields
+    taskId: message.taskId,
+    shellId: message.shellId,
+    elapsedSeconds: message.elapsedSeconds,
+    isBackground: message.isBackground,
   }
 
   // Calculate depth incrementally using existing activities
@@ -565,8 +573,8 @@ export function groupMessagesByTurn(messages: Message[]): Turn[] {
 
     // Tool messages belong to current assistant turn
     if (message.role === 'tool') {
-      // Tool is complete if toolStatus is 'completed' OR toolResult exists
-      const isToolComplete = message.toolStatus === 'completed' || message.toolResult !== undefined
+      // Tool is complete if toolStatus is 'completed' OR toolResult exists (but NOT if backgrounded)
+      const isToolComplete = (message.toolStatus === 'completed' || message.toolResult !== undefined) && message.toolStatus !== 'backgrounded'
       if (!currentTurn) {
         // Start a new turn
         currentTurn = {
@@ -692,7 +700,7 @@ export function getTurnIntent(turn: AssistantTurn): string | undefined {
  * Check if any activity in the turn is still running
  */
 export function hasPendingActivities(turn: AssistantTurn): boolean {
-  return turn.activities.some(a => a.status === 'running' || a.status === 'pending')
+  return turn.activities.some(a => a.status === 'running' || a.status === 'pending' || a.status === 'backgrounded')
 }
 
 /**
@@ -1097,7 +1105,7 @@ export function groupActivitiesByParent(
   // First, build a set of valid Task toolUseIds (parents that actually exist)
   const taskToolUseIds = new Set<string>()
   for (const activity of activities) {
-    if (activity.toolName === 'Task' && activity.toolUseId) {
+    if ((activity.toolName === 'Task' || activity.toolName === 'Agent') && activity.toolUseId) {
       taskToolUseIds.add(activity.toolUseId)
     }
   }
@@ -1142,7 +1150,7 @@ export function groupActivitiesByParent(
   // When Task runs with run_in_background: true, the result contains "agentId: xyz"
   const taskToAgentId = new Map<string, string>()
   for (const activity of activities) {
-    if (activity.toolName === 'Task' && activity.status === 'completed' && activity.content) {
+    if ((activity.toolName === 'Task' || activity.toolName === 'Agent') && (activity.status === 'completed' || activity.status === 'backgrounded') && activity.content) {
       // Parse agent ID from Task result - look for "agentId: xyz" pattern
       const agentIdMatch = activity.content.match(/agentId:\s*([a-zA-Z0-9_-]+)/)
       const capturedAgentId = agentIdMatch?.[1]
@@ -1166,8 +1174,8 @@ export function groupActivitiesByParent(
       continue
     }
 
-    // Task tools become groups with their children
-    if (activity.toolName === 'Task') {
+    // Task/Agent tools become groups with their children
+    if (activity.toolName === 'Task' || activity.toolName === 'Agent') {
       const children = activity.toolUseId
         ? (childrenByParent.get(activity.toolUseId) || [])
         : []

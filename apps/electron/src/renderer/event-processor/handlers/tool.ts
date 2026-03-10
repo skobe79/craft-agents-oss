@@ -5,7 +5,7 @@
  * Pure functions that return new state - no side effects.
  */
 
-import type { SessionState, ToolStartEvent, ToolResultEvent, TaskBackgroundedEvent, ShellBackgroundedEvent, TaskProgressEvent } from '../types'
+import type { SessionState, ToolStartEvent, ToolResultEvent, TaskBackgroundedEvent, ShellBackgroundedEvent, TaskProgressEvent, TaskCompletedEvent } from '../types'
 import type { Message } from '../../../shared/types'
 import {
   findToolMessage,
@@ -90,17 +90,23 @@ export function handleToolResult(
 
     const effectiveIsError = isPersistedOutput ? false : inferredError
 
+    // If the tool is already backgrounded, preserve that status — task_completed will set the final status.
+    // tool_result arrives with the agentId but the task is still running in the background.
+    const existingMessage = session.messages[toolIndex]
+    const isBackgrounded = existingMessage?.toolStatus === 'backgrounded' || existingMessage?.isBackground
+    const newToolStatus = isBackgrounded ? 'backgrounded' : (effectiveIsError ? 'error' : 'completed')
+
     // Update existing tool message
     let updatedSession = updateMessageAt(session, toolIndex, {
       toolResult: event.result,
-      toolStatus: effectiveIsError ? 'error' : 'completed',
+      toolStatus: newToolStatus,
       isError: effectiveIsError,
       errorCode: isPersistedOutput ? 'response_too_large' : undefined,
     })
 
     // Safety net: when a parent Task completes, auto-complete any still-pending child tools.
     // This handles the case where child tool_result events never arrive.
-    const PARENT_TOOLS = ['Task', 'TaskOutput']
+    const PARENT_TOOLS = ['Task', 'Agent', 'TaskOutput']
     const completedTool = updatedSession.messages[toolIndex]
     if (completedTool && PARENT_TOOLS.includes(completedTool.toolName || '')) {
       const hasOrphanedChildren = updatedSession.messages.some(
@@ -242,5 +248,33 @@ export function handleTaskProgress(
   }
 
   // Tool not found - shouldn't happen, but return state unchanged
+  return state
+}
+
+/**
+ * Handle task_completed - update background task message on completion
+ *
+ * When a background task completes, the SDK sends a task_notification.
+ * This handler finds the tool message by taskId and updates its status
+ * and result summary.
+ */
+export function handleTaskCompleted(
+  state: SessionState,
+  event: TaskCompletedEvent
+): SessionState {
+  const { session, streaming } = state
+
+  // Find the tool message by taskId (set when task_backgrounded was processed)
+  const toolIndex = session.messages.findIndex(m => m.taskId === event.taskId)
+
+  if (toolIndex !== -1) {
+    const updatedSession = updateMessageAt(session, toolIndex, {
+      toolStatus: event.status === 'completed' ? 'completed' : 'error',
+      toolResult: event.summary || (event.status === 'completed' ? 'Background task completed' : `Background task ${event.status}`),
+    })
+    return { session: updatedSession, streaming }
+  }
+
+  // Tool not found by taskId - return state unchanged
   return state
 }

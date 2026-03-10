@@ -394,8 +394,9 @@ function detectBackgroundEvents(
 ): AgentEvent[] {
   const events: AgentEvent[] = [];
 
-  // Background Task detection — Task tool with agentId in result
-  if (entry.name === 'Task' && !isError && resultStr) {
+  // Background Task detection — Task/Agent tool with agentId in result
+  // SDK sends 'Agent' as the tool name but internal tests use 'Task'
+  if ((entry.name === 'Task' || entry.name === 'Agent') && !isError && resultStr) {
     const agentIdMatch = resultStr.match(/agentId:\s*([a-zA-Z0-9_-]+)/);
     if (agentIdMatch?.[1]) {
       const intentValue = entry.input._intent;

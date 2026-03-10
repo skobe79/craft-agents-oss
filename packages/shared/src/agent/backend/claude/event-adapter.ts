@@ -273,7 +273,7 @@ export class ClaudeEventAdapter extends BaseEventAdapter {
 
     // Track active Task tools for fallback parent assignment
     for (const event of toolStartEvents) {
-      if (event.type === 'tool_start' && event.toolName === 'Task') {
+      if (event.type === 'tool_start' && (event.toolName === 'Task' || event.toolName === 'Agent')) {
         this.activeParentTools.add(event.toolUseId);
       }
     }
@@ -347,9 +347,9 @@ export class ClaudeEventAdapter extends BaseEventAdapter {
         this.callbacks.sessionDir,
       );
 
-      // Track active Task tools for fallback parent assignment
+      // Track active Task/Agent tools for fallback parent assignment
       for (const evt of streamEvents) {
-        if (evt.type === 'tool_start' && evt.toolName === 'Task') {
+        if (evt.type === 'tool_start' && (evt.toolName === 'Task' || evt.toolName === 'Agent')) {
           this.activeParentTools.add(evt.toolUseId);
         }
       }
@@ -382,9 +382,9 @@ export class ClaudeEventAdapter extends BaseEventAdapter {
         this.currentTurnId || undefined,
       );
 
-      // Remove completed Task tools from activeParentTools
+      // Remove completed Task/Agent tools from activeParentTools
       for (const event of resultEvents) {
-        if (event.type === 'tool_result' && event.toolName === 'Task') {
+        if (event.type === 'tool_result' && (event.toolName === 'Task' || event.toolName === 'Agent')) {
           this.activeParentTools.delete(event.toolUseId);
         }
       }
@@ -429,9 +429,9 @@ export class ClaudeEventAdapter extends BaseEventAdapter {
         this.callbacks.sessionDir,
       );
 
-      // Track active Task tools discovered via progress events
+      // Track active Task/Agent tools discovered via progress events
       for (const evt of progressEvents) {
-        if (evt.type === 'tool_start' && evt.toolName === 'Task') {
+        if (evt.type === 'tool_start' && (evt.toolName === 'Task' || evt.toolName === 'Agent')) {
           this.activeParentTools.add(evt.toolUseId);
         }
       }
@@ -513,6 +513,15 @@ export class ClaudeEventAdapter extends BaseEventAdapter {
       });
     } else if (msg.subtype === 'status' && msg.status === 'compacting') {
       events.push({ type: 'status', message: 'Compacting conversation...' });
+    } else if (msg.subtype === 'task_notification') {
+      events.push({
+        type: 'task_completed',
+        taskId: msg.task_id,
+        status: msg.status ?? 'completed',
+        outputFile: msg.output_file,
+        summary: msg.summary,
+        turnId: this.currentTurnId || undefined,
+      });
     }
   }
 

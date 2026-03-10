@@ -434,6 +434,48 @@ describe('ClaudeEventAdapter', () => {
         message: 'Compacting conversation...',
       });
     });
+
+    it('should emit task_completed for task_notification', async () => {
+      adapter.startTurn();
+      const events = await adapter.adapt({
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'agent-abc123',
+        status: 'completed',
+        output_file: '/tmp/task-output.txt',
+        summary: 'Found 3 matching files',
+        session_id: 'sess-1',
+      } as any);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'task_completed',
+        taskId: 'agent-abc123',
+        status: 'completed',
+        outputFile: '/tmp/task-output.txt',
+        summary: 'Found 3 matching files',
+      });
+    });
+
+    it('should handle task_notification with failed status', async () => {
+      adapter.startTurn();
+      const events = await adapter.adapt({
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'agent-xyz',
+        status: 'failed',
+        output_file: '/tmp/task-error.txt',
+        summary: 'Task failed with error',
+        session_id: 'sess-1',
+      } as any);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'task_completed',
+        taskId: 'agent-xyz',
+        status: 'failed',
+      });
+    });
   });
 
   describe('auth_status', () => {
