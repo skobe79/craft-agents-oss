@@ -1304,6 +1304,13 @@ This is a branched conversation. All prior messages in this conversation are par
             this.sessionId = message.session_id;
             // Notify caller of new SDK session ID (for immediate persistence)
             this.config.onSdkSessionIdUpdate?.(message.session_id);
+            // Retire in-memory branch fork metadata (persistence handled by callback)
+            if (this.branchFromSdkSessionId) {
+              debug(`[ClaudeAgent] Branch fork established, retiring in-memory fork metadata`);
+              this.branchFromSdkSessionId = null;
+              this.branchFromSdkCwd = null;
+              this.branchFromSdkTurnId = null;
+            }
           }
 
           const events = await this.eventAdapter.adapt(message);
@@ -1425,6 +1432,9 @@ This is a branched conversation. All prior messages in this conversation are par
         debug('[SESSION_DEBUG] Post-loop check: wasResuming=', wasResuming, 'receivedAssistantContent=', receivedAssistantContent, '_isRetry=', _isRetry);
         if (wasResuming && !receivedAssistantContent && !_isRetry) {
           debug('[SESSION_DEBUG] >>> DETECTED EMPTY RESPONSE - triggering recovery');
+          if (this.branchFromSdkSessionId) {
+            debug(`[ClaudeAgent] Branch fork failed (empty response) before child session establishment (parent=${this.branchFromSdkSessionId}), recovering as fresh session`);
+          }
           // SDK resume failed silently - clear session and retry with context
           this.sessionId = null;
           this.branchFromSdkSessionId = null; // prevent retry from re-attempting fork with dead parent
@@ -1614,6 +1624,9 @@ This is a branched conversation. All prior messages in this conversation are par
 
         if (isSessionExpired && wasResuming && !_isRetry) {
           debug('[SESSION_DEBUG] >>> TAKING PATH: Session expired recovery');
+          if (this.branchFromSdkSessionId) {
+            debug(`[ClaudeAgent] Branch fork failed (session expired) before child session establishment (parent=${this.branchFromSdkSessionId}), recovering as fresh session`);
+          }
           console.error('[ClaudeAgent] SDK session expired server-side, clearing and retrying fresh');
           debug('[ClaudeAgent] SDK session expired server-side, clearing and retrying fresh');
           this.sessionId = null;
@@ -1733,10 +1746,14 @@ This is a branched conversation. All prior messages in this conversation are par
         debug('[SESSION_DEBUG] isProcessError=false, checking wasResuming fallback');
         if (wasResuming && !_isRetry) {
           debug('[SESSION_DEBUG] >>> TAKING PATH: wasResuming fallback retry');
+          if (this.branchFromSdkSessionId) {
+            debug(`[ClaudeAgent] Branch fork failed (generic error) before child session establishment (parent=${this.branchFromSdkSessionId}), recovering as fresh session`);
+          }
           this.sessionId = null;
           this.branchFromSdkSessionId = null; // prevent retry from re-attempting fork with dead parent
           this.branchFromSdkCwd = null;
           this.branchFromSdkTurnId = null;
+          this.config.onSdkSessionIdCleared?.(); // persist cleared ID to JSONL header
           // Clear pinned state so retry captures fresh values
           this.pinnedPreferencesPrompt = null;
           this.preferencesDriftNotified = false;

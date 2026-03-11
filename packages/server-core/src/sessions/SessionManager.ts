@@ -2328,7 +2328,15 @@ export class SessionManager implements ISessionManager {
 
       const onSdkSessionIdUpdate = (sdkSessionId: string) => {
         managed.sdkSessionId = sdkSessionId
-        sessionLog.info(`SDK session ID captured for ${managed.id}: ${sdkSessionId}`)
+        // Retire branch-only fork metadata now that child session is established
+        if (managed.branchFromSdkSessionId) {
+          sessionLog.info(`Branch fork established for ${managed.id}: child=${sdkSessionId}, retiring parent fork metadata (parent=${managed.branchFromSdkSessionId})`)
+          managed.branchFromSdkSessionId = undefined
+          managed.branchFromSdkCwd = undefined
+          managed.branchFromSdkTurnId = undefined
+        } else {
+          sessionLog.info(`SDK session ID captured for ${managed.id}: ${sdkSessionId}`)
+        }
         this.persistSession(managed)
         sessionPersistenceQueue.flush(managed.id)
       }
