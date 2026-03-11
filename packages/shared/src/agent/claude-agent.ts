@@ -2185,8 +2185,7 @@ export class ClaudeAgent extends BaseAgent {
   }
 
   setModel(model: string): void {
-    this.config.model = model;
-    // Note: Model change takes effect on the next query
+    super.setModel(model);
   }
 
   // ============================================================

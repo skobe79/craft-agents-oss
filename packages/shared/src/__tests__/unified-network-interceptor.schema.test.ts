@@ -66,8 +66,8 @@ describe('sanitizeEmptyTextCacheControl', () => {
     const stripped = sanitizeEmptyTextCacheControl(body);
 
     expect(stripped).toBe(1);
-    expect((body.messages[0].content as any[])[0].cache_control).toBeUndefined();
-    expect((body.messages[0].content as any[])[1].cache_control).toEqual({ type: 'ephemeral' });
+    expect((body.messages[0]!.content as any[])[0].cache_control).toBeUndefined();
+    expect((body.messages[0]!.content as any[])[1].cache_control).toEqual({ type: 'ephemeral' });
   });
 
   it('strips cache_control from whitespace-only text blocks', () => {
@@ -83,7 +83,7 @@ describe('sanitizeEmptyTextCacheControl', () => {
     const stripped = sanitizeEmptyTextCacheControl(body);
 
     expect(stripped).toBe(1);
-    expect((body.messages[0].content as any[])[0].cache_control).toBeUndefined();
+    expect((body.messages[0]!.content as any[])[0].cache_control).toBeUndefined();
   });
 
   it('leaves non-text blocks untouched', () => {
@@ -99,7 +99,7 @@ describe('sanitizeEmptyTextCacheControl', () => {
     const stripped = sanitizeEmptyTextCacheControl(body);
 
     expect(stripped).toBe(0);
-    expect((body.messages[0].content as any[])[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect((body.messages[0]!.content as any[])[0].cache_control).toEqual({ type: 'ephemeral' });
   });
 
   it('handles messages without content arrays', () => {
