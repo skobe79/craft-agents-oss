@@ -459,6 +459,10 @@ describe('Missing UUID branch-cutoff fallback gates', () => {
     return suppressedBranchCutoffError && !_isRetry && !!sessionId
   }
 
+  function shouldRetryWithoutCutoffFromCatch(_isRetry: boolean, sessionId: string | null, suppressedBranchCutoffError: boolean, wasResuming: boolean): boolean {
+    return suppressedBranchCutoffError && wasResuming && !_isRetry && !!sessionId
+  }
+
   it('suppresses missing-UUID errors only for first-turn branch-cutoff attempts', () => {
     const inputs: MissingUuidInputs = {
       _isRetry: false,
@@ -502,6 +506,13 @@ describe('Missing UUID branch-cutoff fallback gates', () => {
     expect(shouldRetryWithoutCutoff(false, 'child-789', true)).toBe(true)
     expect(shouldRetryWithoutCutoff(false, null, true)).toBe(false)
     expect(shouldRetryWithoutCutoff(true, 'child-789', true)).toBe(false)
+  })
+
+  it('retries from catch path when missing-UUID was suppressed and child session exists', () => {
+    expect(shouldRetryWithoutCutoffFromCatch(false, 'child-789', true, true)).toBe(true)
+    expect(shouldRetryWithoutCutoffFromCatch(false, null, true, true)).toBe(false)
+    expect(shouldRetryWithoutCutoffFromCatch(false, 'child-789', true, false)).toBe(false)
+    expect(shouldRetryWithoutCutoffFromCatch(true, 'child-789', true, true)).toBe(false)
   })
 })
 

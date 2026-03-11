@@ -1650,6 +1650,16 @@ This is a branched conversation. All prior messages in this conversation are par
           (stderrContext || '').includes(SESSION_EXPIRED_MARKER);
         debug('[SESSION_DEBUG] isSessionExpired:', isSessionExpired, 'suppressedSessionExpiredError:', suppressedSessionExpiredError);
 
+        // Missing-UUID fallback may surface as a generic process-exit error in catch,
+        // even after we suppressed the underlying stream error event above.
+        // If branch cutoff failed but child session is established, retry once without cutoff.
+        if (suppressedBranchCutoffError && wasResuming && !_isRetry && this.sessionId) {
+          debug('[SESSION_DEBUG] >>> TAKING PATH: missing-UUID branch-cutoff fallback from catch');
+          yield { type: 'info', message: 'Branch point was compacted on server, retrying with nearest available context...' };
+          yield* this.chat(userMessage, attachments);
+          return;
+        }
+
         if (isSessionExpired && wasResuming && !_isRetry) {
           debug('[SESSION_DEBUG] >>> TAKING PATH: Session expired recovery');
           if (this.branchFromSdkSessionId) {
