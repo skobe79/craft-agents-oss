@@ -236,7 +236,7 @@ export function ApiKeyInput({
   }, [activePreset, loadPiModels])
 
   // Whether to show 3 tier dropdowns instead of text input
-  const hasPiModels = isPiApiKeyFlow && piModels.length > 0 && !isDefaultProviderPreset
+  const hasPiModels = isPiApiKeyFlow && piModels.length > 0 && !isDefaultProviderPreset && activePreset !== 'custom'
 
   const handlePresetSelect = (preset: Preset) => {
     setActivePreset(preset.key)
@@ -331,13 +331,16 @@ export function ApiKeyInput({
     // Include custom endpoint protocol when user configured a custom base URL
     const isCustomEndpoint = activePreset === 'custom' && !!effectiveBaseUrl
     const customEndpoint = isCustomEndpoint ? { api: customApi } : undefined
+    const resolvedPiAuthProvider = isCustomEndpoint
+      ? (customApi === 'anthropic-messages' ? 'anthropic' : 'openai')
+      : effectivePiAuthProvider
 
     onSubmit({
       apiKey: apiKey.trim(),
       baseUrl: isUsingDefaultEndpoint ? undefined : effectiveBaseUrl,
       connectionDefaultModel: parsedModels[0],
       models: parsedModels.length > 0 ? parsedModels : undefined,
-      piAuthProvider: effectivePiAuthProvider,
+      piAuthProvider: resolvedPiAuthProvider,
       modelSelectionMode: isPiApiKeyFlow
         ? (parsedModels.length > 0 ? 'userDefined3Tier' : 'automaticallySyncedFromProvider')
         : undefined,

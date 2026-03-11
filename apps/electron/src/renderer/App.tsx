@@ -1757,8 +1757,8 @@ function FilePreviewRenderer({
           />
         )
       }
-      // If content was empty/missing (e.g. file not found), fall back to code overlay with error
-      if (parsedData === null || parsedData === undefined) {
+      // If read failed and content is empty, show raw code overlay with the read error.
+      if ((!state.content || !state.content.trim()) && state.error) {
         return (
           <CodePreviewOverlay
             isOpen

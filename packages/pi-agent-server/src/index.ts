@@ -392,7 +392,10 @@ function resolveCustomEndpointApiKey(): string {
 function isLocalhostUrl(url: string): boolean {
   try {
     const hostname = new URL(url).hostname;
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    const normalizedHostname = hostname.startsWith('[') && hostname.endsWith(']')
+      ? hostname.slice(1, -1)
+      : hostname;
+    return normalizedHostname === 'localhost' || normalizedHostname === '127.0.0.1' || normalizedHostname === '::1';
   } catch {
     return false;
   }
