@@ -2131,6 +2131,7 @@ export class SessionManager implements ISessionManager {
       branchContextStrategy: validatedBranch?.branchContextStrategy,
       branchFromSdkSessionId: validatedBranch?.branchFromSdkSessionId,
       branchFromSessionPath: validatedBranch?.branchFromSessionPath,
+      branchFromSdkCwd: validatedBranch?.branchFromSdkCwd,
       branchSeedApplied: validatedBranch ? validatedBranch.branchContextStrategy === 'sdk-fork' : undefined,
       messagesLoaded: !isBranch,  // Branched sessions: lazy-load messages from JSONL
     })
