@@ -1249,6 +1249,7 @@ export class ClaudeAgent extends BaseAgent {
       // Track whether we received any assistant content (for empty response detection)
       // When SDK returns empty response (e.g., failed resume), we need to detect and recover
       let receivedAssistantContent = false;
+      let suppressedSessionExpiredError = false;
       try {
         for await (const message of this.currentQuery) {
           // Track if we got any text content from assistant
@@ -1357,6 +1358,29 @@ export class ClaudeAgent extends BaseAgent {
               }
             }
 
+            // Suppress session-expired errors during resume/fork — don't yield
+            // them to the caller. The post-loop recovery (wasResuming check)
+            // will handle the retry. Without this, the error event reaches the
+            // SessionManager which shows it as a toast before recovery runs.
+            if (
+              wasResuming && !_isRetry &&
+              event.type === 'error' &&
+              'message' in event && typeof event.message === 'string' &&
+              event.message.includes('No conversation found with session ID')
+            ) {
+              debug('[SESSION_DEBUG] Suppressing session-expired error event for recovery:', event.message);
+              suppressedSessionExpiredError = true;
+              continue;
+            }
+
+            // Also suppress the complete event that follows a suppressed error —
+            // recovery will produce its own completion flow.
+            if (suppressedSessionExpiredError && event.type === 'complete') {
+              debug('[SESSION_DEBUG] Suppressing complete event after session-expired error');
+              receivedComplete = true; // prevent duplicate complete emission
+              continue;
+            }
+
             if (event.type === 'complete') {
               receivedComplete = true;
             }
@@ -1371,6 +1395,7 @@ export class ClaudeAgent extends BaseAgent {
           debug('[SESSION_DEBUG] >>> DETECTED EMPTY RESPONSE - triggering recovery');
           // SDK resume failed silently - clear session and retry with context
           this.sessionId = null;
+          this.branchFromSdkSessionId = null; // prevent retry from re-attempting fork with dead parent
           // Notify that we're clearing the session ID (for persistence)
           this.config.onSdkSessionIdCleared?.();
           // Clear pinned state for fresh start
