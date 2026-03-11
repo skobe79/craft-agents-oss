@@ -61,7 +61,7 @@ import { createSearchTool } from './tools/search/create-search-tool.ts';
 
 /** Messages from main process (stdin) */
 type InboundMessage =
-  | { type: 'init'; apiKey: string; model: string; cwd: string; thinkingLevel: string; workspaceRootPath: string; sessionId: string; sessionPath: string; workingDirectory: string; plansFolderPath: string; miniModel?: string; agentDir?: string; providerType?: string; authType?: string; workspaceId?: string; baseUrl?: string; branchFromSdkSessionId?: string; branchFromSessionPath?: string; piAuth?: { provider: string; credential: { type: 'api_key'; key: string } | { type: 'oauth'; access: string; refresh: string; expires: number } } }
+  | { type: 'init'; apiKey: string; model: string; cwd: string; thinkingLevel: string; workspaceRootPath: string; sessionId: string; sessionPath: string; workingDirectory: string; plansFolderPath: string; miniModel?: string; agentDir?: string; providerType?: string; authType?: string; workspaceId?: string; baseUrl?: string; branchFromSdkSessionId?: string; branchFromSessionPath?: string; customEndpoint?: { api: 'openai-completions' | 'anthropic-messages' }; customModels?: string[]; piAuth?: { provider: string; credential: { type: 'api_key'; key: string } | { type: 'oauth'; access: string; refresh: string; expires: number } } }
   | { type: 'prompt'; id: string; message: string; systemPrompt: string; images?: Array<{ type: 'image'; data: string; mimeType: string }> }
   | { type: 'register_tools'; tools: ProxyToolDef[] }
   | { type: 'tool_execute_response'; requestId: string; result: { content: string; isError: boolean } }
@@ -337,18 +337,46 @@ function createAuthenticatedRegistry(): {
     authStorage.set(provider, credential);
     debugLog(`Injected ${credential.type} credential for provider: ${provider}`);
   } else if (initConfig?.apiKey) {
-    const hasCustomEndpoint = !!initConfig.baseUrl?.trim();
-    if (hasCustomEndpoint) {
-      throw new Error(
-        'Custom endpoint in Craft Agents Backend mode requires explicit provider selection. ' +
-        'Use a provider preset in Pi API key mode, or use Anthropic API key mode for arbitrary compatible endpoints.'
-      );
-    }
-
     authStorage.set('anthropic', { type: 'api_key', key: initConfig.apiKey });
     debugLog('Injected API key into auth storage (legacy fallback)');
   }
-  return { authStorage, modelRegistry: new PiModelRegistry(authStorage) };
+
+  const modelRegistry = new PiModelRegistry(authStorage);
+
+  // Register custom endpoint models dynamically via Pi SDK's registerProvider API.
+  // This makes arbitrary OpenAI/Anthropic-compatible endpoints work through the Pi SDK
+  // by creating synthetic Model<Api> objects that the SDK requires.
+  const hasCustomEndpoint = !!initConfig?.baseUrl?.trim();
+  if (hasCustomEndpoint && initConfig?.customEndpoint) {
+    const { api } = initConfig.customEndpoint;
+    const modelIds = initConfig.customModels?.length
+      ? initConfig.customModels.map(id => id.startsWith('pi/') ? id.slice(3) : id)
+      : [initConfig.model || 'default'].map(id => id.startsWith('pi/') ? id.slice(3) : id);
+    const apiKey = initConfig.piAuth?.credential?.type === 'api_key'
+      ? initConfig.piAuth.credential.key
+      : initConfig.apiKey || '';
+
+    modelRegistry.registerProvider('custom-endpoint', {
+      baseUrl: initConfig.baseUrl!.trim(),
+      apiKey,
+      api,
+      authHeader: true,
+      models: modelIds.map(id => ({
+        id,
+        name: id,
+        reasoning: false,
+        input: ['text'] as ('text' | 'image')[],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 131_072,
+        maxTokens: 8_192,
+      })),
+    });
+    debugLog(`Registered custom endpoint provider: ${initConfig.baseUrl} with ${modelIds.length} model(s) [${modelIds.join(', ')}], api: ${api}`);
+  } else if (hasCustomEndpoint && !initConfig?.customEndpoint) {
+    debugLog('Custom endpoint without protocol config — models may not resolve. Set customEndpoint.api for proper routing.');
+  }
+
+  return { authStorage, modelRegistry };
 }
 
 async function ensureSession(): Promise<AgentSession> {
@@ -1197,7 +1225,30 @@ async function handleSetModel(msg: Extract<InboundMessage, { type: 'set_model' }
     debugLog(`[set_model] No active session or model registry, ignoring`);
     return;
   }
-  const piModel = resolvePiModel(piModelRegistry, msg.model, initConfig?.piAuth?.provider);
+  let piModel = resolvePiModel(piModelRegistry, msg.model, initConfig?.piAuth?.provider);
+
+  // For custom endpoints, dynamically register unknown models so mid-session switching works
+  if (!piModel && initConfig?.baseUrl?.trim() && initConfig?.customEndpoint) {
+    const bareId = msg.model.startsWith('pi/') ? msg.model.slice(3) : msg.model;
+    const apiKey = initConfig.piAuth?.credential?.type === 'api_key'
+      ? initConfig.piAuth.credential.key
+      : initConfig.apiKey || '';
+    piModelRegistry.registerProvider('custom-endpoint', {
+      baseUrl: initConfig.baseUrl!.trim(),
+      apiKey,
+      api: initConfig.customEndpoint.api,
+      authHeader: true,
+      models: [{
+        id: bareId, name: bareId, reasoning: false,
+        input: ['text'] as ('text' | 'image')[],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 131_072, maxTokens: 8_192,
+      }],
+    });
+    piModel = piModelRegistry.find('custom-endpoint', bareId) ?? undefined;
+    debugLog(`[set_model] Dynamically registered custom endpoint model: ${bareId}`);
+  }
+
   if (!piModel) {
     debugLog(`[set_model] Could not resolve model: ${msg.model}`);
     setInterceptorApiHints(undefined);

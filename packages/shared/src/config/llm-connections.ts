@@ -144,6 +144,15 @@ export interface LlmConnection {
    */
   piAuthProvider?: string;
 
+  /**
+   * Custom endpoint protocol config.
+   * Set when user configures an arbitrary API endpoint (Ollama, DashScope, vLLM, etc.).
+   * Determines which streaming adapter the Pi SDK uses for requests.
+   */
+  customEndpoint?: {
+    api: 'openai-completions' | 'anthropic-messages'
+  };
+
   // --- Cloud provider specific fields ---
 
   /** AWS region (for 'bedrock' provider) */

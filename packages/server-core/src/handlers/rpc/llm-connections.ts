@@ -110,6 +110,18 @@ export function registerLlmConnectionsHandlers(server: RpcServer, deps: HandlerD
         }
       }
 
+      // Custom endpoint with protocol config — route through PiAgent
+      if (setup.customEndpoint && hasCustomEndpoint) {
+        updates.customEndpoint = setup.customEndpoint
+        // Override to pi_compat so the factory routes to PiAgent (not ClaudeAgent)
+        updates.providerType = 'pi_compat'
+        updates.authType = 'api_key_with_endpoint'
+        // Set piAuthProvider based on protocol for auth header formatting
+        if (!setup.piAuthProvider) {
+          updates.piAuthProvider = setup.customEndpoint.api === 'anthropic-messages' ? 'anthropic' : 'openai'
+        }
+      }
+
       // Pi API key flow: set piAuthProvider from setup data (e.g. 'anthropic', 'google', 'openai')
       if (setup.piAuthProvider) {
         updates.piAuthProvider = setup.piAuthProvider

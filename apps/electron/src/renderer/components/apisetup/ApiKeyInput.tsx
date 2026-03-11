@@ -31,6 +31,8 @@ import {
 
 export type ApiKeyStatus = 'idle' | 'validating' | 'success' | 'error'
 
+export type CustomEndpointApi = 'openai-completions' | 'anthropic-messages'
+
 export interface ApiKeySubmitData {
   apiKey: string
   baseUrl?: string
@@ -38,6 +40,10 @@ export interface ApiKeySubmitData {
   models?: string[]
   piAuthProvider?: string
   modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
+  /** Custom endpoint protocol — set when user configures an arbitrary API endpoint */
+  customEndpoint?: {
+    api: CustomEndpointApi
+  }
 }
 
 export interface ApiKeyInputProps {
@@ -60,6 +66,8 @@ export interface ApiKeyInputProps {
     connectionDefaultModel?: string
     activePreset?: string
     models?: string[]
+    /** Pre-fill the protocol toggle for custom endpoints */
+    customApi?: CustomEndpointApi
   }
 }
 
@@ -166,6 +174,7 @@ export function ApiKeyInput({
     initialPreset !== 'custom' ? initialPreset : defaultPreset.key
   )
   const [connectionDefaultModel, setConnectionDefaultModel] = useState(initialValues?.connectionDefaultModel ?? '')
+  const [customApi, setCustomApi] = useState<CustomEndpointApi>(initialValues?.customApi ?? 'openai-completions')
   const [modelError, setModelError] = useState<string | null>(null)
 
   // Pi model tier state (for providers with many models like OpenRouter, Vercel)
@@ -319,6 +328,10 @@ export function ApiKeyInput({
       return
     }
 
+    // Include custom endpoint protocol when user configured a custom base URL
+    const isCustomEndpoint = activePreset === 'custom' && !!effectiveBaseUrl
+    const customEndpoint = isCustomEndpoint ? { api: customApi } : undefined
+
     onSubmit({
       apiKey: apiKey.trim(),
       baseUrl: isUsingDefaultEndpoint ? undefined : effectiveBaseUrl,
@@ -328,6 +341,7 @@ export function ApiKeyInput({
       modelSelectionMode: isPiApiKeyFlow
         ? (parsedModels.length > 0 ? 'userDefined3Tier' : 'automaticallySyncedFromProvider')
         : undefined,
+      customEndpoint,
     })
   }
 
@@ -420,6 +434,41 @@ export function ApiKeyInput({
           </div>
         )}
       </div>
+      )}
+
+      {/* Protocol Toggle — only for custom endpoints with a base URL */}
+      {activePreset === 'custom' && !isDefaultProviderPreset && baseUrl.trim() && (
+        <div className="space-y-2">
+          <Label>Protocol</Label>
+          <div className={cn(
+            "flex rounded-md shadow-minimal overflow-hidden",
+            "bg-foreground-2",
+            isDisabled && "opacity-50 pointer-events-none"
+          )}>
+            {([
+              { value: 'openai-completions' as const, label: 'OpenAI Compatible' },
+              { value: 'anthropic-messages' as const, label: 'Anthropic Compatible' },
+            ]).map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                disabled={isDisabled}
+                onClick={() => setCustomApi(value)}
+                className={cn(
+                  "flex-1 py-1.5 text-[12px] font-medium transition-colors",
+                  customApi === value
+                    ? "bg-background text-foreground shadow-minimal"
+                    : "text-foreground/50 hover:text-foreground/70"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-foreground/30">
+            Most third-party APIs (Ollama, vLLM, DashScope) use OpenAI Compatible.
+          </p>
+        </div>
       )}
 
       {/* Model Selection — 3 tier dropdowns for Pi providers, text input for custom/compat */}

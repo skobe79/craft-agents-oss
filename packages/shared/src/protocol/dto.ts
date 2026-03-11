@@ -307,6 +307,10 @@ export interface LlmConnectionSetup {
   modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
   /** When true, reject setup if the connection doesn't already exist (reauth guard). */
   updateOnly?: boolean
+  /** Custom endpoint protocol for arbitrary OpenAI/Anthropic-compatible APIs */
+  customEndpoint?: {
+    api: 'openai-completions' | 'anthropic-messages'
+  }
 }
 
 export interface TestLlmConnectionParams {

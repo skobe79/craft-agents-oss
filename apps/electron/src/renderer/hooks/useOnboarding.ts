@@ -126,6 +126,7 @@ export function apiSetupMethodToConnectionSetup(
     models?: string[]
     piAuthProvider?: string
     modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
+    customEndpoint?: { api: 'openai-completions' | 'anthropic-messages' }
   },
   editingSlug: string | null,
   existingSlugs: Set<string>,
@@ -140,6 +141,7 @@ export function apiSetupMethodToConnectionSetup(
         baseUrl: options.baseUrl,
         defaultModel: options.connectionDefaultModel,
         models: options.models,
+        customEndpoint: options.customEndpoint,
       }
     case 'claude_oauth':
       return {
@@ -161,6 +163,7 @@ export function apiSetupMethodToConnectionSetup(
         models: options.models,
         piAuthProvider: options.piAuthProvider,
         modelSelectionMode: options.modelSelectionMode,
+        customEndpoint: options.customEndpoint,
       }
   }
 }
@@ -222,6 +225,7 @@ export function useOnboarding({
       models?: string[]
       piAuthProvider?: string
       modelSelectionMode?: 'automaticallySyncedFromProvider' | 'userDefined3Tier'
+      customEndpoint?: { api: 'openai-completions' | 'anthropic-messages' }
     },
     methodOverride?: ApiSetupMethod,
     connectionSlugOverride?: string,
@@ -243,6 +247,7 @@ export function useOnboarding({
         models: options?.models,
         piAuthProvider: options?.piAuthProvider,
         modelSelectionMode: options?.modelSelectionMode,
+        customEndpoint: options?.customEndpoint,
       }, connectionSlugOverride ?? editingSlug, existingSlugs)
       // Use new unified API
       const result = await window.electronAPI.setupLlmConnection(
@@ -357,6 +362,7 @@ export function useOnboarding({
           models: data.models,
           piAuthProvider: data.piAuthProvider,
           modelSelectionMode: data.modelSelectionMode,
+          customEndpoint: data.customEndpoint,
         })
         if (saved) {
           setState(s => ({ ...s, credentialStatus: 'success', step: 'complete' }))
@@ -416,6 +422,7 @@ export function useOnboarding({
         models: data.models,
         piAuthProvider: data.piAuthProvider,
         modelSelectionMode: data.modelSelectionMode,
+        customEndpoint: data.customEndpoint,
       })
 
       if (saved) {
