@@ -75,6 +75,9 @@ export function parseNoProxyRules(noProxy: string | undefined): NoProxyRule[] {
 /**
  * Determine whether a URL should bypass the proxy based on NO_PROXY rules.
  */
+/** Default ports by protocol, used when URL omits an explicit port. */
+const DEFAULT_PORTS: Record<string, number> = { 'http:': 80, 'https:': 443 };
+
 export function shouldBypassProxy(url: string | URL, rules: NoProxyRule[]): boolean {
   if (rules.length === 0) return false;
 
@@ -82,13 +85,13 @@ export function shouldBypassProxy(url: string | URL, rules: NoProxyRule[]): bool
   const hostname = parsed.hostname.toLowerCase();
   // Strip brackets from IPv6
   const host = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname;
-  const port = parsed.port ? parseInt(parsed.port, 10) : undefined;
+  const port = parsed.port ? parseInt(parsed.port, 10) : DEFAULT_PORTS[parsed.protocol];
 
   for (const rule of rules) {
     if (rule.wildcard) return true;
 
-    // Port check
-    if (rule.port !== undefined && port !== undefined && rule.port !== port) {
+    // Port-scoped rule: only match when port matches
+    if (rule.port !== undefined && rule.port !== port) {
       continue;
     }
 

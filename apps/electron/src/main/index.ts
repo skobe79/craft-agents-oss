@@ -213,17 +213,27 @@ void applyConfiguredProxySettings()
 // Only bypasses cert validation for the exact CRAFT_SERVER_URL origin — all other connections
 // use standard certificate verification. Without this, wss:// to self-signed servers fails with
 // ERR_CERT_AUTHORITY_INVALID because Chromium's WebSocket rejects untrusted certs.
+//
+// Electron's certificate-error always reports URLs with https:// scheme, so we normalize
+// wss:// → https:// (and ws:// → http://) to ensure origins compare correctly.
+function normalizeOriginForCert(urlStr: string): string {
+  const u = new URL(urlStr)
+  if (u.protocol === 'wss:') u.protocol = 'https:'
+  else if (u.protocol === 'ws:') u.protocol = 'http:'
+  return u.origin
+}
+
 if (process.env.CRAFT_SERVER_URL) {
   let serverOrigin: string | undefined
   try {
-    serverOrigin = new URL(process.env.CRAFT_SERVER_URL).origin
+    serverOrigin = normalizeOriginForCert(process.env.CRAFT_SERVER_URL)
   } catch {
     // Invalid URL — will fail later during connection, no need to handle here
   }
   if (serverOrigin) {
     app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
       try {
-        if (new URL(url).origin === serverOrigin) {
+        if (normalizeOriginForCert(url) === serverOrigin) {
           event.preventDefault()
           callback(true)
           return

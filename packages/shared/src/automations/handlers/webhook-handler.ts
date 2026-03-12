@@ -13,7 +13,7 @@ import type { EventBus, BaseEventPayload } from '../event-bus.ts';
 import type { AutomationHandler, AutomationsConfigProvider } from './types.ts';
 import { APP_EVENTS, type AutomationEvent, type WebhookAction, type WebhookActionResult, type AppEvent } from '../types.ts';
 import { matcherMatches, buildWebhookEnv, expandEnvVars } from '../utils.ts';
-import { executeWithRetry, redactUrl, isTransientFailure, createWebhookHistoryEntry } from '../webhook-utils.ts';
+import { executeWithRetry, redactUrl, isTransientFailure, createWebhookHistoryEntry, expandWebhookAction } from '../webhook-utils.ts';
 import { RetryScheduler } from '../retry-scheduler.ts';
 import { AUTOMATIONS_HISTORY_FILE } from '../constants.ts';
 
@@ -239,10 +239,12 @@ export class WebhookHandler implements AutomationHandler {
         .catch(e => log.debug(`[WebhookHandler] Failed to write history: ${e}`));
 
       // Enqueue for deferred retry if it's a transient failure (5xx / timeout)
-      // and immediate retries were exhausted (attempts > 1 means retries ran)
+      // and immediate retries were exhausted (attempts > 1 means retries ran).
+      // Pre-expand the action so retries don't need the original event env.
       if (isTransientFailure(result)) {
         if (result.attempts && result.attempts > 1) {
-          this.retryScheduler.enqueue(task.matcherId, task.action, result.url, result.error)
+          const expandedAction = expandWebhookAction(task.action, env);
+          this.retryScheduler.enqueue(task.matcherId, expandedAction, result.url, result.error)
             .catch(e => log.debug(`[WebhookHandler] Failed to enqueue for deferred retry: ${e}`));
         }
       }

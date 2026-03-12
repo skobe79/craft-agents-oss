@@ -78,8 +78,8 @@ function validateProxyUrl(url: string): string | undefined {
   if (!url.trim()) return undefined
   try {
     const parsed = new URL(url.trim())
-    if (!['http:', 'https:', 'socks4:', 'socks5:', 'socks:'].includes(parsed.protocol)) {
-      return 'Must be http://, https://, or socks5:// URL'
+    if (!['http:', 'https:', 'socks4:', 'socks5:'].includes(parsed.protocol)) {
+      return 'Must be http://, https://, socks4://, or socks5:// URL'
     }
     return undefined
   } catch {

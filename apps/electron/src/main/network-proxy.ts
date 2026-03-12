@@ -79,15 +79,19 @@ class ProtocolProxyDispatcher extends Dispatcher {
  * Configure the Node.js global undici dispatcher for proxy routing.
  */
 function configureNodeProxy(settings: NetworkProxySettings | undefined): void {
-  // Close previous dispatcher
+  // Close previous dispatcher (proxy or direct — both are tracked)
   if (currentProxyDispatcher) {
     currentProxyDispatcher.close().catch(() => {});
     currentProxyDispatcher = null;
   }
 
-  if (!settings?.enabled) return;
-
-  if (!settings.httpProxy && !settings.httpsProxy) return;
+  if (!settings?.enabled || (!settings.httpProxy && !settings.httpsProxy)) {
+    // Restore a direct dispatcher and track it so next reconfigure can close it
+    const direct = new Agent();
+    setGlobalDispatcher(direct);
+    currentProxyDispatcher = direct;
+    return;
+  }
 
   const dispatcher = new ProtocolProxyDispatcher({
     httpProxy: settings.httpProxy,
