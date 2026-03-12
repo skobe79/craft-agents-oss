@@ -205,6 +205,10 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient(DEEPLINK_SCHEME)
 }
 
+// Apply network proxy settings early (Node-level only — Electron sessions require app.whenReady)
+import { applyConfiguredProxySettings } from './network-proxy'
+void applyConfiguredProxySettings()
+
 // Register thumbnail:// custom protocol for file preview thumbnails in the sidebar.
 // Must happen before app.whenReady() — Electron requires early scheme registration.
 registerThumbnailScheme()
@@ -341,6 +345,10 @@ app.whenReady().then(async () => {
 
   // Register thumbnail:// protocol handler (scheme was registered earlier, before app.whenReady)
   registerThumbnailHandler()
+
+  // Re-apply proxy settings now that Electron sessions are available
+  // (first call before app.whenReady only configured Node-level proxy)
+  await applyConfiguredProxySettings()
 
   // Note: electron-updater handles pending updates internally via autoInstallOnAppQuit
 
