@@ -103,8 +103,8 @@ export interface LogicalConditionUI {
 
 export type AutomationConditionUI = TimeConditionUI | StateConditionUI | LogicalConditionUI
 
-/** Produce a short human-readable label for a condition (recursive for logical ops) */
-export function describeCondition(c: AutomationConditionUI): string {
+/** Produce a short human-readable label for a single leaf condition */
+function describeLeaf(c: AutomationConditionUI): string {
   switch (c.condition) {
     case 'time': {
       const parts: string[] = []
@@ -128,13 +128,40 @@ export function describeCondition(c: AutomationConditionUI): string {
     case 'and':
     case 'or':
     case 'not': {
-      const op = c.condition.toUpperCase()
-      const inner = c.conditions.map(describeCondition).join(', ')
-      return `${op}(${inner})`
+      const sep = c.condition === 'not' ? ' and not ' : ` ${c.condition} `
+      return c.conditions.map(describeLeaf).join(sep)
     }
     default:
       return 'unknown condition'
   }
+}
+
+/**
+ * Flatten a condition tree into displayable rows.
+ * Logical conditions are expanded so their children appear as joined text.
+ * Returns an array of { label, description } for rendering in Info_Table.
+ */
+export function flattenConditions(conditions: AutomationConditionUI[]): { label: string; description: string }[] {
+  const rows: { label: string; description: string }[] = []
+  for (const c of conditions) {
+    if (c.condition === 'and' || c.condition === 'or' || c.condition === 'not') {
+      // Flatten: join inner descriptions with the operator
+      const sep = c.condition === 'not' ? ' and not ' : ` ${c.condition} `
+      const inner = c.conditions.map(describeLeaf).join(sep)
+      // Use the label of the first child type, or 'Condition' as fallback
+      const firstChild = c.conditions[0]
+      const label = firstChild
+        ? firstChild.condition === 'time' ? 'Time'
+          : firstChild.condition === 'state' ? 'State'
+          : 'Condition'
+        : 'Condition'
+      rows.push({ label, description: inner })
+    } else {
+      const label = c.condition === 'time' ? 'Time' : c.condition === 'state' ? 'State' : 'Condition'
+      rows.push({ label, description: describeLeaf(c) })
+    }
+  }
+  return rows
 }
 
 // ============================================================================

@@ -23,7 +23,7 @@ import { AutomationActionRow } from './AutomationActionRow'
 import { AutomationTestPanel } from './AutomationTestPanel'
 import { AutomationEventTimeline } from './AutomationEventTimeline'
 import { PhaseBadge } from './PhaseBadge'
-import { getEventDisplayName, getPermissionDisplayName, describeCondition, type AutomationListItem, type ExecutionEntry, type TestResult } from './types'
+import { getEventDisplayName, getPermissionDisplayName, flattenConditions, type AutomationListItem, type ExecutionEntry, type TestResult } from './types'
 import { describeCron, computeNextRuns } from './utils'
 import { buildFlowDiagram } from './buildFlowDiagram'
 
@@ -161,17 +161,10 @@ export function AutomationInfoPage({
             actions={editActions}
           >
             <Info_Table>
-              {automation.conditions.map((condition, i) => (
-                <Info_Table.Row
-                  key={i}
-                  label={
-                    condition.condition === 'time' ? 'Time'
-                    : condition.condition === 'state' ? 'State'
-                    : condition.condition.toUpperCase()
-                  }
-                >
+              {flattenConditions(automation.conditions).map((row, i) => (
+                <Info_Table.Row key={i} label={row.label}>
                   <span className="text-sm text-foreground/70">
-                    {describeCondition(condition)}
+                    {row.description}
                   </span>
                 </Info_Table.Row>
               ))}
