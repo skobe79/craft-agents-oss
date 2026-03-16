@@ -613,6 +613,10 @@ export default function App() {
             }))
             break
           }
+          case 'toast_error': {
+            toast.error(effect.message, { duration: 5000 })
+            break
+          }
         }
       }
 

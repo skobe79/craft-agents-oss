@@ -23,6 +23,8 @@ import { routes } from '@/lib/navigate'
 import { Spinner } from '@craft-agent/ui'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import type { PermissionMode, WorkspaceSettings, LoadedSource } from '../../../shared/types'
+import { useDirectoryPicker } from '@/hooks/useDirectoryPicker'
+import { ServerDirectoryBrowser } from '@/components/ServerDirectoryBrowser'
 import { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/mode-types'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import { SourceAvatar } from '@/components/ui/source-avatar'
@@ -238,19 +240,22 @@ export default function WorkspaceSettingsPage() {
     [updateWorkspaceSetting]
   )
 
-  const handleChangeWorkingDirectory = useCallback(async () => {
-    if (!window.electronAPI) return
-
+  const handleWorkingDirectorySelected = useCallback(async (selectedPath: string) => {
     try {
-      const selectedPath = await window.electronAPI.openFolderDialog()
-      if (selectedPath) {
-        setWorkingDirectory(selectedPath)
-        await updateWorkspaceSetting('workingDirectory', selectedPath)
-      }
+      setWorkingDirectory(selectedPath)
+      await updateWorkspaceSetting('workingDirectory', selectedPath)
     } catch (error) {
       console.error('Failed to change working directory:', error)
     }
   }, [updateWorkspaceSetting])
+
+  const {
+    pickDirectory: handleChangeWorkingDirectory,
+    showServerBrowser: showWdBrowser,
+    serverBrowserMode: wdBrowserMode,
+    cancelServerBrowser: cancelWdBrowser,
+    confirmServerBrowser: confirmWdBrowser,
+  } = useDirectoryPicker(handleWorkingDirectorySelected)
 
   const handleClearWorkingDirectory = useCallback(async () => {
     if (!window.electronAPI) return
@@ -537,6 +542,13 @@ export default function WorkspaceSettingsPage() {
         </div>
         </ScrollArea>
       </div>
+      <ServerDirectoryBrowser
+        open={showWdBrowser}
+        mode={wdBrowserMode}
+        onSelect={confirmWdBrowser}
+        onCancel={cancelWdBrowser}
+        initialPath={workingDirectory || undefined}
+      />
     </div>
   )
 }

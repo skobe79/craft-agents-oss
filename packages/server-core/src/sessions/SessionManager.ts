@@ -20,6 +20,7 @@ import {
 } from '@craft-agent/shared/agent/backend'
 import { getLlmConnection, getDefaultLlmConnection, getDefaultThinkingLevel } from '@craft-agent/shared/config'
 import { PrivilegedExecutionBroker } from '@craft-agent/server-core/services'
+import { isValidWorkingDirectory } from '../utils/path-validation'
 import { InitGate } from '@craft-agent/server-core/domain'
 import {
   getWorkspaces,
@@ -4094,6 +4095,17 @@ export class SessionManager implements ISessionManager {
   updateWorkingDirectory(sessionId: string, path: string): void {
     const managed = this.sessions.get(sessionId)
     if (managed) {
+      const validation = isValidWorkingDirectory(path)
+      if (!validation.valid) {
+        sessionLog.warn(`Session ${sessionId}: rejected working directory "${path}" — ${validation.reason}`)
+        this.sendEvent({
+          type: 'working_directory_error',
+          sessionId,
+          error: validation.reason!,
+        }, managed.workspace.id)
+        return
+      }
+
       managed.workingDirectory = path
 
       // Check if we can also update sdkCwd (safe if no SDK interaction yet)

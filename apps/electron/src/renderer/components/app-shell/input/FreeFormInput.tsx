@@ -15,6 +15,8 @@ import {
 import { Icon_Home, Icon_Folder, Spinner } from '@craft-agent/ui'
 
 import * as storage from '@/lib/local-storage'
+import { useDirectoryPicker } from '@/hooks/useDirectoryPicker'
+import { ServerDirectoryBrowser } from '@/components/ServerDirectoryBrowser'
 import { extractWorkspaceSlugFromPath } from '@craft-agent/shared/utils/workspace-slug'
 
 import { Button } from '@/components/ui/button'
@@ -2112,14 +2114,22 @@ function WorkingDirectoryBadge({
     }
   }, [popoverOpen])
 
-  const handleChooseFolder = async () => {
-    if (!window.electronAPI) return
+  const handleFolderSelected = React.useCallback((selectedPath: string) => {
+    setRecentDirs(addRecentWorkingDir(selectedPath))
+    onWorkingDirectoryChange(selectedPath)
+  }, [onWorkingDirectoryChange])
+
+  const {
+    pickDirectory,
+    showServerBrowser,
+    serverBrowserMode,
+    cancelServerBrowser,
+    confirmServerBrowser,
+  } = useDirectoryPicker(handleFolderSelected)
+
+  const handleChooseFolder = () => {
     setPopoverOpen(false)
-    const selectedPath = await window.electronAPI.openFolderDialog()
-    if (selectedPath) {
-      setRecentDirs(addRecentWorkingDir(selectedPath))
-      onWorkingDirectoryChange(selectedPath)
-    }
+    pickDirectory()
   }
 
   const handleSelectRecent = (path: string) => {
@@ -2164,6 +2174,7 @@ function WorkingDirectoryBadge({
   const MENU_ITEM_STYLE = 'flex cursor-pointer select-none items-center gap-2 rounded-[6px] px-3 py-1.5 text-[13px] outline-none'
 
   return (
+    <>
     <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
       <PopoverTrigger asChild>
         <span className="shrink min-w-0 overflow-hidden">
@@ -2279,5 +2290,13 @@ function WorkingDirectoryBadge({
         </CommandPrimitive>
       </PopoverContent>
     </Popover>
+    <ServerDirectoryBrowser
+      open={showServerBrowser}
+      mode={serverBrowserMode}
+      onSelect={confirmServerBrowser}
+      onCancel={cancelServerBrowser}
+      initialPath={workingDirectory}
+    />
+    </>
   )
 }
