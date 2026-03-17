@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { useTransportConnectionState } from './useTransportConnectionState'
+import { toast } from 'sonner'
 
 type ServerBrowserMode = 'browse' | 'manual'
 
@@ -31,14 +32,21 @@ export function useDirectoryPicker(
 
   const serverBrowserMode: ServerBrowserMode = canBrowse ? 'browse' : 'manual'
 
-  const pickDirectory = useCallback(() => {
+  const pickDirectory = useCallback(async () => {
     if (isRemote) {
       // Remote mode — open ServerDirectoryBrowser (browse or manual depending on server support)
       setShowServerBrowser(true)
-    } else {
-      // Local mode — native OS dialog
-      window.electronAPI.openFolderDialog().then(path => {
-        if (path) onSelect(path)
+      return
+    }
+
+    // Local mode — native OS dialog
+    try {
+      const path = await window.electronAPI.openFolderDialog()
+      if (path) onSelect(path)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      toast.error('Failed to open folder picker', {
+        description: message,
       })
     }
   }, [isRemote, onSelect])
