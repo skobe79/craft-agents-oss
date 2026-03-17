@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useRegisterModal } from '@/context/ModalContext'
 import type { DirectoryListingResult } from '../../shared/types'
-import { FolderIcon, FolderSymlinkIcon, ChevronRightIcon, Loader2Icon } from 'lucide-react'
+import { FolderIcon, FolderSymlinkIcon, ChevronRightIcon } from 'lucide-react'
+import { Spinner } from '@craft-agent/ui'
 
 /**
  * Detect paths that are clearly from the wrong platform.
@@ -117,6 +118,11 @@ export function ServerDirectoryBrowser({
 
   // Handle selecting the current directory (or highlighted entry)
   const handleSelect = useCallback(() => {
+    if (mode === 'manual') {
+      handlePathSubmit()
+      return
+    }
+
     if (selectedEntry) {
       onSelect(selectedEntry)
     } else if (listing) {
@@ -124,7 +130,7 @@ export function ServerDirectoryBrowser({
     } else if (pathInput.trim()) {
       onSelect(pathInput.trim())
     }
-  }, [selectedEntry, listing, pathInput, onSelect])
+  }, [mode, selectedEntry, listing, pathInput, onSelect, handlePathSubmit])
 
   // Handle double-click on an entry to navigate into it
   const handleEntryDoubleClick = useCallback((entryPath: string) => {
@@ -178,8 +184,8 @@ export function ServerDirectoryBrowser({
       <div className="border border-foreground/10 rounded-md overflow-hidden flex-1 min-h-0">
         <div className="overflow-y-auto max-h-[300px]">
           {loading && (
-            <div className="flex items-center justify-center py-8 text-muted-foreground">
-              <Loader2Icon className="size-4 animate-spin mr-2" />
+            <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+              <Spinner className="text-sm" />
               Loading...
             </div>
           )}
@@ -187,6 +193,12 @@ export function ServerDirectoryBrowser({
           {error && (
             <div className="px-3 py-4 text-sm text-destructive">
               {error}
+            </div>
+          )}
+
+          {!loading && !error && listing?.truncated && (
+            <div className="border-b border-foreground/10 px-3 py-2 text-xs text-muted-foreground">
+              Showing the first {listing.entries.length} folders out of {listing.totalEntries}. Narrow the path if the folder you want is missing.
             </div>
           )}
 

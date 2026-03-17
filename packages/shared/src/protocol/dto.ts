@@ -279,6 +279,10 @@ export interface DirectoryListingResult {
   breadcrumbs: Array<{ name: string; path: string }>
   /** Server platform info. */
   platform: 'win32' | 'darwin' | 'linux'
+  /** Whether the server truncated the directory list for safety/performance. */
+  truncated: boolean
+  /** Total number of matching child directories before truncation. */
+  totalEntries: number
   /** Child directory entries. */
   entries: Array<{ name: string; path: string; isSymlink: boolean }>
 }

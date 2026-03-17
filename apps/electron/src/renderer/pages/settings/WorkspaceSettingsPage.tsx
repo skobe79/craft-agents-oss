@@ -28,6 +28,7 @@ import { ServerDirectoryBrowser } from '@/components/ServerDirectoryBrowser'
 import { PERMISSION_MODE_CONFIG } from '@craft-agent/shared/agent/mode-types'
 import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import { SourceAvatar } from '@/components/ui/source-avatar'
+import { toast } from 'sonner'
 
 import {
   SettingsSection,
@@ -166,12 +167,18 @@ export default function WorkspaceSettingsPage() {
   // Save workspace setting
   const updateWorkspaceSetting = useCallback(
     async <K extends keyof WorkspaceSettings>(key: K, value: WorkspaceSettings[K]) => {
-      if (!window.electronAPI || !activeWorkspaceId) return
+      if (!window.electronAPI || !activeWorkspaceId) return false
 
       try {
         await window.electronAPI.updateWorkspaceSetting(activeWorkspaceId, key, value)
+        return true
       } catch (error) {
-        console.error(`Failed to save ${key}:`, error)
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        console.error(`Failed to save ${String(key)}:`, error)
+        toast.error(`Failed to save ${String(key)}`, {
+          description: message,
+        })
+        return false
       }
     },
     [activeWorkspaceId]
@@ -241,11 +248,9 @@ export default function WorkspaceSettingsPage() {
   )
 
   const handleWorkingDirectorySelected = useCallback(async (selectedPath: string) => {
-    try {
+    const saved = await updateWorkspaceSetting('workingDirectory', selectedPath)
+    if (saved) {
       setWorkingDirectory(selectedPath)
-      await updateWorkspaceSetting('workingDirectory', selectedPath)
-    } catch (error) {
-      console.error('Failed to change working directory:', error)
     }
   }, [updateWorkspaceSetting])
 
@@ -260,11 +265,9 @@ export default function WorkspaceSettingsPage() {
   const handleClearWorkingDirectory = useCallback(async () => {
     if (!window.electronAPI) return
 
-    try {
+    const saved = await updateWorkspaceSetting('workingDirectory', undefined)
+    if (saved) {
       setWorkingDirectory('')
-      await updateWorkspaceSetting('workingDirectory', undefined)
-    } catch (error) {
-      console.error('Failed to clear working directory:', error)
     }
   }, [updateWorkspaceSetting])
 

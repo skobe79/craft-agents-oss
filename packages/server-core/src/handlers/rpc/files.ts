@@ -495,7 +495,9 @@ export function registerFilesHandlers(server: RpcServer, deps: HandlerDeps): voi
 
     // Sort alphabetically (case-insensitive), cap at 500
     entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-    if (entries.length > 500) entries.length = 500
+    const totalEntries = entries.length
+    const truncated = totalEntries > 500
+    if (truncated) entries.length = 500
 
     // Compute parent path
     const parentPath = resolved === parsePath(resolved).root ? null : dirname(resolved)
@@ -516,6 +518,8 @@ export function registerFilesHandlers(server: RpcServer, deps: HandlerDeps): voi
       parentPath,
       breadcrumbs,
       platform: process.platform as DirectoryListingResult['platform'],
+      truncated,
+      totalEntries,
       entries,
     } satisfies DirectoryListingResult
   })
