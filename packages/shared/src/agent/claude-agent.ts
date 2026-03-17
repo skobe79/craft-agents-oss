@@ -12,6 +12,7 @@ import { BaseAgent, type MiniAgentConfig, MINI_AGENT_TOOLS, MINI_AGENT_MCP_KEYS 
 import type { BackendConfig, PostInitResult, PermissionRequestType, SdkMcpServerConfig } from './backend/types.ts';
 // Plan types are used by UI components; not needed in craft-agent.ts since Safe Mode is user-controlled
 import { parseError, type AgentError } from './errors.ts';
+import { mapClaudeSdkAssistantError, type ClaudeSdkApiError } from './claude-sdk-error-mapper.ts';
 import { runErrorDiagnostics } from './diagnostics.ts';
 import { loadStoredConfig, loadConfigDefaults, type Workspace, type AuthType, getDefaultLlmConnection, getLlmConnection } from '../config/storage.ts';
 import { getValidClaudeOAuthToken } from '../auth/state.ts';
@@ -49,6 +50,7 @@ import {
   SAFE_MODE_CONFIG,
 } from './mode-manager.ts';
 import { getSessionDataPath, getSessionPlansPath, getSessionPath } from '../sessions/storage.ts';
+import { getLastApiError } from '../interceptor-common.ts';
 import { extractWorkspaceSlug } from '../utils/workspace.ts';
 import {
   ConfigWatcher,
@@ -2068,7 +2070,7 @@ This is a branched conversation. All prior messages in this conversation are par
    * Uses async retries with non-blocking delays to handle race condition where
    * SDK may still be writing to the debug file when the error event is received.
    */
-  private async parseApiErrorFromDebugLog(): Promise<{ errorType: string; message: string; requestId?: string } | null> {
+  private async parseApiErrorFromDebugLog(): Promise<ClaudeSdkApiError | null> {
     if (!this.sessionId) return null;
 
     const fs = require('fs');
@@ -2132,115 +2134,34 @@ This is a branched conversation. All prior messages in this conversation are par
   }
 
   /**
+   * Pop a recent captured API error, preferring the session-scoped file.
+   * Falls back to the legacy global file for backward compatibility.
+   */
+  private getCapturedApiErrorForSession() {
+    const sessionId = this.config.session?.id;
+    if (!sessionId) {
+      return getLastApiError();
+    }
+
+    const sessionDir = getSessionPath(this.workspaceRootPath, sessionId);
+    return getLastApiError(sessionDir) ?? getLastApiError();
+  }
+
+  /**
    * Map SDK assistant message error codes to typed error events with user-friendly messages.
-   * Reads from SDK debug log file to extract actual API error details.
+   * Merges SDK code with parsed debug errors and interceptor-captured API statuses.
    */
   private async mapSDKErrorToTypedError(
     errorCode: SDKAssistantMessageError
   ): Promise<{ type: 'typed_error'; error: AgentError }> {
-    // Try to extract actual error message from SDK debug log file
     const actualError = await this.parseApiErrorFromDebugLog();
-    const errorMap: Record<SDKAssistantMessageError, AgentError> = {
-      'authentication_failed': {
-        code: 'invalid_api_key',
-        title: 'Authentication Failed',
-        message: 'Unable to authenticate with Anthropic. Your API key may be invalid or expired.',
-        details: ['Check your API key in settings', 'Ensure your API key has not been revoked'],
-        actions: [
-          { key: 's', label: 'Settings', action: 'settings' },
-          { key: 'r', label: 'Retry', action: 'retry' },
-        ],
-        canRetry: true,
-        retryDelayMs: 1000,
-      },
-      'billing_error': {
-        code: 'billing_error',
-        title: 'Billing Error',
-        message: 'Your account has a billing issue.',
-        details: ['Check your Anthropic account billing status'],
-        actions: [
-          { key: 's', label: 'Update credentials', action: 'settings' },
-        ],
-        canRetry: false,
-      },
-      'rate_limit': {
-        code: 'rate_limited',
-        title: 'Rate Limit Exceeded',
-        message: 'Too many requests. Please wait a moment before trying again.',
-        details: ['Rate limits reset after a short period', 'Consider upgrading your plan for higher limits'],
-        actions: [
-          { key: 'r', label: 'Retry', action: 'retry' },
-        ],
-        canRetry: true,
-        retryDelayMs: 5000,
-      },
-      'invalid_request': {
-        code: 'invalid_request',
-        title: 'Invalid Request',
-        message: 'The API rejected this request.',
-        details: [
-          ...(actualError ? [
-            `Error: ${actualError.message}`,
-            `Type: ${actualError.errorType}`,
-            ...(actualError.requestId ? [`Request ID: ${actualError.requestId}`] : []),
-          ] : []),
-          'Try removing any attachments and resending',
-          'Check if images are in a supported format (PNG, JPEG, GIF, WebP)',
-        ],
-        actions: [
-          { key: 'r', label: 'Retry', action: 'retry' },
-        ],
-        canRetry: true,
-        retryDelayMs: 1000,
-      },
-      'server_error': {
-        code: 'network_error',
-        title: 'Connection Error',
-        message: 'Unable to connect to the API server. Check your internet connection.',
-        details: [
-          'Verify your network connection is active',
-          'Check if the API endpoint is accessible',
-          'Firewall or VPN may be blocking the connection',
-        ],
-        actions: [
-          { key: 'r', label: 'Retry', action: 'retry' },
-        ],
-        canRetry: true,
-        retryDelayMs: 2000,
-      },
-      'max_output_tokens': {
-        code: 'invalid_request',
-        title: 'Output Too Large',
-        message: 'The response exceeded the maximum output token limit.',
-        details: ['Try breaking the task into smaller parts', 'Reduce the scope of the request'],
-        actions: [
-          { key: 'r', label: 'Retry', action: 'retry' },
-        ],
-        canRetry: true,
-        retryDelayMs: 1000,
-      },
-      'unknown': {
-        code: 'unknown_error',
-        title: 'Unknown Error',
-        message: 'An unexpected error occurred.',
-        details: [
-          ...(actualError ? [
-            `Error: ${actualError.message}`,
-            `Type: ${actualError.errorType}`,
-            ...(actualError.requestId ? [`Request ID: ${actualError.requestId}`] : []),
-          ] : []),
-          'This may be a temporary issue',
-          'Check your network connection',
-        ],
-        actions: [
-          { key: 'r', label: 'Retry', action: 'retry' },
-        ],
-        canRetry: true,
-        retryDelayMs: 2000,
-      },
-    };
+    const capturedApiError = this.getCapturedApiErrorForSession();
 
-    const error = errorMap[errorCode];
+    const error = mapClaudeSdkAssistantError(errorCode, {
+      actualError,
+      capturedApiError,
+    });
+
     return {
       type: 'typed_error',
       error,
