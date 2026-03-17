@@ -14,6 +14,7 @@ export type ErrorCode =
   | 'service_error'
   | 'service_unavailable'    // Service unavailable (from diagnostics)
   | 'network_error'
+  | 'proxy_error'           // Proxy/firewall/captive portal intercepted the request
   | 'mcp_auth_required'
   | 'mcp_unreachable'        // MCP server unreachable (from diagnostics)
   | 'billing_error'          // HTTP 402 Payment Required
@@ -127,6 +128,16 @@ const ERROR_DEFINITIONS: Record<ErrorCode, Omit<AgentError, 'code' | 'originalEr
     ],
     canRetry: true,
     retryDelayMs: 1000,
+  },
+  proxy_error: {
+    title: 'Network Proxy Error',
+    message: 'A proxy, firewall, or captive portal intercepted the API request and returned an HTML page instead of the expected response.',
+    actions: [
+      { key: 'r', label: 'Retry', action: 'retry' },
+      { key: 's', label: 'Check proxy settings', command: '/settings', action: 'settings' },
+    ],
+    canRetry: true,
+    retryDelayMs: 2000,
   },
   mcp_auth_required: {
     title: 'Workspace Authentication Required',
@@ -268,6 +279,12 @@ export function parseError(error: unknown): AgentError {
     code = 'model_no_tool_support';
   } else if (lowerMessage.includes('is not a valid model') || lowerMessage.includes('model not found') || lowerMessage.includes('invalid model')) {
     code = 'invalid_model';
+  // HTML-intercepted responses (proxy/firewall/captive portal) — the interceptor
+  // already identified this, so trust it over raw status code matching.
+  // Must be checked BEFORE status codes: a 502 Cloudflare page or 401 proxy login
+  // page would otherwise be misclassified as service_error or invalid_api_key.
+  } else if (lowerMessage.includes('unexpected html error page') || lowerMessage.includes('network proxy')) {
+    code = 'proxy_error';
   // Check for specific HTTP status codes or patterns
   } else if (lowerMessage.includes('402') || lowerMessage.includes('payment required')) {
     code = 'billing_error';
@@ -282,8 +299,6 @@ export function parseError(error: unknown): AgentError {
     code = 'rate_limited';
   } else if (lowerMessage.includes('500') || lowerMessage.includes('502') || lowerMessage.includes('503') || lowerMessage.includes('504') || lowerMessage.includes('internal server error') || lowerMessage.includes('service unavailable')) {
     code = 'service_error';
-  } else if (lowerMessage.includes('unexpected html error page') || lowerMessage.includes('network proxy')) {
-    code = 'network_error';
   } else if (lowerMessage.includes('network') || lowerMessage.includes('econnrefused') || lowerMessage.includes('enotfound') || lowerMessage.includes('fetch failed') || lowerMessage.includes('connection')) {
     code = 'network_error';
   } else if (lowerMessage.includes('mcp') && (lowerMessage.includes('auth') || lowerMessage.includes('401'))) {
@@ -305,6 +320,16 @@ export function parseError(error: unknown): AgentError {
   }
 
   const definition = ERROR_DEFINITIONS[code];
+
+  // For proxy_error, use the interceptor's detailed message as the user-visible message
+  if (code === 'proxy_error') {
+    return {
+      code,
+      ...definition,
+      message: errorMessage,
+      originalError: errorMessage,
+    };
+  }
 
   // For model_no_tool_support errors, try to extract the model name for a more helpful message
   if (code === 'model_no_tool_support') {

@@ -42,6 +42,18 @@ const PROXY_URL = process.env.HTTPS_PROXY || process.env.https_proxy
   || process.env.HTTP_PROXY || process.env.http_proxy || '';
 const NO_PROXY = process.env.NO_PROXY || process.env.no_proxy || '';
 
+/** Strip credentials from a proxy URL, returning only scheme://host:port */
+function redactProxyUrl(proxyUrl: string): string {
+  try {
+    const parsed = new URL(proxyUrl);
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return '(invalid proxy URL)';
+  }
+}
+
 /** Parse NO_PROXY into hostname patterns for bypass matching. */
 const noProxyPatterns: string[] = NO_PROXY
   ? NO_PROXY.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
@@ -71,7 +83,7 @@ function getProxyForUrl(url: string): string | undefined {
 }
 
 if (PROXY_URL) {
-  debugLog(`[proxy] Configured: ${PROXY_URL}${NO_PROXY ? `, NO_PROXY: ${NO_PROXY}` : ''}`);
+  debugLog(`[proxy] Configured: ${redactProxyUrl(PROXY_URL)}${NO_PROXY ? `, NO_PROXY: ${NO_PROXY}` : ''}`);
 }
 
 // ============================================================================
@@ -1205,7 +1217,7 @@ async function captureApiError(response: Response, url: string): Promise<void> {
     // a proxy, CDN, captive portal, or firewall. Never show raw HTML to the user.
     if (isHtmlResponse) {
       if (PROXY_URL) {
-        errorMessage = `Received an unexpected HTML error page (HTTP ${response.status}) instead of a JSON API response. This may be caused by your network proxy (${PROXY_URL}). Check your proxy settings in Settings > Network.`;
+        errorMessage = `Received an unexpected HTML error page (HTTP ${response.status}) instead of a JSON API response. This may be caused by your network proxy (${redactProxyUrl(PROXY_URL)}). Check your proxy settings in Settings > Network.`;
       } else {
         errorMessage = `Received an unexpected HTML error page (HTTP ${response.status}) instead of a JSON API response. This could be caused by a firewall, captive portal, or network issue.`;
       }
