@@ -362,6 +362,7 @@ export class WsRpcServer implements RpcServer {
         this.safeSend(ws, serializeEnvelope(ack))
 
         // Notify lifecycle listener
+        console.log(`[WsRpcServer] Client connected: clientId=${clientId}, webContentsId=${client.webContentsId}, workspaceId=${client.workspaceId}`)
         this.onClientConnected?.({
           clientId,
           webContentsId: client.webContentsId,
@@ -370,6 +371,7 @@ export class WsRpcServer implements RpcServer {
 
         // Setup close handler
         ws.on('close', () => {
+          console.log(`[WsRpcServer] Client disconnected: clientId=${clientId}`)
           this.clients.delete(clientId)
           this.rejectPendingInvokesForClient(clientId)
           this.onClientDisconnected?.(clientId)
