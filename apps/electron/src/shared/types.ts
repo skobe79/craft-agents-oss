@@ -294,8 +294,10 @@ export interface ElectronAPI {
   reconnectTransport(): Promise<void>
 
   // Remote workspace bridge connection status (via RPC channels)
-  getRemoteConnectionStatus(): Promise<{ workspaceId: string; status: TransportConnectionStatus } | null>
-  onRemoteConnectionStatusChanged(callback: (data: { workspaceId: string; status: TransportConnectionStatus } | null) => void): () => void
+  getRemoteConnectionStatus(): Promise<{ workspaceId: string; connectionState: TransportConnectionState } | null>
+  onRemoteConnectionStatusChanged(callback: (data: { workspaceId: string; connectionState: TransportConnectionState } | null) => void): () => void
+  /** Manually trigger reconnection of the remote workspace bridge. */
+  reconnectRemoteBridge(): Promise<void>
 
   /** Check whether the server registered a handler for a given RPC channel. */
   isChannelAvailable(channel: string): boolean

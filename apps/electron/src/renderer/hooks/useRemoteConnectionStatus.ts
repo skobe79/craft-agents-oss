@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react'
-import type { TransportConnectionStatus } from '../../shared/types'
+import type { TransportConnectionState } from '../../shared/types'
 
-interface RemoteConnectionStatus {
+export interface RemoteConnectionInfo {
   workspaceId: string
-  status: TransportConnectionStatus
+  connectionState: TransportConnectionState
 }
 
 /**
- * Tracks the bridge connection status for the active remote workspace.
+ * Tracks the bridge connection state for the active remote workspace.
  * Returns null when no remote bridge exists (local workspace or not yet connected).
+ *
+ * Provides full TransportConnectionState (status, url, attempt, errors, etc.)
+ * so consumers get the same data quality as the thin client transport hook.
  */
-export function useRemoteConnectionStatus(): RemoteConnectionStatus | null {
-  const [state, setState] = useState<RemoteConnectionStatus | null>(null)
+export function useRemoteConnectionStatus(): RemoteConnectionInfo | null {
+  const [state, setState] = useState<RemoteConnectionInfo | null>(null)
 
   useEffect(() => {
     let mounted = true

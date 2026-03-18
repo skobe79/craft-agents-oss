@@ -50,7 +50,13 @@ export class RoutedServer implements RpcServer {
     this.inner.handle(RPC_CHANNELS.workspace.GET_REMOTE_STATUS, async (ctx: RequestContext) => {
       const bridge = this.bridgeManager.get(ctx.clientId)
       if (!bridge) return null
-      return { workspaceId: bridge.workspaceId, status: bridge.connectionState.status }
+      return { workspaceId: bridge.workspaceId, connectionState: bridge.connectionState }
+    })
+
+    // Register local-only handler: manually reconnect the bridge
+    this.inner.handle(RPC_CHANNELS.workspace.RECONNECT_REMOTE, async (ctx: RequestContext) => {
+      const bridge = this.bridgeManager.get(ctx.clientId)
+      bridge?.reconnectNow()
     })
   }
 
@@ -69,7 +75,7 @@ export class RoutedServer implements RpcServer {
       this.inner.push(
         RPC_CHANNELS.workspace.REMOTE_STATUS_CHANGED,
         { to: 'client', clientId },
-        { workspaceId, status: state.status },
+        { workspaceId, connectionState: state },
       )
     })
     this.connectionUnsubs.set(clientId, unsub)
@@ -78,7 +84,7 @@ export class RoutedServer implements RpcServer {
     this.inner.push(
       RPC_CHANNELS.workspace.REMOTE_STATUS_CHANGED,
       { to: 'client', clientId },
-      { workspaceId, status: bridge.connectionState.status },
+      { workspaceId, connectionState: bridge.connectionState },
     )
   }
 

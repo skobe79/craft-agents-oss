@@ -171,9 +171,10 @@ export const LOCAL_ONLY_CHANNELS = new Set<string>([
   RPC_CHANNELS.gitbash.BROWSE,
   RPC_CHANNELS.gitbash.SET_PATH,
 
-  // workspace — remote connection status (bridge lives in local Electron)
+  // workspace — remote connection status + reconnect (bridge lives in local Electron)
   RPC_CHANNELS.workspace.GET_REMOTE_STATUS,
   RPC_CHANNELS.workspace.REMOTE_STATUS_CHANGED,
+  RPC_CHANNELS.workspace.RECONNECT_REMOTE,
 
   // debug — local debug logging
   RPC_CHANNELS.debug.LOG,

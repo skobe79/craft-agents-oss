@@ -99,6 +99,11 @@ export class RemoteClientBridge {
     return this.client.onConnectionStateChanged(cb)
   }
 
+  /** Manually trigger a reconnect attempt (e.g. from banner Retry button). */
+  reconnectNow(): void {
+    this.client.reconnectNow()
+  }
+
   destroy(): void {
     if (this.destroyed) return
     this.destroyed = true

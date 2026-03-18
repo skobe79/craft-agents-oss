@@ -227,6 +227,7 @@ export const RPC_CHANNELS = {
     SETTINGS_UPDATE: 'workspaceSettings:update',
     GET_REMOTE_STATUS: 'workspace:getRemoteStatus',
     REMOTE_STATUS_CHANGED: 'workspace:remoteStatusChanged',
+    RECONNECT_REMOTE: 'workspace:reconnectRemote',
   },
   permissions: {
     GET_DEFAULTS: 'permissions:getDefaults',

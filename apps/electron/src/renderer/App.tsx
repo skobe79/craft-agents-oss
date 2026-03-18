@@ -55,7 +55,7 @@ import {
   JSONPreviewOverlay,
 } from '@craft-agent/ui'
 import { useLinkInterceptor, type FilePreviewState } from '@/hooks/useLinkInterceptor'
-import { useTransportConnectionState } from '@/hooks/useTransportConnectionState'
+import { useWorkspaceConnectionState } from '@/hooks/useWorkspaceConnectionState'
 import { TransportConnectionBanner, shouldShowTransportConnectionBanner } from '@/components/app-shell/TransportConnectionBanner'
 import { getFileManagerName } from '@/lib/platform'
 import { ActionRegistryProvider } from '@/actions'
@@ -1271,15 +1271,20 @@ export default function App() {
     readFileBinary: (path) => window.electronAPI.readFileBinary(path),
   })
 
-  const transportConnectionState = useTransportConnectionState()
-  const showTransportConnectionBanner = shouldShowTransportConnectionBanner(transportConnectionState)
+  const { isRemote, connectionState: remoteConnectionState } = useWorkspaceConnectionState()
+  const showTransportConnectionBanner = shouldShowTransportConnectionBanner(isRemote, remoteConnectionState)
 
   const handleReconnectTransport = useCallback(() => {
-    void window.electronAPI.reconnectTransport().catch((error) => {
+    // Thin client: reconnect the preload WS client directly
+    // Hybrid: reconnect the bridge via RPC
+    const reconnect = remoteConnectionState?.mode === 'remote'
+      ? window.electronAPI.reconnectTransport()
+      : window.electronAPI.reconnectRemoteBridge?.() ?? Promise.resolve()
+    void reconnect.catch((error) => {
       const message = error instanceof Error ? error.message : 'Unknown error'
       toast.error('Reconnect failed', { description: message })
     })
-  }, [])
+  }, [remoteConnectionState?.mode])
 
   const handleOpenFile = linkInterceptor.handleOpenFile
   const handleOpenUrl = linkInterceptor.handleOpenUrl
@@ -1609,9 +1614,9 @@ export default function App() {
 
           {/* Main UI - always rendered, splash fades away to reveal it */}
           <div className="h-full flex flex-col pt-[48px] text-foreground">
-            {showTransportConnectionBanner && transportConnectionState && (
+            {showTransportConnectionBanner && remoteConnectionState && (
               <TransportConnectionBanner
-                state={transportConnectionState}
+                state={remoteConnectionState}
                 onRetry={handleReconnectTransport}
               />
             )}
