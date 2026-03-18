@@ -83,9 +83,12 @@ export function registerWorkspaceGuiHandlers(server: RpcServer, deps: HandlerDep
     if (!client) return { ok: false, error }
 
     try {
-      const homeDir = await client.invoke('system:homeDir') as string
+      // Ask the remote server to resolve the default workspace path for this slug.
+      // checkWorkspaceSlug returns { exists, path } where path is the platform-correct
+      // default location on the remote machine.
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace'
-      const remotePath = `${homeDir}/.craft-agent/workspaces/${slug}`
+      const slugCheck = await client.invoke('workspaces:checkSlug', slug) as { exists: boolean; path: string }
+      const remotePath = slugCheck.path
 
       await client.invoke('workspaces:create', remotePath, name)
 
