@@ -2,11 +2,12 @@
  * History Store — single source of truth for automations-history.jsonl writes.
  *
  * Provides:
- * - `appendAutomationHistoryEntry()` — serialized append with periodic compaction
+ * - `appendAutomationHistoryEntry()` — serialized append (no inline compaction)
  * - `compactAutomationHistory()` — two-tier retention: per-automation + global cap
  *
+ * Compaction runs on startup (AutomationSystem.rotateHistory) to enforce caps.
  * All history writes across the codebase should go through `appendAutomationHistoryEntry`
- * so retention is enforced uniformly (prompt actions, webhooks, retries, test/replay).
+ * so the mutex prevents concurrent file corruption.
  */
 
 import { appendFile, readFile, writeFile } from 'fs/promises';
@@ -22,7 +23,7 @@ import {
 const log = createLogger('history-store');
 
 // ============================================================================
-// Per-workspace mutex — serializes read-modify-write to avoid races
+// Per-workspace mutex — serializes writes to avoid corruption
 // ============================================================================
 
 const mutexes = new Map<string, Promise<void>>();
@@ -38,12 +39,8 @@ function withMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
 // Append
 // ============================================================================
 
-/** Counter per workspace — triggers compaction every N appends. */
-const appendCounters = new Map<string, number>();
-const COMPACT_EVERY = 50;
-
 /**
- * Append a history entry and periodically compact the file.
+ * Append a history entry to the JSONL file.
  *
  * The entry must already be a fully-formed history object (use `createWebhookHistoryEntry`
  * or `createPromptHistoryEntry` from `webhook-utils.ts` to build one).
@@ -56,14 +53,6 @@ export async function appendAutomationHistoryEntry(
 
   await withMutex(workspaceRootPath, async () => {
     await appendFile(historyPath, JSON.stringify(entry) + '\n', 'utf-8');
-
-    const count = (appendCounters.get(workspaceRootPath) ?? 0) + 1;
-    appendCounters.set(workspaceRootPath, count);
-
-    if (count >= COMPACT_EVERY) {
-      appendCounters.set(workspaceRootPath, 0);
-      await runCompaction(historyPath);
-    }
   });
 }
 
@@ -74,8 +63,8 @@ export async function appendAutomationHistoryEntry(
 /**
  * Compact the history file in-place: enforce per-automation and global caps.
  *
- * Call this on startup to migrate legacy files, or let `appendAutomationHistoryEntry`
- * trigger it periodically.
+ * Called on startup (AutomationSystem.rotateHistory) to migrate legacy files
+ * and enforce retention limits.
  */
 export async function compactAutomationHistory(
   workspaceRootPath: string,
