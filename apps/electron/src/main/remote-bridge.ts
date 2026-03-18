@@ -38,6 +38,7 @@ export class RemoteClientBridge {
       autoReconnect: true,
       mode: 'remote',
       clientCapabilities: [...LOCAL_CLIENT_CAPABILITIES],
+      tlsRejectUnauthorized: false,
     })
 
     this.registerCapabilityPassthrough()

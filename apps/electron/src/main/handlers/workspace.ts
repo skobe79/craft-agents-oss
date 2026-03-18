@@ -19,7 +19,7 @@ export function registerWorkspaceGuiHandlers(server: RpcServer, deps: HandlerDep
   server.handle(RPC_CHANNELS.remote.TEST_CONNECTION, async (_ctx, url: string, token: string) => {
     const { WsRpcClient } = await import('../../transport/client')
 
-    const client = new WsRpcClient(url, { token, autoReconnect: false })
+    const client = new WsRpcClient(url, { token, autoReconnect: false, tlsRejectUnauthorized: false })
 
     try {
       // Wait for connection + handshake
