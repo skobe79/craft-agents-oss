@@ -75,14 +75,13 @@ export function registerWorkspaceGuiHandlers(server: RpcServer, deps: HandlerDep
       if (workspaces.length === 0) {
         return { ok: false, error: 'Failed to create workspace on remote server' }
       }
-      if (workspaces.length > 1) {
-        return { ok: false, error: 'Multiple workspaces not supported yet' }
-      }
 
       return {
         ok: true,
-        remoteWorkspaceId: workspaces[0].id,
-        remoteWorkspaceName: workspaces[0].name,
+        remoteWorkspaces: workspaces,
+        // Convenience: auto-select if exactly one
+        remoteWorkspaceId: workspaces.length === 1 ? workspaces[0].id : undefined,
+        remoteWorkspaceName: workspaces.length === 1 ? workspaces[0].name : undefined,
       }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' }

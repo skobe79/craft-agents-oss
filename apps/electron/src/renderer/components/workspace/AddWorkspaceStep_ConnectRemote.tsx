@@ -3,6 +3,7 @@ import { ArrowLeft, CheckCircle, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { slugify } from "@/lib/slugify"
 import { Input } from "../ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
 import { AddWorkspaceContainer, AddWorkspaceStepHeader, AddWorkspacePrimaryButton, AddWorkspaceSecondaryButton } from "./primitives"
 
 interface AddWorkspaceStep_ConnectRemoteProps {
@@ -28,6 +29,7 @@ export function AddWorkspaceStep_ConnectRemote({
   const [homeDir, setHomeDir] = useState('')
   const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
   const [testError, setTestError] = useState<string | null>(null)
+  const [remoteWorkspaces, setRemoteWorkspaces] = useState<Array<{ id: string; name: string }>>([])
   const [remoteWorkspaceId, setRemoteWorkspaceId] = useState<string | null>(null)
   const [remoteWorkspaceName, setRemoteWorkspaceName] = useState<string | null>(null)
   const [needsWorkspace, setNeedsWorkspace] = useState(false)
@@ -71,6 +73,7 @@ export function AddWorkspaceStep_ConnectRemote({
   useEffect(() => {
     setTestState('idle')
     setTestError(null)
+    setRemoteWorkspaces([])
     setRemoteWorkspaceId(null)
     setRemoteWorkspaceName(null)
     setNeedsWorkspace(false)
@@ -86,12 +89,22 @@ export function AddWorkspaceStep_ConnectRemote({
         setTestState('ok')
         if (result.needsWorkspace) {
           setNeedsWorkspace(true)
+          setRemoteWorkspaces([])
           setRemoteWorkspaceId(null)
           setRemoteWorkspaceName(null)
         } else {
           setNeedsWorkspace(false)
-          setRemoteWorkspaceId(result.remoteWorkspaceId ?? null)
-          setRemoteWorkspaceName(result.remoteWorkspaceName ?? null)
+          const workspaces = result.remoteWorkspaces ?? []
+          setRemoteWorkspaces(workspaces)
+          if (workspaces.length === 1) {
+            // Auto-select single workspace
+            setRemoteWorkspaceId(workspaces[0].id)
+            setRemoteWorkspaceName(workspaces[0].name)
+          } else {
+            // Multiple workspaces — user must pick
+            setRemoteWorkspaceId(null)
+            setRemoteWorkspaceName(null)
+          }
         }
       } else {
         setTestState('error')
@@ -125,8 +138,10 @@ export function AddWorkspaceStep_ConnectRemote({
   }, [effectiveName, finalPath, serverUrl, token, remoteWorkspaceId, needsWorkspace, slugError, onCreate])
 
   // For fresh servers: name is required. For existing: name is optional (defaults to remote name).
+  // For multiple workspaces: user must pick one before proceeding.
   const hasValidName = needsWorkspace ? !!name.trim() : !!effectiveName
-  const canCreate = hasValidName && finalPath && serverUrl && token && testState === 'ok' && !slugError && !isCreating
+  const hasWorkspaceSelection = needsWorkspace || !!remoteWorkspaceId
+  const canCreate = hasValidName && hasWorkspaceSelection && finalPath && serverUrl && token && testState === 'ok' && !slugError && !isCreating
 
   return (
     <AddWorkspaceContainer>
@@ -195,7 +210,9 @@ export function AddWorkspaceStep_ConnectRemote({
           {testState === 'ok' && !needsWorkspace && (
             <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
               <CheckCircle className="h-3.5 w-3.5" />
-              Connected{remoteWorkspaceName ? ` — ${remoteWorkspaceName}` : ''}
+              Connected{remoteWorkspaces.length > 1
+                ? ` — ${remoteWorkspaces.length} workspaces`
+                : remoteWorkspaceName ? ` — ${remoteWorkspaceName}` : ''}
             </span>
           )}
           {testState === 'ok' && needsWorkspace && (
@@ -211,6 +228,41 @@ export function AddWorkspaceStep_ConnectRemote({
             </span>
           )}
         </div>
+
+        {/* Workspace selector — shown when multiple workspaces exist on remote */}
+        {testState === 'ok' && remoteWorkspaces.length > 1 && (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-foreground">
+              Remote workspace
+            </label>
+            <div className="bg-background shadow-minimal rounded-lg">
+              <Select
+                value={remoteWorkspaceId ?? ''}
+                onValueChange={(id) => {
+                  const ws = remoteWorkspaces.find(w => w.id === id)
+                  setRemoteWorkspaceId(id)
+                  setRemoteWorkspaceName(ws?.name ?? null)
+                  // Pre-fill local name from selected remote workspace
+                  if (ws && !name.trim()) {
+                    setName(ws.name)
+                  }
+                }}
+                disabled={isCreating}
+              >
+                <SelectTrigger className="border-0 bg-transparent shadow-none">
+                  <SelectValue placeholder="Select a workspace..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {remoteWorkspaces.map(ws => (
+                    <SelectItem key={ws.id} value={ws.id}>
+                      {ws.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
 
         {/* Workspace name — shown after successful test */}
         {testState === 'ok' && (
