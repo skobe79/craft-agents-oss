@@ -92,6 +92,27 @@ let configDefaultsSynced = false;
  *
  * Source of truth: apps/electron/resources/config-defaults.json
  */
+/** Minimal config-defaults used when bundled assets aren't available (CI, standalone server). */
+const FALLBACK_CONFIG_DEFAULTS: ConfigDefaults = {
+  version: '1.0',
+  description: 'Default configuration values for Craft Agents',
+  defaults: {
+    notificationsEnabled: true,
+    colorTheme: 'default',
+    autoCapitalisation: true,
+    sendMessageKey: 'enter',
+    spellCheck: false,
+    keepAwakeWhileRunning: false,
+    richToolDescriptions: true,
+  },
+  workspaceDefaults: {
+    thinkingLevel: 'medium',
+    permissionMode: 'ask',
+    cyclablePermissionModes: ['safe', 'ask', 'allow-all'],
+    localMcpServers: { enabled: true },
+  },
+};
+
 function syncConfigDefaults(): void {
   if (configDefaultsSynced) return;
   configDefaultsSynced = true;
@@ -99,13 +120,19 @@ function syncConfigDefaults(): void {
   // Get bundled config-defaults.json from resources folder
   const bundledDir = getBundledAssetsDir('.');
   if (!bundledDir) {
-    debug('[config] No bundled assets dir found - config-defaults will not be synced');
+    debug('[config] No bundled assets dir found - using fallback config-defaults');
+    if (!existsSync(CONFIG_DEFAULTS_FILE)) {
+      writeFileSync(CONFIG_DEFAULTS_FILE, JSON.stringify(FALLBACK_CONFIG_DEFAULTS, null, 2), 'utf-8');
+    }
     return;
   }
 
   const bundledFile = join(bundledDir, 'config-defaults.json');
   if (!existsSync(bundledFile)) {
-    debug('[config] Bundled config-defaults.json not found at: ' + bundledFile);
+    debug('[config] Bundled config-defaults.json not found at: ' + bundledFile + ' - using fallback');
+    if (!existsSync(CONFIG_DEFAULTS_FILE)) {
+      writeFileSync(CONFIG_DEFAULTS_FILE, JSON.stringify(FALLBACK_CONFIG_DEFAULTS, null, 2), 'utf-8');
+    }
     return;
   }
 
