@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import type { ProviderDriver, DriverTestConnectionArgs } from '../driver-types.ts';
 import type { ModelDefinition } from '../../../../config/models.ts';
 import { getAllPiModels, getPiModelsForAuthProvider } from '../../../../config/models-pi.ts';
@@ -10,71 +9,93 @@ type RawCopilotModel = {
   name: string;
   supportedReasoningEfforts?: string[];
   policy?: { state: string };
+  contextWindow?: number;
 };
 
-/**
- * Spin up a CopilotClient CLI, list models, and shut it down.
- * Returns the raw model array or throws on failure/timeout.
- */
-async function listModelsViaCli(
-  copilotCliPath: string | undefined,
-  timeoutMs: number,
-  githubToken?: string,
-): Promise<RawCopilotModel[]> {
-  const { CopilotClient } = await import('@github/copilot-sdk');
+// ── Direct HTTP approach ─────────────────────────────────────────────
 
-  // Manage COPILOT_GITHUB_TOKEN env var:
-  // - With token: inject it so the CLI uses this specific token
-  // - Without token (tier 1): CLEAR the env var so the CLI uses its
-  //   own auth (gh CLI, stored creds) instead of inheriting a stale
-  //   token from the Electron process environment
-  const prevToken = process.env.COPILOT_GITHUB_TOKEN;
-  if (githubToken) {
-    process.env.COPILOT_GITHUB_TOKEN = githubToken;
-  } else {
-    delete process.env.COPILOT_GITHUB_TOKEN;
+/** Headers that identify us as a VS Code Copilot client (same as Pi SDK). */
+const COPILOT_HEADERS = {
+  'User-Agent': 'GitHubCopilotChat/0.35.0',
+  'Editor-Version': 'vscode/1.107.0',
+  'Editor-Plugin-Version': 'copilot-chat/0.35.0',
+  'Copilot-Integration-Id': 'vscode-chat',
+} as const;
+
+/** Extract API base URL from a Copilot API token's proxy-ep field. */
+function getBaseUrlFromToken(token: string): string | null {
+  const match = token.match(/proxy-ep=([^;]+)/);
+  if (!match?.[1]) return null;
+  const apiHost = match[1].replace(/^proxy\./, 'api.');
+  return `https://${apiHost}`;
+}
+
+/**
+ * Fetch models directly from the Copilot API via HTTP.
+ *
+ * 1. Exchange GitHub OAuth token → Copilot API token (via Pi SDK)
+ * 2. Extract base URL from token's proxy-ep field
+ * 3. GET /models to list available models with policy state
+ *
+ * No CLI subprocess, no PATH issues, no env contamination.
+ */
+async function listModelsViaHttp(
+  githubToken: string,
+  timeoutMs: number,
+): Promise<RawCopilotModel[]> {
+  const { refreshGitHubCopilotToken } = await import('@mariozechner/pi-ai/oauth');
+
+  // Step 1: Exchange GitHub OAuth token → Copilot API token
+  const creds = await refreshGitHubCopilotToken(githubToken);
+  const copilotToken = creds.access;
+
+  // Step 2: Extract base URL from token
+  const baseUrl = getBaseUrlFromToken(copilotToken);
+  if (!baseUrl) {
+    throw new Error('Could not extract API base URL from Copilot token (missing proxy-ep)');
   }
 
-  const restoreEnv = () => {
-    if (prevToken !== undefined) {
-      process.env.COPILOT_GITHUB_TOKEN = prevToken;
-    } else {
-      delete process.env.COPILOT_GITHUB_TOKEN;
-    }
-  };
+  console.warn(`[listModelsViaHttp] token exchange OK, baseUrl=${baseUrl}`);
 
-  const client = new CopilotClient({
-    useStdio: true,
-    autoStart: true,
-    logLevel: 'debug',
-    // Let the CLI use its own auth (gh CLI, stored creds) when no token
-    // is injected — this typically returns the best results.
-    ...(!githubToken ? { useLoggedInUser: true } : {}),
-    ...(copilotCliPath && existsSync(copilotCliPath) ? { cliPath: copilotCliPath } : {}),
-  });
+  // Step 3: GET /models
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    await Promise.race([
-      client.start(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(
-        'Copilot client failed to start within timeout.',
-      )), timeoutMs)),
-    ]);
+    const res = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        'Authorization': `Bearer ${copilotToken}`,
+        ...COPILOT_HEADERS,
+      },
+    });
 
-    const models: RawCopilotModel[] = await Promise.race([
-      client.listModels(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(
-        'Copilot model listing timed out.',
-      )), timeoutMs)),
-    ]);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Copilot API ${res.status}: ${text.slice(0, 300)}`);
+    }
 
-    try { await client.stop(); } catch { /* ignore cleanup errors */ }
-    restoreEnv();
-    return models;
-  } catch (error) {
-    try { await client.stop(); } catch { /* ignore cleanup errors */ }
-    restoreEnv();
-    throw error;
+    const data = await res.json() as Record<string, unknown>;
+    // Handle both { models: [...] } and { data: [...] } response formats
+    const models = (data.models || data.data || []) as Record<string, unknown>[];
+
+    console.warn(`[listModelsViaHttp] GET /models returned ${models.length} models`);
+
+    return models.map(m => ({
+      id: m.id as string,
+      name: (m.name || m.id) as string,
+      supportedReasoningEfforts: (m.supportedReasoningEfforts || m.supported_reasoning_efforts) as string[] | undefined,
+      policy: m.policy as { state: string } | undefined,
+      contextWindow: ((m.capabilities as Record<string, unknown>)?.limits as Record<string, unknown>)?.max_context_window_tokens as number | undefined,
+    }));
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      throw new Error('Copilot models API timed out');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -91,7 +112,7 @@ function toModelDefinitions(models: RawCopilotModel[]): ModelDefinition[] {
     shortName: m.name,
     description: '',
     provider: 'pi' as const,
-    contextWindow: 200_000,
+    contextWindow: m.contextWindow || 200_000,
     supportsThinking: !!(m.supportedReasoningEfforts && m.supportedReasoningEfforts.length > 0),
   }));
 }
@@ -110,65 +131,42 @@ function logModelBreakdown(tag: string, models: RawCopilotModel[]): void {
 }
 
 /**
- * Fetch Copilot models with a 3-tier fallback chain:
+ * Fetch Copilot models with a 2-tier fallback chain:
  *
- * 1. **useLoggedInUser** – let the CLI use the best available auth on the
- *    machine (gh CLI, VS Code, etc.). This typically returns the most
- *    complete and up-to-date model list.
- * 2. **Pi SDK token** – use the GitHub token from our OAuth device flow.
- *    The Pi SDK's OAuth app has minimal scopes (`read:user`), so the
- *    Copilot API may return a stale/partial model list.
- * 3. **Pi SDK static catalog** – hardcoded model registry shipped with
- *    the Pi SDK. Not filtered by the user's policy but always available.
+ * 1. **Direct HTTP API** – exchange the Pi SDK's GitHub OAuth token for
+ *    a Copilot API token, then GET /models. Returns the live model list
+ *    with policy state, so we show only enabled models. No CLI subprocess,
+ *    no PATH issues, no env contamination.
+ * 2. **Pi SDK static catalog** – hardcoded model registry shipped with
+ *    the Pi SDK. Not filtered by the user's policy but always available
+ *    as a last resort.
  */
 async function fetchCopilotModels(
   piSdkGitHubToken: string,
-  copilotCliPath: string | undefined,
   timeoutMs: number,
 ): Promise<ModelDefinition[]> {
 
-  // Minimum model count to accept from a CopilotClient tier.
-  // If a tier returns fewer enabled models than the static catalog
-  // has entries, the result is likely stale/partial — fall through.
+  // ── Tier 1: Direct HTTP API ──────────────────────────────────────
+  try {
+    const raw = await listModelsViaHttp(piSdkGitHubToken, timeoutMs);
+    if (raw.length > 0) {
+      logModelBreakdown('tier1-httpApi', raw);
+      const enabled = filterEnabledModels(raw);
+      if (enabled.length > 0) {
+        return toModelDefinitions(enabled);
+      }
+      // All models disabled by policy — unusual but possible.
+      // Log it clearly and fall through to static catalog.
+      console.warn(`[fetchCopilotModels] tier1-httpApi: ${raw.length} models returned but 0 enabled by policy`);
+    }
+  } catch (err) {
+    console.warn(`[fetchCopilotModels] tier1-httpApi failed: ${(err as Error).message}`);
+  }
+
+  // ── Tier 2: Pi SDK static catalog (last resort) ──────────────────
   const staticModels = getPiModelsForAuthProvider('github-copilot');
-  const minModels = Math.min(staticModels.length, 5);
-
-  // ── Tier 1: CopilotClient with useLoggedInUser ───────────────────
-  try {
-    const raw = await listModelsViaCli(copilotCliPath, timeoutMs);
-    if (raw && raw.length > 0) {
-      logModelBreakdown('tier1-loggedInUser', raw);
-      const enabled = filterEnabledModels(raw);
-      if (enabled.length >= minModels) {
-        return toModelDefinitions(enabled);
-      }
-      console.warn(`[fetchCopilotModels] tier1-loggedInUser: only ${enabled.length} enabled (need >=${minModels}), trying next tier`);
-    }
-  } catch (err) {
-    console.warn(`[fetchCopilotModels] tier1-loggedInUser failed: ${(err as Error).message}`);
-  }
-
-  // ── Tier 2: CopilotClient with Pi SDK's GitHub token ─────────────
-  try {
-    const raw = await listModelsViaCli(copilotCliPath, timeoutMs, piSdkGitHubToken);
-    if (raw && raw.length > 0) {
-      logModelBreakdown('tier2-piToken', raw);
-      const enabled = filterEnabledModels(raw);
-      if (enabled.length >= minModels) {
-        return toModelDefinitions(enabled);
-      }
-      console.warn(`[fetchCopilotModels] tier2-piToken: only ${enabled.length} enabled (need >=${minModels}), trying next tier`);
-    }
-  } catch (err) {
-    console.warn(`[fetchCopilotModels] tier2-piToken failed: ${(err as Error).message}`);
-  }
-
-  // ── Tier 3: Pi SDK static catalog ────────────────────────────────
-  // Not filtered by user policy but always complete. Models the user
-  // hasn't enabled will fail at runtime — still better than a stale
-  // subset that's missing their actively-used models.
-  console.warn('[fetchCopilotModels] tier3-staticCatalog: falling back to Pi SDK model registry');
   if (staticModels.length > 0) {
+    console.warn(`[fetchCopilotModels] tier2-staticCatalog: falling back to ${staticModels.length} Pi SDK models`);
     return staticModels;
   }
 
@@ -233,17 +231,13 @@ export const piDriver: ProviderDriver = {
     customEndpoint: context.connection?.customEndpoint,
     customModels: context.connection?.models?.map(m => typeof m === 'string' ? m : m.id),
   }),
-  fetchModels: async ({ connection, credentials, resolvedPaths, timeoutMs }) => {
-    // Copilot OAuth: fetch models dynamically from the Copilot API
-    // The CopilotClient CLI binary expects the GitHub OAuth token (our refreshToken),
-    // NOT the Copilot API token (our accessToken). The CLI does its own token exchange.
+  fetchModels: async ({ connection, credentials, timeoutMs }) => {
+    // Copilot OAuth: fetch models directly from the Copilot API via HTTP.
+    // Uses the GitHub OAuth token (our refreshToken) to exchange for a
+    // Copilot API token, then queries GET /models for the live model list.
     const copilotGitHubToken = credentials.oauthRefreshToken || credentials.oauthAccessToken;
     if (connection.piAuthProvider === 'github-copilot' && copilotGitHubToken) {
-      const models = await fetchCopilotModels(
-        copilotGitHubToken,
-        resolvedPaths.copilotCliPath,
-        timeoutMs,
-      );
+      const models = await fetchCopilotModels(copilotGitHubToken, timeoutMs);
       return { models };
     }
 
