@@ -302,7 +302,7 @@ export interface ElectronAPI {
   getLatestReleaseVersion(): Promise<string | undefined>
 
   // System warnings (startup checks)
-  getSystemWarnings(): Promise<{ vcredistMissing: boolean }>
+  getSystemWarnings(): Promise<{ vcredistMissing: boolean; downloadUrl?: string }>
 
   // Shell operations
   openUrl(url: string): Promise<void>

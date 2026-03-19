@@ -5,17 +5,16 @@ export interface VCRedistCheckResult {
   installed: boolean
   /** Human-readable message suitable for logging or dialogs */
   message: string
+  /** Download URL for the correct VC++ Redistributable installer (set when installed=false) */
+  downloadUrl?: string
 }
 
-/**
- * Well-known paths where vcruntime140.dll is installed by VC++ Redistributable.
- * Covers both x64 and ARM64 host scenarios (ARM64 Windows runs x86_64 via emulation,
- * so the x64 DLL in SysWOW64 or System32 is what matters for onnxruntime).
- */
-const VCRUNTIME_DLL_PATHS = [
-  join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'vcruntime140.dll'),
-  join(process.env.SystemRoot ?? 'C:\\Windows', 'SysWOW64', 'vcruntime140.dll'),
-]
+/** Get the correct download URL based on CPU architecture */
+function getVCRedistDownloadUrl(): string {
+  return process.arch === 'arm64'
+    ? 'https://aka.ms/vs/17/release/vc_redist.arm64.exe'
+    : 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+}
 
 /**
  * Check whether the Microsoft Visual C++ Redistributable is installed on Windows.
@@ -32,17 +31,28 @@ export function checkVCRedistInstalled(): VCRedistCheckResult {
     return { installed: true, message: 'Not applicable on this platform' }
   }
 
-  for (const dllPath of VCRUNTIME_DLL_PATHS) {
+  // Well-known paths where vcruntime140.dll is installed by VC++ Redistributable.
+  // Covers both x64 and ARM64 host scenarios (ARM64 Windows runs x86_64 via emulation,
+  // so the x64 DLL in SysWOW64 or System32 is what matters for onnxruntime).
+  const sysRoot = process.env.SystemRoot ?? 'C:\\Windows'
+  const dllPaths = [
+    join(sysRoot, 'System32', 'vcruntime140.dll'),
+    join(sysRoot, 'SysWOW64', 'vcruntime140.dll'),
+  ]
+
+  for (const dllPath of dllPaths) {
     if (existsSync(dllPath)) {
       return { installed: true, message: `Found vcruntime140.dll at ${dllPath}` }
     }
   }
 
+  const downloadUrl = getVCRedistDownloadUrl()
   return {
     installed: false,
+    downloadUrl,
     message:
       'Microsoft Visual C++ Redistributable is not installed. ' +
       'Document conversion tools (PDF, PPTX, DOCX, XLSX) will not work correctly. ' +
-      'Please install it from: https://aka.ms/vs/17/release/vc_redist.x64.exe',
+      `Please install it from: ${downloadUrl}`,
   }
 }

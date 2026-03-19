@@ -454,11 +454,11 @@ export default function App() {
           duration: Infinity,
           action: {
             label: 'Install',
-            onClick: () => window.electronAPI.openUrl('https://aka.ms/vs/17/release/vc_redist.x64.exe'),
+            onClick: () => window.electronAPI.openUrl(warnings.downloadUrl ?? 'https://aka.ms/vs/17/release/vc_redist.x64.exe'),
           },
         })
       }
-    })
+    }).catch(() => { /* non-fatal startup check */ })
     window.electronAPI.getSessions().then(async (loadedSessions) => {
       // Initialize per-session atoms and metadata map
       // NOTE: No sessionsAtom used - sessions are only in per-session atoms

@@ -463,6 +463,9 @@ app.whenReady().then(async () => {
         if (!vcCheck.installed) {
           mainLog.warn('[vcredist]', vcCheck.message)
           process.env.CRAFT_VCREDIST_MISSING = '1'
+          if (vcCheck.downloadUrl) {
+            process.env.CRAFT_VCREDIST_URL = vcCheck.downloadUrl
+          }
         } else if (isDebugMode) {
           mainLog.info('[vcredist]', vcCheck.message)
         }

@@ -139,4 +139,40 @@ describe('transform_data path containment', () => {
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain('inputFile must be within the session or skills directory');
   });
+
+  it('rejects input path in skills dir that escapes via symlink', async () => {
+    if (process.platform === 'win32') {
+      return; // symlink creation requires elevated privileges on Windows
+    }
+
+    const outsideDir = join(rootDir, 'outside-skills');
+    mkdirSync(outsideDir, { recursive: true });
+    writeFileSync(join(outsideDir, 'secret.txt'), 'sensitive');
+    symlinkSync(outsideDir, join(skillsDir, 'escape-link'), 'dir');
+
+    const result = await handleTransformData(ctx(), {
+      language: 'node',
+      script: "require('node:fs').writeFileSync(process.argv.at(-1), 'ok')",
+      inputFiles: [join(skillsDir, 'escape-link', 'secret.txt')],
+      outputFile: 'out.json',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('inputFile must be within the session or skills directory');
+  });
+
+  it('rejects skills path when skillsPath is not available in context', async () => {
+    // skillsPath is a required getter on SessionToolContext, but at runtime
+    // it could theoretically be empty. Verify the handler falls back safely.
+    const ctxNoSkills = { ...ctx(), skillsPath: undefined } as unknown as SessionToolContext;
+    const result = await handleTransformData(ctxNoSkills, {
+      language: 'node',
+      script: "require('node:fs').writeFileSync(process.argv.at(-1), 'ok')",
+      inputFiles: [join(skillsDir, 'branding', 'assets', 'template.pptx')],
+      outputFile: 'out.json',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('inputFile must be within the session or skills directory');
+  });
 });
