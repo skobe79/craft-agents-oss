@@ -188,7 +188,7 @@ export default function ServerSettingsPage() {
                   variant="outline"
                   size="sm"
                   className="h-7 text-xs"
-                  onClick={() => window.electronAPI.installUpdate()}
+                  onClick={() => window.electronAPI.relaunchApp()}
                 >
                   Restart Now
                 </Button>
@@ -281,7 +281,11 @@ export default function ServerSettingsPage() {
             {form.enabled && !hasTls && (
               <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-sm text-warning">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>Without TLS, connections are unencrypted. Only use on trusted networks.</span>
+                <span>
+                  {status?.insecureWarning
+                    ? 'Server is running without TLS on a network address. Auth tokens are sent in cleartext.'
+                    : 'Without TLS, connections are unencrypted. Only use on trusted networks.'}
+                </span>
               </div>
             )}
           </SettingsSection>

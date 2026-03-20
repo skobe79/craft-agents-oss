@@ -394,6 +394,9 @@ client.onConnectionStateChanged((state) => {
   }
 }
 
+// App lifecycle — direct IPC (not WS RPC) since it restarts the server itself
+;(api as ElectronAPI).relaunchApp = () => ipcRenderer.invoke('app:relaunch')
+
 // System warnings — expose env-based flags set during main process startup
 // (preload-only: reads env var directly, no IPC round-trip needed)
 ;(api as ElectronAPI).getSystemWarnings = async () => ({

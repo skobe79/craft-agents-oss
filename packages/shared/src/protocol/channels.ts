@@ -195,6 +195,9 @@ export const RPC_CHANNELS = {
     SET_DEFAULT_THINKING_LEVEL: 'settings:setDefaultThinkingLevel',
     GET_NETWORK_PROXY: 'settings:getNetworkProxy',
     SET_NETWORK_PROXY: 'settings:setNetworkProxy',
+    GET_SERVER_CONFIG: 'settings:getServerConfig',
+    SET_SERVER_CONFIG: 'settings:setServerConfig',
+    GET_SERVER_STATUS: 'settings:getServerStatus',
   },
   pi: {
     GET_API_KEY_PROVIDERS: 'pi:getApiKeyProviders',
@@ -331,11 +334,6 @@ export const RPC_CHANNELS = {
     STATE_CHANGED: 'browser-pane:state-changed',
     REMOVED: 'browser-pane:removed',
     INTERACTED: 'browser-pane:interacted',
-  },
-  serverConfig: {
-    GET_CONFIG: 'serverConfig:getConfig',
-    SET_CONFIG: 'serverConfig:setConfig',
-    GET_STATUS: 'serverConfig:getStatus',
   },
   automations: {
     TEST: 'automations:test',

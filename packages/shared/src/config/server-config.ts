@@ -34,6 +34,8 @@ export interface ServerStatus {
   token: string
   /** Whether saved config differs from running config (restart needed) */
   needsRestart: boolean
+  /** True when server is bound to a network address without TLS */
+  insecureWarning: boolean
 }
 
 export const DEFAULT_SERVER_CONFIG: ServerConfig = {

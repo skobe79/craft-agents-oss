@@ -20,6 +20,7 @@ type ApiToChannelMapKeys = Exclude<
   | 'reconnectTransport'
   | 'isChannelAvailable'
   | 'getSystemWarnings' // reads env var set at startup — no IPC needed
+  | 'relaunchApp' // direct IPC to main process — not through WS RPC
 > | BrowserPaneKeys
 type ChannelMapKeys = keyof typeof CHANNEL_MAP & string
 

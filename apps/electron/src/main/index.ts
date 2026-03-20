@@ -667,6 +667,12 @@ app.whenReady().then(async () => {
       moduleClientResolver = resolveClientId
 
       // IPC handlers — preload uses sendSync to get WS connection details
+      // App relaunch (for server config changes — NOT an update install)
+      ipcMain.handle('app:relaunch', () => {
+        app.relaunch()
+        app.exit(0)
+      })
+
       ipcMain.on('__get-ws-port', (e) => {
         e.returnValue = instance.port
       })
@@ -689,12 +695,12 @@ app.whenReady().then(async () => {
         enabled: serverModeEnabled,
       }
 
-      instance.wsServer.handle(RPC_CHANNELS.serverConfig.GET_CONFIG, async () => {
+      instance.wsServer.handle(RPC_CHANNELS.settings.GET_SERVER_CONFIG, async () => {
         const { getServerConfig: getConfig } = await import('@craft-agent/shared/config')
         return getConfig()
       })
 
-      instance.wsServer.handle(RPC_CHANNELS.serverConfig.SET_CONFIG, async (_ctx: unknown, config: unknown) => {
+      instance.wsServer.handle(RPC_CHANNELS.settings.SET_SERVER_CONFIG, async (_ctx: unknown, config: unknown) => {
         const { setServerConfig: setConfig } = await import('@craft-agent/shared/config')
         const cfg = config as import('@craft-agent/shared/config/server-config').ServerConfig
         // Validate port range
@@ -711,7 +717,7 @@ app.whenReady().then(async () => {
         setConfig(cfg)
       })
 
-      instance.wsServer.handle(RPC_CHANNELS.serverConfig.GET_STATUS, async () => {
+      instance.wsServer.handle(RPC_CHANNELS.settings.GET_SERVER_STATUS, async () => {
         const { getServerConfig: getConfig } = await import('@craft-agent/shared/config')
         const saved = getConfig()
         const protocol = runningServerState.tls ? 'wss' : 'ws'
@@ -745,8 +751,22 @@ app.whenReady().then(async () => {
           url: `${protocol}://${displayHost}:${runningServerState.port}`,
           token: runningServerState.token,
           needsRestart,
+          insecureWarning: isInsecureBind,
         }
       })
+
+      // TLS enforcement — warn when server mode binds to a network address without TLS
+      // Mirrors the hard guard in packages/server/src/index.ts but warns instead of blocking,
+      // since the user explicitly enabled server mode via UI (may be on a trusted LAN).
+      const isInsecureBind = serverModeEnabled && !tls
+        && !['127.0.0.1', 'localhost', '::1'].includes(rpcHost)
+      if (isInsecureBind) {
+        mainLog.warn(
+          '[server-mode] WARNING: Listening on a network address without TLS. ' +
+          'Auth tokens will be sent in cleartext. ' +
+          'Configure TLS certificates in Settings > Server.'
+        )
+      }
 
       // Wire EventSink to Electron-specific services
       // Must happen BEFORE createInitialWindows() so event handlers use WS from the start
