@@ -23,29 +23,43 @@ cd craft-agents-oss
 bun install
 ```
 
-## Quick Start
+## Setup
+
+### 1. Generate a token
 
 ```bash
-# Generate a secure token
 export CRAFT_SERVER_TOKEN=$(openssl rand -hex 32)
+echo $CRAFT_SERVER_TOKEN  # Save this — clients need it to connect
+```
 
-# Start the server (localhost only)
+### 2. Generate TLS certificates
+
+TLS is required for remote connections. The server token and all session data are transmitted over the WebSocket connection — **never run without TLS on a network**.
+
+For development, generate a self-signed certificate:
+
+```bash
+./scripts/generate-dev-cert.sh
+# Creates certs/cert.pem and certs/key.pem (valid 365 days)
+```
+
+For production, use certificates from a trusted CA (e.g., Let's Encrypt) or place the server behind a reverse proxy (nginx, Caddy) that terminates TLS.
+
+### 3. Start the server
+
+```bash
+CRAFT_SERVER_TOKEN=$CRAFT_SERVER_TOKEN \
+CRAFT_RPC_HOST=0.0.0.0 \
+CRAFT_RPC_TLS_CERT=certs/cert.pem \
+CRAFT_RPC_TLS_KEY=certs/key.pem \
 bun run packages/server/src/index.ts
 ```
 
 The server prints connection details on startup:
 
 ```
-CRAFT_SERVER_URL=ws://127.0.0.1:9100
-CRAFT_SERVER_TOKEN=<generated-token>
-```
-
-To accept remote connections, bind to all interfaces:
-
-```bash
-CRAFT_SERVER_TOKEN=<token> \
-CRAFT_RPC_HOST=0.0.0.0 \
-bun run packages/server/src/index.ts
+CRAFT_SERVER_URL=wss://0.0.0.0:9100
+CRAFT_SERVER_TOKEN=<your-token>
 ```
 
 ## Connecting Clients
@@ -67,7 +81,7 @@ The desktop app renders the UI but all session logic, tool execution, and LLM ca
 Use the terminal client for scripting and automation:
 
 ```bash
-export CRAFT_SERVER_URL=ws://127.0.0.1:9100
+export CRAFT_SERVER_URL=wss://your-server:9100
 export CRAFT_SERVER_TOKEN=<token>
 
 craft-cli ping
@@ -84,37 +98,26 @@ See the [CLI guide](/server/cli) for the full command reference.
 | `CRAFT_SERVER_TOKEN` | Yes | — | Bearer token for authentication |
 | `CRAFT_RPC_HOST` | No | `127.0.0.1` | Bind address (`0.0.0.0` for remote) |
 | `CRAFT_RPC_PORT` | No | `9100` | Bind port |
-| `CRAFT_RPC_TLS_CERT` | No | — | PEM certificate file (enables `wss://`) |
-| `CRAFT_RPC_TLS_KEY` | No | — | PEM private key file |
+| `CRAFT_RPC_TLS_CERT` | Yes* | — | PEM certificate file (enables `wss://`) |
+| `CRAFT_RPC_TLS_KEY` | Yes* | — | PEM private key file |
 | `CRAFT_RPC_TLS_CA` | No | — | PEM CA chain file (optional) |
 | `CRAFT_DEBUG` | No | `false` | Enable debug logging |
 
-## TLS
-
-When exposing the server over the network, TLS encrypts the WebSocket connection (`wss://` instead of `ws://`).
-
-### Self-Signed (Development)
-
-```bash
-./scripts/generate-dev-cert.sh
-# Creates certs/cert.pem and certs/key.pem (valid 365 days)
-```
-
-```bash
-CRAFT_SERVER_TOKEN=<token> \
-CRAFT_RPC_HOST=0.0.0.0 \
-CRAFT_RPC_TLS_CERT=certs/cert.pem \
-CRAFT_RPC_TLS_KEY=certs/key.pem \
-bun run packages/server/src/index.ts
-```
-
-### Production
-
-Use certificates from a trusted CA (e.g., Let's Encrypt) or place the server behind a reverse proxy (nginx, Caddy) that terminates TLS.
+\* Required for remote connections. Can be omitted for `localhost`-only development.
 
 ## Running at Startup
 
 ### Linux (systemd)
+
+Create the environment file at `/path/to/craft-agents-oss/.env`:
+
+```bash
+CRAFT_SERVER_TOKEN=<your-token>
+CRAFT_RPC_HOST=0.0.0.0
+CRAFT_RPC_PORT=9100
+CRAFT_RPC_TLS_CERT=/path/to/cert.pem
+CRAFT_RPC_TLS_KEY=/path/to/key.pem
+```
 
 Create a service file at `/etc/systemd/system/craft-agents.service`:
 
@@ -134,16 +137,6 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-```
-
-Create the `.env` file:
-
-```bash
-CRAFT_SERVER_TOKEN=<your-token>
-CRAFT_RPC_HOST=0.0.0.0
-CRAFT_RPC_PORT=9100
-CRAFT_RPC_TLS_CERT=/path/to/cert.pem
-CRAFT_RPC_TLS_KEY=/path/to/key.pem
 ```
 
 Enable and start:
@@ -188,6 +181,10 @@ Create a plist at `~/Library/LaunchAgents/com.craft.agents-server.plist`:
     <string>0.0.0.0</string>
     <key>CRAFT_RPC_PORT</key>
     <string>9100</string>
+    <key>CRAFT_RPC_TLS_CERT</key>
+    <string>/path/to/cert.pem</string>
+    <key>CRAFT_RPC_TLS_KEY</key>
+    <string>/path/to/key.pem</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
