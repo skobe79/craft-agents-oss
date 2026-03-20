@@ -23,6 +23,8 @@ bun run server:dev:webui   # Build webui + start headless server with web UI on 
 - `CRAFT_WEBUI_DIR` — path to built web UI dist/ (enables web UI)
 - `CRAFT_WEBUI_PORT` — HTTP port for web UI (default: 3100)
 - `CRAFT_WEBUI_PASSWORD` — optional shorter password for web login (falls back to `CRAFT_SERVER_TOKEN`)
+- `CRAFT_WEBUI_SECURE_COOKIE` — optional `true` / `false` override for the session cookie `Secure` flag
+- `CRAFT_WEBUI_WS_URL` — optional browser-facing `ws://` or `wss://` URL returned by `/api/config` (useful behind proxies)
 
 ## Key files
 - `src/adapter/web-api.ts` — Web implementation of ElectronAPI (overrides LOCAL_ONLY methods)

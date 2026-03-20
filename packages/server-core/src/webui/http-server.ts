@@ -46,12 +46,68 @@ function getMimeType(path: string): string {
   return MIME_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream'
 }
 
+function getForwardedValue(req: Request, key: 'proto' | 'host'): string | null {
+  const forwarded = req.headers.get('forwarded')
+  if (!forwarded) return null
+
+  const match = forwarded.match(new RegExp(`${key}="?([^;,"]+)"?`, 'i'))
+  return match?.[1]?.trim() || null
+}
+
+function getRequestProto(req: Request): string {
+  return req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    || getForwardedValue(req, 'proto')
+    || new URL(req.url).protocol.replace(/:$/, '')
+}
+
+function getRequestHost(req: Request): string | null {
+  return req.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+    || getForwardedValue(req, 'host')
+    || req.headers.get('host')
+}
+
+function formatHostWithPort(host: string, port: number): string {
+  try {
+    const parsed = new URL(`http://${host}`)
+    const hostname = parsed.hostname.includes(':') ? `[${parsed.hostname}]` : parsed.hostname
+    return `${hostname}:${port}`
+  } catch {
+    const withoutPort = host.replace(/:\d+$/, '')
+    return `${withoutPort}:${port}`
+  }
+}
+
+export function shouldUseSecureCookies(req: Request, secureCookies?: boolean): boolean {
+  if (secureCookies != null) return secureCookies
+  return getRequestProto(req) === 'https'
+}
+
+export interface ResolveWebSocketUrlOptions {
+  publicWsUrl?: string
+  wsProtocol: 'ws' | 'wss'
+  wsPort: number
+}
+
+export function resolveWebSocketUrl(
+  req: Request,
+  { publicWsUrl, wsProtocol, wsPort }: ResolveWebSocketUrlOptions,
+): string {
+  if (publicWsUrl) return publicWsUrl
+
+  const host = getRequestHost(req)
+  if (host) {
+    return `${wsProtocol}://${formatHostWithPort(host, wsPort)}`
+  }
+
+  return `${wsProtocol}://127.0.0.1:${wsPort}`
+}
+
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
 
 export interface WebuiHttpServerOptions {
-  /** Port to bind on. Must be > 0. */
+  /** Port to bind on. Use 0 for an ephemeral port in tests. */
   port: number
   /** Path to built web UI dist/ directory. */
   webuiDir: string
@@ -59,10 +115,14 @@ export interface WebuiHttpServerOptions {
   secret: string
   /** Optional separate web UI password. Falls back to `secret` for verification. */
   password?: string
-  /** Whether the server is using TLS (affects Secure cookie flag). */
-  secure: boolean
-  /** WebSocket RPC server URL (ws:// or wss://host:port) — returned in /api/config. */
-  wsUrl: string
+  /** Explicit Secure-cookie override. When unset, infer from the request / proxy headers. */
+  secureCookies?: boolean
+  /** Optional browser-facing WebSocket URL override for reverse-proxy deployments. */
+  publicWsUrl?: string
+  /** RPC WebSocket protocol used when building a browser-facing fallback URL. */
+  wsProtocol: 'ws' | 'wss'
+  /** RPC WebSocket port used when building a browser-facing fallback URL. */
+  wsPort: number
   /** Health check function (injected from existing server handler). */
   getHealthCheck: () => { status: string }
   /** Logger. */
@@ -75,14 +135,16 @@ export interface WebuiHttpServerOptions {
 
 export async function startWebuiHttpServer(
   options: WebuiHttpServerOptions,
-): Promise<{ stop: () => void }> {
+): Promise<{ port: number, stop: () => void }> {
   const {
     port,
     webuiDir,
     secret,
     password,
-    secure,
-    wsUrl,
+    secureCookies,
+    publicWsUrl,
+    wsProtocol,
+    wsPort,
     getHealthCheck,
     logger,
   } = options
@@ -98,6 +160,7 @@ export async function startWebuiHttpServer(
     async fetch(req: Request): Promise<Response> {
       const url = new URL(req.url)
       const path = url.pathname
+      const useSecureCookies = shouldUseSecureCookies(req, secureCookies)
 
       // ── Health endpoint (no auth) ──
       if (path === '/health') {
@@ -166,7 +229,7 @@ export async function startWebuiHttpServer(
         return Response.json({ ok: true }, {
           status: 200,
           headers: {
-            'Set-Cookie': buildSessionCookie(jwt, secure),
+            'Set-Cookie': buildSessionCookie(jwt, useSecureCookies),
           },
         })
       }
@@ -176,7 +239,7 @@ export async function startWebuiHttpServer(
         return new Response(null, {
           status: 204,
           headers: {
-            'Set-Cookie': buildLogoutCookie(),
+            'Set-Cookie': buildLogoutCookie(useSecureCookies),
           },
         })
       }
@@ -188,7 +251,9 @@ export async function startWebuiHttpServer(
         if (!configSession) {
           return Response.json({ error: 'Unauthorized' }, { status: 401 })
         }
-        return Response.json({ wsUrl })
+        return Response.json({
+          wsUrl: resolveWebSocketUrl(req, { publicWsUrl, wsProtocol, wsPort }),
+        })
       }
 
       // ── Everything below requires a valid session cookie ──
@@ -228,9 +293,12 @@ export async function startWebuiHttpServer(
     },
   })
 
-  logger.info(`[webui] Web UI server listening on http://0.0.0.0:${port}`)
+  const boundPort = server.port ?? port
+
+  logger.info(`[webui] Web UI server listening on http://0.0.0.0:${boundPort}`)
 
   return {
+    port: boundPort,
     stop: () => {
       clearInterval(cleanupTimer)
       server.stop()

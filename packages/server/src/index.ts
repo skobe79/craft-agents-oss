@@ -6,20 +6,22 @@
  *   CRAFT_SERVER_TOKEN=<secret> bun run packages/server/src/index.ts
  *
  * Environment:
- *   CRAFT_SERVER_TOKEN   — required bearer token for client auth
- *   CRAFT_RPC_HOST       — bind address (default: 127.0.0.1)
- *   CRAFT_RPC_PORT       — bind port (default: 9100)
- *   CRAFT_RPC_TLS_CERT   — path to PEM certificate file (enables TLS/wss)
- *   CRAFT_RPC_TLS_KEY    — path to PEM private key file (required with cert)
- *   CRAFT_RPC_TLS_CA     — path to PEM CA chain file (optional)
- *   CRAFT_APP_ROOT       — app root path (default: cwd)
- *   CRAFT_RESOURCES_PATH — resources path (default: cwd/resources)
- *   CRAFT_IS_PACKAGED    — 'true' for production (default: false)
- *   CRAFT_VERSION        — app version (default: 0.0.0-dev)
- *   CRAFT_DEBUG          — 'true' for debug logging
- *   CRAFT_WEBUI_DIR      — path to built web UI assets (enables web UI)
- *   CRAFT_WEBUI_PORT     — HTTP port for web UI (default: 3100)
- *   CRAFT_WEBUI_PASSWORD — optional shorter password for web login (falls back to CRAFT_SERVER_TOKEN)
+ *   CRAFT_SERVER_TOKEN         — required bearer token for client auth
+ *   CRAFT_RPC_HOST             — bind address (default: 127.0.0.1)
+ *   CRAFT_RPC_PORT             — bind port (default: 9100)
+ *   CRAFT_RPC_TLS_CERT         — path to PEM certificate file (enables TLS/wss)
+ *   CRAFT_RPC_TLS_KEY          — path to PEM private key file (required with cert)
+ *   CRAFT_RPC_TLS_CA           — path to PEM CA chain file (optional)
+ *   CRAFT_APP_ROOT             — app root path (default: cwd)
+ *   CRAFT_RESOURCES_PATH       — resources path (default: cwd/resources)
+ *   CRAFT_IS_PACKAGED          — 'true' for production (default: false)
+ *   CRAFT_VERSION              — app version (default: 0.0.0-dev)
+ *   CRAFT_DEBUG                — 'true' for debug logging
+ *   CRAFT_WEBUI_DIR            — path to built web UI assets (enables web UI)
+ *   CRAFT_WEBUI_PORT           — HTTP port for web UI (default: 3100)
+ *   CRAFT_WEBUI_PASSWORD       — optional shorter password for web login (falls back to CRAFT_SERVER_TOKEN)
+ *   CRAFT_WEBUI_SECURE_COOKIE  — optional true/false override for the session cookie Secure flag
+ *   CRAFT_WEBUI_WS_URL         — optional browser-facing ws:// or wss:// URL returned by /api/config
  */
 
 import { join } from 'node:path'
@@ -47,6 +49,33 @@ if (process.env.CRAFT_DEBUG === 'true' || process.env.CRAFT_DEBUG === '1') {
   enableDebug()
 }
 
+function parseOptionalBooleanEnv(name: string, value: string | undefined): boolean | undefined {
+  if (value == null || value.trim() === '') return undefined
+
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+
+  console.error(`Invalid ${name}: expected one of true/false/1/0/yes/no/on/off.`)
+  process.exit(1)
+}
+
+function parseOptionalWebSocketUrl(name: string, value: string | undefined): string | undefined {
+  if (value == null || value.trim() === '') return undefined
+
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+      throw new Error('must use ws:// or wss://')
+    }
+    return value
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`Invalid ${name}: ${message}`)
+    process.exit(1)
+  }
+}
+
 // In dev (monorepo), bundled assets root is the repo root (4 levels up from this file).
 // In packaged mode, use CRAFT_BUNDLED_ASSETS_ROOT env or cwd.
 const bundledAssetsRoot = process.env.CRAFT_BUNDLED_ASSETS_ROOT
@@ -71,6 +100,8 @@ if (tlsCertPath || tlsKeyPath) {
 // Web UI configuration
 const webuiDir = process.env.CRAFT_WEBUI_DIR || undefined
 const webuiEnabled = webuiDir && existsSync(webuiDir)
+const webuiSecureCookies = parseOptionalBooleanEnv('CRAFT_WEBUI_SECURE_COOKIE', process.env.CRAFT_WEBUI_SECURE_COOKIE)
+const webuiWsUrl = parseOptionalWebSocketUrl('CRAFT_WEBUI_WS_URL', process.env.CRAFT_WEBUI_WS_URL)
 const serverToken = process.env.CRAFT_SERVER_TOKEN
 
 const instance = await (async () => {
@@ -151,7 +182,7 @@ const healthServer = await startHealthHttpServer({
 })
 
 // Start Web UI HTTP server if CRAFT_WEBUI_DIR is set
-let webuiServer: { stop: () => void } | null = null
+let webuiServer: { port: number, stop: () => void } | null = null
 if (webuiEnabled && serverToken) {
   const { startWebuiHttpServer } = await import('@craft-agent/server-core/webui')
   const { getHealthCheck } = await import('@craft-agent/server-core/handlers/rpc/server')
@@ -163,13 +194,15 @@ if (webuiEnabled && serverToken) {
     webuiDir: webuiDir!,
     secret: serverToken,
     password: process.env.CRAFT_WEBUI_PASSWORD || undefined,
-    secure: instance.protocol === 'wss',
-    wsUrl: `${instance.protocol}://${instance.host}:${instance.port}`,
+    secureCookies: webuiSecureCookies,
+    publicWsUrl: webuiWsUrl,
+    wsProtocol: instance.protocol,
+    wsPort: instance.port,
     getHealthCheck: () => getHealthCheck(depsLike),
     logger: instance.platform.logger,
   })
 
-  console.log(`CRAFT_WEBUI_URL=http://0.0.0.0:${webuiPort}`)
+  console.log(`CRAFT_WEBUI_URL=http://0.0.0.0:${webuiServer.port}`)
 }
 
 console.log(`CRAFT_SERVER_URL=${instance.protocol}://${instance.host}:${instance.port}`)

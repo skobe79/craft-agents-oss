@@ -96,8 +96,16 @@ export function buildSessionCookie(jwt: string, secure: boolean): string {
   return parts.join('; ')
 }
 
-export function buildLogoutCookie(): string {
-  return `${SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
+export function buildLogoutCookie(secure = false): string {
+  const parts = [
+    `${SESSION_COOKIE_NAME}=`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/',
+    'Max-Age=0',
+  ]
+  if (secure) parts.push('Secure')
+  return parts.join('; ')
 }
 
 export function extractSessionCookie(cookieHeader: string | null): string | null {
