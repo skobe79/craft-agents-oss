@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useState } from "react"
+import { useState, useCallback, useRef } from "react"
 import { Check, FolderPlus, ExternalLink, ChevronDown, Cloud, CloudOff } from "lucide-react"
 import { AnimatePresence } from "motion/react"
 import { useSetAtom } from "jotai"
@@ -55,12 +55,51 @@ export function WorkspaceSwitcher({
   const connectionState = useTransportConnectionState()
   const isRemote = connectionState?.mode === 'remote'
 
-  /** True when we know the transport is in a disconnected/failed state. */
+  // Health check results for non-active remote workspaces (checked on dropdown open)
+  const [remoteHealthMap, setRemoteHealthMap] = useState<Map<string, 'ok' | 'error' | 'checking'>>(new Map())
+  const healthCheckAbort = useRef<AbortController | null>(null)
+
+  /** Check connectivity for all non-active remote workspaces when dropdown opens. */
+  const checkRemoteHealth = useCallback(() => {
+    // Cancel any in-flight checks
+    healthCheckAbort.current?.abort()
+    const abort = new AbortController()
+    healthCheckAbort.current = abort
+
+    const remoteWorkspaces = workspaces.filter(w => w.remoteServer && w.id !== activeWorkspaceId)
+    if (remoteWorkspaces.length === 0) return
+
+    // Mark all as checking
+    setRemoteHealthMap(prev => {
+      const next = new Map(prev)
+      for (const ws of remoteWorkspaces) next.set(ws.id, 'checking')
+      return next
+    })
+
+    // Fire parallel checks
+    for (const ws of remoteWorkspaces) {
+      window.electronAPI.testRemoteConnection(ws.remoteServer!.url, ws.remoteServer!.token)
+        .then(result => {
+          if (abort.signal.aborted) return
+          setRemoteHealthMap(prev => new Map(prev).set(ws.id, result.ok ? 'ok' : 'error'))
+        })
+        .catch(() => {
+          if (abort.signal.aborted) return
+          setRemoteHealthMap(prev => new Map(prev).set(ws.id, 'error'))
+        })
+    }
+  }, [workspaces, activeWorkspaceId])
+
+  /** True when we know a remote workspace is unreachable. */
   const isRemoteDisconnected = (workspaceId: string) => {
-    if (!isRemote || !connectionState) return false
-    if (workspaceId !== activeWorkspaceId) return false
-    const { status } = connectionState
-    return status !== 'connected' && status !== 'connecting' && status !== 'idle'
+    // Active workspace: use live transport state
+    if (workspaceId === activeWorkspaceId) {
+      if (!isRemote || !connectionState) return false
+      const { status } = connectionState
+      return status !== 'connected' && status !== 'connecting' && status !== 'idle'
+    }
+    // Non-active: use health check result
+    return remoteHealthMap.get(workspaceId) === 'error'
   }
 
   const hasUnreadInOtherWorkspaces = React.useMemo(() => {
@@ -98,7 +137,7 @@ export function WorkspaceSwitcher({
         )}
       </AnimatePresence>
 
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(open) => { if (open) checkRemoteHealth() }}>
         <DropdownMenuTrigger asChild>
           {variant === 'topbar' ? (
             <button
