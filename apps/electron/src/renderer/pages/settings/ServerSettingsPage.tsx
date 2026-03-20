@@ -207,7 +207,7 @@ export default function ServerSettingsPage() {
                   placeholder="9100"
                 />
 
-                {status && savedForm.enabled && (
+                {status && form.enabled && (
                   <>
                     <SettingsRow label="URL">
                       <div className="flex items-center gap-1.5">
