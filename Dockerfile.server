@@ -28,6 +28,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates git && \
     rm -rf /var/lib/apt/lists/*
 
+# Create non-root user (Claude Code SDK refuses to run as root)
+RUN groupadd -r craftagents && \
+    useradd -r -g craftagents -m -d /home/craftagents -s /bin/bash craftagents
+
 WORKDIR /app
 
 # Copy dependency manifests first for layer caching
@@ -57,6 +61,11 @@ RUN bun build packages/session-mcp-server/src/index.ts \
       --outfile packages/session-mcp-server/dist/index.js --target node --format cjs && \
     bun build packages/pi-agent-server/src/index.ts \
       --outfile packages/pi-agent-server/dist/index.js --target node --format cjs
+
+# Give craftagents ownership of the app and its home directory
+RUN chown -R craftagents:craftagents /app /home/craftagents
+
+USER craftagents
 
 ENV CRAFT_RPC_HOST=0.0.0.0
 ENV CRAFT_RPC_PORT=9100
