@@ -115,7 +115,6 @@ export default function ServerSettingsPage() {
     try {
       await window.electronAPI.setServerConfig(formToConfig(form))
       setSavedForm(form)
-      // Refresh status to check needsRestart
       const newStatus = await window.electronAPI.getServerStatus()
       setStatus(newStatus)
       toast.success('Server settings saved')
@@ -162,32 +161,33 @@ export default function ServerSettingsPage() {
 
   const hasTls = !!(form.tlsCertPath && form.tlsKeyPath)
   const needsRestart = status?.needsRestart ?? false
+  const showServerDetails = form.enabled || savedForm.enabled
 
   return (
     <div className="flex flex-col h-full">
       <PanelHeader title="Server" />
       <ScrollArea className="flex-1">
-        <div className="px-6 py-4 space-y-6 max-w-[560px]">
+        <div className="px-6 py-4 space-y-5 max-w-[560px]">
 
-          {/* Remote Access */}
+          {/* Enable toggle + restart banner */}
           <SettingsSection title="Remote Access">
             <SettingsCard>
               <SettingsToggle
                 label="Enable Server Mode"
-                description="Allow connections from other machines on the network. Binds to all interfaces instead of localhost only."
+                description="Allow connections from other machines on the network."
                 checked={form.enabled}
                 onCheckedChange={(enabled) => setForm(f => ({ ...f, enabled }))}
               />
             </SettingsCard>
 
             {needsRestart && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-sm text-warning">
-                <RotateCw className="h-4 w-4 shrink-0" />
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-xs text-warning">
+                <RotateCw className="h-3.5 w-3.5 shrink-0" />
                 <span className="flex-1">Restart required to apply changes</span>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-6 text-[11px] px-2"
                   onClick={() => window.electronAPI.relaunchApp()}
                 >
                   Restart Now
@@ -196,101 +196,83 @@ export default function ServerSettingsPage() {
             )}
           </SettingsSection>
 
-          {/* Connection */}
-          <SettingsSection title="Connection">
-            <SettingsCard>
-              <SettingsInput
-                label="Port"
-                value={form.port}
-                onChange={(port) => setForm(f => ({ ...f, port }))}
-                placeholder="9100"
-              />
+          {/* Connection + TLS — only visible when server mode is relevant */}
+          {showServerDetails && (
+            <SettingsSection title="Connection">
+              <SettingsCard>
+                <SettingsInput
+                  label="Port"
+                  value={form.port}
+                  onChange={(port) => setForm(f => ({ ...f, port }))}
+                  placeholder="9100"
+                />
 
-              {status && form.enabled && (
-                <>
-                  <SettingsRow label="URL">
-                    <div className="flex items-center gap-2">
-                      <code className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded">
-                        {status.url}
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => handleCopy(status.url, 'URL')}
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </SettingsRow>
+                {status && savedForm.enabled && (
+                  <>
+                    <SettingsRow label="URL">
+                      <div className="flex items-center gap-1.5">
+                        <code className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                          {status.url}
+                        </code>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleCopy(status.url, 'URL')}>
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </SettingsRow>
 
-                  <SettingsRow label="Token">
-                    <div className="flex items-center gap-2">
-                      <code className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded max-w-[200px] truncate">
-                        {tokenVisible ? status.token : '••••••••••••••••'}
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => setTokenVisible(v => !v)}
-                      >
-                        {tokenVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => handleCopy(status.token, 'Token')}
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </SettingsRow>
-                </>
+                    <SettingsRow label="Token">
+                      <div className="flex items-center gap-1.5">
+                        <code className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded max-w-[180px] truncate">
+                          {tokenVisible ? status.token : '••••••••••••••••'}
+                        </code>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setTokenVisible(v => !v)}>
+                          {tokenVisible ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleCopy(status.token, 'Token')}>
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </SettingsRow>
+                  </>
+                )}
+
+                <SettingsRow label="Certificate">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                      {form.tlsCertPath || 'Not configured'}
+                    </span>
+                    <Button variant="outline" size="sm" className="h-6 text-[11px] px-2 shrink-0" onClick={handleBrowseCert}>
+                      Browse
+                    </Button>
+                  </div>
+                </SettingsRow>
+
+                <SettingsRow label="Private Key">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                      {form.tlsKeyPath || 'Not configured'}
+                    </span>
+                    <Button variant="outline" size="sm" className="h-6 text-[11px] px-2 shrink-0" onClick={handleBrowseKey}>
+                      Browse
+                    </Button>
+                  </div>
+                </SettingsRow>
+              </SettingsCard>
+
+              {form.enabled && !hasTls && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-xs text-warning">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    {status?.insecureWarning
+                      ? 'Server is running without TLS. Auth tokens are sent in cleartext.'
+                      : 'Without TLS, connections will be unencrypted.'}
+                  </span>
+                </div>
               )}
-            </SettingsCard>
-          </SettingsSection>
+            </SettingsSection>
+          )}
 
-          {/* TLS */}
-          <SettingsSection title="TLS">
-            <SettingsCard>
-              <SettingsRow label="Certificate">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground truncate max-w-[240px]">
-                    {form.tlsCertPath || 'Not configured'}
-                  </span>
-                  <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" onClick={handleBrowseCert}>
-                    Browse
-                  </Button>
-                </div>
-              </SettingsRow>
-
-              <SettingsRow label="Private Key">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground truncate max-w-[240px]">
-                    {form.tlsKeyPath || 'Not configured'}
-                  </span>
-                  <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" onClick={handleBrowseKey}>
-                    Browse
-                  </Button>
-                </div>
-              </SettingsRow>
-            </SettingsCard>
-
-            {form.enabled && !hasTls && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-sm text-warning">
-                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>
-                  {status?.insecureWarning
-                    ? 'Server is running without TLS on a network address. Auth tokens are sent in cleartext.'
-                    : 'Without TLS, connections are unencrypted. Only use on trusted networks.'}
-                </span>
-              </div>
-            )}
-          </SettingsSection>
-
-          {/* Error + Save/Reset footer */}
+          {/* Save/Reset */}
           {error && (
             <p className="text-xs text-destructive px-1">{error}</p>
           )}

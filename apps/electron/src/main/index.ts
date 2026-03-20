@@ -738,10 +738,15 @@ app.whenReady().then(async () => {
           }
         }
 
+        // Only compare port/tls/token when at least one side has server mode enabled.
+        // When both are disabled, the running port is random — comparing it to the
+        // saved default (9100) would always produce a false "restart required" banner.
         const needsRestart = saved.enabled !== runningServerState.enabled
-          || saved.port !== runningServerState.port
-          || (!!saved.tlsCertPath) !== runningServerState.tls
-          || (saved.token ?? '') !== runningServerState.token
+          || ((saved.enabled || runningServerState.enabled) && (
+            saved.port !== runningServerState.port
+            || (!!saved.tlsCertPath) !== runningServerState.tls
+            || (saved.token ?? '') !== runningServerState.token
+          ))
 
         return {
           running: true,
