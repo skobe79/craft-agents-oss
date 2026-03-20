@@ -35,6 +35,7 @@ import {
 import type { ConfirmDialogSpec, FileDialogSpec } from '@craft-agent/server-core/transport'
 import type { RpcClient } from '@craft-agent/server-core/transport'
 import type { RemoteServerConfig } from '@craft-agent/core/types'
+import type { ElectronAPI } from '../shared/types'
 
 // ---------------------------------------------------------------------------
 // Client interface — common surface for both RoutedClient and WsRpcClient
@@ -392,5 +393,12 @@ client.onConnectionStateChanged((state) => {
     callbackServer?.close()
   }
 }
+
+// System warnings — expose env-based flags set during main process startup
+// (preload-only: reads env var directly, no IPC round-trip needed)
+;(api as ElectronAPI).getSystemWarnings = async () => ({
+  vcredistMissing: process.env.CRAFT_VCREDIST_MISSING === '1',
+  downloadUrl: process.env.CRAFT_VCREDIST_URL,
+})
 
 contextBridge.exposeInMainWorld('electronAPI', api)
