@@ -553,7 +553,7 @@ function getApiKeyMethodForConnection(conn: LlmConnectionWithStatus): ApiSetupMe
 // ============================================
 
 export default function AiSettingsPage() {
-  const { llmConnections, refreshLlmConnections } = useAppShellContext()
+  const { llmConnections, refreshLlmConnections, activeWorkspaceId } = useAppShellContext()
 
   // API Setup overlay state
   const [showApiSetup, setShowApiSetup] = useState(false)
@@ -575,6 +575,7 @@ export default function AiSettingsPage() {
   // Default settings state (app-level)
   const [defaultThinking, setDefaultThinking] = useState<ThinkingLevel>(DEFAULT_THINKING_LEVEL)
   const [extendedPromptCache, setExtendedPromptCache] = useState(false)
+  const [enable1MContext, setEnable1MContext] = useState(true)
 
   // Validation state per connection
   const [validationStates, setValidationStates] = useState<Record<string, {
@@ -604,6 +605,14 @@ export default function AiSettingsPage() {
         const extendedCache = await window.electronAPI.getExtendedPromptCache()
         setExtendedPromptCache(extendedCache)
 
+        // Load workspace-level 1M context setting for the active workspace
+        if (activeWorkspaceId) {
+          const wsSettings = await window.electronAPI.getWorkspaceSettings(activeWorkspaceId)
+          if (wsSettings) {
+            setEnable1MContext(wsSettings.enable1MContext ?? true)
+          }
+        }
+
         // Check credential health for potential issues (corruption, machine migration)
         const health = await window.electronAPI.getCredentialHealth()
         if (!health.healthy) {
@@ -614,7 +623,7 @@ export default function AiSettingsPage() {
       }
     }
     load()
-  }, [])
+  }, [activeWorkspaceId])
 
   // Helpers to open/close the fullscreen API setup overlay
   const openApiSetup = useCallback((connectionSlug?: string) => {
@@ -871,6 +880,13 @@ export default function AiSettingsPage() {
     await window.electronAPI?.setExtendedPromptCache(enabled)
   }, [])
 
+  const handleEnable1MContextChange = useCallback(async (enabled: boolean) => {
+    setEnable1MContext(enabled)
+    if (activeWorkspaceId) {
+      await window.electronAPI?.updateWorkspaceSetting(activeWorkspaceId, 'enable1MContext', enabled)
+    }
+  }, [activeWorkspaceId])
+
   // Refresh callback for workspace cards
   const handleWorkspaceSettingsChange = useCallback(() => {
     // Refresh context so changes propagate immediately
@@ -992,6 +1008,12 @@ export default function AiSettingsPage() {
               {/* Performance */}
               <SettingsSection title="Performance" description="Cost and caching options.">
                 <SettingsCard>
+                  <SettingsToggle
+                    label="Extended Context (1M)"
+                    description="Use 1M token context window for Opus 4.6. Disable to use 200K and conserve usage limits."
+                    checked={enable1MContext}
+                    onCheckedChange={handleEnable1MContextChange}
+                  />
                   <SettingsToggle
                     label="Extended prompt cache (1 hour)"
                     description="Cache prompts for 1 hour instead of 5 minutes. Only applies to Claude models via Anthropic API. Reduces cost for long sessions but increases cache write cost."
