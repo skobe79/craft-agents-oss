@@ -5,6 +5,7 @@ import App from './App'
 import { ThemeProvider } from '@/context/ThemeContext'
 import { windowWorkspaceIdAtom } from '@/atoms/sessions'
 import { Toaster } from '@/components/ui/sonner'
+import { initializeResponsiveShell } from './responsive'
 import './index.css'
 
 function CrashFallback() {
@@ -40,6 +41,8 @@ function Root() {
     </ThemeProvider>
   )
 }
+
+initializeResponsiveShell()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

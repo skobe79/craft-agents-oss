@@ -9,7 +9,9 @@
  */
 
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { ChevronLeft } from 'lucide-react'
 import { createWebApi } from './adapter/web-api'
+import { useResponsiveShellState, useMobileBackToList } from './responsive'
 import type { WsRpcClient } from '../../electron/src/transport/client'
 
 // Lazy-load the Electron App after window.electronAPI is set up.
@@ -52,6 +54,25 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
         </button>
       </div>
     </div>
+  )
+}
+
+function MobileResponsiveChrome() {
+  const { isMobile, view, backRoute } = useResponsiveShellState()
+  const goBackToList = useMobileBackToList()
+
+  if (!isMobile || view !== 'content' || !backRoute || !goBackToList) return null
+
+  return (
+    <button
+      type="button"
+      onClick={goBackToList}
+      className="webui-mobile-nav-button"
+      aria-label="Back to list"
+    >
+      <ChevronLeft className="h-4 w-4" />
+      <span>Back</span>
+    </button>
   )
 }
 
@@ -123,8 +144,11 @@ export default function App() {
   if (phase === 'error') return <ErrorScreen message={error} onRetry={initialize} />
 
   return (
-    <Suspense fallback={<LoadingScreen />}>
-      <ElectronApp />
-    </Suspense>
+    <>
+      <Suspense fallback={<LoadingScreen />}>
+        <ElectronApp />
+      </Suspense>
+      <MobileResponsiveChrome />
+    </>
   )
 }
