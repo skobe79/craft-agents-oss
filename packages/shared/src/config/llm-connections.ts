@@ -428,7 +428,12 @@ export function getModelsForProviderType(providerType: LlmProviderType, piAuthPr
     return _piModelResolver(piAuthProvider);
   }
 
-  // Anthropic, Bedrock, Vertex all use Claude models
+  // Bedrock uses Anthropic models with Bedrock-native IDs
+  if (providerType === 'bedrock') {
+    return ANTHROPIC_MODELS.map(m => ({ ...m, id: toBedrockNativeId(m.id) }));
+  }
+
+  // Anthropic, Vertex use Claude models
   return ANTHROPIC_MODELS;
 }
 
@@ -457,6 +462,7 @@ export const PI_PREFERRED_DEFAULTS: Record<string, string[]> = {
   'openai-codex': ['gpt-5.2', 'gpt-5.1', 'gpt-5', 'o4-mini', 'o3', 'gpt-4o'],
   google: ['gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
   'github-copilot': ['claude-sonnet-4-6', 'gpt-5', 'o4-mini', 'claude-haiku-4-5'],
+  'amazon-bedrock': ['anthropic.claude-opus-4-6-v1', 'anthropic.claude-sonnet-4-6', 'anthropic.claude-haiku-4-5-20251001-v1:0'],
 };
 
 export function getDefaultModelsForConnection(providerType: LlmProviderType, piAuthProvider?: string): Array<ModelDefinition | string> {
@@ -477,7 +483,11 @@ export function getDefaultModelsForConnection(providerType: LlmProviderType, piA
   }
   if (providerType === 'pi_compat') return [];  // Dynamic — user specifies
   if (providerType === 'anthropic_compat') return [];  // Dynamic — user specifies
-  // anthropic, bedrock, vertex
+  // Bedrock uses Anthropic models with Bedrock-native IDs
+  if (providerType === 'bedrock') {
+    return ANTHROPIC_MODELS.map(m => ({ ...m, id: toBedrockNativeId(m.id) }));
+  }
+  // anthropic, vertex
   return ANTHROPIC_MODELS;
 }
 
@@ -572,16 +582,48 @@ export function isValidProviderAuthCombination(
   return validCombinations[providerType]?.includes(authType) ?? false;
 }
 
+/**
+ * Maps bare Anthropic model IDs → Bedrock-native equivalents.
+ * Must match the Pi SDK's amazon-bedrock registry exactly.
+ * Source: @mariozechner/pi-ai/dist/models.generated.js
+ *
+ * Note: suffixes are inconsistent across models (some have -v1, some -v1:0, some nothing).
+ * This map is manually curated — do NOT derive algorithmically.
+ */
+const BEDROCK_MODEL_MAP: Record<string, string> = {
+  'claude-opus-4-6': 'anthropic.claude-opus-4-6-v1',
+  'claude-sonnet-4-6': 'anthropic.claude-sonnet-4-6',
+  'claude-haiku-4-5-20251001': 'anthropic.claude-haiku-4-5-20251001-v1:0',
+  // Older models (for migration of existing connections)
+  'claude-opus-4-5-20251101': 'anthropic.claude-opus-4-5-20251101-v1:0',
+  'claude-sonnet-4-5-20250929': 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+}
+
+const BEDROCK_REVERSE_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(BEDROCK_MODEL_MAP).map(([bare, native]) => [native, bare])
+)
+
+/** Map a bare Anthropic model ID to its Bedrock-native equivalent. Pass-through if already native or unknown. */
+export function toBedrockNativeId(modelId: string): string {
+  return BEDROCK_MODEL_MAP[modelId] ?? modelId
+}
+
+/** Map a Bedrock-native model ID back to its bare Anthropic equivalent. Pass-through if already bare or unknown. */
+export function fromBedrockNativeId(modelId: string): string {
+  return BEDROCK_REVERSE_MAP[modelId] ?? modelId
+}
+
+/**
+ * Normalize a model ID for Bedrock storage/usage.
+ * Strips pi/ prefix and maps bare Anthropic IDs to Bedrock-native format.
+ * Idempotent — already-native IDs pass through unchanged.
+ */
 export function normalizeBedrockModelId(
   modelId: string | undefined,
 ): string {
   if (!modelId) return '';
-
-  if (modelId.startsWith('pi/')) {
-    return modelId.slice(3)
-  }
-
-  return modelId
+  const bare = modelId.startsWith('pi/') ? modelId.slice(3) : modelId
+  return toBedrockNativeId(bare)
 }
 
 // ============================================================

@@ -6,8 +6,11 @@ import {
   isCompatProvider,
   isAnthropicProvider,
   isPiProvider,
+  toBedrockNativeId,
+  fromBedrockNativeId,
+  normalizeBedrockModelId,
 } from '../llm-connections'
-import { ANTHROPIC_MODELS } from '../models'
+import { ANTHROPIC_MODELS, getModelDisplayName, getModelContextWindow, getModelShortName, isClaudeModel } from '../models'
 
 // ============================================================
 // getDefaultModelsForConnection
@@ -24,8 +27,18 @@ describe('getDefaultModelsForConnection', () => {
     expect(typeof (first as any).id).toBe('string')
   })
 
-  it('bedrock returns same models as anthropic', () => {
-    expect(getDefaultModelsForConnection('bedrock')).toEqual(ANTHROPIC_MODELS)
+  it('bedrock returns Bedrock-native model IDs', () => {
+    const models = getDefaultModelsForConnection('bedrock')
+    expect(models.length).toBe(ANTHROPIC_MODELS.length)
+    // All IDs should be Bedrock-native (start with anthropic.)
+    for (const m of models) {
+      const id = typeof m === 'string' ? m : m.id
+      expect(id.startsWith('anthropic.')).toBe(true)
+    }
+    // Display names should still be human-readable
+    const first = models[0]!
+    expect(typeof first).toBe('object')
+    expect((first as any).name).toBe(ANTHROPIC_MODELS[0]!.name)
   })
 
   it('vertex returns same models as anthropic', () => {
@@ -147,5 +160,87 @@ describe('isPiProvider', () => {
 
   it('returns false for anthropic', () => {
     expect(isPiProvider('anthropic')).toBe(false)
+  })
+})
+
+// ============================================================
+// Bedrock model ID mapping
+// ============================================================
+
+describe('toBedrockNativeId', () => {
+  it('maps bare Anthropic IDs to Bedrock-native', () => {
+    expect(toBedrockNativeId('claude-opus-4-6')).toBe('anthropic.claude-opus-4-6-v1')
+    expect(toBedrockNativeId('claude-sonnet-4-6')).toBe('anthropic.claude-sonnet-4-6')
+    expect(toBedrockNativeId('claude-haiku-4-5-20251001')).toBe('anthropic.claude-haiku-4-5-20251001-v1:0')
+  })
+
+  it('passes through already-native IDs', () => {
+    expect(toBedrockNativeId('anthropic.claude-opus-4-6-v1')).toBe('anthropic.claude-opus-4-6-v1')
+    expect(toBedrockNativeId('anthropic.claude-sonnet-4-6')).toBe('anthropic.claude-sonnet-4-6')
+  })
+
+  it('passes through unknown IDs', () => {
+    expect(toBedrockNativeId('some-custom-model')).toBe('some-custom-model')
+    expect(toBedrockNativeId('gpt-5')).toBe('gpt-5')
+  })
+})
+
+describe('fromBedrockNativeId', () => {
+  it('maps Bedrock-native back to bare Anthropic', () => {
+    expect(fromBedrockNativeId('anthropic.claude-opus-4-6-v1')).toBe('claude-opus-4-6')
+    expect(fromBedrockNativeId('anthropic.claude-sonnet-4-6')).toBe('claude-sonnet-4-6')
+    expect(fromBedrockNativeId('anthropic.claude-haiku-4-5-20251001-v1:0')).toBe('claude-haiku-4-5-20251001')
+  })
+
+  it('passes through bare IDs', () => {
+    expect(fromBedrockNativeId('claude-opus-4-6')).toBe('claude-opus-4-6')
+  })
+})
+
+describe('normalizeBedrockModelId', () => {
+  it('strips pi/ prefix and maps to Bedrock-native', () => {
+    expect(normalizeBedrockModelId('pi/claude-opus-4-6')).toBe('anthropic.claude-opus-4-6-v1')
+    expect(normalizeBedrockModelId('pi/claude-sonnet-4-6')).toBe('anthropic.claude-sonnet-4-6')
+  })
+
+  it('maps bare IDs to Bedrock-native', () => {
+    expect(normalizeBedrockModelId('claude-opus-4-6')).toBe('anthropic.claude-opus-4-6-v1')
+  })
+
+  it('is idempotent for already-native IDs', () => {
+    expect(normalizeBedrockModelId('anthropic.claude-opus-4-6-v1')).toBe('anthropic.claude-opus-4-6-v1')
+  })
+
+  it('handles empty/undefined', () => {
+    expect(normalizeBedrockModelId(undefined)).toBe('')
+    expect(normalizeBedrockModelId('')).toBe('')
+  })
+})
+
+// ============================================================
+// Bedrock-aware display and lookup
+// ============================================================
+
+describe('Bedrock-native model display', () => {
+  it('getModelDisplayName resolves Bedrock-native IDs', () => {
+    expect(getModelDisplayName('anthropic.claude-opus-4-6-v1')).toBe('Opus 4.6')
+    expect(getModelDisplayName('anthropic.claude-sonnet-4-6')).toBe('Sonnet 4.6')
+    expect(getModelDisplayName('anthropic.claude-haiku-4-5-20251001-v1:0')).toBe('Haiku 4.5')
+  })
+
+  it('getModelShortName resolves Bedrock-native IDs', () => {
+    expect(getModelShortName('anthropic.claude-opus-4-6-v1')).toBe('Opus')
+    expect(getModelShortName('anthropic.claude-sonnet-4-6')).toBe('Sonnet')
+  })
+
+  it('getModelContextWindow resolves Bedrock-native IDs', () => {
+    expect(getModelContextWindow('anthropic.claude-opus-4-6-v1')).toBe(1_000_000)
+    expect(getModelContextWindow('anthropic.claude-sonnet-4-6')).toBe(200_000)
+  })
+
+  it('isClaudeModel recognizes Bedrock-native IDs', () => {
+    expect(isClaudeModel('anthropic.claude-opus-4-6-v1')).toBe(true)
+    expect(isClaudeModel('anthropic.claude-sonnet-4-6')).toBe(true)
+    expect(isClaudeModel('anthropic.claude-haiku-4-5-20251001-v1:0')).toBe(true)
   })
 })

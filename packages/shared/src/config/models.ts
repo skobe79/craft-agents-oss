@@ -9,6 +9,19 @@
  * 2. The convenience exports (ANTHROPIC_MODELS, OPENAI_MODELS) auto-update
  * 3. Update llm-connections.ts if adding a new built-in connection
  */
+// Bedrock-native → bare Anthropic ID reverse mapping.
+// Duplicated from llm-connections.ts to avoid circular imports (llm-connections imports models).
+// Must stay in sync with BEDROCK_MODEL_MAP in llm-connections.ts.
+const BEDROCK_TO_BARE: Record<string, string> = {
+  'anthropic.claude-opus-4-6-v1': 'claude-opus-4-6',
+  'anthropic.claude-sonnet-4-6': 'claude-sonnet-4-6',
+  'anthropic.claude-haiku-4-5-20251001-v1:0': 'claude-haiku-4-5-20251001',
+  'anthropic.claude-opus-4-5-20251101-v1:0': 'claude-opus-4-5-20251101',
+  'anthropic.claude-sonnet-4-5-20250929-v1:0': 'claude-sonnet-4-5-20250929',
+};
+function bedrockToBarId(modelId: string): string {
+  return BEDROCK_TO_BARE[modelId] ?? modelId;
+}
 
 // ============================================
 // TYPES
@@ -154,9 +167,12 @@ export function getDefaultSummarizationModel(): string {
 
 /**
  * Get a model by ID from the registry.
+ * Also handles Bedrock-native IDs (e.g. "anthropic.claude-opus-4-6-v1")
+ * by reverse-mapping to the bare Anthropic ID for lookup.
  */
 export function getModelById(modelId: string): ModelDefinition | undefined {
-  return MODEL_REGISTRY.find(m => m.id === modelId);
+  return MODEL_REGISTRY.find(m => m.id === modelId)
+    ?? MODEL_REGISTRY.find(m => m.id === bedrockToBarId(modelId));
 }
 
 /**
@@ -165,9 +181,10 @@ export function getModelById(modelId: string): ModelDefinition | undefined {
 export function getModelDisplayName(modelId: string): string {
   const model = getModelById(modelId);
   if (model) return model.name;
-  // Fallback: strip prefix and date suffix, format nicely
+  // Fallback: normalize Bedrock-native IDs, then strip prefix and date suffix
   // e.g., "claude-opus-4-5-20251101" → "Opus 4.5"
-  const stripped = modelId
+  const normalized = bedrockToBarId(modelId);
+  const stripped = normalized
     .replace('claude-', '')
     .replace(/-\d{8}$/, '');  // Remove date suffix
   // Split on dashes, capitalize first part, join version parts with dots
@@ -189,8 +206,9 @@ export function getModelShortName(modelId: string): string {
   if (modelId.includes('/')) {
     return modelId.split('/').pop() || modelId;
   }
-  // Fallback: humanize the model ID (same logic as getModelDisplayName)
-  const stripped = modelId.replace('claude-', '').replace(/-\d{8}$/, '');
+  // Fallback: normalize Bedrock-native IDs, then humanize (same logic as getModelDisplayName)
+  const normalized = bedrockToBarId(modelId);
+  const stripped = normalized.replace('claude-', '').replace(/-\d{8}$/, '');
   const parts = stripped.split('-');
   const first = parts[0];
   if (!first) return modelId;
@@ -215,12 +233,13 @@ export function isOpusModel(modelId: string): boolean {
 
 /**
  * Check if a model ID refers to a Claude model.
- * Handles both direct Anthropic IDs (e.g. "claude-sonnet-4-6")
- * and provider-prefixed IDs (e.g. "anthropic/claude-sonnet-4" via OpenRouter).
+ * Handles direct Anthropic IDs (e.g. "claude-sonnet-4-6"),
+ * provider-prefixed IDs (e.g. "anthropic/claude-sonnet-4" via OpenRouter),
+ * and Bedrock-native IDs (e.g. "anthropic.claude-opus-4-6-v1").
  */
 export function isClaudeModel(modelId: string): boolean {
   const lower = modelId.toLowerCase();
-  return lower.startsWith('claude-') || lower.includes('/claude');
+  return lower.startsWith('claude-') || lower.includes('/claude') || lower.includes('.claude');
 }
 
 

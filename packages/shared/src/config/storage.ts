@@ -40,7 +40,7 @@ import type { Workspace, AuthType } from '@craft-agent/core/types';
 
 // Import LLM connection types and constants
 import type { LlmConnection } from './llm-connections.ts';
-import { isValidProviderAuthCombination, getDefaultModelsForConnection, getDefaultModelForConnection, isPiProvider, normalizeBedrockModelId } from './llm-connections.ts';
+import { isValidProviderAuthCombination, getDefaultModelsForConnection, getDefaultModelForConnection, isPiProvider, normalizeBedrockModelId, toBedrockNativeId } from './llm-connections.ts';
 import {
   getModelProvider,
 } from './models.ts';
@@ -1697,6 +1697,67 @@ function migrateWorkspaceOpus45ToOpus46(config: StoredConfig): void {
 }
 
 /**
+ * Normalize Bedrock model IDs from bare Anthropic format to Bedrock-native format.
+ * Handles both providerType==='bedrock' and Pi+Bedrock (piAuthProvider==='amazon-bedrock').
+ * Applied after opus/sonnet migrations so newly-migrated IDs also get normalized.
+ */
+function migrateBedrockModelIds(config: StoredConfig): boolean {
+  if (!config.llmConnections) return false;
+
+  let changed = false;
+
+  for (const connection of config.llmConnections) {
+    const isBedrock = connection.providerType === 'bedrock' || connection.piAuthProvider === 'amazon-bedrock';
+    if (!isBedrock) continue;
+
+    // For Pi+Bedrock connections, IDs are stored as pi/{bedrockNativeId}.
+    // We need to normalize the inner part after stripping pi/.
+    const isPi = connection.providerType === 'pi';
+
+    if (connection.defaultModel) {
+      const normalized = isPi
+        ? normalizePiBedrockId(connection.defaultModel)
+        : toBedrockNativeId(connection.defaultModel);
+      if (normalized !== connection.defaultModel) {
+        connection.defaultModel = normalized;
+        changed = true;
+      }
+    }
+
+    if (connection.models && Array.isArray(connection.models)) {
+      for (let i = 0; i < connection.models.length; i++) {
+        const model = connection.models[i];
+        if (typeof model === 'string') {
+          const normalized = isPi ? normalizePiBedrockId(model) : toBedrockNativeId(model);
+          if (normalized !== model) {
+            connection.models[i] = normalized;
+            changed = true;
+          }
+        } else if (model && typeof model === 'object') {
+          const normalized = isPi ? normalizePiBedrockId(model.id) : toBedrockNativeId(model.id);
+          if (normalized !== model.id) {
+            model.id = normalized;
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
+/** Normalize a pi/-prefixed model ID for Bedrock: pi/claude-opus-4-6 → pi/anthropic.claude-opus-4-6-v1 */
+function normalizePiBedrockId(id: string): string {
+  if (id.startsWith('pi/')) {
+    const bare = id.slice(3);
+    const native = toBedrockNativeId(bare);
+    return native !== bare ? `pi/${native}` : id;
+  }
+  return id;
+}
+
+/**
  * Migrate modelDefaults onto connection.defaultModel, then delete modelDefaults.
  * If user had set modelDefaults.anthropic, apply it to the default anthropic connection.
  * Same for openai. Then remove modelDefaults from config.
@@ -1866,6 +1927,10 @@ export function migrateLegacyLlmConnectionsConfig(): void {
     }
     // Phase 1g: Migrate Sonnet 4.5 → Sonnet 4.6 in workspace default models
     migrateWorkspaceSonnet45ToSonnet46(config);
+    // Phase 1h: Normalize Bedrock model IDs (bare Anthropic → Bedrock-native)
+    if (migrateBedrockModelIds(config)) {
+      needsSave = true;
+    }
 
     if (needsSave) {
       saveConfig(config);
