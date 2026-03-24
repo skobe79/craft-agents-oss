@@ -59,7 +59,7 @@ export function registerWorkspaceGuiHandlers(server: RpcServer, deps: HandlerDep
     const serverVersion = client.getServerVersion() ?? undefined
 
     try {
-      const workspaces = await client.invoke('workspaces:get') as Array<{ id: string; name: string }>
+      const workspaces = await client.invoke(RPC_CHANNELS.server.GET_WORKSPACES) as Array<{ id: string; name: string }>
 
       if (workspaces.length === 0) {
         return { ok: true, needsWorkspace: true, serverVersion }
