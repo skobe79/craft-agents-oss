@@ -270,6 +270,68 @@ tail -f /tmp/craft-agents.log
 launchctl unload ~/Library/LaunchAgents/com.craft.agents-server.plist
 ```
 
+## Secure Access
+
+Exposing the server directly to the internet is not recommended. Instead, use one of these approaches:
+
+### Tailscale (recommended)
+
+[Tailscale](https://tailscale.com) creates a private mesh network between your devices. Install it on both the server and client machines — no port forwarding, no certificates, no firewall rules needed.
+
+```bash
+# On the server: bind to Tailscale IP only
+CRAFT_RPC_HOST=100.x.y.z \
+CRAFT_SERVER_TOKEN=$TOKEN \
+bun run packages/server/src/index.ts
+```
+
+Traffic is encrypted end-to-end by Tailscale, so you can skip TLS certificate setup entirely. The server is only reachable from your Tailscale network.
+
+### Reverse proxy (nginx, Caddy)
+
+Place the server behind a reverse proxy that handles TLS termination and access control. This is the standard approach for production deployments.
+
+**Caddy** (automatic HTTPS):
+
+```
+craft.example.com {
+    reverse_proxy localhost:9100
+}
+```
+
+**nginx**:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name craft.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/craft.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/craft.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:9100;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+```
+
+When using a reverse proxy, bind the server to localhost only (`CRAFT_RPC_HOST=127.0.0.1`) and let the proxy handle external access.
+
+### SSH tunnel
+
+For quick, ad-hoc access without any setup:
+
+```bash
+# On the client: forward local port 9100 to the remote server
+ssh -L 9100:localhost:9100 user@your-server
+```
+
+Then connect to `ws://localhost:9100` from the desktop app or browser. The tunnel encrypts all traffic over SSH.
+
 ## Version Compatibility
 
 The server includes its version in the connection handshake. When a client connects to an older server (pre-0.8.0), it shows a warning that some features may not be available.
