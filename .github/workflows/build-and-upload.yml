@@ -98,11 +98,11 @@ jobs:
 
       - name: Install dependencies (Unix)
         if: matrix.platform != 'win32'
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Install dependencies (Windows)
         if: matrix.platform == 'win32'
-        run: bun install --linker=hoisted
+        run: bun install --frozen-lockfile --linker=hoisted
 
       # macOS code signing
       - name: Import Code Signing Certificate (macOS)

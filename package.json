@@ -4,6 +4,15 @@
   "description": "Claude Code-like agent for Craft documents",
   "type": "module",
   "private": true,
+  "trustedDependencies": [
+    "@sentry/cli",
+    "electron",
+    "electron-winstaller",
+    "esbuild",
+    "koffi",
+    "protobufjs",
+    "sharp"
+  ],
   "workspaces": [
     "packages/*",
     "apps/*",
