@@ -206,35 +206,41 @@ export function registerFilesHandlers(server: RpcServer, deps: HandlerDeps): voi
 
         // For images: validate and resize if needed for Claude API compatibility
         if (attachment.type === 'image') {
-          // Get image dimensions
+          // Get image dimensions — may fail if sharp is unavailable (headless/Docker)
           const imageSize = await getImageSize(decoded)
-          if (!imageSize) {
-            throw new Error('Could not read image dimensions — file may be corrupt or unsupported')
-          }
-
-          // Validate image for Claude API
-          const validation = validateImageForClaudeAPI(decoded.length, imageSize.width, imageSize.height)
 
           // Determine if we should resize
-          let shouldResize = validation.needsResize
-          let targetSize = validation.suggestedSize
+          let shouldResize = false
+          let targetSize: { width: number; height: number } | undefined
 
-          if (!validation.valid && validation.errorCode === 'dimension_exceeded') {
-            // Image exceeds 8000px limit - calculate resize to fit within limits
-            const maxDim = IMAGE_LIMITS.MAX_DIMENSION
-            const scale = Math.min(maxDim / imageSize.width, maxDim / imageSize.height)
-            targetSize = {
-              width: Math.floor(imageSize.width * scale),
-              height: Math.floor(imageSize.height * scale),
+          if (!imageSize) {
+            // sharp unavailable or image unreadable — skip validation/resize,
+            // store raw and let Claude API handle it
+            deps.platform.logger.info('Could not read image dimensions (sharp unavailable?) — storing raw image')
+          } else {
+            // Validate image for Claude API
+            const validation = validateImageForClaudeAPI(decoded.length, imageSize.width, imageSize.height)
+
+            shouldResize = validation.needsResize
+            targetSize = validation.suggestedSize
+
+            if (!validation.valid && validation.errorCode === 'dimension_exceeded') {
+              // Image exceeds 8000px limit - calculate resize to fit within limits
+              const maxDim = IMAGE_LIMITS.MAX_DIMENSION
+              const scale = Math.min(maxDim / imageSize.width, maxDim / imageSize.height)
+              targetSize = {
+                width: Math.floor(imageSize.width * scale),
+                height: Math.floor(imageSize.height * scale),
+              }
+              shouldResize = true
+              deps.platform.logger.info(`Image exceeds ${maxDim}px limit (${imageSize.width}x${imageSize.height}), will resize to ${targetSize.width}x${targetSize.height}`)
+            } else if (!validation.valid && validation.errorCode === 'size_exceeded') {
+              // File >5MB — try resize+compress instead of rejecting
+              shouldResize = true
+              deps.platform.logger.info(`Image exceeds 5MB (${(decoded.length / 1024 / 1024).toFixed(1)}MB), will attempt resize`)
+            } else if (!validation.valid) {
+              throw new Error(validation.error)
             }
-            shouldResize = true
-            deps.platform.logger.info(`Image exceeds ${maxDim}px limit (${imageSize.width}x${imageSize.height}), will resize to ${targetSize.width}x${targetSize.height}`)
-          } else if (!validation.valid && validation.errorCode === 'size_exceeded') {
-            // File >5MB — try resize+compress instead of rejecting
-            shouldResize = true
-            deps.platform.logger.info(`Image exceeds 5MB (${(decoded.length / 1024 / 1024).toFixed(1)}MB), will attempt resize`)
-          } else if (!validation.valid) {
-            throw new Error(validation.error)
           }
 
           // If resize is needed (either recommended or required), do it now
