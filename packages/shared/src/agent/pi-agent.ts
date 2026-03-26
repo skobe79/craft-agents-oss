@@ -144,6 +144,12 @@ export class PiAgent extends BaseAgent {
   // Event queue for streaming (AsyncGenerator pattern -- shared with CodexAgent/CopilotAgent)
   private eventQueue = new EventQueue();
 
+  // Error deduplication — suppress identical consecutive errors after a threshold
+  // to prevent a broken subprocess from flooding the user's session.
+  private lastSubprocessError: string | null = null;
+  private subprocessErrorRepeatCount = 0;
+  private static readonly MAX_IDENTICAL_SUBPROCESS_ERRORS = 3;
+
   // Pending permission requests (used by handlePreToolUseRequest for ask-mode prompting)
   private pendingPermissions: Map<string, {
     resolve: (allowed: boolean) => void;
@@ -867,6 +873,19 @@ export class PiAgent extends BaseAgent {
         for (const [id, pending] of this.pendingAutoCompactionToggles) {
           pending.reject(new Error(rawMessage));
           this.pendingAutoCompactionToggles.delete(id);
+        }
+
+        // Suppress repeated identical errors to prevent a broken subprocess
+        // from flooding the user's session (e.g. EFAULT loop).
+        if (rawMessage === this.lastSubprocessError) {
+          this.subprocessErrorRepeatCount++;
+          if (this.subprocessErrorRepeatCount > PiAgent.MAX_IDENTICAL_SUBPROCESS_ERRORS) {
+            this.debug(`Suppressing repeated subprocess error (${this.subprocessErrorRepeatCount}x): ${rawMessage}`);
+            break;
+          }
+        } else {
+          this.lastSubprocessError = rawMessage;
+          this.subprocessErrorRepeatCount = 1;
         }
 
         const parsed = parseError(new Error(rawMessage));
