@@ -606,6 +606,10 @@ export default function App() {
           navigate(routes.view.allSessions(session.id))
         }
       }
+    }).catch((err) => {
+      console.error('[App] Failed to load sessions (remote server may be down):', err)
+      // Still mark as loaded so the app renders — sessions will load on reconnect
+      setSessionsLoaded(true)
     })
     // Load LLM connections with authentication status
     window.electronAPI.listLlmConnectionsWithStatus().then((connections) => {
