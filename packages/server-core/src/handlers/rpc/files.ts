@@ -221,7 +221,7 @@ export function registerFilesHandlers(server: RpcServer, deps: HandlerDeps): voi
             // Validate image for Claude API
             const validation = validateImageForClaudeAPI(decoded.length, imageSize.width, imageSize.height)
 
-            shouldResize = validation.needsResize
+            shouldResize = validation.needsResize ?? false
             targetSize = validation.suggestedSize
 
             if (!validation.valid && validation.errorCode === 'dimension_exceeded') {
@@ -249,7 +249,8 @@ export function registerFilesHandlers(server: RpcServer, deps: HandlerDeps): voi
 
             if (targetSize) {
               // Dimension-exceeded: resize to specific target dimensions
-              deps.platform.logger.info(`Resizing image from ${imageSize.width}x${imageSize.height} to ${targetSize.width}x${targetSize.height}`)
+              // imageSize is guaranteed non-null here — we're inside the else branch of if (!imageSize)
+              deps.platform.logger.info(`Resizing image from ${imageSize!.width}x${imageSize!.height} to ${targetSize.width}x${targetSize.height}`)
               try {
                 decoded = await deps.platform.imageProcessor.process(decoded, {
                   resize: { width: targetSize.width, height: targetSize.height },
@@ -270,7 +271,7 @@ export function registerFilesHandlers(server: RpcServer, deps: HandlerDeps): voi
               } catch (resizeError) {
                 deps.platform.logger.error('Image resize failed:', resizeError)
                 const reason = resizeError instanceof Error ? resizeError.message : String(resizeError)
-                throw new Error(`Image too large (${imageSize.width}x${imageSize.height}) and automatic resize failed: ${reason}. Please manually resize it before attaching.`)
+                throw new Error(`Image too large (${imageSize!.width}x${imageSize!.height}) and automatic resize failed: ${reason}. Please manually resize it before attaching.`)
               }
             } else {
               // Size-exceeded or optimal resize — use shared utility for full pipeline
