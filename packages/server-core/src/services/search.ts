@@ -236,8 +236,11 @@ export async function searchSessions(
     // 1. Only matches user/assistant message lines (skips huge tool_result lines)
     // 2. Requires the query to appear somewhere in the line
     // This filters at ripgrep level, avoiding 70x more data being sent to Node.js
+    //
+    // Note: "type" field position varies — messageToStored() uses rest-spread before
+    // adding type, so "type" can appear anywhere in the JSON line, not just after "id".
     const escapedQuery = escapeRegex(query);
-    args.push('-e', `^\\{"id":"[^"]*","type":"(user|assistant)".*${escapedQuery}`);
+    args.push('-e', `"type":"(user|assistant)".*${escapedQuery}|${escapedQuery}.*"type":"(user|assistant)"`);
     args.push(sessionsDir);
 
     // Cancel previous search if still running (user typed new query)
