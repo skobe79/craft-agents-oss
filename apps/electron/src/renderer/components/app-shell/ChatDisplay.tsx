@@ -79,7 +79,6 @@ import { resolveBranchNewPanelOption } from "./branching"
 /** Access CSS.highlights lazily — avoids stale ref from module-init / HMR timing */
 function getCSSHighlights(): Map<string, Highlight> | undefined {
   try {
-    // HighlightRegistry has the same set/get/delete interface as Map
     return (CSS as any).highlights as Map<string, Highlight> | undefined
   } catch {
     return undefined
@@ -715,9 +714,10 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
       let textContent = ''
       let turnId = ''
 
+      // Use getTurnKey() for consistent IDs between text scan and DOM refs
+      turnId = getTurnKey(turn)
+
       if (turn.type === 'user') {
-        turnId = `user-${turn.message.id}`
-        // Extract text content from user message
         const content = turn.message.content as unknown
         if (typeof content === 'string') {
           textContent = content
@@ -728,14 +728,10 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
             .join('\n')
         }
       } else if (turn.type === 'assistant') {
-        turnId = `turn-${turn.turnId}`
-        // Extract text content from assistant response
-        // turn.response is { text: string, isStreaming: boolean } object
         if (turn.response?.text) {
           textContent = turn.response.text
         }
       } else if (turn.type === 'system') {
-        turnId = `system-${turn.message.id}`
         textContent = turn.message.content
       }
 
@@ -932,6 +928,10 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
       // Store ranges for the active-match effect to use
       highlightRangesRef.current = allRanges
+
+      if (allRanges.length === 0 && matchingTurnIdSet.size > 0) {
+        console.warn('[search-highlight] 0 ranges from', matchingTurnIdSet.size, 'matching turns — possible turn ID mismatch')
+      }
 
       if (allRanges.length === 0) return
 
