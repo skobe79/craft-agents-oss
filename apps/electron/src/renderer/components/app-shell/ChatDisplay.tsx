@@ -1003,7 +1003,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
     // Retry logic: if no refs available yet, wait and try again
     let attempts = 0
-    const maxAttempts = 5
+    const maxAttempts = 15
     let highlightTimeoutId: ReturnType<typeof setTimeout> | null = null
 
     const tryHighlight = () => {
@@ -1025,10 +1025,21 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
           return merged
         })
         setHighlightedTurnCount(highlightedTurnIdsRef.current.size)
+
+        // Some matching turns may not have refs yet (still rendering).
+        // Schedule another attempt if there are remaining unprocessed turns.
+        const remaining = matchingTurnIds.filter(id =>
+          !highlightedTurnIdsRef.current.has(id)
+        ).length
+        if (remaining > 0 && attempts < maxAttempts) {
+          attempts++
+          highlightTimeoutId = setTimeout(tryHighlight, 200)
+        }
       } else if (attempts < maxAttempts) {
-        // Refs not ready yet - retry with increasing delay
+        // Refs not ready yet - retry with exponential backoff
         attempts++
-        highlightTimeoutId = setTimeout(tryHighlight, 100)
+        const delay = Math.min(100 * Math.pow(1.5, attempts - 1), 1000)
+        highlightTimeoutId = setTimeout(tryHighlight, delay)
       }
     }
 
