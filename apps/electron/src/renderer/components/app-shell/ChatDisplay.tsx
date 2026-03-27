@@ -73,6 +73,20 @@ import { CHAT_LAYOUT } from "@/config/layout"
 import { resolveBranchNewPanelOption } from "./branching"
 
 // ============================================================================
+// CSS Custom Highlight API helper
+// ============================================================================
+
+/** Access CSS.highlights lazily — avoids stale ref from module-init / HMR timing */
+function getCSSHighlights(): Map<string, Highlight> | undefined {
+  try {
+    // HighlightRegistry has the same set/get/delete interface as Map
+    return (CSS as any).highlights as Map<string, Highlight> | undefined
+  } catch {
+    return undefined
+  }
+}
+
+// ============================================================================
 // Overlay State Types
 // ============================================================================
 
@@ -604,13 +618,9 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   // Current match index for navigation (internal state, exposed via ref)
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0)
   const turnRefs = React.useRef<Map<string, HTMLDivElement>>(new Map())
-  // CSS Custom Highlight API handle — cast once (TS lib types are incomplete)
-  const cssHighlightsRef = React.useRef(typeof CSS !== 'undefined' ? CSS.highlights as unknown as Map<string, Highlight> | undefined : undefined)
-
   // Inject ::highlight() styles at runtime to avoid LightningCSS build warnings
   // (the optimizer doesn't recognize ::highlight as a valid pseudo-element yet)
   React.useEffect(() => {
-    if (!cssHighlightsRef.current) return
     const id = 'search-highlight-styles'
     if (document.getElementById(id)) return
     const style = document.createElement('style')
@@ -827,7 +837,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
 
   // Effect 1: Walk DOM and collect highlight ranges when search/session/pagination changes
   useEffect(() => {
-    const cssHighlights = cssHighlightsRef.current
+    const cssHighlights = getCSSHighlights()
     highlightRangesRef.current = []
 
     // Clear previous highlights
@@ -939,7 +949,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
   // Effect 2: Update active/passive highlight split when navigation index changes
   // Lightweight — just reshuffles existing Range objects between two Highlight instances
   useEffect(() => {
-    const cssHighlights = cssHighlightsRef.current
+    const cssHighlights = getCSSHighlights()
     const allRanges = highlightRangesRef.current
     if (!cssHighlights || allRanges.length === 0) return
 
