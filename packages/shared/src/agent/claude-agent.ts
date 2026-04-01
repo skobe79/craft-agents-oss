@@ -135,7 +135,7 @@ export function resolveClaudeThinkingOptions(args: {
   const isClaude = isClaudeModel(model);
   const effort = THINKING_TO_EFFORT[thinkingLevel];
   const isHaiku = model.toLowerCase().includes('haiku');
-  const supportsAdaptiveThinking = isClaude && !isHaiku && providerType !== 'anthropic_compat';
+  const supportsAdaptiveThinking = isClaude && !isHaiku;
 
   if (minimizeThinking || !isClaude || !effort) {
     return supportsAdaptiveThinking
