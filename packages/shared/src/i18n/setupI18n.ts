@@ -1,4 +1,4 @@
-import i18n, { type i18n as I18nInstance } from "i18next";
+import i18n, { type i18n as I18nInstance, type InitOptions } from "i18next";
 import en from "./locales/en.json";
 import es from "./locales/es.json";
 import { SUPPORTED_LANGUAGE_CODES } from "./languages";
@@ -35,7 +35,7 @@ export function setupI18n(
       caches: ["localStorage"],
       lookupLocalStorage: "i18nextLng",
     },
-  });
+  } as InitOptions);
 
   initialized = true;
   return i18n;
