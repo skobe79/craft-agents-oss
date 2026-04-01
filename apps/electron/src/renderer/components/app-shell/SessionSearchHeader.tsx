@@ -80,7 +80,7 @@ export function SessionSearchHeader({
           <button
             onClick={onSearchClose}
             className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-foreground/10 rounded"
-            title="Close search"
+            title={t("session.closeSearch")}
           >
             <X className="h-3.5 w-3.5 text-muted-foreground" />
           </button>

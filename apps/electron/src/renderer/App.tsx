@@ -1454,7 +1454,7 @@ export default function App() {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error'
         console.error('Failed to show in folder:', error)
-        toast.error(`Failed to reveal in ${getFileManagerName()}`, {
+        toast.error(t("toast.failedToReveal", { fileManager: getFileManagerName() }), {
           description: message,
         })
       }

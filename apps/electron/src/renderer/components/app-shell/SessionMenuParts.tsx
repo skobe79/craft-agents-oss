@@ -23,26 +23,26 @@ export function ShareMenuItems({ sessionId, sharedUrl, menu }: ShareMenuItemsPro
 
   const handleCopyLink = async () => {
     await navigator.clipboard.writeText(sharedUrl)
-    toast.success('Link copied to clipboard')
+    toast.success(t("toast.linkCopied"))
   }
 
   const handleUpdateShare = async () => {
     const result = await window.electronAPI.sessionCommand(sessionId, { type: 'updateShare' })
     if (result && 'success' in result && result.success) {
-      toast.success('Share updated')
+      toast.success(t("chat.shareUpdated"))
     } else {
       const errorMsg = result && 'error' in result ? result.error : undefined
-      toast.error('Failed to update share', { description: errorMsg })
+      toast.error(t("chat.failedToUpdateShare"), { description: errorMsg })
     }
   }
 
   const handleRevokeShare = async () => {
     const result = await window.electronAPI.sessionCommand(sessionId, { type: 'revokeShare' })
     if (result && 'success' in result && result.success) {
-      toast.success('Sharing stopped')
+      toast.success(t("chat.sharingStopped"))
     } else {
       const errorMsg = result && 'error' in result ? result.error : undefined
-      toast.error('Failed to stop sharing', { description: errorMsg })
+      toast.error(t("chat.failedToStopSharing"), { description: errorMsg })
     }
   }
 

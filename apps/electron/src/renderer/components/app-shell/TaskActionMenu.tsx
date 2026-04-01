@@ -130,7 +130,7 @@ export function TaskActionMenu({ task, sessionId, onKillTask, onInsertMessage, o
             "data-[state=open]:bg-white/80 dark:data-[state=open]:bg-white/15",
             className
           )}
-          title="Click for task actions"
+          title={t("chat.clickForTaskActions")}
         >
           {/* Spinner */}
           <div className="flex items-center justify-center shrink-0">

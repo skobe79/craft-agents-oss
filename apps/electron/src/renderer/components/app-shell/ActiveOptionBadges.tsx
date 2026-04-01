@@ -437,6 +437,7 @@ function FilesPopoverButton({ sessionId, sessionFolderPath }: { sessionId?: stri
 }
 
 function SessionInfoPopoverContent({ sessionId, sessionFolderPath }: { sessionId: string; sessionFolderPath?: string }) {
+  const { t } = useTranslation()
   const session = useSession(sessionId)
   const { onRenameSession } = useAppShellContext()
   const [name, setName] = React.useState('')
@@ -480,7 +481,7 @@ function SessionInfoPopoverContent({ sessionId, sessionFolderPath }: { sessionId
           <Input
             value={name}
             onChange={handleNameChange}
-            placeholder="Untitled"
+            placeholder={t("settings.workspace.untitled")}
             className="h-9 py-2 text-sm border-0 shadow-none bg-transparent focus-visible:ring-0"
           />
         </div>

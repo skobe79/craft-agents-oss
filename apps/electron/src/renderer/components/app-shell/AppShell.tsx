@@ -2626,7 +2626,7 @@ function AppShellContent({
                                   }
                                 }
                               }}
-                              placeholder="Search statuses & labels..."
+                              placeholder={t("sidebar.searchStatusesLabels")}
                               className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
                               autoFocus
                             />

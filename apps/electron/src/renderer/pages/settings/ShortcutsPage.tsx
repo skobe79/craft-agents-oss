@@ -5,6 +5,7 @@
  */
 
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SettingsSection, SettingsCard, SettingsRow } from '@/components/settings'
@@ -90,9 +91,10 @@ function ActionShortcutRow({ actionId }: { actionId: ActionId }) {
 }
 
 export default function ShortcutsPage() {
+  const { t } = useTranslation()
   return (
     <div className="h-full flex flex-col">
-      <PanelHeader title="Shortcuts" />
+      <PanelHeader title={t("settings.shortcuts.title")} />
       <div className="flex-1 min-h-0 mask-fade-y">
         <ScrollArea className="h-full">
           <div className="px-5 py-7 max-w-3xl mx-auto space-y-8">

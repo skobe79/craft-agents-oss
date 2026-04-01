@@ -163,7 +163,7 @@ export function AddWorkspaceStep_CreateNew({
             onChange={() => setLocationOption('custom')}
             disabled={isCreating}
             title={t("workspace.chooseLocation")}
-            subtitle={customPath || "Pick a place to put your new workspace."}
+            subtitle={customPath || t("workspace.pickLocation")}
             action={locationOption === 'custom' ? (
               <AddWorkspaceSecondaryButton
                 onClick={(e) => {

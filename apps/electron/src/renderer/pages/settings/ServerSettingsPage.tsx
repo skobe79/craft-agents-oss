@@ -168,12 +168,12 @@ export default function ServerSettingsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <PanelHeader title="Server" />
+      <PanelHeader title={t("settings.server.title")} />
       <ScrollArea className="flex-1">
         <div className="px-5 py-7 max-w-3xl mx-auto space-y-5">
 
           {/* Enable toggle + restart banner */}
-          <SettingsSection title="Remote Access">
+          <SettingsSection title={t("settings.server.remoteAccess")}>
             <SettingsCard>
               <SettingsToggle
                 label={t("settings.server.enableServerMode")}
@@ -201,7 +201,7 @@ export default function ServerSettingsPage() {
 
           {/* Connection + TLS — only visible when server mode is relevant */}
           {showServerDetails && (
-            <SettingsSection title="Connection">
+            <SettingsSection title={t("settings.server.connectionSection")}>
               <SettingsCard>
                 <SettingsInputRow
                   label={t("settings.server.port")}
@@ -212,7 +212,7 @@ export default function ServerSettingsPage() {
 
                 {status && form.enabled && (
                   <>
-                    <SettingsRow label="URL">
+                    <SettingsRow label={t("common.url")}>
                       <div className="flex items-center gap-1.5">
                         <code className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
                           {status.url}
@@ -223,7 +223,7 @@ export default function ServerSettingsPage() {
                       </div>
                     </SettingsRow>
 
-                    <SettingsRow label="Token">
+                    <SettingsRow label={t("settings.server.token")}>
                       <div className="flex items-center gap-1.5">
                         <code className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded max-w-[180px] truncate">
                           {tokenVisible ? status.token : '••••••••••••••••'}
@@ -239,7 +239,7 @@ export default function ServerSettingsPage() {
                   </>
                 )}
 
-                <SettingsRow label="Certificate">
+                <SettingsRow label={t("settings.server.certificate")}>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground truncate max-w-[200px]">
                       {form.tlsCertPath || 'Not configured'}
@@ -250,7 +250,7 @@ export default function ServerSettingsPage() {
                   </div>
                 </SettingsRow>
 
-                <SettingsRow label="Private Key">
+                <SettingsRow label={t("settings.server.privateKey")}>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground truncate max-w-[200px]">
                       {form.tlsKeyPath || 'Not configured'}

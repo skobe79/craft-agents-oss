@@ -200,7 +200,7 @@ export function useAutomations(
         toast.success(t('toast.webhookReplayCompleted'))
       })
       .catch((err: Error) => {
-        toast.error(`Replay failed: ${err.message}`)
+        toast.error(t("toast.replayFailed", { error: err.message }))
       })
   }, [activeWorkspaceId])
 

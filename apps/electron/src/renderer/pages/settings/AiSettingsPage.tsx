@@ -390,7 +390,7 @@ function WorkspaceOverrideCard({ workspace, llmConnections, onSettingsChange }: 
       const message = error instanceof Error ? error.message : 'Unknown error'
       const settingLabel = WORKSPACE_SETTING_LABELS[key] ?? String(key)
       console.error(`Failed to save ${String(key)}:`, error)
-      toast.error(`Failed to save ${settingLabel}`, {
+      toast.error(t("toast.failedToSaveSetting", { setting: settingLabel }), {
         description: message,
       })
     }
@@ -893,7 +893,7 @@ export default function AiSettingsPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <PanelHeader title="AI" actions={<HeaderMenu route={routes.view.settings('ai')} />} />
+      <PanelHeader title={t("settings.ai.title")} actions={<HeaderMenu route={routes.view.settings('ai')} />} />
       <div className="flex-1 min-h-0 mask-fade-y">
         <ScrollArea className="h-full">
           <div className="px-5 py-7 max-w-3xl mx-auto">
@@ -1051,7 +1051,7 @@ export default function AiSettingsPage() {
                   <button
                     onClick={handleCloseApiSetup}
                     className="p-1.5 rounded-[6px] transition-all bg-background shadow-minimal text-muted-foreground/50 hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    title="Close (Esc)"
+                    title={t("common.closeEsc")}
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
