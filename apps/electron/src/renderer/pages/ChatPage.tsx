@@ -492,8 +492,7 @@ const ChatPage = React.memo(function ChatPage({ sessionId }: ChatPageProps) {
       <SessionInfoPopover
         sessionId={sessionId}
         sessionFolderPath={session?.sessionFolderPath}
-        side="bottom"
-        align="end"
+        presentation="drawer"
         trigger={(
           <PanelHeaderCenterButton
             icon={<Info className="h-4 w-4" />}
