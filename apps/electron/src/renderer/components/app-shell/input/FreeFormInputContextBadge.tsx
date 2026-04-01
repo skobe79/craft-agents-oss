@@ -29,8 +29,6 @@ export interface FreeFormInputContextBadgeProps {
   buttonRef?: React.RefObject<HTMLButtonElement>
   /** Data attribute for tutorials */
   'data-tutorial'?: string
-  /** Render as a tinted chip (persistent background + shadow) matching compact toolbar style */
-  chipStyle?: boolean
 }
 
 /**
@@ -57,7 +55,6 @@ export const FreeFormInputContextBadge = React.forwardRef<HTMLButtonElement, Fre
       className,
       buttonRef,
       'data-tutorial': dataTutorial,
-      chipStyle = false,
     },
     ref
   ) {
@@ -77,25 +74,18 @@ export const FreeFormInputContextBadge = React.forwardRef<HTMLButtonElement, Fre
         data-tutorial={dataTutorial}
         className={cn(
           // Base styles - shrink + min-w-0 allows badge to compress in tight layouts
-          "input-toolbar-btn inline-flex items-center gap-1.5 h-7 rounded-[6px] text-[13px] transition-colors select-none shrink min-w-0",
+          "input-toolbar-btn inline-flex items-center gap-1.5 h-7 rounded-[6px] text-[13px] text-foreground transition-colors select-none shrink min-w-0",
           "disabled:opacity-50 disabled:pointer-events-none",
           // Padding: more padding when showing label
           showLabel ? "px-2" : "px-1.5",
-          // Chip style: persistent tinted background + shadow (matches compact permission mode trigger)
-          chipStyle
-            ? "bg-foreground/5 text-foreground/60 shadow-tinted hover:bg-foreground/10"
-            : cn(
-                "text-foreground",
-                // Collapsed with selection: visible background + thin 1px border + margin
-                !isExpanded && hasSelection && "bg-background border border-foreground/5 mx-0.5",
-                // Hover state (when not already showing background from selection)
-                !(!isExpanded && hasSelection) && "hover:bg-foreground/5",
-                // Open state (dropdown shown)
-                isOpen && "bg-foreground/5",
-              ),
+          // Collapsed with selection: visible background + thin 1px border + margin
+          !isExpanded && hasSelection && "bg-background border border-foreground/5 mx-0.5",
+          // Hover state (when not already showing background from selection)
+          !(!isExpanded && hasSelection) && "hover:bg-foreground/5",
+          // Open state (dropdown shown)
+          isOpen && "bg-foreground/5",
           className
         )}
-        style={chipStyle ? { '--shadow-color': 'var(--foreground-rgb)' } as React.CSSProperties : undefined}
       >
         {/* Icon area */}
         <span className="shrink-0 flex items-center">

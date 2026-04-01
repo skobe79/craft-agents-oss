@@ -1671,7 +1671,6 @@ export function FreeFormInput({
             isExpanded={false}
             hasSelection={attachments.length > 0}
             showChevron={false}
-            chipStyle
             onClick={handleAttachClick}
             tooltip="Attach files"
             disabled={disabled}
@@ -1726,7 +1725,6 @@ export function FreeFormInput({
                 isExpanded={false}
                 hasSelection={optimisticSourceSlugs.length > 0}
                 showChevron={false}
-                chipStyle
                 isOpen={sourceDropdownOpen}
                 disabled={disabled}
                 onClick={() => setSourceDropdownOpen(prev => !prev)}
@@ -1756,7 +1754,6 @@ export function FreeFormInput({
               sessionFolderPath={sessionFolderPath}
               isEmptySession={false}
               workspaceId={workspaceId}
-              chipStyle
             />
           )}
           </>
@@ -2204,14 +2201,12 @@ function WorkingDirectoryBadge({
   sessionFolderPath,
   isEmptySession = false,
   workspaceId,
-  chipStyle = false,
 }: {
   workingDirectory?: string
   onWorkingDirectoryChange: (path: string) => void
   sessionFolderPath?: string
   isEmptySession?: boolean
   workspaceId?: string
-  chipStyle?: boolean
 }) {
   const [recentDirs, setRecentDirs] = React.useState<string[]>([])
   const [popoverOpen, setPopoverOpen] = React.useState(false)
@@ -2321,8 +2316,7 @@ function WorkingDirectoryBadge({
             label={folderName}
             isExpanded={isEmptySession}
             hasSelection={hasFolder}
-            showChevron={!chipStyle}
-            chipStyle={chipStyle}
+            showChevron={true}
             isOpen={popoverOpen}
             tooltip={
               hasFolder ? (
