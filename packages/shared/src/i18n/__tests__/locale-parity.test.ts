@@ -63,8 +63,8 @@ describe("i18n locale parity", () => {
       const mismatches: string[] = [];
       for (const key of enKeys) {
         if (!(key in translations)) continue;
-        const enVars = extractVars(en[key]);
-        const langVars = extractVars(translations[key]);
+        const enVars = extractVars(en[key]!);
+        const langVars = extractVars(translations[key]!);
         if (enVars.join(",") !== langVars.join(",")) {
           mismatches.push(
             `${key}: EN has {{${enVars.join(", ")}}} but ${lang} has {{${langVars.join(", ")}}}`,
