@@ -11,6 +11,7 @@
 
 import * as React from 'react'
 import { useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Webhook } from 'lucide-react'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@craft-agent/ui'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -73,6 +74,7 @@ function AutomationItem({
   onTest,
   onDuplicate,
 }: AutomationItemProps) {
+  const { t } = useTranslation()
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (e.button === 2) {
       // Right-click: auto-add to selection if multi-select active
@@ -109,12 +111,12 @@ function AutomationItem({
           </MicroBadge>
           {automation.actions.some(a => a.type === 'prompt') && (
             <MicroBadge colorClass="bg-accent/10 text-accent">
-              Prompt
+              {t('automations.badgePrompt')}
             </MicroBadge>
           )}
           {automation.actions.some(a => a.type === 'webhook') && (
             <MicroBadge colorClass="bg-orange-500/10 text-orange-600 dark:text-orange-400">
-              Webhook
+              {t('automations.badgeWebhook')}
             </MicroBadge>
           )}
         </>
@@ -128,7 +130,7 @@ function AutomationItem({
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={4}>
-              Last ran {formatShortRelativeTime(automation.lastExecutedAt)}
+              {t('automations.lastRan', { time: formatShortRelativeTime(automation.lastExecutedAt) })}
             </TooltipContent>
           </Tooltip>
         ) : undefined
@@ -178,6 +180,7 @@ export function AutomationsListPanel({
   workspaceRootPath,
   className,
 }: AutomationsListPanelProps) {
+  const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchActive, setSearchActive] = useState(false)
 
@@ -242,8 +245,8 @@ export function AutomationsListPanel({
       <div className={cn('flex flex-col flex-1 min-h-0', className)}>
         <EntityListEmptyScreen
           icon={<Webhook />}
-          title="No automations configured"
-          description="Automations run actions when events occur — execute commands on schedules, react to label changes, or trigger prompts automatically."
+          title={t('automations.noAutomationsConfigured')}
+          description={t('automations.emptyDescription')}
           docKey="automations"
         >
           {workspaceRootPath && (
@@ -251,7 +254,7 @@ export function AutomationsListPanel({
               align="center"
               trigger={
                 <button className="inline-flex items-center h-7 px-3 text-xs font-medium rounded-[8px] bg-background shadow-minimal hover:bg-foreground/[0.03] transition-colors">
-                  Add Automation
+                  {t('automations.addAutomation')}
                 </button>
               }
               {...getEditConfig('automation-config', workspaceRootPath)}
@@ -273,7 +276,7 @@ export function AutomationsListPanel({
             setSearchActive(false)
             setSearchQuery('')
           }}
-          placeholder="Search automations..."
+          placeholder={t('automations.searchPlaceholder')}
           resultCount={isSearchMode ? filteredAutomations.length : undefined}
         />
       )}
@@ -282,14 +285,14 @@ export function AutomationsListPanel({
       {filteredAutomations.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-1">
           <p className="text-sm text-muted-foreground">
-            {isSearchMode ? 'No automations found' : 'No automations configured.'}
+            {isSearchMode ? t('automations.noAutomationsFound') : t('automations.noAutomationsConfigured')}
           </p>
           {isSearchMode && (
             <button
               onClick={() => setSearchQuery('')}
               className="text-xs text-foreground hover:underline"
             >
-              Clear search
+              {t('automations.clearSearch')}
             </button>
           )}
         </div>
