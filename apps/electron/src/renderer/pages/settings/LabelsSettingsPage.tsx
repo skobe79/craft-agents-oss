@@ -50,7 +50,7 @@ export default function LabelsSettingsPage() {
 
   // Secondary action: open the labels config file directly in system editor
   const editFileAction = rootPath ? {
-    label: 'Edit File',
+    label: t("common.editFile"),
     filePath: `${rootPath}/labels/config.json`,
   } : undefined
 
@@ -72,13 +72,13 @@ export default function LabelsSettingsPage() {
                     <SettingsCard className="px-4 py-3.5">
                       <div className="text-sm text-muted-foreground leading-relaxed space-y-1.5">
                         <p>
-                          Labels help you organize sessions with colored tags. Use them to categorize conversations by project, topic, or priority — making it easy to filter and find related sessions later.
+                          {t("settings.labels.aboutText1")}
                         </p>
                         <p>
-                          Each label can optionally carry a <span className="text-foreground/80 font-medium">value</span> with a specific type (text, number, or date). This turns labels into structured metadata — for example, a "priority" label with value 3, or a "due" label with a date.
+                          {t("settings.labels.aboutText2")}
                         </p>
                         <p>
-                          <span className="text-foreground/80 font-medium">Auto-apply rules</span> assign labels automatically when a message matches a regex pattern. For example, pasting a Linear issue URL can auto-tag the session with the project name and issue ID — no manual tagging needed.
+                          {t("settings.labels.aboutText3")}
                         </p>
                         <p>
                           <button
@@ -115,13 +115,13 @@ export default function LabelsSettingsPage() {
                           searchable
                           maxHeight={350}
                           fullscreen
-                          fullscreenTitle="Label Hierarchy"
+                          fullscreenTitle={t("settings.labels.labelHierarchy")}
                         />
                       ) : (
                         <div className="p-8 text-center text-muted-foreground">
-                          <p className="text-sm">No labels configured.</p>
+                          <p className="text-sm">{t("settings.labels.noLabels")}</p>
                           <p className="text-xs mt-1 text-foreground/40">
-                            Labels can be created by the agent or by editing <code className="bg-foreground/5 px-1 rounded">labels/config.json</code> in your workspace.
+                            {t("settings.labels.noLabelsDesc")}
                           </p>
                         </div>
                       )}
@@ -130,8 +130,8 @@ export default function LabelsSettingsPage() {
 
                   {/* Auto-Apply Rules Section */}
                   <SettingsSection
-                    title="Auto-Apply Rules"
-                    description="Regex patterns that automatically apply labels when matched in user messages. For example, paste a Linear issue URL and automatically tag the session with the project name and issue ID."
+                    title={t("settings.labels.autoApplyRules")}
+                    description={t("settings.labels.autoApplyRulesDesc")}
                     action={
                       <EditPopover
                         trigger={<EditButton />}
@@ -149,7 +149,7 @@ export default function LabelsSettingsPage() {
                         searchable
                         maxHeight={350}
                         fullscreen
-                        fullscreenTitle="Auto-Apply Rules"
+                        fullscreenTitle={t("settings.labels.autoApplyRules")}
                       />
                     </SettingsCard>
                   </SettingsSection>

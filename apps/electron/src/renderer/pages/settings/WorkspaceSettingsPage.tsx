@@ -438,9 +438,9 @@ export default function WorkspaceSettingsPage() {
                   value={permissionMode}
                   onValueChange={(v) => handlePermissionModeChange(v as PermissionMode)}
                   options={[
-                    { value: 'safe', label: PERMISSION_MODE_CONFIG['safe'].shortName, description: 'Read-only, no changes allowed' },
-                    { value: 'ask', label: PERMISSION_MODE_CONFIG['ask'].shortName, description: 'Prompts before making edits' },
-                    { value: 'allow-all', label: PERMISSION_MODE_CONFIG['allow-all'].shortName, description: 'Full autonomous execution' },
+                    { value: 'safe', label: t("mode.explore"), description: t("mode.exploreDesc") },
+                    { value: 'ask', label: t("mode.ask"), description: t("mode.askDesc") },
+                    { value: 'allow-all', label: t("mode.execute"), description: t("mode.executeDesc") },
                   ]}
                 />
               </SettingsCard>
@@ -453,13 +453,17 @@ export default function WorkspaceSettingsPage() {
             >
               <SettingsCard>
                 {(['safe', 'ask', 'allow-all'] as const).map((m) => {
-                  const config = PERMISSION_MODE_CONFIG[m]
+                  const modeTranslations: Record<string, { label: string; desc: string }> = {
+                    'safe': { label: t("mode.explore"), desc: t("mode.exploreFullDesc") },
+                    'ask': { label: t("mode.askToEdit"), desc: t("mode.askFullDesc") },
+                    'allow-all': { label: t("mode.execute"), desc: t("mode.executeFullDesc") },
+                  }
                   const isEnabled = enabledModes.includes(m)
                   return (
                     <SettingsToggle
                       key={m}
-                      label={config.displayName}
-                      description={config.description}
+                      label={modeTranslations[m].label}
+                      description={modeTranslations[m].desc}
                       checked={isEnabled}
                       onCheckedChange={(checked) => handleModeToggle(m, checked)}
                     />

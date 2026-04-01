@@ -95,9 +95,10 @@ interface SessionListProps {
 // Re-export SessionStatusId for use by parent components
 export type { SessionStatusId }
 
-function formatDateGroupLabel(date: Date): string {
-  if (isToday(date)) return 'Today'
-  if (isYesterday(date)) return 'Yesterday'
+// Note: uses date-fns format for non-today/yesterday dates; Today/Yesterday translated at render time
+function formatDateGroupLabel(date: Date, t: (key: string) => string): string {
+  if (isToday(date)) return t('common.today')
+  if (isYesterday(date)) return t('common.yesterday')
   return format(date, 'MMM d')
 }
 
@@ -263,10 +264,10 @@ export function SessionList({
 
       const groups: EntityListGroup<SessionListRow>[] = []
       if (matchingRows.length > 0) {
-        groups.push({ key: 'matching', label: 'In Current View', items: matchingRows })
+        groups.push({ key: 'matching', label: t("session.inCurrentView"), items: matchingRows })
       }
       if (otherRows.length > 0) {
-        groups.push({ key: 'other', label: 'Other Conversations', items: otherRows })
+        groups.push({ key: 'other', label: t("session.otherConversations"), items: otherRows })
       }
 
       return {
@@ -309,7 +310,7 @@ export function SessionList({
         const collapsedMeta = collapsedGroupsMeta.find(m => m.key === key)
         orderedGroups.push({
           key,
-          label: state.label,
+          label: t(`status.${state.id}`, state.label),
           items: groupRows,
           collapsible: true,
           ...(collapsedMeta ? { collapsedCount: collapsedMeta.count } : {}),
@@ -343,7 +344,7 @@ export function SessionList({
       if (!groupsByKey.has(groupKey)) {
         groupsByKey.set(groupKey, {
           key: groupKey,
-          label: formatDateGroupLabel(day),
+          label: formatDateGroupLabel(day, t),
           items: [],
           collapsible: true,
         })
@@ -358,7 +359,7 @@ export function SessionList({
         const date = new Date(meta.key)
         groupsByKey.set(meta.key, {
           key: meta.key,
-          label: formatDateGroupLabel(date),
+          label: formatDateGroupLabel(date, t),
           items: [],
           collapsible: true,
           collapsedCount: meta.count,
@@ -383,7 +384,7 @@ export function SessionList({
       rows,
       groups: orderedGroups,
     }
-  }, [isSearchMode, matchingFilterItems, otherResultItems, flatItems, groupingMode, sessionStatuses, collapsedGroupsMeta])
+  }, [isSearchMode, matchingFilterItems, otherResultItems, flatItems, groupingMode, sessionStatuses, collapsedGroupsMeta, t])
 
   const flatRows = rowData.rows
 
@@ -604,8 +605,8 @@ export function SessionList({
       return (
         <EntityListEmptyScreen
           icon={<Archive />}
-          title="No archived sessions"
-          description="Sessions you archive will appear here. Archive sessions to keep your list tidy while preserving conversations."
+          title={t("session.noArchivedSessions")}
+          description={t("session.noArchivedSessionsDesc")}
           className="h-full"
         />
       )
@@ -676,7 +677,7 @@ export function SessionList({
             )}
             {isSearchMode && matchingFilterItems.length === 0 && otherResultItems.length > 0 && (
               <div className="px-4 py-3 text-sm text-muted-foreground">
-                No results in current filter
+                {t("session.noResultsInFilter")}
               </div>
             )}
           </>
@@ -692,7 +693,7 @@ export function SessionList({
                 onClick={() => onSearchChange?.('')}
                 className="text-xs text-foreground hover:underline mt-2"
               >
-                Clear search
+                {t("session.clearSearch")}
               </button>
             </div>
           ) : undefined
@@ -723,11 +724,11 @@ export function SessionList({
       <RenameDialog
         open={renameDialogOpen}
         onOpenChange={setRenameDialogOpen}
-        title="Rename Session"
+        title={t("session.renameSession")}
         value={renameName}
         onValueChange={setRenameName}
         onSubmit={handleRenameSubmit}
-        placeholder="Enter session name..."
+        placeholder={t("session.enterSessionName")}
       />
     </div>
   )

@@ -9,6 +9,7 @@
 
 import * as React from 'react'
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { GripHorizontal } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react' // motion used for backdrop only
 import { Popover, PopoverTrigger, PopoverContent } from './popover'
@@ -20,12 +21,12 @@ import { useActiveWorkspace, useAppShellContext, useSession } from '@/context/Ap
 import { useEscapeInterrupt } from '@/context/EscapeInterruptContext'
 import { ChatDisplay } from '../app-shell/ChatDisplay'
 
-/** Rotating placeholders for compact mode input - short, action-oriented */
-const COMPACT_PLACEHOLDERS = [
-  'Just tell me what to change',
-  'Describe the update',
-  'What should I modify?',
-]
+/** Rotating placeholder keys for compact mode input - short, action-oriented */
+const COMPACT_PLACEHOLDER_KEYS = [
+  'editPopover.placeholder1',
+  'editPopover.placeholder2',
+  'editPopover.placeholder3',
+] as const
 
 /**
  * Context passed to the new chat session so the agent knows exactly
@@ -661,15 +662,16 @@ export function EditPopover({
   defaultValue = '',
   inlineExecution = false,
 }: EditPopoverProps) {
+  const { t } = useTranslation()
   const { onOpenFile, onOpenUrl } = usePlatform()
   const workspace = useActiveWorkspace()
 
   // Build placeholder: for inline execution use rotating array, otherwise build descriptive string
   // overridePlaceholder allows contexts like add-source/add-skill to say "add" instead of "change"
   const placeholder = inlineExecution
-    ? COMPACT_PLACEHOLDERS
+    ? COMPACT_PLACEHOLDER_KEYS.map(key => t(key))
     : (() => {
-        const basePlaceholder = overridePlaceholder ?? "Describe what you'd like to change..."
+        const basePlaceholder = overridePlaceholder ?? t("editPopover.describePlaceholder")
         return example
           ? `${basePlaceholder.replace(/\.{3}$/, '')}, e.g., "${example}"`
           : basePlaceholder
@@ -1020,6 +1022,7 @@ export const EditButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof Button>
 >(function EditButton({ className, ...props }, ref) {
+  const { t } = useTranslation()
   return (
     <Button
       ref={ref}
@@ -1029,7 +1032,7 @@ export const EditButton = React.forwardRef<
       className={cn("h-8 px-3 rounded-[6px] bg-background shadow-minimal text-foreground/70 hover:text-foreground", className)}
       {...props}
     >
-      Edit
+      {t("common.edit")}
     </Button>
   )
 })
