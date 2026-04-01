@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useTranslation } from "react-i18next"
 import { isMac } from "@/lib/platform"
 import { useActionLabel } from "@/actions"
 import {
@@ -173,6 +174,7 @@ export function AppMenu({
   onToggleSidebar,
   onToggleFocusMode,
 }: AppMenuProps) {
+  const { t } = useTranslation()
   const [isDebugMode, setIsDebugMode] = useState(false)
 
   // Get hotkey labels from centralized action registry
@@ -251,7 +253,7 @@ export function AppMenu({
                     onClick={() => onOpenSettingsSubpage(item.id)}
                   >
                     <Icon className="h-3.5 w-3.5" />
-                    {item.label}
+                    {t(item.labelKey)}
                   </StyledDropdownMenuItem>
                 )
               })}

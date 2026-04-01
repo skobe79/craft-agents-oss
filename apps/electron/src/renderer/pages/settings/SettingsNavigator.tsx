@@ -7,7 +7,8 @@
  * Styling follows SessionList/SourcesListPanel patterns for visual consistency.
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { MoreHorizontal, AppWindow } from 'lucide-react'
 import {
   DropdownMenu,
@@ -41,14 +42,6 @@ interface SettingsItem {
   icon: React.ComponentType<{ className?: string }>
   description: string
 }
-
-// Derive settings items from shared schema, using shared custom SVG icons
-const settingsItems: SettingsItem[] = SETTINGS_ITEMS.map((item) => ({
-  id: item.id,
-  label: item.label,
-  icon: SETTINGS_ICONS[item.id],
-  description: item.description,
-}))
 
 interface SettingsItemRowProps {
   item: SettingsItem
@@ -153,6 +146,18 @@ export default function SettingsNavigator({
   selectedSubpage,
   onSelectSubpage,
 }: SettingsNavigatorProps) {
+  const { t } = useTranslation()
+
+  const settingsItems: SettingsItem[] = useMemo(() =>
+    SETTINGS_ITEMS.map((item) => ({
+      id: item.id,
+      label: t(item.labelKey),
+      icon: SETTINGS_ICONS[item.id],
+      description: t(item.descriptionKey),
+    })),
+    [t]
+  )
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">

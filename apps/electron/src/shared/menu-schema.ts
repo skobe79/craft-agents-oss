@@ -218,9 +218,9 @@ import { SETTINGS_PAGES, type SettingsSubpage } from './settings-registry'
 
 export interface SettingsMenuItem {
   id: SettingsSubpage
-  label: string
+  labelKey: string    // i18n key - resolve with t() at render time
   icon: string        // Lucide icon name for AppMenu
-  description: string // Shown in SettingsNavigator
+  descriptionKey: string // i18n key - resolve with t() at render time
 }
 
 /**
@@ -248,9 +248,9 @@ export const SETTINGS_ITEMS: SettingsMenuItem[] = SETTINGS_PAGES
   .filter(page => page.id !== 'server' || FEATURE_FLAGS.embeddedServer)
   .map(page => ({
     id: page.id,
-    label: page.label,
+    labelKey: page.labelKey,
     icon: SETTINGS_ICONS[page.id],
-    description: page.description,
+    descriptionKey: page.descriptionKey,
   }))
 
 // ─────────────────────────────────────────────────────────────────────────────

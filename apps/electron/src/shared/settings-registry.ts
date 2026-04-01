@@ -13,18 +13,16 @@
  * That's it - types, routes, and validation are derived automatically.
  */
 
-import { i18n } from '@craft-agent/shared/i18n'
-
 /**
  * Settings page definition
  */
 export interface SettingsPageDefinition {
   /** Unique identifier used in routes and navigation */
   id: string
-  /** Display label in settings navigator */
-  label: string
-  /** Short description shown in settings navigator */
-  description: string
+  /** i18n key for display label in settings navigator */
+  labelKey: string
+  /** i18n key for short description shown in settings navigator */
+  descriptionKey: string
 }
 
 /**
@@ -32,18 +30,21 @@ export interface SettingsPageDefinition {
  * Order here determines display order in the settings navigator.
  *
  * ADD NEW PAGES HERE - everything else derives from this list.
+ *
+ * NOTE: labelKey/descriptionKey are i18n translation keys, resolved at render
+ * time via t(). Do NOT call i18n.t() here — this module loads before i18n init.
  */
 export const SETTINGS_PAGES = [
-  { id: 'app' as const, label: i18n.t("settings.app.title"), description: i18n.t("settings.app.description") },
-  { id: 'ai' as const, label: i18n.t("settings.ai.title"), description: i18n.t("settings.ai.description") },
-  { id: 'appearance' as const, label: i18n.t("settings.appearance.title"), description: i18n.t("settings.appearance.description") },
-  { id: 'input' as const, label: i18n.t("settings.input.title"), description: i18n.t("settings.input.description") },
-  { id: 'workspace' as const, label: i18n.t("settings.workspace.title"), description: i18n.t("settings.workspace.description") },
-  { id: 'permissions' as const, label: i18n.t("settings.permissions.title"), description: i18n.t("settings.permissions.description") },
-  { id: 'labels' as const, label: i18n.t("settings.labels.title"), description: i18n.t("settings.labels.description") },
-  { id: 'server' as const, label: i18n.t("settings.server.title"), description: i18n.t("settings.server.description") },
-  { id: 'shortcuts' as const, label: i18n.t("settings.shortcuts.title"), description: i18n.t("settings.shortcuts.description") },
-  { id: 'preferences' as const, label: i18n.t("settings.preferences.title"), description: i18n.t("settings.preferences.description") },
+  { id: 'app' as const, labelKey: 'settings.app.title', descriptionKey: 'settings.app.description' },
+  { id: 'ai' as const, labelKey: 'settings.ai.title', descriptionKey: 'settings.ai.description' },
+  { id: 'appearance' as const, labelKey: 'settings.appearance.title', descriptionKey: 'settings.appearance.description' },
+  { id: 'input' as const, labelKey: 'settings.input.title', descriptionKey: 'settings.input.description' },
+  { id: 'workspace' as const, labelKey: 'settings.workspace.title', descriptionKey: 'settings.workspace.description' },
+  { id: 'permissions' as const, labelKey: 'settings.permissions.title', descriptionKey: 'settings.permissions.description' },
+  { id: 'labels' as const, labelKey: 'settings.labels.title', descriptionKey: 'settings.labels.description' },
+  { id: 'server' as const, labelKey: 'settings.server.title', descriptionKey: 'settings.server.description' },
+  { id: 'shortcuts' as const, labelKey: 'settings.shortcuts.title', descriptionKey: 'settings.shortcuts.description' },
+  { id: 'preferences' as const, labelKey: 'settings.preferences.title', descriptionKey: 'settings.preferences.description' },
 ] satisfies readonly SettingsPageDefinition[]
 
 /**

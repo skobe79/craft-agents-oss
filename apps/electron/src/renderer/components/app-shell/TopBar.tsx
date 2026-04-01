@@ -7,6 +7,7 @@
  * macOS: offset left to avoid stoplight controls.
  */
 
+import { useTranslation } from "react-i18next"
 import * as Icons from "lucide-react"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@craft-agent/ui"
 import { CraftAgentsSymbol } from "../icons/CraftAgentsSymbol"
@@ -184,6 +185,7 @@ export function TopBar({
   onAddBrowserPanel,
   isCompact,
 }: TopBarProps) {
+  const { t } = useTranslation()
   const [isDebugMode, setIsDebugMode] = useState(false)
   const [maxVisibleBrowserBadges, setMaxVisibleBrowserBadges] = useState(3)
   const rightSlotRef = useRef<HTMLDivElement | null>(null)
@@ -308,7 +310,7 @@ export function TopBar({
                       onClick={() => onOpenSettingsSubpage(item.id)}
                     >
                       <Icon className="h-3.5 w-3.5" />
-                      {item.label}
+                      {t(item.labelKey)}
                     </StyledDropdownMenuItem>
                   )
                 })}
