@@ -1,4 +1,5 @@
 import { Menu, app, shell, BrowserWindow } from 'electron'
+import { i18n } from '@craft-agent/shared/i18n'
 import { RPC_CHANNELS, type BroadcastEventMap } from '../shared/types'
 import { EDIT_MENU, VIEW_MENU, WINDOW_MENU } from '../shared/menu-schema'
 import type { MenuItem } from '../shared/menu-schema'
@@ -63,13 +64,13 @@ export async function rebuildMenu(): Promise<void> {
   // Build the update menu item based on state
   const updateMenuItem: Electron.MenuItemConstructorOptions = updateReady
     ? {
-        label: `Install Update…\t【${updateInfo.latestVersion}】`,
+        label: i18n.t("menu.installUpdateVersion", { version: updateInfo.latestVersion }),
         click: async () => {
           await installUpdate()
         }
       }
     : {
-        label: 'Check for Updates…',
+        label: i18n.t("menu.checkForUpdatesEllipsis"),
         click: async () => {
           await checkForUpdates({ autoDownload: true })
         }
@@ -84,7 +85,7 @@ export async function rebuildMenu(): Promise<void> {
         updateMenuItem,
         { type: 'separator' as const },
         {
-          label: 'Settings...',
+          label: i18n.t("menu.settings"),
           accelerator: 'CmdOrCtrl+,',
           registerAccelerator: false,  // Action registry handles the keyboard shortcut
           click: () => sendToRenderer(RPC_CHANNELS.menu.OPEN_SETTINGS)
@@ -100,16 +101,16 @@ export async function rebuildMenu(): Promise<void> {
 
     // File menu
     {
-      label: 'File',
+      label: i18n.t("menu.file"),
       submenu: [
         {
-          label: 'New Chat',
+          label: i18n.t("menu.newChat"),
           accelerator: 'CmdOrCtrl+N',
           registerAccelerator: false,  // Action registry handles the keyboard shortcut
           click: () => sendToRenderer(RPC_CHANNELS.menu.NEW_CHAT)
         },
         {
-          label: 'New Window',
+          label: i18n.t("menu.newWindow"),
           accelerator: 'CmdOrCtrl+Shift+N',
           registerAccelerator: false,  // Action registry handles the keyboard shortcut
           click: () => {
@@ -142,7 +143,7 @@ export async function rebuildMenu(): Promise<void> {
         ...(!app.isPackaged ? [
           { type: 'separator' as const },
           {
-            label: 'Reload',
+            label: i18n.t("menu.reload"),
             accelerator: 'CmdOrCtrl+R',
             click: (_menuItem: Electron.MenuItem, window: Electron.BaseWindow | undefined) => {
               const browserWindow = window instanceof BrowserWindow ? window : BrowserWindow.getFocusedWindow()
@@ -156,7 +157,7 @@ export async function rebuildMenu(): Promise<void> {
             }
           },
           {
-            label: 'Force Reload',
+            label: i18n.t("menu.forceReload"),
             accelerator: 'CmdOrCtrl+Shift+R',
             click: (_menuItem: Electron.MenuItem, window: Electron.BaseWindow | undefined) => {
               const browserWindow = window instanceof BrowserWindow ? window : BrowserWindow.getFocusedWindow()
@@ -189,10 +190,10 @@ export async function rebuildMenu(): Promise<void> {
 
     // Debug menu (development only)
     ...(!app.isPackaged ? [{
-      label: 'Debug',
+      label: i18n.t("menu.debug"),
       submenu: [
         {
-          label: 'Check for Updates',
+          label: i18n.t("menu.checkForUpdates"),
           click: async () => {
             const { checkForUpdates } = await import('./auto-update')
             const info = await checkForUpdates({ autoDownload: true })
@@ -200,7 +201,7 @@ export async function rebuildMenu(): Promise<void> {
           }
         },
         {
-          label: 'Install Update',
+          label: i18n.t("menu.installUpdate"),
           click: async () => {
             const { installUpdate } = await import('./auto-update')
             try {
@@ -212,14 +213,14 @@ export async function rebuildMenu(): Promise<void> {
         },
         { type: 'separator' as const },
         {
-          label: 'Reset to Defaults...',
+          label: i18n.t("menu.resetToDefaults"),
           click: async () => {
             const { dialog } = await import('electron')
             await dialog.showMessageBox({
               type: 'info',
-              message: 'Reset to Defaults',
-              detail: 'To reset Craft Agent to defaults, quit the app and run:\n\nbun run fresh-start\n\nThis will delete all configuration, credentials, workspaces, and sessions.',
-              buttons: ['OK']
+              message: i18n.t("menu.resetToDefaultsTitle"),
+              detail: i18n.t("menu.resetToDefaultsDetail"),
+              buttons: [i18n.t("common.ok")]
             })
           }
         }
@@ -228,14 +229,14 @@ export async function rebuildMenu(): Promise<void> {
 
     // Help menu
     {
-      label: 'Help',
+      label: i18n.t("menu.help"),
       submenu: [
         {
-          label: 'Help & Documentation',
+          label: i18n.t("menu.helpAndDocs"),
           click: () => shell.openExternal('https://agents.craft.do/docs')
         },
         {
-          label: 'Keyboard Shortcuts',
+          label: i18n.t("menu.keyboardShortcuts"),
           accelerator: 'CmdOrCtrl+/',
           registerAccelerator: false,  // Action registry handles the keyboard shortcut
           click: () => sendToRenderer(RPC_CHANNELS.menu.KEYBOARD_SHORTCUTS)

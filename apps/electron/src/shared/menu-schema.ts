@@ -10,6 +10,7 @@
 
 import { RPC_CHANNELS } from './types'
 import { FEATURE_FLAGS } from '@craft-agent/shared/feature-flags'
+import { i18n } from '@craft-agent/shared/i18n'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -58,13 +59,13 @@ export interface MenuSection {
 
 export const EDIT_MENU: MenuSection = {
   id: 'edit',
-  label: 'Edit',
+  label: i18n.t("menu.edit"),
   icon: 'Pencil',
   items: [
     {
       type: 'role',
       role: 'undo',
-      label: 'Undo',
+      label: i18n.t("menu.undo"),
       icon: 'Undo2',
       shortcutDisplayMac: '⌘Z',
       shortcutDisplayOther: 'Ctrl+Z',
@@ -73,7 +74,7 @@ export const EDIT_MENU: MenuSection = {
     {
       type: 'role',
       role: 'redo',
-      label: 'Redo',
+      label: i18n.t("menu.redo"),
       icon: 'Redo2',
       shortcutDisplayMac: '⌘⇧Z',
       shortcutDisplayOther: 'Ctrl+Shift+Z',
@@ -83,7 +84,7 @@ export const EDIT_MENU: MenuSection = {
     {
       type: 'role',
       role: 'cut',
-      label: 'Cut',
+      label: i18n.t("menu.cut"),
       icon: 'Scissors',
       shortcutDisplayMac: '⌘X',
       shortcutDisplayOther: 'Ctrl+X',
@@ -92,7 +93,7 @@ export const EDIT_MENU: MenuSection = {
     {
       type: 'role',
       role: 'copy',
-      label: 'Copy',
+      label: i18n.t("menu.copy"),
       icon: 'Copy',
       shortcutDisplayMac: '⌘C',
       shortcutDisplayOther: 'Ctrl+C',
@@ -101,7 +102,7 @@ export const EDIT_MENU: MenuSection = {
     {
       type: 'role',
       role: 'paste',
-      label: 'Paste',
+      label: i18n.t("menu.paste"),
       icon: 'ClipboardPaste',
       shortcutDisplayMac: '⌘V',
       shortcutDisplayOther: 'Ctrl+V',
@@ -111,7 +112,7 @@ export const EDIT_MENU: MenuSection = {
     {
       type: 'role',
       role: 'selectAll',
-      label: 'Select All',
+      label: i18n.t("menu.selectAll"),
       icon: 'TextSelect',
       shortcutDisplayMac: '⌘A',
       shortcutDisplayOther: 'Ctrl+A',
@@ -122,13 +123,13 @@ export const EDIT_MENU: MenuSection = {
 
 export const VIEW_MENU: MenuSection = {
   id: 'view',
-  label: 'View',
+  label: i18n.t("menu.view"),
   icon: 'Eye',
   items: [
     {
       type: 'role',
       role: 'zoomIn',
-      label: 'Zoom In',
+      label: i18n.t("menu.zoomIn"),
       icon: 'ZoomIn',
       shortcutDisplayMac: '⌘+',
       shortcutDisplayOther: 'Ctrl++',
@@ -137,7 +138,7 @@ export const VIEW_MENU: MenuSection = {
     {
       type: 'role',
       role: 'zoomOut',
-      label: 'Zoom Out',
+      label: i18n.t("menu.zoomOut"),
       icon: 'ZoomOut',
       shortcutDisplayMac: '⌘-',
       shortcutDisplayOther: 'Ctrl+-',
@@ -146,7 +147,7 @@ export const VIEW_MENU: MenuSection = {
     {
       type: 'role',
       role: 'resetZoom',
-      label: 'Reset Zoom',
+      label: i18n.t("menu.resetZoom"),
       icon: 'RotateCcw',
       shortcutDisplayMac: '⌘0',
       shortcutDisplayOther: 'Ctrl+0',
@@ -157,7 +158,7 @@ export const VIEW_MENU: MenuSection = {
       type: 'action',
       id: 'toggleFocusMode',
       actionId: 'view.toggleFocusMode',
-      label: 'Toggle Focus Mode',
+      label: i18n.t("menu.toggleFocusMode"),
       shortcut: 'CmdOrCtrl+.',
       shortcutDisplayMac: '⌘.',
       shortcutDisplayOther: 'Ctrl+.',
@@ -168,7 +169,7 @@ export const VIEW_MENU: MenuSection = {
       type: 'action',
       id: 'toggleSidebar',
       actionId: 'view.toggleSidebar',
-      label: 'Toggle Sidebar',
+      label: i18n.t("menu.toggleSidebar"),
       shortcut: 'CmdOrCtrl+B',
       shortcutDisplayMac: '⌘B',
       shortcutDisplayOther: 'Ctrl+B',
@@ -180,13 +181,13 @@ export const VIEW_MENU: MenuSection = {
 
 export const WINDOW_MENU: MenuSection = {
   id: 'window',
-  label: 'Window',
+  label: i18n.t("menu.window"),
   icon: 'AppWindow',
   items: [
     {
       type: 'role',
       role: 'minimize',
-      label: 'Minimize',
+      label: i18n.t("menu.minimize"),
       icon: 'Minimize2',
       shortcutDisplayMac: '⌘M',
       shortcutDisplayOther: '',
@@ -195,7 +196,7 @@ export const WINDOW_MENU: MenuSection = {
     {
       type: 'role',
       role: 'zoom',
-      label: 'Maximize',
+      label: i18n.t("menu.maximize"),
       icon: 'Maximize2',
       ipcChannel: RPC_CHANNELS.menu.MAXIMIZE,
     },

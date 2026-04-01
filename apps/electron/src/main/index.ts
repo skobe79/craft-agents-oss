@@ -58,6 +58,10 @@ Sentry.init({
   },
 })
 
+// Initialize i18n for main process (menus, dialogs, etc.)
+import { setupI18n } from '@craft-agent/shared/i18n'
+setupI18n()
+
 // Set anonymous machine ID for Sentry user tracking (no PII — just a hash).
 // Uses hostname + homedir to produce a stable per-machine identifier.
 const machineId = createHash('sha256').update(hostname() + homedir()).digest('hex').slice(0, 16)

@@ -1,0 +1,38 @@
+import i18n, { type i18n as I18nInstance } from "i18next";
+import en from "./locales/en.json";
+import es from "./locales/es.json";
+import { SUPPORTED_LANGUAGE_CODES } from "./languages";
+
+let initialized = false;
+
+/**
+ * Initialize i18next with bundled translations.
+ * Call once at app startup. Pass `plugins` to add framework integrations
+ * (e.g. initReactI18next for React apps, LanguageDetector for browser apps).
+ */
+export function setupI18n(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  plugins: any[] = [],
+): I18nInstance {
+  if (initialized) return i18n;
+
+  let instance = i18n;
+  for (const plugin of plugins) {
+    instance = instance.use(plugin);
+  }
+
+  instance.init({
+    resources: {
+      en: { translation: en },
+      es: { translation: es },
+    },
+    fallbackLng: "en",
+    supportedLngs: [...SUPPORTED_LANGUAGE_CODES],
+    interpolation: { escapeValue: false },
+  });
+
+  initialized = true;
+  return i18n;
+}
+
+export { i18n };

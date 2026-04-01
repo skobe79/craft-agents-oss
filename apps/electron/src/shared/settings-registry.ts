@@ -13,6 +13,8 @@
  * That's it - types, routes, and validation are derived automatically.
  */
 
+import { i18n } from '@craft-agent/shared/i18n'
+
 /**
  * Settings page definition
  */
@@ -32,17 +34,17 @@ export interface SettingsPageDefinition {
  * ADD NEW PAGES HERE - everything else derives from this list.
  */
 export const SETTINGS_PAGES = [
-  { id: 'app', label: 'App', description: 'Notifications and updates' },
-  { id: 'ai', label: 'AI', description: 'Model, thinking, connections' },
-  { id: 'appearance', label: 'Appearance', description: 'Theme, font, tool icons' },
-  { id: 'input', label: 'Input', description: 'Send key, spell check' },
-  { id: 'workspace', label: 'Workspace', description: 'Name, icon, working directory' },
-  { id: 'permissions', label: 'Permissions', description: 'Explore mode rules' },
-  { id: 'labels', label: 'Labels', description: 'Manage session labels' },
-  { id: 'server', label: 'Server', description: 'Remote server access' },
-  { id: 'shortcuts', label: 'Shortcuts', description: 'Keyboard shortcuts' },
-  { id: 'preferences', label: 'Preferences', description: 'User preferences' },
-] as const satisfies readonly SettingsPageDefinition[]
+  { id: 'app' as const, label: i18n.t("settings.app.title"), description: i18n.t("settings.app.description") },
+  { id: 'ai' as const, label: i18n.t("settings.ai.title"), description: i18n.t("settings.ai.description") },
+  { id: 'appearance' as const, label: i18n.t("settings.appearance.title"), description: i18n.t("settings.appearance.description") },
+  { id: 'input' as const, label: i18n.t("settings.input.title"), description: i18n.t("settings.input.description") },
+  { id: 'workspace' as const, label: i18n.t("settings.workspace.title"), description: i18n.t("settings.workspace.description") },
+  { id: 'permissions' as const, label: i18n.t("settings.permissions.title"), description: i18n.t("settings.permissions.description") },
+  { id: 'labels' as const, label: i18n.t("settings.labels.title"), description: i18n.t("settings.labels.description") },
+  { id: 'server' as const, label: i18n.t("settings.server.title"), description: i18n.t("settings.server.description") },
+  { id: 'shortcuts' as const, label: i18n.t("settings.shortcuts.title"), description: i18n.t("settings.shortcuts.description") },
+  { id: 'preferences' as const, label: i18n.t("settings.preferences.title"), description: i18n.t("settings.preferences.description") },
+] satisfies readonly SettingsPageDefinition[]
 
 /**
  * Settings subpage type - derived from SETTINGS_PAGES
