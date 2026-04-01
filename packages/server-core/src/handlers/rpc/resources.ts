@@ -43,7 +43,7 @@ export function registerResourcesHandlers(server: RpcServer, deps: HandlerDeps):
         `RESOURCES_EXPORT: Exported from ${workspaceId}: ` +
         `${result.bundle.resources.sources?.length ?? 0} sources, ` +
         `${result.bundle.resources.skills?.length ?? 0} skills, ` +
-        `automations=${result.bundle.resources.automations !== undefined}` +
+        `${result.bundle.resources.automations?.length ?? 0} automations` +
         (result.warnings.length > 0 ? ` (${result.warnings.length} warnings)` : ''),
       )
 
@@ -82,7 +82,7 @@ export function registerResourcesHandlers(server: RpcServer, deps: HandlerDeps):
         `RESOURCES_IMPORT: Imported into ${workspaceId} (mode=${mode}): ` +
         `sources=${result.sources.imported.length} imported, ${result.sources.skipped.length} skipped, ${result.sources.failed.length} failed; ` +
         `skills=${result.skills.imported.length} imported, ${result.skills.skipped.length} skipped, ${result.skills.failed.length} failed; ` +
-        `automations=${result.automations.imported ? 'imported' : result.automations.skipped ? 'skipped' : 'none'}`,
+        `automations=${result.automations.imported.length} imported, ${result.automations.skipped.length} skipped, ${result.automations.failed.length} failed`,
       )
 
       return result

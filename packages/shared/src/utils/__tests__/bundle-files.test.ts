@@ -145,7 +145,7 @@ describe('bundle-files', () => {
 
       const files = collectDirectoryFiles(tmpDir)
       expect(files).toHaveLength(1)
-      expect(files[0].relativePath).toBe('visible.txt')
+      expect(files[0]!.relativePath).toBe('visible.txt')
     })
 
     it('respects skipFiles option', () => {
@@ -156,7 +156,7 @@ describe('bundle-files', () => {
         skipFiles: new Set(['config.json']),
       })
       expect(files).toHaveLength(1)
-      expect(files[0].relativePath).toBe('guide.md')
+      expect(files[0]!.relativePath).toBe('guide.md')
     })
 
     it('respects skipDirs option', () => {
@@ -169,7 +169,7 @@ describe('bundle-files', () => {
         skipDirs: new Set(['tmp']),
       })
       expect(files).toHaveLength(1)
-      expect(files[0].relativePath).toBe('keep/data.txt')
+      expect(files[0]!.relativePath).toBe('keep/data.txt')
     })
 
     it('produces deterministic (sorted) output', () => {
@@ -187,8 +187,8 @@ describe('bundle-files', () => {
       writeFileSync(join(tmpDir, 'sub', 'deep', 'file.txt'), 'content')
 
       const files = collectDirectoryFiles(tmpDir)
-      expect(files[0].relativePath).toBe('sub/deep/file.txt')
-      expect(files[0].relativePath).not.toContain('\\')
+      expect(files[0]!.relativePath).toBe('sub/deep/file.txt')
+      expect(files[0]!.relativePath).not.toContain('\\')
     })
 
     it('correctly encodes file content as base64', () => {
@@ -196,7 +196,7 @@ describe('bundle-files', () => {
       writeFileSync(join(tmpDir, 'test.txt'), content)
 
       const files = collectDirectoryFiles(tmpDir)
-      const decoded = Buffer.from(files[0].contentBase64, 'base64').toString('utf-8')
+      const decoded = Buffer.from(files[0]!.contentBase64, 'base64').toString('utf-8')
       expect(decoded).toBe(content)
     })
 

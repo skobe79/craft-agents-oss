@@ -3,8 +3,9 @@ import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { exportResources, importResources, validateResourceBundle } from '../resource-bundle'
-import type { ResourceBundle, SourceBundleEntry, SkillBundleEntry } from '../types'
+import type { ResourceBundle, SourceBundleEntry, SkillBundleEntry, AutomationBundleEntry } from '../types'
 import type { FolderSourceConfig } from '../../sources/types'
+import type { AutomationMatcher } from '../../automations/types'
 
 // ============================================================
 // Helpers
@@ -73,6 +74,25 @@ function makeBundleFile(path: string, content: string) {
   }
 }
 
+function createTestAutomations(
+  wsDir: string,
+  automations: Record<string, AutomationMatcher[]>,
+  version = 2,
+): void {
+  writeFileSync(join(wsDir, 'automations.json'), JSON.stringify({ version, automations }, null, 2))
+}
+
+function makeAutomationEntry(overrides: Partial<AutomationBundleEntry> & { id: string; event: string }): AutomationBundleEntry {
+  return {
+    matcher: {
+      id: overrides.id,
+      name: overrides.name,
+      actions: [{ type: 'prompt', prompt: 'test' }],
+    },
+    ...overrides,
+  }
+}
+
 // Minimal valid deps for import
 const noopDeps = {
   clearSourceCredentials: async () => {},
@@ -115,7 +135,7 @@ describe('resource-bundle', () => {
       expect(bundle.version).toBe(1)
       expect(bundle.resources.sources).toHaveLength(1)
 
-      const source = bundle.resources.sources![0]
+      const source = bundle.resources.sources![0]!
       expect(source.slug).toBe('github')
       // Auth state should be reset
       expect(source.config.isAuthenticated).toBe(false)
@@ -139,7 +159,7 @@ describe('resource-bundle', () => {
 
       const { bundle, warnings } = exportResources(wsDir, { sources: ['google-api'] })
 
-      const config = bundle.resources.sources![0].config
+      const config = bundle.resources.sources![0]!.config
       expect(config.api?.googleOAuthClientSecret).toBeUndefined()
       expect(config.api?.defaultHeaders).toBeUndefined()
       expect(warnings.some(w => w.includes('googleOAuthClientSecret'))).toBe(true)
@@ -160,7 +180,7 @@ describe('resource-bundle', () => {
 
       const { bundle, warnings } = exportResources(wsDir, { sources: ['mcp-server'] })
 
-      const config = bundle.resources.sources![0].config
+      const config = bundle.resources.sources![0]!.config
       expect(config.mcp?.env).toBeUndefined()
       expect(config.mcp?.headers).toBeUndefined()
       expect(warnings.some(w => w.includes('mcp.env'))).toBe(true)
@@ -179,7 +199,7 @@ describe('resource-bundle', () => {
 
       const { bundle } = exportResources(wsDir, { sources: ['postgres'] })
 
-      const files = bundle.resources.sources![0].files
+      const files = bundle.resources.sources![0]!.files
       const paths = files.map(f => f.relativePath)
       expect(paths).toContain('guide.md')
       expect(paths).toContain('INSTALL.md')
@@ -200,7 +220,7 @@ describe('resource-bundle', () => {
       const { bundle } = exportResources(wsDir, { skills: 'all' })
 
       expect(bundle.resources.skills).toHaveLength(1)
-      const skill = bundle.resources.skills![0]
+      const skill = bundle.resources.skills![0]!
       const paths = skill.files.map(f => f.relativePath)
       expect(paths).toContain('SKILL.md')
       expect(paths).toContain('forms.md')
@@ -209,14 +229,149 @@ describe('resource-bundle', () => {
       expect(paths).toContain('LICENSE.txt')
     })
 
-    it('exports automations.json', () => {
+    it('exports automations as per-entry array', () => {
       const wsDir = createTestWorkspace(tmpDir)
-      const automations = { automations: [{ id: 'test', name: 'Test' }] }
-      writeFileSync(join(wsDir, 'automations.json'), JSON.stringify(automations))
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', name: 'Greeting', actions: [{ type: 'prompt', prompt: 'hello' }] },
+        ],
+        SessionStart: [
+          { id: 'bbb222', name: 'Init', actions: [{ type: 'prompt', prompt: 'init' }] },
+        ],
+      })
 
       const { bundle } = exportResources(wsDir, { automations: true })
 
-      expect(bundle.resources.automations).toEqual(automations)
+      expect(bundle.resources.automations).toHaveLength(2)
+      const ids = bundle.resources.automations!.map(a => a.id)
+      expect(ids).toContain('aaa111')
+      expect(ids).toContain('bbb222')
+
+      const greeting = bundle.resources.automations!.find(a => a.id === 'aaa111')!
+      expect(greeting.name).toBe('Greeting')
+      expect(greeting.event).toBe('UserPromptSubmit')
+      expect(greeting.matcher.actions).toHaveLength(1)
+    })
+
+    it('exports automations selectively by ID', () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', name: 'First', actions: [{ type: 'prompt', prompt: 'a' }] },
+          { id: 'bbb222', name: 'Second', actions: [{ type: 'prompt', prompt: 'b' }] },
+        ],
+      })
+
+      const { bundle } = exportResources(wsDir, { automations: ['aaa111'] })
+
+      expect(bundle.resources.automations).toHaveLength(1)
+      expect(bundle.resources.automations![0]!.id).toBe('aaa111')
+    })
+
+    it('exports automations selectively by name', () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', name: 'My Automation', actions: [{ type: 'prompt', prompt: 'a' }] },
+          { id: 'bbb222', name: 'Other', actions: [{ type: 'prompt', prompt: 'b' }] },
+        ],
+      })
+
+      const { bundle } = exportResources(wsDir, { automations: ['My Automation'] })
+
+      expect(bundle.resources.automations).toHaveLength(1)
+      expect(bundle.resources.automations![0]!.id).toBe('aaa111')
+    })
+
+    it('warns when name selector matches multiple automations', () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', name: 'Dup Name', actions: [{ type: 'prompt', prompt: 'a' }] },
+          { id: 'bbb222', name: 'Dup Name', actions: [{ type: 'prompt', prompt: 'b' }] },
+        ],
+      })
+
+      const { bundle, warnings } = exportResources(wsDir, { automations: ['Dup Name'] })
+
+      // Both should be included
+      expect(bundle.resources.automations).toHaveLength(2)
+      expect(warnings.some(w => w.includes('matched 2 automations'))).toBe(true)
+    })
+
+    it('warns for unmatched automation selector', () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', name: 'Real', actions: [{ type: 'prompt', prompt: 'a' }] },
+        ],
+      })
+
+      const { warnings } = exportResources(wsDir, { automations: ['nonexistent'] })
+
+      expect(warnings.some(w => w.includes("'nonexistent'") && w.includes('did not match'))).toBe(true)
+    })
+
+    it('sanitizes webhook auth on export', () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [{
+          id: 'aaa111',
+          name: 'Webhook Test',
+          actions: [{
+            type: 'webhook',
+            url: 'https://api.example.com/hook',
+            auth: { type: 'bearer', token: 'secret-token-123' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer hardcoded-secret',
+            },
+          }],
+        }],
+      })
+
+      const { bundle, warnings } = exportResources(wsDir, { automations: 'all' })
+
+      const action = bundle.resources.automations![0]!.matcher.actions[0] as any
+      expect(action.auth).toBeUndefined()
+      expect(action.headers?.['Authorization']).toBeUndefined()
+      // Content-Type should be preserved
+      expect(action.headers?.['Content-Type']).toBe('application/json')
+      expect(warnings.some(w => w.includes('auth credentials'))).toBe(true)
+      expect(warnings.some(w => w.includes("header 'Authorization'"))).toBe(true)
+    })
+
+    it('preserves templated header values on export', () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [{
+          id: 'aaa111',
+          actions: [{
+            type: 'webhook',
+            url: 'https://api.example.com/hook',
+            headers: { 'Authorization': 'Bearer $CRAFT_WH_TOKEN' },
+          }],
+        }],
+      })
+
+      const { bundle } = exportResources(wsDir, { automations: 'all' })
+
+      const action = bundle.resources.automations![0]!.matcher.actions[0] as any
+      // Templated Authorization should be preserved
+      expect(action.headers?.['Authorization']).toBe('Bearer $CRAFT_WH_TOKEN')
+    })
+
+    it('automations: true is backward-compatible with "all"', () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', actions: [{ type: 'prompt', prompt: 'a' }] },
+        ],
+      })
+
+      const { bundle } = exportResources(wsDir, { automations: true })
+
+      expect(bundle.resources.automations).toHaveLength(1)
     })
 
     it('warns for non-existent sources', () => {
@@ -350,6 +505,86 @@ describe('resource-bundle', () => {
       const { valid, errors } = validateResourceBundle(bundle)
       expect(valid).toBe(false)
       expect(errors.some(e => e.includes('traversal'))).toBe(true)
+    })
+
+    it('accepts valid automation entries', () => {
+      const bundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            { id: 'aaa111', event: 'UserPromptSubmit', matcher: { id: 'aaa111', actions: [{ type: 'prompt', prompt: 'hi' }] } },
+          ],
+        },
+      }
+
+      const { valid } = validateResourceBundle(bundle)
+      expect(valid).toBe(true)
+    })
+
+    it('rejects duplicate automation IDs', () => {
+      const bundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            { id: 'aaa111', event: 'UserPromptSubmit', matcher: { id: 'aaa111', actions: [{ type: 'prompt', prompt: 'a' }] } },
+            { id: 'aaa111', event: 'SessionStart', matcher: { id: 'aaa111', actions: [{ type: 'prompt', prompt: 'b' }] } },
+          ],
+        },
+      }
+
+      const { valid, errors } = validateResourceBundle(bundle)
+      expect(valid).toBe(false)
+      expect(errors.some(e => e.includes('duplicate id'))).toBe(true)
+    })
+
+    it('allows duplicate automation names', () => {
+      const bundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            { id: 'aaa111', name: 'Same Name', event: 'UserPromptSubmit', matcher: { id: 'aaa111', actions: [{ type: 'prompt', prompt: 'a' }] } },
+            { id: 'bbb222', name: 'Same Name', event: 'SessionStart', matcher: { id: 'bbb222', actions: [{ type: 'prompt', prompt: 'b' }] } },
+          ],
+        },
+      }
+
+      const { valid } = validateResourceBundle(bundle)
+      expect(valid).toBe(true)
+    })
+
+    it('rejects automation with unknown event', () => {
+      const bundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            { id: 'aaa111', event: 'FakeEvent', matcher: { id: 'aaa111', actions: [{ type: 'prompt', prompt: 'a' }] } },
+          ],
+        },
+      }
+
+      const { valid, errors } = validateResourceBundle(bundle)
+      expect(valid).toBe(false)
+      expect(errors.some(e => e.includes('unknown event'))).toBe(true)
+    })
+
+    it('rejects automation without actions', () => {
+      const bundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            { id: 'aaa111', event: 'UserPromptSubmit', matcher: { id: 'aaa111', actions: [] } },
+          ],
+        },
+      }
+
+      const { valid, errors } = validateResourceBundle(bundle)
+      expect(valid).toBe(false)
+      expect(errors.some(e => e.includes('at least one action'))).toBe(true)
     })
 
     it('rejects duplicate file paths', () => {
@@ -542,47 +777,250 @@ describe('resource-bundle', () => {
       expect(cleared).toEqual(['creds-test'])
     })
 
-    it('imports automations and clears history on overwrite', async () => {
+    it('imports automations into workspace with no existing file', async () => {
       const wsDir = createTestWorkspace(tmpDir)
 
-      // Create existing automations + history
-      writeFileSync(join(wsDir, 'automations.json'), '{"automations":[]}')
-      writeFileSync(join(wsDir, 'automations-history.jsonl'), 'old history')
-      writeFileSync(join(wsDir, 'automations-retry-queue.jsonl'), 'old retries')
-
-      const newConfig = { automations: [{ id: 'new', name: 'New Auto' }] }
       const bundle: ResourceBundle = {
         version: 1,
         exportedAt: Date.now(),
         resources: {
-          automations: newConfig,
+          automations: [
+            makeAutomationEntry({ id: 'aaa111', name: 'Auto 1', event: 'UserPromptSubmit' }),
+          ],
+        },
+      }
+
+      const result = await importResources(wsDir, bundle, 'skip', noopDeps)
+
+      expect(result.automations.imported).toEqual(['Auto 1'])
+      const config = JSON.parse(readFileSync(join(wsDir, 'automations.json'), 'utf-8'))
+      expect(config.version).toBe(2)
+      expect(config.automations.UserPromptSubmit).toHaveLength(1)
+      expect(config.automations.UserPromptSubmit[0].id).toBe('aaa111')
+    })
+
+    it('merges automations into existing config', async () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'existing1', name: 'Existing', actions: [{ type: 'prompt', prompt: 'old' }] },
+        ],
+      })
+
+      const bundle: ResourceBundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            makeAutomationEntry({ id: 'new1', name: 'New Auto', event: 'SessionStart' }),
+          ],
+        },
+      }
+
+      const result = await importResources(wsDir, bundle, 'skip', noopDeps)
+
+      expect(result.automations.imported).toEqual(['New Auto'])
+      const config = JSON.parse(readFileSync(join(wsDir, 'automations.json'), 'utf-8'))
+      // Existing automation should be preserved
+      expect(config.automations.UserPromptSubmit).toHaveLength(1)
+      expect(config.automations.UserPromptSubmit[0].id).toBe('existing1')
+      // New automation should be added
+      expect(config.automations.SessionStart).toHaveLength(1)
+      expect(config.automations.SessionStart[0].id).toBe('new1')
+    })
+
+    it('skips automations with existing ID in skip mode', async () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', name: 'Original', actions: [{ type: 'prompt', prompt: 'original' }] },
+        ],
+      })
+
+      const bundle: ResourceBundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            makeAutomationEntry({ id: 'aaa111', name: 'Updated', event: 'UserPromptSubmit' }),
+          ],
+        },
+      }
+
+      const result = await importResources(wsDir, bundle, 'skip', noopDeps)
+
+      expect(result.automations.skipped).toEqual(['Updated'])
+      // Original should be preserved
+      const config = JSON.parse(readFileSync(join(wsDir, 'automations.json'), 'utf-8'))
+      expect(config.automations.UserPromptSubmit[0].name).toBe('Original')
+    })
+
+    it('overwrites automation by ID in overwrite mode', async () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', name: 'Original', actions: [{ type: 'prompt', prompt: 'original' }] },
+          { id: 'bbb222', name: 'Untouched', actions: [{ type: 'prompt', prompt: 'keep' }] },
+        ],
+      })
+
+      const bundle: ResourceBundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            makeAutomationEntry({ id: 'aaa111', name: 'Replaced', event: 'UserPromptSubmit' }),
+          ],
         },
       }
 
       const result = await importResources(wsDir, bundle, 'overwrite', noopDeps)
 
-      expect(result.automations.imported).toBe(true)
-      expect(JSON.parse(readFileSync(join(wsDir, 'automations.json'), 'utf-8'))).toEqual(newConfig)
-      // History and retry queue should be cleared
-      expect(existsSync(join(wsDir, 'automations-history.jsonl'))).toBe(false)
-      expect(existsSync(join(wsDir, 'automations-retry-queue.jsonl'))).toBe(false)
+      expect(result.automations.imported).toEqual(['Replaced'])
+      const config = JSON.parse(readFileSync(join(wsDir, 'automations.json'), 'utf-8'))
+      // Replaced automation
+      const names = config.automations.UserPromptSubmit.map((m: any) => m.name)
+      expect(names).toContain('Replaced')
+      // Untouched automation should survive
+      expect(names).toContain('Untouched')
     })
 
-    it('skips automations in skip mode when they exist', async () => {
+    it('preserves existing version field on import', async () => {
       const wsDir = createTestWorkspace(tmpDir)
-      writeFileSync(join(wsDir, 'automations.json'), '{"automations":[]}')
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'existing1', actions: [{ type: 'prompt', prompt: 'old' }] },
+        ],
+      }, 2)
 
       const bundle: ResourceBundle = {
         version: 1,
         exportedAt: Date.now(),
         resources: {
-          automations: { automations: [{ id: 'new' }] },
+          automations: [
+            makeAutomationEntry({ id: 'new1', event: 'SessionStart' }),
+          ],
+        },
+      }
+
+      await importResources(wsDir, bundle, 'skip', noopDeps)
+
+      const config = JSON.parse(readFileSync(join(wsDir, 'automations.json'), 'utf-8'))
+      expect(config.version).toBe(2)
+    })
+
+    it('selectively clears history and retry queue for overwritten IDs', async () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      createTestAutomations(wsDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', actions: [{ type: 'prompt', prompt: 'old' }] },
+          { id: 'bbb222', actions: [{ type: 'prompt', prompt: 'keep' }] },
+        ],
+      })
+
+      // Write history with entries for both IDs
+      const historyLines = [
+        JSON.stringify({ automationId: 'aaa111', ts: 1, ok: true }),
+        JSON.stringify({ automationId: 'bbb222', ts: 2, ok: true }),
+        JSON.stringify({ automationId: 'aaa111', ts: 3, ok: false }),
+      ]
+      writeFileSync(join(wsDir, 'automations-history.jsonl'), historyLines.join('\n') + '\n')
+
+      // Write retry queue
+      const retryLines = [
+        JSON.stringify({ matcherId: 'aaa111', id: 'r1', nextRetryAt: Date.now() }),
+        JSON.stringify({ matcherId: 'bbb222', id: 'r2', nextRetryAt: Date.now() }),
+      ]
+      writeFileSync(join(wsDir, 'automations-retry-queue.jsonl'), retryLines.join('\n') + '\n')
+
+      const bundle: ResourceBundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            makeAutomationEntry({ id: 'aaa111', event: 'UserPromptSubmit' }),
+          ],
+        },
+      }
+
+      await importResources(wsDir, bundle, 'overwrite', noopDeps)
+
+      // History for aaa111 should be removed, bbb222 should survive
+      const history = readFileSync(join(wsDir, 'automations-history.jsonl'), 'utf-8')
+      expect(history).not.toContain('aaa111')
+      expect(history).toContain('bbb222')
+
+      // Retry queue for aaa111 should be removed, bbb222 should survive
+      const retries = readFileSync(join(wsDir, 'automations-retry-queue.jsonl'), 'utf-8')
+      expect(retries).not.toContain('aaa111')
+      expect(retries).toContain('bbb222')
+    })
+
+    it('fails import when existing automations.json is invalid in skip mode', async () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      writeFileSync(join(wsDir, 'automations.json'), 'not valid json {{{')
+
+      const bundle: ResourceBundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            makeAutomationEntry({ id: 'aaa111', event: 'UserPromptSubmit' }),
+          ],
         },
       }
 
       const result = await importResources(wsDir, bundle, 'skip', noopDeps)
-      expect(result.automations.skipped).toBe(true)
-      expect(result.automations.imported).toBe(false)
+
+      expect(result.automations.failed).toHaveLength(1)
+      expect(result.automations.imported).toHaveLength(0)
+    })
+
+    it('starts fresh when existing automations.json is invalid in overwrite mode', async () => {
+      const wsDir = createTestWorkspace(tmpDir)
+      writeFileSync(join(wsDir, 'automations.json'), 'not valid json {{{')
+
+      const bundle: ResourceBundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [
+            makeAutomationEntry({ id: 'aaa111', name: 'Fresh Start', event: 'UserPromptSubmit' }),
+          ],
+        },
+      }
+
+      const result = await importResources(wsDir, bundle, 'overwrite', noopDeps)
+
+      expect(result.automations.imported).toEqual(['Fresh Start'])
+      const config = JSON.parse(readFileSync(join(wsDir, 'automations.json'), 'utf-8'))
+      expect(config.version).toBe(2)
+      expect(config.automations.UserPromptSubmit[0].id).toBe('aaa111')
+    })
+
+    it('rejects import when merged config has invalid regex', async () => {
+      const wsDir = createTestWorkspace(tmpDir)
+
+      const bundle: ResourceBundle = {
+        version: 1,
+        exportedAt: Date.now(),
+        resources: {
+          automations: [{
+            id: 'aaa111',
+            event: 'UserPromptSubmit',
+            matcher: {
+              id: 'aaa111',
+              matcher: '(a+)+$', // ReDoS pattern
+              actions: [{ type: 'prompt', prompt: 'test' }],
+            },
+          }],
+        },
+      }
+
+      const result = await importResources(wsDir, bundle, 'skip', noopDeps)
+
+      expect(result.automations.failed).toHaveLength(1)
+      expect(result.automations.failed[0]!.error).toContain('invalid')
     })
 
     it('rejects invalid bundle with error in result', async () => {
@@ -590,7 +1028,7 @@ describe('resource-bundle', () => {
       const result = await importResources(wsDir, { version: 99 } as any, 'skip', noopDeps)
 
       expect(result.sources.failed).toHaveLength(1)
-      expect(result.sources.failed[0].error).toContain('Invalid bundle')
+      expect(result.sources.failed[0]!.error).toContain('Invalid bundle')
     })
 
     it('handles partial failures gracefully', async () => {
@@ -693,6 +1131,35 @@ describe('resource-bundle', () => {
       // Imported source config should have auth reset
       const importedConfig = JSON.parse(readFileSync(join(dstDir, 'sources', 'my-api', 'config.json'), 'utf-8'))
       expect(importedConfig.isAuthenticated).toBe(false)
+    })
+
+    it('preserves automations through round-trip', async () => {
+      const srcDir = createTestWorkspace(join(tmpDir, 'src'))
+      createTestAutomations(srcDir, {
+        UserPromptSubmit: [
+          { id: 'aaa111', name: 'Greet', actions: [{ type: 'prompt', prompt: 'hello' }] },
+        ],
+        SchedulerTick: [
+          { id: 'bbb222', name: 'Daily Check', cron: '0 9 * * 1-5', timezone: 'Europe/Budapest', actions: [{ type: 'prompt', prompt: 'check' }] },
+        ],
+      })
+
+      // Export
+      const { bundle } = exportResources(srcDir, { automations: 'all' })
+      expect(bundle.resources.automations).toHaveLength(2)
+
+      // Import into fresh workspace
+      const dstDir = createTestWorkspace(join(tmpDir, 'dst'))
+      const result = await importResources(dstDir, bundle, 'skip', noopDeps)
+
+      expect(result.automations.imported).toHaveLength(2)
+
+      const config = JSON.parse(readFileSync(join(dstDir, 'automations.json'), 'utf-8'))
+      expect(config.version).toBe(2)
+      expect(config.automations.UserPromptSubmit).toHaveLength(1)
+      expect(config.automations.UserPromptSubmit[0].name).toBe('Greet')
+      expect(config.automations.SchedulerTick).toHaveLength(1)
+      expect(config.automations.SchedulerTick[0].cron).toBe('0 9 * * 1-5')
     })
   })
 })
