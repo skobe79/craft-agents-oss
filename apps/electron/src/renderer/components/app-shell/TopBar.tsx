@@ -369,7 +369,7 @@ export function TopBar({
 
             <StyledDropdownMenuItem onClick={() => window.electronAPI.menuQuit()}>
               <Icons.LogOut className="h-3.5 w-3.5" />
-              Quit Craft Agents
+              {t("menu.quitCraftAgents")}
               {quitHotkey && <DropdownMenuShortcut className="pl-6">{quitHotkey}</DropdownMenuShortcut>}
             </StyledDropdownMenuItem>
           </StyledDropdownMenuContent>

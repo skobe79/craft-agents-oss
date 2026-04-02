@@ -81,7 +81,7 @@ export async function rebuildMenu(): Promise<void> {
     ...(isMac ? [{
       label: 'Craft Agents',
       submenu: [
-        { role: 'about' as const, label: 'About Craft Agents' },
+        { role: 'about' as const, label: i18n.t('menu.aboutCraftAgents') },
         updateMenuItem,
         { type: 'separator' as const },
         {
@@ -91,11 +91,11 @@ export async function rebuildMenu(): Promise<void> {
           click: () => sendToRenderer(RPC_CHANNELS.menu.OPEN_SETTINGS)
         },
         { type: 'separator' as const },
-        { role: 'hide' as const, label: 'Hide Craft Agents' },
+        { role: 'hide' as const, label: i18n.t('menu.hideCraftAgents') },
         { role: 'hideOthers' as const },
         { role: 'unhide' as const },
         { type: 'separator' as const },
-        { role: 'quit' as const, label: 'Quit Craft Agents' }
+        { role: 'quit' as const, label: i18n.t('menu.quitCraftAgents') }
       ]
     }] : []),
 
