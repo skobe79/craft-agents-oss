@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ToolDisplayMeta, AnnotationV1 } from '@craft-agent/core'
 import { normalizePath, pathStartsWith, stripPathPrefix } from '@craft-agent/core/utils'
 import { motion, AnimatePresence } from 'motion/react'
@@ -1659,6 +1660,7 @@ export function ResponseCard({
   openAnnotationRequest,
   annotationInteractionMode = 'interactive',
 }: ResponseCardProps) {
+  const { t } = useTranslation()
   // Throttled content for display - updates every CONTENT_THROTTLE_MS during streaming
   const [displayedText, setDisplayedText] = useState(text)
   const lastUpdateRef = useRef(Date.now())
@@ -2485,12 +2487,12 @@ export function ResponseCard({
                   {copied ? (
                     <>
                       <Check className={SIZE_CONFIG.iconSize} />
-                      <span>Copied!</span>
+                      <span>{t("common.copied")}</span>
                     </>
                   ) : (
                     <>
                       <Copy className={SIZE_CONFIG.iconSize} />
-                      <span>Copy</span>
+                      <span>{t("common.copy")}</span>
                     </>
                   )}
                 </button>
