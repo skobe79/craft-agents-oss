@@ -2526,8 +2526,8 @@ export function ResponseCard({
                     <AcceptPlanDropdown
                       onAccept={onAccept}
                       onAcceptWithCompact={onAcceptWithCompact}
-                      acceptLabel={hasActiveFollowUpAnnotations ? 'Accept & Send Follow-ups' : 'Accept Plan'}
-                      acceptOptionLabel={hasActiveFollowUpAnnotations ? 'Accept & Send Follow-ups' : 'Accept'}
+                      acceptLabel={hasActiveFollowUpAnnotations ? t('plan.acceptAndSendFollowups') : t('plan.acceptPlan')}
+                      acceptOptionLabel={hasActiveFollowUpAnnotations ? t('plan.acceptAndSendFollowups') : t('plan.accept')}
                     />
                   </div>
                 )}
