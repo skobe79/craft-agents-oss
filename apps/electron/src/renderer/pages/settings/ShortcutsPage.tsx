@@ -70,7 +70,38 @@ function Kbd({ children }: { children: React.ReactNode }) {
 /**
  * Renders a shortcut row for an action from the registry
  */
+// Map action IDs to i18n keys for translated labels
+const ACTION_LABEL_KEYS: Partial<Record<ActionId, string>> = {
+  'app.newChat': 'shortcuts.action.newChat',
+  'app.newChatInPanel': 'shortcuts.action.newChatInPanel',
+  'app.settings': 'shortcuts.action.settings',
+  'app.toggleTheme': 'shortcuts.action.toggleTheme',
+  'app.search': 'shortcuts.action.search',
+  'app.keyboardShortcuts': 'shortcuts.action.keyboardShortcuts',
+  'app.newWindow': 'shortcuts.action.newWindow',
+  'app.quit': 'shortcuts.action.quit',
+  'nav.focusSidebar': 'shortcuts.action.focusSidebar',
+  'nav.focusNavigator': 'shortcuts.action.focusNavigator',
+  'nav.focusChat': 'shortcuts.action.focusChat',
+  'nav.nextZone': 'shortcuts.action.focusNextZone',
+  'nav.goBack': 'shortcuts.action.goBack',
+  'nav.goForward': 'shortcuts.action.goForward',
+  'nav.goBackAlt': 'shortcuts.action.goBack',
+  'nav.goForwardAlt': 'shortcuts.action.goForward',
+  'view.toggleSidebar': 'shortcuts.action.toggleSidebar',
+  'view.toggleFocusMode': 'shortcuts.action.toggleFocusMode',
+  'navigator.selectAll': 'shortcuts.action.selectAll',
+  'navigator.clearSelection': 'shortcuts.action.clearSelection',
+  'panel.focusNext': 'shortcuts.action.focusNextPanel',
+  'panel.focusPrev': 'shortcuts.action.focusPrevPanel',
+  'chat.stopProcessing': 'shortcuts.action.stopProcessing',
+  'chat.cyclePermissionMode': 'shortcuts.action.cyclePermissionMode',
+  'chat.nextSearchMatch': 'shortcuts.action.nextSearchMatch',
+  'chat.prevSearchMatch': 'shortcuts.action.prevSearchMatch',
+}
+
 function ActionShortcutRow({ actionId }: { actionId: ActionId }) {
+  const { t } = useTranslation()
   const { label, hotkey } = useActionLabel(actionId)
 
   if (!hotkey) return null
@@ -83,7 +114,7 @@ function ActionShortcutRow({ actionId }: { actionId: ActionId }) {
     : hotkey.split('+')
 
   return (
-    <SettingsRow label={label}>
+    <SettingsRow label={ACTION_LABEL_KEYS[actionId] ? t(ACTION_LABEL_KEYS[actionId]!) : label}>
       <div className="flex items-center gap-1">
         {keys.map((key, keyIndex) => (
           <Kbd key={keyIndex}>{key}</Kbd>
@@ -104,7 +135,7 @@ export default function ShortcutsPage() {
           <div className="px-5 py-7 max-w-3xl mx-auto space-y-8">
             {/* Registry-driven sections */}
             {Object.entries(actionsByCategory).map(([category, actions]) => (
-              <SettingsSection key={category} title={category}>
+              <SettingsSection key={category} title={t(`shortcuts.category.${category.toLowerCase()}`)}>
                 <SettingsCard>
                   {actions.map(action => (
                     <ActionShortcutRow key={action.id} actionId={action.id as ActionId} />
