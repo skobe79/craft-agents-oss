@@ -1652,13 +1652,13 @@ export function FreeFormInput({
               ? attachments.length === 1
                 ? "1 file"
                 : `${attachments.length} files`
-              : "Attach Files"
+              : t("chat.attachFiles")
             }
             isExpanded={isEmptySession}
             hasSelection={attachments.length > 0}
             showChevron={false}
             onClick={handleAttachClick}
-            tooltip="Attach files"
+            tooltip={t("chat.attachFilesTooltip")}
             disabled={disabled}
           />
 
@@ -1703,12 +1703,12 @@ export function FreeFormInput({
                 }
                 label={
                   optimisticSourceSlugs.length === 0
-                    ? "Choose Sources"
+                    ? t("chat.chooseSources")
                     : (() => {
                         const enabledSources = sources.filter(s => optimisticSourceSlugs.includes(s.config.slug))
                         if (enabledSources.length === 1) return enabledSources[0].config.name
                         if (enabledSources.length === 2) return enabledSources.map(s => s.config.name).join(', ')
-                        return `${enabledSources.length} sources`
+                        return t("chat.sourcesCount", { count: enabledSources.length })
                       })()
                 }
                 isExpanded={isEmptySession}
@@ -1718,7 +1718,7 @@ export function FreeFormInput({
                 disabled={disabled}
                 data-tutorial="source-selector-button"
                 onClick={() => setSourceDropdownOpen(prev => !prev)}
-                tooltip="Sources"
+                tooltip={t("chat.sourcesTooltip")}
               />
 
               <SourceSelectorPopover
@@ -2203,11 +2203,11 @@ function WorkingDirectoryBadge({
             tooltip={
               hasFolder ? (
                 <span className="flex flex-col gap-0.5">
-                  <span className="font-medium">Working directory</span>
+                  <span className="font-medium">{t("chat.workingDirectory")}</span>
                   <span className="text-xs opacity-70">{formatPathForDisplay(workingDirectory, homeDir)}</span>
-                  {gitBranch && <span className="text-xs opacity-70">on {gitBranch}</span>}
+                  {gitBranch && <span className="text-xs opacity-70">{t("chat.onBranch", { branch: gitBranch })}</span>}
                 </span>
-              ) : "Choose working directory"
+              ) : t("chat.chooseWorkingDirectory")
             }
           />
         </span>
