@@ -1,6 +1,7 @@
 import i18n, { type i18n as I18nInstance, type InitOptions } from "i18next";
 import en from "./locales/en.json";
 import es from "./locales/es.json";
+import zhHans from "./locales/zh-Hans.json";
 import { SUPPORTED_LANGUAGE_CODES } from "./languages";
 
 // Safe as a boolean guard because init is synchronous (initImmediate: false).
@@ -27,6 +28,7 @@ export function setupI18n(
     resources: {
       en: { translation: en },
       es: { translation: es },
+      "zh-Hans": { translation: zhHans },
     },
     fallbackLng: "en",
     supportedLngs: [...SUPPORTED_LANGUAGE_CODES],
