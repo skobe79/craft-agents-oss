@@ -17,9 +17,7 @@ import type { SessionStatus } from '@/config/session-status-config'
 import { getState } from '@/config/session-status-config'
 import { SessionStatusMenu } from '@/components/ui/session-status-menu'
 import { MetadataBadge } from '@/components/ui/metadata-badge'
-import { Input } from '@/components/ui/input'
-import { useAppShellContext, useSession } from '@/context/AppShellContext'
-import { SessionFilesSection } from '../right-sidebar/SessionFilesSection'
+import { SessionInfoPopover } from './SessionInfoPopover'
 
 // ============================================================================
 // Permission Mode Icon Component
@@ -399,8 +397,10 @@ function FilesPopoverButton({ sessionId, sessionFolderPath }: { sessionId?: stri
   if (!sessionId) return null
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+    <SessionInfoPopover
+      sessionId={sessionId}
+      sessionFolderPath={sessionFolderPath}
+      trigger={(
         <button
           type="button"
           className={cn(
@@ -495,6 +495,8 @@ function SessionInfoPopoverContent({ sessionId, sessionFolderPath }: { sessionId
         />
       </div>
     </div>
+      )}
+    />
   )
 }
 
