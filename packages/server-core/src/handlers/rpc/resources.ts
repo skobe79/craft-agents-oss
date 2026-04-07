@@ -77,6 +77,18 @@ export function registerResourcesHandlers(server: RpcServer, deps: HandlerDeps):
         `automations=${result.automations.imported.length} imported, ${result.automations.skipped.length} skipped, ${result.automations.failed.length} failed`,
       )
 
+      // Notify ConfigWatcher of imported files so UI refreshes on Linux
+      // (Bun's fs.watch doesn't reliably detect atomic renames)
+      if (result.automations.imported.length > 0 || result.automations.skipped.length === 0 && bundle.resources.automations?.length) {
+        deps.sessionManager.notifyConfigFileChange(workspace.rootPath, 'automations.json')
+      }
+      for (const slug of result.sources.imported) {
+        deps.sessionManager.notifyConfigFileChange(workspace.rootPath, `sources/${slug}/config.json`)
+      }
+      for (const slug of result.skills.imported) {
+        deps.sessionManager.notifyConfigFileChange(workspace.rootPath, `skills/${slug}/SKILL.md`)
+      }
+
       return result
     },
   )
