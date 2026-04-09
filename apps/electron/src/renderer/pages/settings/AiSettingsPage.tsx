@@ -59,7 +59,7 @@ import { toast } from 'sonner'
  */
 function getModelOptionsForConnection(
   connection: LlmConnectionWithStatus | undefined,
-): Array<{ value: string; label: string; description: string }> {
+): Array<{ value: string; label: string; description: string; descriptionKey?: string }> {
   if (!connection) return []
 
   // If connection has explicit models, use those
@@ -70,7 +70,7 @@ function getModelOptionsForConnection(
       }
       // ModelDefinition object
       const def = m as ModelDefinition
-      return { value: def.id, label: def.name, description: def.description }
+      return { value: def.id, label: def.name, description: def.description, descriptionKey: def.descriptionKey }
     })
   }
 
@@ -80,6 +80,7 @@ function getModelOptionsForConnection(
     value: m.id,
     label: m.name,
     description: m.description,
+    descriptionKey: m.descriptionKey,
   }))
 }
 
@@ -439,7 +440,7 @@ function WorkspaceOverrideCard({ workspace, llmConnections, onSettingsChange }: 
     }
     if (settings?.thinkingLevel) {
       const level = THINKING_LEVELS.find(l => l.id === settings.thinkingLevel)
-      parts.push(level?.name || settings.thinkingLevel)
+      parts.push(level ? t(level.nameKey) : settings.thinkingLevel)
     }
     return parts.join(' · ')
   }
@@ -513,7 +514,9 @@ function WorkspaceOverrideCard({ workspace, llmConnections, onSettingsChange }: 
                 onValueChange={handleModelChange}
                 options={[
                   { value: 'global', label: t("settings.ai.useDefault"), description: t("settings.ai.inheritFromApp") },
-                  ...getModelOptionsForConnection(workspaceEffectiveConnection),
+                  ...getModelOptionsForConnection(workspaceEffectiveConnection).map(o => ({
+                    ...o, description: o.descriptionKey ? t(o.descriptionKey) : o.description,
+                  })),
                 ]}
               />
               <SettingsMenuSelectRow
@@ -523,10 +526,10 @@ function WorkspaceOverrideCard({ workspace, llmConnections, onSettingsChange }: 
                 onValueChange={handleThinkingChange}
                 options={[
                   { value: 'global', label: t("settings.ai.useDefault"), description: t("settings.ai.inheritFromApp") },
-                  ...THINKING_LEVELS.map(({ id, name, description }) => ({
+                  ...THINKING_LEVELS.map(({ id, nameKey, descriptionKey }) => ({
                     value: id,
-                    label: name,
-                    description,
+                    label: t(nameKey),
+                    description: t(descriptionKey),
                   })),
                 ]}
               />
@@ -924,17 +927,19 @@ export default function AiSettingsPage() {
                     description={t("settings.ai.modelDesc")}
                     value={defaultModel}
                     onValueChange={handleDefaultModelChange}
-                    options={getModelOptionsForConnection(defaultConnection)}
+                    options={getModelOptionsForConnection(defaultConnection).map(o => ({
+                      ...o, description: o.descriptionKey ? t(o.descriptionKey) : o.description,
+                    }))}
                   />
                   <SettingsMenuSelectRow
                     label={t("settings.ai.thinking")}
                     description={t("settings.ai.thinkingDesc")}
                     value={defaultThinking}
                     onValueChange={(v) => handleDefaultThinkingChange(v as ThinkingLevel)}
-                    options={THINKING_LEVELS.map(({ id, name, description }) => ({
+                    options={THINKING_LEVELS.map(({ id, nameKey, descriptionKey }) => ({
                       value: id,
-                      label: name,
-                      description,
+                      label: t(nameKey),
+                      description: t(descriptionKey),
                     }))}
                   />
                 </SettingsCard>

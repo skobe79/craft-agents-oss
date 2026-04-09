@@ -66,7 +66,7 @@ import { ConnectionIcon } from '@/components/icons/ConnectionIcon'
 import { FreeFormInputContextBadge } from './FreeFormInputContextBadge'
 import type { FileAttachment, LoadedSource, LoadedSkill } from '../../../../shared/types'
 import type { PermissionMode } from '@craft-agent/shared/agent/modes'
-import { type ThinkingLevel, THINKING_LEVELS, getThinkingLevelName } from '@craft-agent/shared/agent/thinking-levels'
+import { type ThinkingLevel, THINKING_LEVELS, getThinkingLevelNameKey } from '@craft-agent/shared/agent/thinking-levels'
 import { useEscapeInterrupt } from '@/context/EscapeInterruptContext'
 import { hasOpenOverlay } from '@/lib/overlay-detection'
 import { ToolbarStatusSlot } from './ToolbarStatusSlot'
@@ -2020,7 +2020,8 @@ Model
                     const modelId = typeof model === 'string' ? model : model.id
                     const modelName = typeof model === 'string' ? stripPiPrefixForDisplay(getModelShortName(model)) : model.name
                     const isSelected = currentModel === modelId
-                    const description = typeof model !== 'string' && 'description' in model ? (model.description as string) : ''
+                    const descriptionKey = typeof model !== 'string' && 'descriptionKey' in model ? (model.descriptionKey as string) : undefined
+                    const description = descriptionKey ? t(descriptionKey) : (typeof model !== 'string' && 'description' in model ? (model.description as string) : '')
                     return (
                       <StyledDropdownMenuItem
                         key={modelId}
@@ -2051,12 +2052,12 @@ Model
                   <DropdownMenuSub>
                     <StyledDropdownMenuSubTrigger disabled={thinkingDisabled} className={cn("flex items-center justify-between px-2 py-2 rounded-lg", thinkingDisabled && "opacity-50 cursor-not-allowed")}>
                       <div className="text-left flex-1">
-                        <div className="font-medium text-sm">{getThinkingLevelName(thinkingLevel)}</div>
-                        <div className="text-xs text-muted-foreground">{thinkingDisabled ? 'Not supported by this model' : 'Extended reasoning depth'}</div>
+                        <div className="font-medium text-sm">{t(getThinkingLevelNameKey(thinkingLevel))}</div>
+                        <div className="text-xs text-muted-foreground">{thinkingDisabled ? t('thinking.notSupported') : t('thinking.extendedDesc')}</div>
                       </div>
                     </StyledDropdownMenuSubTrigger>
                     <StyledDropdownMenuSubContent className="min-w-[220px]">
-                      {availableThinkingLevels.map(({ id, name, description }) => {
+                      {availableThinkingLevels.map(({ id, nameKey, descriptionKey }) => {
                         const isSelected = thinkingLevel === id
                         return (
                           <StyledDropdownMenuItem
@@ -2065,8 +2066,8 @@ Model
                             className="flex items-center justify-between px-2 py-2 rounded-lg cursor-pointer"
                           >
                             <div className="text-left">
-                              <div className="font-medium text-sm">{name}</div>
-                              <div className="text-xs text-muted-foreground">{description}</div>
+                              <div className="font-medium text-sm">{t(nameKey)}</div>
+                              <div className="text-xs text-muted-foreground">{t(descriptionKey)}</div>
                             </div>
                             {isSelected && (
                               <Check className="h-3 w-3 text-foreground shrink-0 ml-3" />
@@ -2090,7 +2091,7 @@ Model
                         {contextStatus.isCompacting && (
                           <Spinner className="h-3 w-3" />
                         )}
-                        {formatTokenCount(contextStatus.inputTokens)} tokens used
+                        {t('chat.tokensUsed', { displayCount: formatTokenCount(contextStatus.inputTokens) })}
                       </span>
                     </div>
                   </div>
@@ -2404,7 +2405,7 @@ function WorkingDirectoryBadge({
             {/* Empty state when filtering */}
             {showFilter && (
               <CommandPrimitive.Empty className="py-3 text-center text-sm text-muted-foreground">
-                No folders found
+                {t('chat.noFoldersFound')}
               </CommandPrimitive.Empty>
             )}
           </CommandPrimitive.List>
@@ -2416,7 +2417,7 @@ function WorkingDirectoryBadge({
               onClick={handleChooseFolder}
               className={cn(MENU_ITEM_STYLE, 'w-full hover:bg-foreground/5')}
             >
-              Choose Folder...
+              {t('chat.chooseFolder')}
             </button>
             {showReset && (
               <button
@@ -2424,7 +2425,7 @@ function WorkingDirectoryBadge({
                 onClick={handleReset}
                 className={cn(MENU_ITEM_STYLE, 'w-full hover:bg-foreground/5')}
               >
-                Reset
+                {t('common.reset')}
               </button>
             )}
           </div>
