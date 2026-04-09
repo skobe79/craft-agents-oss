@@ -107,8 +107,8 @@ export interface EditConfig {
   exampleKey?: string
   /** i18n key for overridePlaceholder */
   overridePlaceholderKey?: string
-  /** Optional model for mini agent (e.g., 'haiku', 'sonnet') */
-  model?: string
+  /** Model tier hint: 'fast' uses the connection's mini model, 'default' uses the primary model */
+  model?: 'fast' | 'default'
   /** Optional system prompt preset for mini agent (e.g., 'mini' for focused edits) */
   systemPromptPreset?: 'default' | 'mini'
   /** When true, executes inline within the popover instead of opening a new window */
@@ -135,7 +135,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: "Allow running 'make build' in Explore mode",
     displayLabelKey: 'editPopover.label.permissionSettings',
     exampleKey: 'editPopover.example.workspacePermissions',
-    model: 'sonnet',
+    model: 'default',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -156,7 +156,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Allow git fetch command',
     displayLabelKey: 'editPopover.label.defaultPermissions',
     exampleKey: 'editPopover.example.defaultPermissions',
-    model: 'sonnet',
+    model: 'default',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -177,7 +177,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Add error handling guidelines',
     displayLabelKey: 'editPopover.label.skillInstructions',
     exampleKey: 'editPopover.example.skillInstructions',
-    model: 'haiku',
+    model: 'fast',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -196,7 +196,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Update the skill description',
     displayLabelKey: 'editPopover.label.skillMetadata',
     exampleKey: 'editPopover.example.skillMetadata',
-    model: 'haiku',
+    model: 'fast',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -215,7 +215,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Add rate limit documentation',
     displayLabelKey: 'editPopover.label.sourceDocumentation',
     exampleKey: 'editPopover.example.sourceGuide',
-    model: 'haiku',
+    model: 'fast',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -234,7 +234,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Update the display name',
     displayLabelKey: 'editPopover.label.sourceConfiguration',
     exampleKey: 'editPopover.example.sourceConfig',
-    model: 'sonnet',
+    model: 'default',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -253,7 +253,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Allow list operations in Explore mode',
     displayLabelKey: 'editPopover.label.sourcePermissions',
     exampleKey: 'editPopover.example.sourcePermissions',
-    model: 'sonnet',
+    model: 'default',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -274,7 +274,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Only allow read operations (list, get, search)',
     displayLabelKey: 'editPopover.label.toolPermissions',
     exampleKey: 'editPopover.example.sourceToolPermissions',
-    model: 'sonnet',
+    model: 'default',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -294,7 +294,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Add coding style preferences',
     displayLabelKey: 'editPopover.label.preferencesNotes',
     exampleKey: 'editPopover.example.preferencesNotes',
-    model: 'haiku',
+    model: 'fast',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -417,7 +417,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Add a "Blocked" status',
     displayLabelKey: 'editPopover.label.statusConfiguration',
     exampleKey: 'editPopover.example.editStatuses',
-    model: 'haiku',               // Use fast model for quick config edits
+    model: 'fast',               // Use fast model for quick config edits
     systemPromptPreset: 'mini',   // Use focused mini prompt
     inlineExecution: true,        // Execute inline in popover
   }),
@@ -440,7 +440,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Add a "Bug" label with red color',
     displayLabelKey: 'editPopover.label.labelConfiguration',
     exampleKey: 'editPopover.example.editLabels',
-    model: 'haiku',               // Use fast model for quick config edits
+    model: 'fast',               // Use fast model for quick config edits
     systemPromptPreset: 'mini',   // Use focused mini prompt
     inlineExecution: true,        // Execute inline in popover
   }),
@@ -462,7 +462,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Add a rule to detect GitHub issue URLs',
     displayLabelKey: 'editPopover.label.autoApplyRules',
     exampleKey: 'editPopover.example.editAutoRules',
-    model: 'haiku',               // Use fast model for quick config edits
+    model: 'fast',               // Use fast model for quick config edits
     systemPromptPreset: 'mini',   // Use focused mini prompt
     inlineExecution: true,        // Execute inline in popover
   }),
@@ -486,7 +486,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     displayLabelKey: 'editPopover.label.addLabel',
     exampleKey: 'editPopover.example.addLabel',
     overridePlaceholderKey: 'editPopover.placeholder.addLabel',
-    model: 'haiku',               // Use fast model for quick config edits
+    model: 'fast',               // Use fast model for quick config edits
     systemPromptPreset: 'mini',   // Use focused mini prompt
     inlineExecution: true,        // Execute inline in popover
   }),
@@ -509,7 +509,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Add a "Stale" view for sessions inactive > 7 days',
     displayLabelKey: 'editPopover.label.viewsConfiguration',
     exampleKey: 'editPopover.example.editViews',
-    model: 'haiku',               // Use fast model for quick config edits
+    model: 'fast',               // Use fast model for quick config edits
     systemPromptPreset: 'mini',   // Use focused mini prompt
     inlineExecution: true,        // Execute inline in popover
   }),
@@ -532,7 +532,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Add an icon for my custom CLI tool "deploy"',
     displayLabelKey: 'editPopover.label.toolIcons',
     exampleKey: 'editPopover.example.editToolIcons',
-    model: 'haiku',               // Use fast model for quick config edits
+    model: 'fast',               // Use fast model for quick config edits
     systemPromptPreset: 'mini',   // Use focused mini prompt
     inlineExecution: true,        // Execute inline in popover
   }),
@@ -551,7 +551,7 @@ const EDIT_CONFIGS: Record<EditContextKey, (location: string) => EditConfig> = {
     example: 'Change the cron schedule to every 30 minutes',
     displayLabelKey: 'editPopover.label.automationConfiguration',
     exampleKey: 'editPopover.example.automationConfig',
-    model: 'sonnet',
+    model: 'default',
     systemPromptPreset: 'mini',
     inlineExecution: true,
   }),
@@ -610,8 +610,8 @@ export interface EditPopoverProps {
    * - Absolute path string: Use this specific path
    */
   workingDirectory?: string | 'user_default' | 'none'
-  /** Model override for mini agent (e.g., 'haiku', 'sonnet') */
-  model?: string
+  /** Model tier hint: 'fast' uses the connection's mini model, 'default' uses the primary model */
+  model?: 'fast' | 'default'
   /** System prompt preset for mini agent (e.g., 'mini' for focused edits) */
   systemPromptPreset?: 'default' | 'mini'
   /** Width of the popover (default: 320) */
@@ -959,7 +959,7 @@ export function EditPopover({
     let sessionId = inlineSessionId
     if (!sessionId && workspace?.id) {
       const createOptions: CreateSessionOptions = {
-        model: model || 'haiku',
+        model: model || 'fast',
         systemPromptPreset: systemPromptPreset || 'mini',
         permissionMode,
         workingDirectory,

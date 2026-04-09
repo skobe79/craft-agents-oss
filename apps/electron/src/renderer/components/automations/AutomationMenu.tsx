@@ -17,6 +17,7 @@ import {
   Play,
   Power,
   PowerOff,
+  Send,
 } from 'lucide-react'
 import { useMenuComponents } from '@/components/ui/menu-context'
 
@@ -29,6 +30,8 @@ export interface AutomationMenuProps {
   onDuplicate?: () => void
   onEditJson?: () => void
   onDelete?: () => void
+  /** Send to another workspace (omit to hide the option) */
+  onSendToWorkspace?: () => void
 }
 
 export function AutomationMenu({
@@ -40,6 +43,7 @@ export function AutomationMenu({
   onDuplicate,
   onEditJson,
   onDelete,
+  onSendToWorkspace,
 }: AutomationMenuProps) {
   const { MenuItem, Separator } = useMenuComponents()
   const { t } = useTranslation()
@@ -71,6 +75,14 @@ export function AutomationMenu({
         <MenuItem onClick={onDuplicate}>
           <Copy className="h-3.5 w-3.5" />
           <span className="flex-1">{t('automations.menuDuplicate')}</span>
+        </MenuItem>
+      )}
+
+      {/* Send to another workspace */}
+      {onSendToWorkspace && (
+        <MenuItem onClick={onSendToWorkspace}>
+          <Send className="h-3.5 w-3.5" />
+          <span className="flex-1">Send to Workspace</span>
         </MenuItem>
       )}
 

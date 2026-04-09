@@ -22,6 +22,8 @@ import { SessionSearchHeader } from '@/components/app-shell/SessionSearchHeader'
 import { AutomationMenu } from './AutomationMenu'
 import { BatchAutomationMenu } from './BatchAutomationMenu'
 import { AutomationAvatar } from './AutomationAvatar'
+import { SendResourceToWorkspaceDialog } from '@/components/app-shell/SendResourceToWorkspaceDialog'
+import { useAppShellContext } from '@/context/AppShellContext'
 import { cn } from '@/lib/utils'
 import { automationSelection } from '@/hooks/useEntitySelection'
 import { APP_EVENTS, AGENT_EVENTS, getEventDisplayName, type AutomationListItem, type AutomationListFilter } from './types'
@@ -58,6 +60,7 @@ interface AutomationItemProps {
   onToggleEnabled: () => void
   onTest: () => void
   onDuplicate: () => void
+  onSendToWorkspace?: () => void
 }
 
 function AutomationItem({
@@ -73,6 +76,7 @@ function AutomationItem({
   onToggleEnabled,
   onTest,
   onDuplicate,
+  onSendToWorkspace,
 }: AutomationItemProps) {
   const { t } = useTranslation()
   const handleClick = useCallback((e: React.MouseEvent) => {
@@ -144,6 +148,7 @@ function AutomationItem({
           onTest={onTest}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
+          onSendToWorkspace={onSendToWorkspace}
         />
       }
       contextMenuContent={isMultiSelectActive && isInMultiSelect ? <BatchAutomationMenu /> : undefined}
@@ -183,6 +188,13 @@ export function AutomationsListPanel({
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchActive, setSearchActive] = useState(false)
+  const { workspaces, activeWorkspaceId } = useAppShellContext()
+  const hasOtherWorkspaces = workspaces.length > 1
+
+  // Send to Workspace dialog state
+  const [sendDialogOpen, setSendDialogOpen] = useState(false)
+  const [sendResourceId, setSendResourceId] = useState<string | null>(null)
+  const [sendResourceLabel, setSendResourceLabel] = useState('')
 
   const {
     select: selectAutomation,
@@ -315,11 +327,29 @@ export function AutomationsListPanel({
                   onToggleEnabled={() => onToggleAutomation?.(automation.id)}
                   onTest={() => onTestAutomation?.(automation.id)}
                   onDuplicate={() => onDuplicateAutomation?.(automation.id)}
+                  onSendToWorkspace={hasOtherWorkspaces ? () => {
+                    setSendResourceId(automation.id)
+                    setSendResourceLabel(automation.name)
+                    setSendDialogOpen(true)
+                  } : undefined}
                 />
               ))}
             </div>
           </div>
         </ScrollArea>
+      )}
+
+      {/* Send to Workspace dialog */}
+      {sendResourceId && (
+        <SendResourceToWorkspaceDialog
+          open={sendDialogOpen}
+          onOpenChange={setSendDialogOpen}
+          resourceType="automation"
+          resourceIds={[sendResourceId]}
+          resourceLabel={sendResourceLabel}
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+        />
       )}
     </div>
   )

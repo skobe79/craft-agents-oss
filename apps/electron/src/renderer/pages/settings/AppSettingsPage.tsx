@@ -110,7 +110,8 @@ export default function AppSettingsPage() {
   const [proxyError, setProxyError] = useState<string | undefined>()
   const [isSavingProxy, setIsSavingProxy] = useState(false)
 
-  // Auto-update state
+  // Auto-update state (Check Now / Update Ready only shown in Electron, not WebUI)
+  const isElectron = window.electronAPI.getRuntimeEnvironment() === 'electron'
   const updateChecker = useUpdateChecker()
   const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false)
 
@@ -315,7 +316,7 @@ export default function AppSettingsPage() {
                       <span className="text-muted-foreground">
                         {updateChecker.updateInfo?.currentVersion ?? t("common.loading")}
                       </span>
-                      {updateChecker.isDownloading && updateChecker.updateInfo?.latestVersion && (
+                      {isElectron && updateChecker.isDownloading && updateChecker.updateInfo?.latestVersion && (
                         <div className="flex items-center gap-2 text-muted-foreground text-sm">
                           <Spinner className="w-3 h-3" />
                           <span>{t("settings.about.downloading", { version: updateChecker.updateInfo.latestVersion, percent: updateChecker.downloadProgress })}</span>
@@ -323,24 +324,26 @@ export default function AppSettingsPage() {
                       )}
                     </div>
                   </SettingsRow>
-                  <SettingsRow label={t("settings.about.checkForUpdates")}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCheckForUpdates}
-                      disabled={isCheckingForUpdates}
-                    >
-                      {isCheckingForUpdates ? (
-                        <>
-                          <Spinner className="mr-1.5" />
-                          {t("common.checking")}
-                        </>
-                      ) : (
-                        t("settings.about.checkNow")
-                      )}
-                    </Button>
-                  </SettingsRow>
-                  {updateChecker.isReadyToInstall && updateChecker.updateInfo?.latestVersion && (
+                  {isElectron && (
+                    <SettingsRow label={t("settings.about.checkForUpdates")}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCheckForUpdates}
+                        disabled={isCheckingForUpdates}
+                      >
+                        {isCheckingForUpdates ? (
+                          <>
+                            <Spinner className="mr-1.5" />
+                            {t("common.checking")}
+                          </>
+                        ) : (
+                          t("settings.about.checkNow")
+                        )}
+                      </Button>
+                    </SettingsRow>
+                  )}
+                  {isElectron && updateChecker.isReadyToInstall && updateChecker.updateInfo?.latestVersion && (
                     <SettingsRow label={t("settings.about.updateReady")}>
                       <Button
                         size="sm"
