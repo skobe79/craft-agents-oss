@@ -6,7 +6,9 @@
  */
 
 import * as React from 'react'
-import i18n from 'i18next'
+import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Info_DataTable, SortableHeader } from './Info_DataTable'
 import { Info_Badge } from './Info_Badge'
@@ -31,41 +33,43 @@ interface ToolsDataTableProps {
   className?: string
 }
 
-const columns: ColumnDef<ToolRow>[] = [
-  {
-    accessorKey: 'permission',
-    header: ({ column }) => <SortableHeader column={column} title={i18n.t("table.access")} />,
-    cell: ({ row }) => (
-      <div className="p-1.5 pl-2.5">
-        <Info_StatusBadge status={row.original.permission} className="whitespace-nowrap" />
-      </div>
-    ),
-    minSize: 80,
-  },
-  {
-    accessorKey: 'name',
-    header: ({ column }) => <SortableHeader column={column} title={i18n.t("table.tool")} />,
-    cell: ({ row }) => (
-      <div className="p-1.5 pl-2.5">
-        <Info_Badge color="muted" className="whitespace-nowrap">
-          {row.original.name}
-        </Info_Badge>
-      </div>
-    ),
-    minSize: 100,
-  },
-  {
-    id: 'description',
-    accessorKey: 'description',
-    header: () => <span className="p-1.5 pl-2.5">{i18n.t("common.description")}</span>,
-    cell: ({ row }) => (
-      <div className="p-1.5 pl-2.5 min-w-0">
-        <span className="truncate block">{row.original.description}</span>
-      </div>
-    ),
-    meta: { fillWidth: true, truncate: true },
-  },
-]
+function getColumns(t: TFunction): ColumnDef<ToolRow>[] {
+  return [
+    {
+      accessorKey: 'permission',
+      header: ({ column }) => <SortableHeader column={column} title={t("table.access")} />,
+      cell: ({ row }) => (
+        <div className="p-1.5 pl-2.5">
+          <Info_StatusBadge status={row.original.permission} className="whitespace-nowrap" />
+        </div>
+      ),
+      minSize: 80,
+    },
+    {
+      accessorKey: 'name',
+      header: ({ column }) => <SortableHeader column={column} title={t("table.tool")} />,
+      cell: ({ row }) => (
+        <div className="p-1.5 pl-2.5">
+          <Info_Badge color="muted" className="whitespace-nowrap">
+            {row.original.name}
+          </Info_Badge>
+        </div>
+      ),
+      minSize: 100,
+    },
+    {
+      id: 'description',
+      accessorKey: 'description',
+      header: () => <span className="p-1.5 pl-2.5">{t("common.description")}</span>,
+      cell: ({ row }) => (
+        <div className="p-1.5 pl-2.5 min-w-0">
+          <span className="truncate block">{row.original.description}</span>
+        </div>
+      ),
+      meta: { fillWidth: true, truncate: true },
+    },
+  ]
+}
 
 export function ToolsDataTable({
   data,
@@ -74,6 +78,9 @@ export function ToolsDataTable({
   maxHeight = 400,
   className,
 }: ToolsDataTableProps) {
+  const { t } = useTranslation()
+  const columns = useMemo(() => getColumns(t), [t])
+
   return (
     <Info_DataTable
       columns={columns}
@@ -81,7 +88,7 @@ export function ToolsDataTable({
       loading={loading}
       error={error}
       maxHeight={maxHeight}
-      emptyContent="No tools available"
+      emptyContent={t("table.noToolsAvailable")}
       className={className}
     />
   )

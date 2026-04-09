@@ -345,7 +345,7 @@ export function SessionList({
       if (!groupsByKey.has(groupKey)) {
         groupsByKey.set(groupKey, {
           key: groupKey,
-          label: formatDateGroupLabel(day, t, i18n.language),
+          label: formatDateGroupLabel(day, t, i18n.resolvedLanguage ?? 'en'),
           items: [],
           collapsible: true,
         })
@@ -360,7 +360,7 @@ export function SessionList({
         const date = new Date(meta.key)
         groupsByKey.set(meta.key, {
           key: meta.key,
-          label: formatDateGroupLabel(date, t, i18n.language),
+          label: formatDateGroupLabel(date, t, i18n.resolvedLanguage ?? 'en'),
           items: [],
           collapsible: true,
           collapsedCount: meta.count,
