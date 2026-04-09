@@ -47,8 +47,8 @@ import type { TextContent as PiTextContent } from '@mariozechner/pi-ai';
 // Pre-register the Bedrock provider module so the Pi SDK doesn't attempt a
 // dynamic import of "./amazon-bedrock.js" — which fails in the bundled output
 // because bun collapses everything into a single file.
-// With Pi SDK 0.64.0, pi-ai is deduped (single hoisted copy), so one
-// registration covers both pi-ai and pi-agent-core module scopes.
+// With the current Pi SDK (0.66.1 here), pi-ai is deduped (single hoisted
+// copy), so one registration covers both pi-ai and pi-agent-core module scopes.
 import { setBedrockProviderModule } from '@mariozechner/pi-ai';
 import { bedrockProviderModule } from '@mariozechner/pi-ai/bedrock-provider';
 setBedrockProviderModule(bedrockProviderModule);

@@ -149,11 +149,14 @@ describe('resolvePiModel', () => {
     });
 
     it('returns same-provider model from getAll fallback when exact lookup misses', () => {
-      // Model exists under github-copilot but find() doesn't match (simulated by
-      // putting it only in getAll via a different key structure).
-      const registry = createMockRegistry({
-        'github-copilot': [{ id: 'gpt-5.4', name: 'GPT-5.4', provider: 'github-copilot' }],
-      });
+      const registry = {
+        find() {
+          return undefined;
+        },
+        getAll() {
+          return [{ id: 'gpt-5.4', name: 'GPT-5.4', provider: 'github-copilot' }];
+        },
+      } as any;
 
       const result = resolvePiModel(registry, 'gpt-5.4', 'github-copilot');
       expect(result).toBeDefined();

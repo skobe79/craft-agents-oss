@@ -41,6 +41,7 @@ type PiEvent = PiAgentEvent | AgentSessionEvent;
  * - compaction_end → info/error
  * - auto_retry_start → status
  * - auto_retry_end → status
+ * - queue_update → ignored (no current UI consumer)
  */
 export class PiEventAdapter extends BaseEventAdapter {
   // Track tool names from execution_start for proper tool_result correlation
@@ -407,6 +408,12 @@ export class PiEventAdapter extends BaseEventAdapter {
         break;
       }
 
+      case 'queue_update':
+        // Queue contents are currently reflected by existing session/message state.
+        // Ignore the event explicitly so newer Pi SDK sessions don't log noisy
+        // "Unknown Pi event" warnings until we add a dedicated UI consumer.
+        break;
+
       default:
         this.log.warn(`Unknown Pi event type: ${(event as { type: string }).type}`);
         break;
@@ -473,9 +480,9 @@ export class PiEventAdapter extends BaseEventAdapter {
       }
 
       // Pi SDK >= 0.63.2 uses edits[] array instead of top-level oldText/newText.
-      // Extract the first edit for UI diff rendering (Claude Code format expects
-      // flat old_string/new_string). Multiple edits are supported but the UI
-      // only renders the first diff; the full operation still applies all edits.
+      // Preserve the full edits[] payload so the renderer can expand and display
+      // every replacement block. Also derive the first edit into flat old/new
+      // fields as a compatibility bridge for UI paths that still expect them.
       const edits = normalized.edits as Array<{ oldText?: string; newText?: string }> | undefined;
       if (Array.isArray(edits) && edits.length > 0 && edits[0]) {
         const first = edits[0];
@@ -485,7 +492,6 @@ export class PiEventAdapter extends BaseEventAdapter {
         if (first.newText != null && !('new_string' in normalized)) {
           normalized.new_string = first.newText;
         }
-        delete normalized.edits;
       }
 
       // Legacy path: top-level oldText/newText (Pi SDK < 0.63.2 or resumed sessions)

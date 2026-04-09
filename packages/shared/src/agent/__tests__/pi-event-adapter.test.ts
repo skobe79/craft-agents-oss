@@ -619,6 +619,38 @@ describe('PiEventAdapter', () => {
       });
     });
 
+    it('should preserve edits[] for Pi edit tools while deriving legacy diff fields', () => {
+      collect(adapter.adaptEvent({ type: 'turn_start' } as any));
+      const events = collect(adapter.adaptEvent({
+        type: 'tool_execution_start',
+        toolCallId: 'call_edit',
+        toolName: 'edit',
+        args: {
+          path: '/src/app.ts',
+          edits: [
+            { oldText: 'const a = 1', newText: 'const a = 2' },
+            { oldText: 'const b = 1', newText: 'const b = 2' },
+          ],
+        },
+      } as any));
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'tool_start',
+        toolName: 'Edit',
+        toolUseId: 'call_edit',
+        input: {
+          file_path: '/src/app.ts',
+          old_string: 'const a = 1',
+          new_string: 'const a = 2',
+          edits: [
+            { oldText: 'const a = 1', newText: 'const a = 2' },
+            { oldText: 'const b = 1', newText: 'const b = 2' },
+          ],
+        },
+      });
+    });
+
     it('should prefer store metadata over args metadata when both exist', () => {
       collect(adapter.adaptEvent({ type: 'turn_start' } as any));
 
@@ -1006,6 +1038,16 @@ describe('PiEventAdapter', () => {
       const events = collect(adapter.adaptEvent({
         type: 'auto_retry_end',
         success: true,
+      } as any));
+
+      expect(events).toHaveLength(0);
+    });
+
+    it('should emit nothing for queue_update', () => {
+      const events = collect(adapter.adaptEvent({
+        type: 'queue_update',
+        steering: ['Focus on tests'],
+        followUp: ['Then summarize the diff'],
       } as any));
 
       expect(events).toHaveLength(0);

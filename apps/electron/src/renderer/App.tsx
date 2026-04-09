@@ -40,7 +40,7 @@ import {
   sessionMetaMapAtom,
   sessionIdsAtom,
   loadedSessionsAtom,
-  ensureSessionMessagesLoadedAtom,
+  forceSessionMessagesReloadAtom,
   backgroundTasksAtomFamily,
   extractSessionMeta,
   windowWorkspaceIdAtom,
@@ -1002,13 +1002,13 @@ export default function App() {
         }
       }
 
-      // Final fallback: if active session still has no messages after refresh,
-      // trigger the standard lazy-loading path so selecting it re-fetches.
+      // Final fallback: if the active session is still empty, force a reload
+      // even when the session is already marked loaded.
       if (sessionSelection.selected) {
         const session = store.get(sessionAtomFamily(sessionSelection.selected))
         if (session && (!session.messages || session.messages.length === 0)) {
-          console.warn('[App] Active session still has no messages after stale reconnect refresh — triggering lazy load')
-          store.set(ensureSessionMessagesLoadedAtom, sessionSelection.selected)
+          console.warn('[App] Active session still has no messages after stale reconnect refresh — forcing message reload')
+          await store.set(forceSessionMessagesReloadAtom, sessionSelection.selected)
         }
       }
     })
