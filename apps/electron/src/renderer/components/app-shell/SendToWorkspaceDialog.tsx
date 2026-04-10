@@ -228,18 +228,16 @@ export function SendToWorkspaceDialog({
           >
             Cancel
           </Button>
-          {/* Wrapper: purple LED border traces around the button during transfer */}
-          <div className="relative">
+          <Button
+            className="relative overflow-visible"
+            onClick={handleTransfer}
+            disabled={!selectedWorkspaceId || isTransferring}
+          >
             {isTransferring && (
               <TransferProgressBorder progress={transferProgress ? transferProgress.sent / transferProgress.total : 0} />
             )}
-            <Button
-              onClick={handleTransfer}
-              disabled={!selectedWorkspaceId || isTransferring}
-            >
-              {isTransferring ? 'Sending…' : 'Send'}
-            </Button>
-          </div>
+            {isTransferring ? 'Sending…' : 'Send'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -259,14 +257,14 @@ function TransferProgressBorder({ progress }: { progress: number }) {
 
   return (
     <svg
-      className="absolute inset-0 w-full h-full pointer-events-none z-10"
-      style={{ overflow: 'visible' }}
+      className="absolute pointer-events-none z-10"
+      style={{ inset: '-2px', width: 'calc(100% + 4px)', height: 'calc(100% + 4px)', overflow: 'visible' }}
     >
       <rect
         ref={rectRef}
-        x="0" y="0"
-        width="100%" height="100%"
-        rx="8" ry="8"
+        x="1" y="1"
+        width="calc(100% - 2px)" height="calc(100% - 2px)"
+        rx="9" ry="9"
         fill="none"
         stroke="#8B5CF6"
         strokeWidth="2"
@@ -274,7 +272,7 @@ function TransferProgressBorder({ progress }: { progress: number }) {
         strokeDashoffset="0"
         style={{
           transition: 'stroke-dasharray 0.2s ease-out',
-          filter: 'drop-shadow(0 0 4px #8B5CF6) drop-shadow(0 0 8px rgba(139,92,246,0.4))',
+          filter: 'drop-shadow(0 0 3px #8B5CF6) drop-shadow(0 0 6px rgba(139,92,246,0.3))',
         }}
       />
     </svg>
