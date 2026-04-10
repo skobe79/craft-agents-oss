@@ -11,7 +11,7 @@
  *   3. transfer:commit → reassemble, execute deferred RPC, clean up
  */
 
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -39,6 +39,8 @@ interface TransferState {
   args: any[]
   /** Index in args where the reassembled payload goes */
   largeArgIndex: number
+  /** SHA-256 hex digest of the original raw payload (for integrity verification) */
+  checksum?: string
   /** Cleanup timer */
   timer: ReturnType<typeof setTimeout>
 }
@@ -99,6 +101,7 @@ export function registerTransferHandlers(server: RpcServer): void {
     channel: string
     args: any[]
     largeArgIndex: number
+    checksum?: string
   }) => {
     if (!opts || typeof opts.chunkCount !== 'number' || opts.chunkCount < 1) {
       throw new Error('Invalid chunkCount')
@@ -131,6 +134,7 @@ export function registerTransferHandlers(server: RpcServer): void {
       channel: opts.channel,
       args: opts.args,
       largeArgIndex: opts.largeArgIndex,
+      checksum: opts.checksum,
       timer,
     })
 
@@ -191,22 +195,34 @@ export function registerTransferHandlers(server: RpcServer): void {
       throw new Error(`Missing ${missing.length} chunk(s): [${missing.slice(0, 10).join(', ')}${missing.length > 10 ? '...' : ''}]`)
     }
 
-    // Reassemble chunks into the original payload
-    const parts: string[] = []
+    // Reassemble chunks into the original payload.
+    // Each chunk is independently base64-encoded, so we must decode each one
+    // separately (they have their own padding) and concatenate the raw buffers.
+    const buffers: Buffer[] = []
     for (let i = 0; i < transfer.chunkCount; i++) {
       const chunkPath = join(transfer.dir, `chunk-${String(i).padStart(6, '0')}`)
-      parts.push(readFileSync(chunkPath, 'utf-8'))
+      buffers.push(Buffer.from(readFileSync(chunkPath, 'utf-8'), 'base64'))
     }
-    const concatenated = parts.join('')
+    const reassembled = Buffer.concat(buffers)
 
-    // Decode: chunks are base64-encoded raw bytes of the JSON payload
-    const jsonString = Buffer.from(concatenated, 'base64').toString('utf-8')
+    // Verify integrity via SHA-256 checksum (if provided by client)
+    if (transfer.checksum) {
+      const actual = createHash('sha256').update(reassembled).digest('hex')
+      if (actual !== transfer.checksum) {
+        console.error(`[Transfer:server] Checksum mismatch for ${transfer.id.slice(0, 8)}: expected ${transfer.checksum.slice(0, 12)}..., got ${actual.slice(0, 12)}...`)
+        cleanupTransfer(transfer.id)
+        throw new Error(`Checksum mismatch: expected ${transfer.checksum.slice(0, 12)}..., got ${actual.slice(0, 12)}...`)
+      }
+      console.log(`[Transfer:server] Checksum verified: ${actual.slice(0, 12)}...`)
+    }
+
+    const jsonString = reassembled.toString('utf-8')
     let payload: any
     try {
       payload = JSON.parse(jsonString)
     } catch {
       cleanupTransfer(transfer.id)
-      throw new Error('Failed to parse reassembled payload')
+      throw new Error(`Failed to parse reassembled payload (${(reassembled.length / (1024 * 1024)).toFixed(1)}MB, ${transfer.chunkCount} chunks)`)
     }
 
     // Execute the deferred RPC handler

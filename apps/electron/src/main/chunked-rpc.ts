@@ -9,6 +9,7 @@
  * connection issues through proxies/tunnels.
  */
 
+import { createHash } from 'node:crypto'
 import type { WsRpcClient } from '../transport/client'
 
 /**
@@ -56,15 +57,19 @@ export async function invokeChunked(
   const deferredArgs = [...args]
   deferredArgs[largeArgIndex] = null
 
-  // 4. Start transfer
+  // 4. Compute checksum for integrity verification
+  const checksum = createHash('sha256').update(bytes).digest('hex')
+
+  // 5. Start transfer
   const payloadMB = (bytes.length / (1024 * 1024)).toFixed(1)
-  console.log(`[ChunkedRPC] Starting transfer: ${chunks.length} chunks, ${payloadMB}MB, channel: ${channel}`)
+  console.log(`[ChunkedRPC] Starting transfer: ${chunks.length} chunks, ${payloadMB}MB, sha256: ${checksum.slice(0, 12)}..., channel: ${channel}`)
   const { transferId } = await client.invoke('transfer:start', {
     totalBytes: bytes.length,
     chunkCount: chunks.length,
     channel,
     args: deferredArgs,
     largeArgIndex,
+    checksum,
   }) as { transferId: string }
   console.log(`[ChunkedRPC] Transfer started: ${transferId}`)
 
