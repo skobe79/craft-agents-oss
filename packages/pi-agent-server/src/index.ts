@@ -360,7 +360,7 @@ function buildCustomEndpointModelDef(id: string, overrides?: { contextWindow?: n
     id,
     name: id,
     reasoning: false,
-    input: ['text'] as ('text' | 'image')[],
+    input: ['text', 'image'] as ('text' | 'image')[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     // Default 128K — users can override via contextWindow in model config.
     contextWindow: overrides?.contextWindow ?? 131_072,
