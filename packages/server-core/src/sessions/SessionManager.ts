@@ -70,7 +70,7 @@ import {
   type SessionHeader,
   pickSessionFields,
 } from '@craft-agent/shared/sessions'
-import { loadWorkspaceSources, loadAllSources, getSourcesBySlugs, isSourceUsable, type LoadedSource, type McpServerConfig, getSourcesNeedingAuth, getSourceCredentialManager, getSourceServerBuilder, type SourceWithCredential, isApiOAuthProvider, SERVER_BUILD_ERRORS, TokenRefreshManager, createTokenGetter } from '@craft-agent/shared/sources'
+import { loadWorkspaceSources, loadAllSources, getSourcesBySlugs, isSourceUsable, type LoadedSource, type McpServerConfig, getSourcesNeedingAuth, getSourceCredentialManager, getSourceServerBuilder, type SourceWithCredential, isApiOAuthProvider, hasRenewEndpoint, SERVER_BUILD_ERRORS, TokenRefreshManager, createTokenGetter } from '@craft-agent/shared/sources'
 import { ConfigWatcher, type ConfigWatcherCallbacks } from '@craft-agent/shared/config'
 import { getValidClaudeOAuthToken } from '@craft-agent/shared/auth'
 import { resolveAuthEnvVars } from '@craft-agent/shared/config'
@@ -334,13 +334,19 @@ async function buildServersFromSources(
   )
   span.mark('credentials.loaded')
 
-  // Build token getter for OAuth sources (Google, Slack, Microsoft use OAuth)
+  // Build token getter for refreshable sources (OAuth + renew-endpoint)
   // Uses TokenRefreshManager for unified refresh logic (DRY principle)
   const getTokenForSource = (source: LoadedSource) => {
     const provider = source.config.provider
     // Provider-specific OAuth (Google, Slack, Microsoft) or generic OAuth (authType: 'oauth')
     if (isApiOAuthProvider(provider) || source.config.api?.authType === 'oauth') {
-      // Use TokenRefreshManager if provided, otherwise create temporary one
+      const manager = tokenRefreshManager ?? new TokenRefreshManager(credManager, {
+        log: (msg) => sessionLog.debug(msg),
+      })
+      return createTokenGetter(manager, source)
+    }
+    // API renew endpoint — non-OAuth token refresh
+    if (hasRenewEndpoint(source)) {
       const manager = tokenRefreshManager ?? new TokenRefreshManager(credManager, {
         log: (msg) => sessionLog.debug(msg),
       })
