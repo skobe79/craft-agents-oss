@@ -400,6 +400,20 @@ With environment variables:
 
 REST APIs become flexible tools that Claude can call.
 
+**Request bodies:** By default, `params` is JSON-serialized for POST/PUT/PATCH requests. For endpoints that expect non-JSON bodies (plain text, XML, form data, etc.), use the special `_rawBody` and `_contentType` params:
+
+```json
+{
+  "params": {
+    "_rawBody": "raw string content to send as-is",
+    "_contentType": "text/plain"
+  }
+}
+```
+
+- `_rawBody` (string) — sent as the request body without JSON encoding
+- `_contentType` (string, optional) — sets the Content-Type header (defaults to `text/plain`)
+
 **IMPORTANT:** Authenticated API sources require a `testEndpoint` to validate credentials during `source_test`. Without it, we cannot verify your credentials work.
 
 **Header authentication (X-API-Key style):**

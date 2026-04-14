@@ -255,10 +255,27 @@ The agent can specify:
 - HTTP method (GET, POST, PUT, DELETE, PATCH)
 - Path (relative to base URL)
 - Query parameters
-- Request body (JSON)
+- Request body (JSON by default)
 - Additional headers
 
 Authentication headers are added automatically.
+
+### Raw (Non-JSON) Request Bodies
+
+By default, request body params are JSON-encoded. For endpoints that expect plain text, XML, or other non-JSON content types, the agent can use the `_rawBody` parameter:
+
+```
+POST to /documents/review with params: { "_rawBody": "approved", "_contentType": "text/plain" }
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `_rawBody` | string | Sent as the request body without JSON encoding |
+| `_contentType` | string | Sets the `Content-Type` header (defaults to `text/plain` if omitted) |
+
+<Tip>
+Use `_rawBody` when an API endpoint expects a plain string, XML payload, or any non-JSON body. The value is sent exactly as provided — no serialization is applied.
+</Tip>
 
 ### Response Handling
 
