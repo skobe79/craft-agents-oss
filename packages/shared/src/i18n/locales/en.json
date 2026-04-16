@@ -546,7 +546,7 @@
   "onboarding.gitBash.useThisPath": "Use this path",
   "onboarding.localModel.description": "Connect to Ollama or any OpenAI-compatible local server.",
   "onboarding.localModel.endpoint": "Endpoint",
-  "onboarding.localModel.endpointHelper": "Default Ollama port is 11434. Change if using a custom setup.",
+  "onboarding.localModel.endpointHelper": "Include /v1 for OpenAI-compatible servers (e.g. http://localhost:1234/v1 for LM Studio). Default Ollama port is 11434.",
   "onboarding.localModel.endpointPlaceholder": "http://localhost:11434",
   "onboarding.localModel.endpointRequired": "Endpoint URL is required.",
   "onboarding.localModel.model": "Model",
