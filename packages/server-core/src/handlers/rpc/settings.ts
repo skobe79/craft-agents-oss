@@ -52,7 +52,7 @@ export function registerSettingsHandlers(server: RpcServer, deps: HandlerDeps): 
 
   server.handle(RPC_CHANNELS.settings.SET_DEFAULT_THINKING_LEVEL, async (_ctx, level: string) => {
     if (!isValidThinkingLevel(level)) {
-      throw new Error(`Invalid thinking level: ${level}. Valid values: 'off', 'low', 'medium', 'high', 'max'`)
+      throw new Error(`Invalid thinking level: ${level}. Valid values: 'off', 'low', 'medium', 'high', 'xhigh', 'max'`)
     }
     const success = setDefaultThinkingLevel(level)
     if (!success) {

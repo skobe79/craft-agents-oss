@@ -256,7 +256,7 @@ export function registerSessionsHandlers(server: RpcServer, deps: HandlerDeps): 
       case 'setThinkingLevel':
         // Validate thinking level before passing to session manager
         if (!isValidThinkingLevel(command.level)) {
-          throw new Error(`Invalid thinking level: ${command.level}. Valid values: 'off', 'low', 'medium', 'high', 'max'`)
+          throw new Error(`Invalid thinking level: ${command.level}. Valid values: 'off', 'low', 'medium', 'high', 'xhigh', 'max'`)
         }
         return sessionManager.setSessionThinkingLevel(sessionId, command.level)
       case 'updateWorkingDirectory':

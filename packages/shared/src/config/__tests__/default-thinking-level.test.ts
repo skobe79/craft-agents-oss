@@ -103,9 +103,9 @@ describe('default thinking level storage', () => {
     expect(output).toBe('medium')
   })
 
-  it('supports all five thinking levels', () => {
+  it('supports all six thinking levels', () => {
     const { configDir } = setupWorkspaceConfigDir()
-    for (const level of ['off', 'low', 'medium', 'high', 'max']) {
+    for (const level of ['off', 'low', 'medium', 'high', 'xhigh', 'max']) {
       runEval(configDir, `setDefaultThinkingLevel('${level}')`)
       const output = runEval(configDir, "console.log(String(getDefaultThinkingLevel()))")
       expect(output).toBe(level)
