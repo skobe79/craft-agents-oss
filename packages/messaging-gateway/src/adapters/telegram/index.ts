@@ -100,6 +100,17 @@ function describeError(err: unknown, depth = 0): Record<string, unknown> {
   return { value: String(err) }
 }
 
+/**
+ * DM-only guard for Phase 1. Groups/supergroups/channels are ignored because
+ * the current trust model treats `channelId` as the authorization boundary —
+ * in a DM, the chat IS the authorized party. Opening to groups requires
+ * per-sender authorization keyed by `(channelId, senderId)` everywhere
+ * (bind, /pair consume, permission/plan callbacks), which doesn't exist yet.
+ */
+export function isPrivateChat(ctx: Context): boolean {
+  return ctx.chat?.type === 'private'
+}
+
 export class TelegramAdapter implements PlatformAdapter {
   readonly platform = 'telegram' as const
   readonly capabilities: AdapterCapabilities = {
@@ -132,6 +143,20 @@ export class TelegramAdapter implements PlatformAdapter {
   private connected = false
   private log: MessagingLogger = NOOP_LOGGER
 
+  /**
+   * Emit one structured log line per dropped non-private update. Deliberately
+   * `info` (not `debug`) so a user who notices "bot isn't responding in my
+   * group" can confirm via logs without toggling levels.
+   */
+  private logNonPrivateDropped(handler: string, ctx: Context): void {
+    this.log.info('[telegram] ignored non-private chat update', {
+      event: 'telegram_non_private_dropped',
+      handler,
+      chatType: ctx.chat?.type,
+      chatId: ctx.chat?.id,
+    })
+  }
+
   async initialize(config: PlatformConfig): Promise<void> {
     if (!config.token) {
       throw new Error('Telegram bot token is required')
@@ -143,6 +168,10 @@ export class TelegramAdapter implements PlatformAdapter {
     // Handle incoming text messages
     this.bot.on('message:text', async (ctx: Context) => {
       if (!this.messageHandler || !ctx.message || !ctx.chat) return
+      if (!isPrivateChat(ctx)) {
+        this.logNonPrivateDropped('message:text', ctx)
+        return
+      }
 
       const msg: IncomingMessage = {
         platform: 'telegram',
@@ -164,6 +193,10 @@ export class TelegramAdapter implements PlatformAdapter {
     // with `attachments[0].localPath` set. The router resolves the path
     // via readFileAttachment() and forwards a FileAttachment to the session.
     this.bot.on('message:photo', async (ctx: Context) => {
+      if (!isPrivateChat(ctx)) {
+        this.logNonPrivateDropped('message:photo', ctx)
+        return
+      }
       const photos = ctx.message?.photo
       // Telegram returns multiple sizes; last one is the largest original.
       const largest = photos?.[photos.length - 1]
@@ -177,6 +210,10 @@ export class TelegramAdapter implements PlatformAdapter {
     })
 
     this.bot.on('message:document', async (ctx: Context) => {
+      if (!isPrivateChat(ctx)) {
+        this.logNonPrivateDropped('message:document', ctx)
+        return
+      }
       const doc = ctx.message?.document
       if (!doc) return
       await this.emitAttachmentMessage(ctx, {
@@ -189,6 +226,10 @@ export class TelegramAdapter implements PlatformAdapter {
     })
 
     this.bot.on('message:voice', async (ctx: Context) => {
+      if (!isPrivateChat(ctx)) {
+        this.logNonPrivateDropped('message:voice', ctx)
+        return
+      }
       const voice = ctx.message?.voice
       if (!voice) return
       await this.emitAttachmentMessage(ctx, {
@@ -200,6 +241,10 @@ export class TelegramAdapter implements PlatformAdapter {
     })
 
     this.bot.on('message:video', async (ctx: Context) => {
+      if (!isPrivateChat(ctx)) {
+        this.logNonPrivateDropped('message:video', ctx)
+        return
+      }
       const video = ctx.message?.video
       if (!video) return
       await this.emitAttachmentMessage(ctx, {
@@ -212,6 +257,10 @@ export class TelegramAdapter implements PlatformAdapter {
     })
 
     this.bot.on('message:audio', async (ctx: Context) => {
+      if (!isPrivateChat(ctx)) {
+        this.logNonPrivateDropped('message:audio', ctx)
+        return
+      }
       const audio = ctx.message?.audio
       if (!audio) return
       await this.emitAttachmentMessage(ctx, {
@@ -226,6 +275,13 @@ export class TelegramAdapter implements PlatformAdapter {
     // Handle callback queries (button presses)
     this.bot.on('callback_query:data', async (ctx: Context) => {
       if (!this.buttonHandler || !ctx.callbackQuery) return
+      if (!isPrivateChat(ctx)) {
+        this.logNonPrivateDropped('callback_query:data', ctx)
+        // Answer the callback so Telegram stops showing the spinner, but
+        // don't route it — same rationale as message handlers.
+        await ctx.answerCallbackQuery().catch(() => {})
+        return
+      }
 
       await ctx.answerCallbackQuery().catch(() => {})
 
