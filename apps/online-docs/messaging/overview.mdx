@@ -104,6 +104,10 @@ When the bound session is in **Ask** permission mode, the agent asks for approva
 
 The **session's own permission mode** is still authoritative — `approvalChannel` only controls *where* the prompt is shown, not *whether* it happens.
 
+### Plan Submission
+
+When the agent submits a plan in **Explore** mode, Telegram bindings get inline `✅ Accept plan` / `♻️ Accept & compact` buttons (plus the plan content inline or as a `plan.md` attachment). WhatsApp bindings get a text pointer telling you to open the desktop app — plans can't be accepted from WhatsApp yet. See [WhatsApp → Plan Submission](/messaging/whatsapp#plan-submission) for the reasons.
+
 ## Security & Scope
 
 - **Per-workspace.** Each workspace has its own messaging config, bindings, and pairing codes. Binding in workspace A never accepts codes issued by workspace B.

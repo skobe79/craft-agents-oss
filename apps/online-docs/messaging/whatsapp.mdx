@@ -79,6 +79,26 @@ Supported media types: photos, documents, voice messages, video, audio. Same 20 
 
 For WhatsApp bindings, `approvalChannel` is **always `app`** — the gateway doesn't support inline approval replies on WhatsApp. When a bound session is in **Ask** mode and the agent requests approval for a bash command, the prompt appears in the desktop app, not in the chat. Everything else (prompts, replies) flows through WhatsApp as normal.
 
+### Plan Submission
+
+When the agent is in **Explore** mode and submits a plan via `SubmitPlan`, WhatsApp users see a text-only pointer:
+
+> 📝 A plan is ready for review. Open the desktop app to inspect and approve it.
+
+You **cannot accept or reject a plan from WhatsApp** — the approval round-trip happens in the desktop app only.
+
+Telegram bindings, by contrast, get two tappable buttons (`✅ Accept plan` and `♻️ Accept & compact`) attached to the plan message, plus the plan content inline (or as an attached `plan.md` if it exceeds Telegram's message length cap).
+
+<Info>
+**Why the difference?** Three stacked reasons:
+
+1. **WhatsApp has no inline buttons** in the adapter's current capability set. Telegram's flow relies on tappable buttons to carry a signed plan-approval token back; WhatsApp can't render those.
+2. **No text-reply redeem path** — plan-approval tokens are one-shot and designed to be consumed on button press. There's no command like `/accept <token>` implemented for chats that don't have buttons.
+3. **`approvalChannel` is hardcoded to `app` for WhatsApp** as belt-and-braces — bash-approval and plan-submission prompts both route to the desktop app.
+
+This is an explicit deferral, not a hard limit. WhatsApp does support quick-reply buttons in its newer protocol (Baileys' `buttonsMessage` / `interactiveMessage`), and a slash-command fallback would work even without protocol support. Track the limitation in the GitHub issues if you need this — it's not wired up yet.
+</Info>
+
 ## Architecture (for the curious)
 
 <Info>
@@ -127,5 +147,8 @@ The WhatsApp adapter is unusual because Baileys holds a lot of **global state** 
   </Accordion>
   <Accordion title="Linked device was kicked by WhatsApp">
     Meta periodically expires inactive linked devices. Re-pair from the app — your bindings and session data are preserved.
+  </Accordion>
+  <Accordion title="Can't accept a plan from WhatsApp">
+    By design, for now. When the agent submits a plan in Explore mode, WhatsApp bindings get a text pointer to "open the desktop app" instead of an interactive button. See [Plan Submission](#plan-submission) for the reasons and workarounds.
   </Accordion>
 </AccordionGroup>
