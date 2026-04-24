@@ -976,15 +976,30 @@ export function clearWorkspacePlan(workspaceId: string): void {
 // ============================================
 // Session Input Drafts
 // Persists composer state (text + attachments) per session across app restarts.
-// Attachments are stored as lightweight refs (path + name) — the file on disk
-// is the source of truth, re-read via readFileAttachment() on restore.
+// Two shapes for attachments:
+//  - Track P: { path, name } — absolute path captured via webUtils.getPathForFile
+//    (file-picker / OS drag). Re-read on hydrate via file:readUserAttachment RPC.
+//  - Track C: { path, name, content } — inline content for paste / web-drag Files
+//    that never existed on disk. Hydrate reconstructs directly from the stored bytes.
 // ============================================
 
 const DRAFTS_FILE = join(CONFIG_DIR, 'drafts.json');
 
+export interface DraftAttachmentContent {
+  type: 'image' | 'pdf' | 'text' | 'office' | 'unknown';
+  mimeType: string;
+  size: number;
+  base64?: string;
+  text?: string;
+  thumbnailBase64?: string;
+}
+
 export interface DraftAttachmentRef {
   path: string;
   name: string;
+  /** Inline content for attachments without a real filesystem path (paste, web-drag).
+   *  When present, hydrate reconstructs from these bytes and skips any disk read. */
+  content?: DraftAttachmentContent;
 }
 
 export interface SessionDraft {
@@ -997,11 +1012,37 @@ interface DraftsData {
   updatedAt: number;
 }
 
+const ATTACHMENT_CONTENT_TYPES = new Set(['image', 'pdf', 'text', 'office', 'unknown']);
+
+function isAbsoluteDraftPath(p: string): boolean {
+  if (!p) return false;
+  if (p.startsWith('/')) return true;
+  if (/^[A-Za-z]:[\\/]/.test(p)) return true;
+  return false;
+}
+
+function isDraftAttachmentContent(value: unknown): value is DraftAttachmentContent {
+  if (!value || typeof value !== 'object') return false;
+  const c = value as DraftAttachmentContent;
+  if (!ATTACHMENT_CONTENT_TYPES.has(c.type as string)) return false;
+  if (typeof c.mimeType !== 'string') return false;
+  if (typeof c.size !== 'number') return false;
+  if (c.base64 !== undefined && typeof c.base64 !== 'string') return false;
+  if (c.text !== undefined && typeof c.text !== 'string') return false;
+  if (c.thumbnailBase64 !== undefined && typeof c.thumbnailBase64 !== 'string') return false;
+  return true;
+}
+
 function isDraftAttachmentRef(value: unknown): value is DraftAttachmentRef {
-  return !!value
-    && typeof value === 'object'
-    && typeof (value as DraftAttachmentRef).path === 'string'
-    && typeof (value as DraftAttachmentRef).name === 'string';
+  if (!value || typeof value !== 'object') return false;
+  const ref = value as DraftAttachmentRef;
+  if (typeof ref.path !== 'string' || typeof ref.name !== 'string') return false;
+  if (ref.content !== undefined && !isDraftAttachmentContent(ref.content)) return false;
+  // Post-migration guard: refs without content MUST have an absolute path. This rejects
+  // the broken 0.8.11 shape (synthetic path === filename, no content) on first load —
+  // user sees empty drafts once instead of attachments silently disappearing forever.
+  if (ref.content === undefined && !isAbsoluteDraftPath(ref.path)) return false;
+  return true;
 }
 
 function isSessionDraft(value: unknown): value is SessionDraft {
@@ -1067,11 +1108,27 @@ export function setSessionDraft(sessionId: string, draft: SessionDraft): void {
     data.drafts[sessionId] = {
       text: draft.text,
       ...(draft.attachments && draft.attachments.length > 0
-        ? { attachments: draft.attachments.map(ref => ({ path: ref.path, name: ref.name })) }
+        ? { attachments: draft.attachments.map(normalizeDraftAttachment) }
         : {}),
     };
   }
   saveDraftsData(data);
+}
+
+function normalizeDraftAttachment(ref: DraftAttachmentRef): DraftAttachmentRef {
+  const base: DraftAttachmentRef = { path: ref.path, name: ref.name };
+  if (ref.content && isDraftAttachmentContent(ref.content)) {
+    const c = ref.content;
+    base.content = {
+      type: c.type,
+      mimeType: c.mimeType,
+      size: c.size,
+      ...(c.base64 !== undefined ? { base64: c.base64 } : {}),
+      ...(c.text !== undefined ? { text: c.text } : {}),
+      ...(c.thumbnailBase64 !== undefined ? { thumbnailBase64: c.thumbnailBase64 } : {}),
+    };
+  }
+  return base;
 }
 
 export function deleteSessionDraft(sessionId: string): void {

@@ -1104,6 +1104,11 @@ export function FreeFormInput({
 
   // Helper to read a File using FileReader API
   const readFileAsAttachment = async (file: File, overrideName?: string): Promise<FileAttachment | null> => {
+    // Capture the absolute OS path at attach time. Works for <input type="file"> and
+    // OS drag-drop; returns null for clipboard paste and web-drag (no disk origin).
+    // When null, the draft layer falls back to persisting content inline (Track C).
+    const realPath = hasElectronAPI ? window.electronAPI.getFilePath?.(file) ?? null : null
+
     return new Promise((resolve) => {
       const reader = new FileReader()
       reader.onload = async () => {
@@ -1145,7 +1150,7 @@ export function FreeFormInput({
 
         resolve({
           type,
-          path: fileName,
+          path: realPath ?? fileName,
           name: fileName,
           mimeType,
           base64,

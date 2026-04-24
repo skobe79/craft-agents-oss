@@ -27,6 +27,7 @@ import { useSession } from '@/hooks/useSession'
 import { useUpdateChecker } from '@/hooks/useUpdateChecker'
 import { NavigationProvider } from '@/contexts/NavigationContext'
 import { navigate, routes } from './lib/navigate'
+import { attachmentFromContentRef, toDraftRef } from './lib/drafts'
 import { stripMarkdown } from './utils/text'
 import { getSessionsToRefreshAfterStaleReconnect } from './lib/reconnect-recovery'
 import { formatSessionLoadFailure, shouldTreatSessionLoadFailureAsTransportFallback } from './lib/session-load'
@@ -1326,15 +1327,21 @@ export default function App() {
     return sessionDraftsRef.current.get(sessionId)?.attachments ?? []
   }, [])
 
-  // Hydrate persisted attachment refs into full FileAttachment objects. Missing or
-  // moved files are skipped silently with a console warning for diagnostics.
+  // Hydrate persisted attachment refs into full FileAttachment objects.
+  //  - Track C (ref.content set): reconstruct directly from the inlined bytes.
+  //  - Track P (path-only): re-read from disk via the readUserAttachment RPC.
+  // Missing/moved files on Track P are silently dropped with a console warn — same
+  // UX as any other editor draft restore when the backing file is gone.
   const hydrateDraftAttachments = useCallback(async (sessionId: string): Promise<FileAttachment[]> => {
     const refs = sessionDraftsRef.current.get(sessionId)?.attachments ?? []
     if (refs.length === 0) return []
     const results = await Promise.all(
       refs.map(async (ref) => {
+        if (ref.content) {
+          return attachmentFromContentRef(ref)
+        }
         try {
-          const attachment = await window.electronAPI.readFileAttachment(ref.path)
+          const attachment = await window.electronAPI.readUserAttachment(ref.path)
           if (!attachment) {
             console.warn('[drafts] Attachment missing on restore, dropping:', ref.path)
             return null
@@ -1382,7 +1389,15 @@ export default function App() {
 
   const handleAttachmentsChange = useCallback((sessionId: string, attachments: FileAttachment[]) => {
     const existing = sessionDraftsRef.current.get(sessionId)
-    const refs: DraftAttachmentRef[] = attachments.map(a => ({ path: a.path, name: a.name }))
+    const refs: DraftAttachmentRef[] = []
+    for (const a of attachments) {
+      const ref = toDraftRef(a)
+      if (ref) {
+        refs.push(ref)
+      } else {
+        console.warn('[drafts] attachment exceeds per-draft size cap, not persisted:', a.name, a.size)
+      }
+    }
     const nextDraft: SessionDraft = {
       text: existing?.text ?? '',
       ...(refs.length > 0 ? { attachments: refs } : {}),

@@ -308,8 +308,13 @@ export interface ElectronAPI {
   readFilePreviewDataUrl(path: string, maxSize?: number): Promise<string>
   openFileDialog(): Promise<string[]>
   readFileAttachment(path: string): Promise<FileAttachment | null>
+  /** Re-read a user-attached file by absolute path (bypasses workspace-dir validation).
+   *  Used only by draft hydration for paths the user explicitly picked via OS dialog / drag. */
+  readUserAttachment(path: string): Promise<FileAttachment | null>
   storeAttachment(sessionId: string, attachment: FileAttachment): Promise<import('../../../../packages/core/src/types/index.ts').StoredAttachment>
   generateThumbnail(base64: string, mimeType: string): Promise<string | null>
+  /** Returns the absolute filesystem path for a File (only works for file-picker / OS-drag Files). */
+  getFilePath(file: File): string | null
 
   // Filesystem search (for @ mention file selection)
   searchFiles(basePath: string, query: string): Promise<FileSearchResult[]>

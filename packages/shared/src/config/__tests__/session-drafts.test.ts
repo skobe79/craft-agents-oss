@@ -75,16 +75,81 @@ describe('session draft storage', () => {
     expect(output).toBe('null')
   })
 
-  it('strips extra FileAttachment fields when persisting attachments', () => {
+  it('strips extra FileAttachment fields when persisting path-only attachments', () => {
     const configDir = makeConfigDir()
     // Pass a FileAttachment-shaped object (includes base64/size/etc.); persistence
-    // should reduce it to just path + name to keep drafts.json small.
+    // should reduce it to just path + name when no `content` subfield is present.
     runEval(configDir,
       "setSessionDraft('s1', { text: '', attachments: [{ path: '/tmp/a.png', name: 'a.png', base64: 'AAAA', size: 4, type: 'image', mimeType: 'image/png' }] })"
     )
     const draftsPath = join(configDir, 'drafts.json')
     const raw = JSON.parse(readFileSync(draftsPath, 'utf-8'))
     expect(raw.drafts.s1.attachments).toEqual([{ path: '/tmp/a.png', name: 'a.png' }])
+  })
+
+  it('round-trips a draft with a content-backed attachment (paste / web-drag path)', () => {
+    const configDir = makeConfigDir()
+    runEval(configDir,
+      "setSessionDraft('s1', { text: 'note', attachments: [{ path: 'pasted-image-1.png', name: 'pasted-image-1.png', content: { type: 'image', mimeType: 'image/png', size: 4, base64: 'AAAA', thumbnailBase64: 'BBBB' } }] })"
+    )
+    const output = runEval(configDir, "console.log(JSON.stringify(getSessionDraft('s1')))")
+    expect(JSON.parse(output)).toEqual({
+      text: 'note',
+      attachments: [{
+        path: 'pasted-image-1.png',
+        name: 'pasted-image-1.png',
+        content: { type: 'image', mimeType: 'image/png', size: 4, base64: 'AAAA', thumbnailBase64: 'BBBB' },
+      }],
+    })
+  })
+
+  it('round-trips a text-content attachment without base64', () => {
+    const configDir = makeConfigDir()
+    runEval(configDir,
+      "setSessionDraft('s1', { text: '', attachments: [{ path: 'pasted.txt', name: 'pasted.txt', content: { type: 'text', mimeType: 'text/plain', size: 5, text: 'hello' } }] })"
+    )
+    const output = runEval(configDir, "console.log(JSON.stringify(getSessionDraft('s1')))")
+    expect(JSON.parse(output)).toEqual({
+      text: '',
+      attachments: [{
+        path: 'pasted.txt',
+        name: 'pasted.txt',
+        content: { type: 'text', mimeType: 'text/plain', size: 5, text: 'hello' },
+      }],
+    })
+  })
+
+  it('rejects on load: ref with malformed content (wrong type field)', () => {
+    const configDir = makeConfigDir()
+    const draftsPath = join(configDir, 'drafts.json')
+    writeFileSync(draftsPath, JSON.stringify({
+      drafts: {
+        s1: {
+          text: '',
+          attachments: [{ path: 'x.png', name: 'x.png', content: { type: 'bogus', mimeType: 'image/png', size: 1 } }],
+        },
+      },
+      updatedAt: 0,
+    }), 'utf-8')
+    const output = runEval(configDir, "console.log(JSON.stringify(getAllSessionDrafts()))")
+    expect(JSON.parse(output)).toEqual({})
+  })
+
+  it('rejects on load: 0.8.11-shape ref (synthetic filename path, no content)', () => {
+    const configDir = makeConfigDir()
+    const draftsPath = join(configDir, 'drafts.json')
+    writeFileSync(draftsPath, JSON.stringify({
+      drafts: {
+        s1: {
+          text: 'note',
+          attachments: [{ path: 'image.png', name: 'image.png' }],
+        },
+      },
+      updatedAt: 0,
+    }), 'utf-8')
+    const output = runEval(configDir, "console.log(JSON.stringify(getAllSessionDrafts()))")
+    // Entire draft is dropped (attachment validator fails → ref fails → draft fails)
+    expect(JSON.parse(output)).toEqual({})
   })
 
   it('discards legacy string-shaped drafts on load', () => {
