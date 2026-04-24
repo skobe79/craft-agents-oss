@@ -10,8 +10,8 @@
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir=dist --target=bun --format=esm --external koffi",
-    "validate": "bun run build",
-    "typecheck": "bun run build"
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "validate": "bun run typecheck && bun run build"
   },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "0.70.0",
