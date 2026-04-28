@@ -36,6 +36,15 @@ import { resolveRequestContext } from './interceptor-request-utils.ts';
 // Type alias for fetch's HeadersInit
 type HeadersInitType = Headers | Record<string, string> | string[][];
 
+/**
+ * When `CRAFT_DEBUG_SSE_RAW=1`, the OpenAI strip streams dump every raw SSE
+ * line they see (in) and emit (out) to interceptor.log. Used to diagnose
+ * upstream SSE shape issues (e.g. DeepSeek's two-phase tool_call emission).
+ * Independent of the broader DEBUG flag — opt-in only because raw chunks are
+ * verbose and may contain user prompts/tool args.
+ */
+const DEBUG_SSE_RAW = process.env.CRAFT_DEBUG_SSE_RAW === '1';
+
 // ============================================================================
 // PROXY CONFIGURATION (from env vars injected by parent process)
 // ============================================================================
@@ -781,21 +790,34 @@ const anthropicAdapter: ApiAdapter = {
 interface TrackedToolCall {
   id: string;
   name: string;
+  type: string;
   choiceIndex: number;
   toolIndex: number;
+  /** Args accumulated from same-index deltas (partial JSON pieces). */
   arguments: string;
+  /** Phase-2 args (DeepSeek-style "shifted index" chunks). Each element is
+   * a complete JSON string that should be merged at the OBJECT level into
+   * the final args, not concatenated as a string. */
+  shiftedArgs: string[];
 }
 
 /**
  * Creates a TransformStream that intercepts OpenAI SSE events,
- * buffers tool_call argument deltas, extracts _intent/_displayName into the
- * metadata store, and re-emits clean events without those fields.
+ * buffers tool_call argument deltas across all upstream chunks, extracts
+ * `_intent` / `_displayName` into the metadata store, and emits one
+ * consolidated SSE event per logical tool call with `id + name + cleanArgs`
+ * together.
  *
- * Mirrors the Anthropic stripping stream behavior:
- * - Non-tool events pass through immediately
- * - Tool call argument deltas are suppressed and buffered
- * - On finish_reason, buffered args are parsed, metadata stripped, and
- *   re-emitted as a single argument delta per tool call
+ * Output contract — important:
+ * - Each logical tool call produces EXACTLY ONE outbound SSE event with
+ *   `delta.tool_calls: [{index, id, type, function: {name, arguments}}]`.
+ * - We never emit args-only deltas (no id, no name). Some downstream SDKs
+ *   (notably Pi SDK) treat such deltas as new tool_calls instead of merging
+ *   by index, which produced duplicate empty-id entries on parallel-tool
+ *   turns from DeepSeek and other relays.
+ * - Non-tool events pass through immediately.
+ * - All upstream tool_call chunks are suppressed; the consolidated events
+ *   are emitted just before the original `[DONE]` / `finish_reason` event.
  */
 export function createOpenAiSseStrippingStream(): TransformStream<Uint8Array, Uint8Array> {
   const encoder = new TextEncoder();
@@ -813,55 +835,86 @@ export function createOpenAiSseStrippingStream(): TransformStream<Uint8Array, Ui
   let bufferingToolCalls = false;
 
   function emitSseLine(dataStr: string, controller: TransformStreamDefaultController<Uint8Array>): void {
+    if (DEBUG_SSE_RAW) debugLog(`[SSE RAW OUT openai] ${dataStr.slice(0, 4000)}`);
     controller.enqueue(encoder.encode(`data: ${dataStr}\n\n`));
   }
 
   function flushTrackedCalls(controller: TransformStreamDefaultController<Uint8Array>): void {
-    for (const tc of trackedCalls.values()) {
-      if (!tc.arguments) continue;
+    // Iterate in toolIndex order so downstream sees a stable sequence.
+    const sorted = Array.from(trackedCalls.values()).sort((a, b) => {
+      if (a.choiceIndex !== b.choiceIndex) return a.choiceIndex - b.choiceIndex;
+      return a.toolIndex - b.toolIndex;
+    });
 
-      try {
-        const parsed = JSON.parse(tc.arguments);
-        captureMetadataFromInput(tc.id, tc.name, parsed);
-        delete parsed._intent;
-        delete parsed._displayName;
-        const cleanArgs = JSON.stringify(parsed);
+    for (const tc of sorted) {
+      // Merge in this priority: phase-1 args (partial-JSON concatenation)
+      // first, then any phase-2 "shifted index" args (each a complete JSON
+      // object) via object spread. Phase-2 wins on key conflicts since it
+      // carries the model's actual content (DeepSeek emits real args there;
+      // phase-1 carries only `_intent` / `_displayName` for those calls).
+      let merged: Record<string, unknown> = {};
+      let parseFailed = false;
 
-        // Re-emit as a single argument delta with the clean JSON
-        const deltaEvent = {
-          choices: [{
-            index: tc.choiceIndex,
-            delta: {
-              tool_calls: [{
-                index: tc.toolIndex,
-                function: { arguments: cleanArgs },
-              }],
-            },
-          }],
-        };
-        emitSseLine(JSON.stringify(deltaEvent), controller);
-      } catch {
-        debugLog(`[OpenAI SSE] Failed to parse arguments for ${tc.name} (${tc.id}), passing through`);
-        // Emit original buffered arguments on parse failure
-        const deltaEvent = {
-          choices: [{
-            index: tc.choiceIndex,
-            delta: {
-              tool_calls: [{
-                index: tc.toolIndex,
-                function: { arguments: tc.arguments },
-              }],
-            },
-          }],
-        };
-        emitSseLine(JSON.stringify(deltaEvent), controller);
+      if (tc.arguments) {
+        try {
+          const parsed = JSON.parse(tc.arguments);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            merged = { ...merged, ...(parsed as Record<string, unknown>) };
+          }
+        } catch {
+          parseFailed = true;
+          debugLog(`[OpenAI SSE] Failed to parse phase-1 arguments for ${tc.name} (${tc.id}), passing through raw`);
+        }
       }
+
+      for (const piece of tc.shiftedArgs) {
+        try {
+          const parsed = JSON.parse(piece);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            merged = { ...merged, ...(parsed as Record<string, unknown>) };
+          }
+        } catch {
+          parseFailed = true;
+          debugLog(`[OpenAI SSE] Failed to parse phase-2 arguments for ${tc.name} (${tc.id}), passing through raw`);
+        }
+      }
+
+      let outArgs: string;
+      if (parseFailed && !tc.shiftedArgs.length) {
+        // Pure phase-1 parse failure with no phase-2 to recover from —
+        // pass through the raw concatenation so downstream sees something.
+        outArgs = tc.arguments;
+      } else {
+        captureMetadataFromInput(tc.id, tc.name, merged);
+        delete merged._intent;
+        delete merged._displayName;
+        outArgs = JSON.stringify(merged);
+      }
+
+      // Consolidated tool_call event: id + type + name + cleanArgs together.
+      // Downstream SDKs see one event per logical tool call — no merging
+      // by index, no orphan args-only deltas.
+      const consolidatedEvent = {
+        choices: [{
+          index: tc.choiceIndex,
+          delta: {
+            tool_calls: [{
+              index: tc.toolIndex,
+              id: tc.id,
+              type: tc.type,
+              function: { name: tc.name, arguments: outArgs },
+            }],
+          },
+        }],
+      };
+      emitSseLine(JSON.stringify(consolidatedEvent), controller);
     }
     trackedCalls.clear();
     bufferingToolCalls = false;
   }
 
   function processDataLine(dataStr: string, controller: TransformStreamDefaultController<Uint8Array>): void {
+    if (DEBUG_SSE_RAW) debugLog(`[SSE RAW IN  openai] ${dataStr.slice(0, 4000)}`);
     if (dataStr === '[DONE]') {
       flushTrackedCalls(controller);
       emitSseLine(dataStr, controller);
@@ -899,17 +952,22 @@ export function createOpenAiSseStrippingStream(): TransformStream<Uint8Array, Ui
 
     let handledToolCalls = false;
 
-    // Buffer tool_call argument deltas (across all choices).
+    // Buffer tool_call argument deltas (across all choices). All upstream
+    // tool_call chunks are suppressed; we emit one consolidated event per
+    // logical tool call at flush time — see flushTrackedCalls.
     //
-    // Robustness notes (#613):
-    //   - Some relays (the issue cited DeepSeek + Chinese OpenAI-compat
-    //     relays) repeat `tc.id` on every chunk instead of only the first.
-    //     We dedupe so the post-strip stream emits exactly one init event
-    //     per logical tool call.
-    //   - Some relays drop `tc.index` on argument-delta chunks. We fall back
-    //     to "the most recently opened tracked call for this choice" so
-    //     parallel tool calls don't have their argument streams interleaved
-    //     into a single tracked entry under key "0".
+    // Relay quirks handled here:
+    //   - id-repeat relays (DeepSeek, some Chinese OpenAI-compat hosts) send
+    //     `tc.id` on every chunk instead of only the first. We treat the
+    //     second-and-later occurrences with a matching id as argument-only
+    //     deltas (no new tracked entry).
+    //   - index-dropping relays send argument-delta chunks without `tc.index`.
+    //     We fall back to "the most recently opened tracked call for this
+    //     choice" so parallel tool calls don't collide on key 0.
+    //   - index-shifting relays (DeepSeek extended-thinking) emit the
+    //     argument payload at a NEW `tc.index` with empty id/name. We attach
+    //     those args to the matching phase-1 entry by walking the open calls
+    //     in order rather than allocating a new bucket for them.
     for (const choice of choices) {
       if (!choice?.delta?.tool_calls) continue;
       handledToolCalls = true;
@@ -926,54 +984,72 @@ export function createOpenAiSseStrippingStream(): TransformStream<Uint8Array, Ui
           const existing = trackedCalls.get(key);
           if (existing && existing.id === tc.id) {
             // Relay repeated the id on a subsequent chunk. Treat this as an
-            // argument-delta only — never re-emit the init event.
+            // argument-delta only.
             if (tc.function?.arguments) {
               existing.arguments += tc.function.arguments;
+            }
+            // If a later chunk carries the function name we hadn't seen yet,
+            // upgrade the tracked entry rather than letting it stay 'unknown'.
+            if (tc.function?.name && existing.name === 'unknown') {
+              existing.name = tc.function.name;
             }
             continue;
           }
 
-          // First chunk for a tool call — has id, name, maybe initial args
+          // First chunk for a logical tool call — record id/name/type and
+          // any initial args. We do NOT emit an init event; the consolidated
+          // event is emitted on flush.
           trackedCalls.set(key, {
             id: tc.id,
             name: tc.function?.name || 'unknown',
+            type: tc.type || 'function',
             choiceIndex,
             toolIndex,
             arguments: tc.function?.arguments || '',
+            shiftedArgs: [],
           });
           lastOpenedToolIndexByChoice.set(choiceIndex, toolIndex);
           bufferingToolCalls = true;
-
-          // Emit the initial tool_call event WITHOUT arguments (preserves id/name/type)
-          const initEvent = {
-            ...data,
-            choices: [{
-              ...choice,
-              delta: {
-                ...choice.delta,
-                tool_calls: [{
-                  ...tc,
-                  function: {
-                    name: tc.function?.name,
-                    // Omit arguments from initial event — we'll emit clean args on flush
-                    arguments: '',
-                  },
-                }],
-              },
-            }],
-          };
-          emitSseLine(JSON.stringify(initEvent), controller);
         } else {
-          // Subsequent argument delta — buffer and suppress
-          const existing = trackedCalls.get(key);
-          if (existing && tc.function?.arguments) {
-            existing.arguments += tc.function.arguments;
+          // Subsequent argument delta with no id. Three patterns to handle:
+          //  (a) Same `tc.index` as a phase-1 entry → append (partial JSON).
+          //  (b) Missing `tc.index` → fall back to last-opened, append.
+          //  (c) NEW `tc.index` past the last-opened (DeepSeek's
+          //      "phase-2 args at shifted index" shape). Attach to the
+          //      matching phase-1 entry by ordinal position. These chunks
+          //      carry a COMPLETE JSON object, not a partial string — store
+          //      them separately and merge at the object level on flush.
+          const existingByKey = trackedCalls.get(key);
+          if (existingByKey) {
+            // (a) or (b) — partial JSON delta, append.
+            if (tc.function?.arguments) {
+              existingByKey.arguments += tc.function.arguments;
+            }
+          } else {
+            // (c) — find the phase-1 entry in this choice by position.
+            const phase1 = Array.from(trackedCalls.values())
+              .filter(t => t.choiceIndex === choiceIndex)
+              .sort((a, b) => a.toolIndex - b.toolIndex);
+            const lastOpened = lastOpenedToolIndexByChoice.get(choiceIndex);
+            if (
+              typeof lastOpened === 'number' &&
+              tc.index !== undefined &&
+              tc.index > lastOpened &&
+              phase1.length > 0 &&
+              tc.function?.arguments
+            ) {
+              const ord = tc.index - (lastOpened + 1);
+              if (ord >= 0 && ord < phase1.length) {
+                phase1[ord]!.shiftedArgs.push(tc.function.arguments);
+              }
+            }
           }
         }
       }
     }
 
-    // Suppress original tool_call delta payloads (we re-emit cleaned payloads later)
+    // Suppress all upstream tool_call delta payloads. Consolidated events
+    // are emitted on flush.
     if (handledToolCalls) {
       return;
     }
@@ -1084,8 +1160,11 @@ const openAiAdapter: ApiAdapter = {
   },
 
   injectMetadataIntoHistory(body: Record<string, unknown>): Record<string, unknown> {
+    sanitizeOpenAiHistoryInPlace(body);
+
     const messages = body.messages as Array<{
       role?: string;
+      tool_call_id?: string;
       tool_calls?: Array<{
         id?: string;
         type?: string;
@@ -1163,10 +1242,12 @@ export function createOpenAiResponsesSseStrippingStream(): TransformStream<Uint8
   let lineBuffer = '';
 
   function emitSseLine(dataStr: string, controller: TransformStreamDefaultController<Uint8Array>): void {
+    if (DEBUG_SSE_RAW) debugLog(`[SSE RAW OUT openai-responses] ${dataStr.slice(0, 4000)}`);
     controller.enqueue(encoder.encode(`data: ${dataStr}\n\n`));
   }
 
   function processDataLine(dataStr: string, controller: TransformStreamDefaultController<Uint8Array>): void {
+    if (DEBUG_SSE_RAW) debugLog(`[SSE RAW IN  openai-responses] ${dataStr.slice(0, 4000)}`);
     if (dataStr === '[DONE]') {
       emitSseLine(dataStr, controller);
       return;
@@ -1371,6 +1452,79 @@ const openAiResponsesAdapter: ApiAdapter = {
  * `400 Duplicate value for 'tool_call_id'` and similar opaque upstream
  * failures (#613). Exported for focused unit tests.
  */
+/**
+ * Strip `tool_calls` entries with an empty/missing `id` from assistant
+ * messages, and drop orphan `role: "tool"` results that reference them.
+ *
+ * Recovers sessions whose history was persisted by the pre-fix strip stream
+ * — that version emitted args-only SSE deltas (no id, no name) which Pi SDK
+ * recorded as separate empty-id tool_calls. Without this sanitizer, every
+ * replay of such history hits `validateOpenAiChatBody` with
+ * `missing_tool_call_id` and the session is bricked.
+ *
+ * Mutates `body.messages` in place. Logs structured info if anything was
+ * dropped. Exported for focused unit tests.
+ */
+export function sanitizeOpenAiHistoryInPlace(body: Record<string, unknown>): {
+  droppedToolCalls: number;
+  droppedToolResults: number;
+} {
+  const messages = body.messages as Array<{
+    role?: string;
+    tool_call_id?: string;
+    tool_calls?: Array<{
+      id?: string;
+      type?: string;
+      function?: { name?: string; arguments?: string };
+    }>;
+  }> | undefined;
+  if (!Array.isArray(messages)) {
+    return { droppedToolCalls: 0, droppedToolResults: 0 };
+  }
+
+  let droppedToolCalls = 0;
+  const knownIds = new Set<string>();
+
+  for (const message of messages) {
+    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+      const cleaned = message.tool_calls.filter(tc => {
+        if (typeof tc.id !== 'string' || tc.id === '') {
+          droppedToolCalls++;
+          return false;
+        }
+        knownIds.add(tc.id);
+        return true;
+      });
+      if (cleaned.length !== message.tool_calls.length) {
+        if (cleaned.length === 0) {
+          delete message.tool_calls;
+        } else {
+          message.tool_calls = cleaned;
+        }
+      }
+    }
+  }
+
+  let droppedToolResults = 0;
+  if (droppedToolCalls > 0) {
+    const filtered = messages.filter(message => {
+      if (message.role !== 'tool') return true;
+      const tcid = typeof message.tool_call_id === 'string' ? message.tool_call_id : '';
+      if (!tcid || !knownIds.has(tcid)) {
+        droppedToolResults++;
+        return false;
+      }
+      return true;
+    });
+    if (filtered.length !== messages.length) {
+      body.messages = filtered;
+    }
+    debugLog(`[OpenAI History] Sanitized poisoned history: dropped ${droppedToolCalls} empty-id tool_call(s) and ${droppedToolResults} orphan tool result(s)`);
+  }
+
+  return { droppedToolCalls, droppedToolResults };
+}
+
 export function validateOpenAiChatBody(body: Record<string, unknown>): void {
   const messages = body.messages as Array<{
     role?: string;

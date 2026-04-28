@@ -33,10 +33,9 @@ async function runThroughProcessor(
 }
 
 /**
- * Counts how many SSE init events (the "first chunk" carrying id + name +
- * empty arguments) appear in the post-strip output for a given id. Each id
- * must appear in exactly one init event regardless of how many times the
- * upstream relay repeated it.
+ * Counts how many SSE events in the post-strip output carry an event for a
+ * given tool_call id with both id and name populated. With the consolidated-
+ * emit contract, this MUST be exactly 1 per logical tool call.
  */
 function countInitEventsForId(out: string, toolCallId: string): number {
   const lines = out.split('\n');
@@ -68,6 +67,65 @@ function countInitEventsForId(out: string, toolCallId: string): number {
     }
   }
   return count;
+}
+
+/**
+ * Reassembles the post-strip SSE output the way an OpenAI-compatible SDK
+ * would. Each chunk's `delta.tool_calls[i]` is keyed by `index` — the first
+ * chunk at an index sets id/name/type, later chunks append `arguments`.
+ *
+ * Returns the final tool_calls array. With the consolidated-emit contract,
+ * each tool_call should appear with id, name, and full args in one event.
+ */
+function reassembleToolCalls(out: string): Array<{
+  index: number;
+  id: string;
+  type: string;
+  function: { name: string; arguments: string };
+}> {
+  const byIndex = new Map<number, { index: number; id: string; type: string; function: { name: string; arguments: string } }>();
+  for (const line of out.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    const payload = line.slice(6).trim();
+    if (!payload || payload === '[DONE]') continue;
+    let parsed: {
+      choices?: Array<{
+        delta?: {
+          tool_calls?: Array<{
+            index?: number;
+            id?: string;
+            type?: string;
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+      }>;
+    };
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      continue;
+    }
+    const tcs = parsed.choices?.[0]?.delta?.tool_calls;
+    if (!tcs) continue;
+    for (const tc of tcs) {
+      const idx = tc.index ?? 0;
+      const existing = byIndex.get(idx);
+      if (!existing) {
+        byIndex.set(idx, {
+          index: idx,
+          id: tc.id ?? '',
+          type: tc.type ?? 'function',
+          function: { name: tc.function?.name ?? '', arguments: tc.function?.arguments ?? '' },
+        });
+      } else {
+        if (tc.id) existing.id = tc.id;
+        if (tc.type) existing.type = tc.type;
+        if (tc.function?.name) existing.function.name = tc.function.name;
+        if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+      }
+    }
+  }
+  return Array.from(byIndex.values()).sort((a, b) => a.index - b.index);
 }
 
 describe('unified-network-interceptor relay SSE quirks (#613)', () => {
@@ -134,5 +192,93 @@ describe('unified-network-interceptor relay SSE quirks (#613)', () => {
     // call_A should have {"a":1}, call_B should have {"b":2}
     expect(out).toContain('"arguments":"{\\"a\\":1}"');
     expect(out).toContain('"arguments":"{\\"b\\":2}"');
+  });
+
+  it('reassembles to N tool_calls (not 2N) — output contract', async () => {
+    // The duplicate-empty-id bug: phase-1 chunks at indices 0,1 carry
+    // id+name+metadata-only args; phase-2 chunks at NEW indices 2,3 carry
+    // empty id+name and the actual url args. Pi SDK reassembly used to see
+    // 4 separate tool_calls (2 with id+name+empty-args, 2 with empty-id+url-
+    // args). After the consolidated-emit fix, downstream sees exactly 2.
+    const sse = [
+      // Phase 1: id+name with metadata-only args at indices 0, 1
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_00_Yp3Y","type":"function","function":{"name":"web_fetch","arguments":"{\\"_intent\\":\\"fetch news\\",\\"_displayName\\":\\"Fetch article\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_01_Zg1a","type":"function","function":{"name":"web_fetch","arguments":"{\\"_intent\\":\\"fetch backup\\",\\"_displayName\\":\\"Fetch article\\"}"}}]}}]}\n\n',
+      // Phase 2: empty id+name with url args at NEW indices 2, 3
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"id":"","function":{"name":"","arguments":"{\\"url\\":\\"https://daily.example/news\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":3,"id":"","function":{"name":"","arguments":"{\\"url\\":\\"https://ap.example/article\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"finish_reason":"tool_calls"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+
+    const out = await runThroughProcessor(createOpenAiSseStrippingStream(), sse);
+    const reassembled = reassembleToolCalls(out);
+
+    // Exactly two tool_calls — not four.
+    expect(reassembled).toHaveLength(2);
+    // Both have non-empty id and name (no orphan empty-id leakage).
+    for (const tc of reassembled) {
+      expect(tc.id).not.toBe('');
+      expect(tc.function.name).not.toBe('');
+    }
+    // Args were merged from phase-1 metadata + phase-2 url, then stripped.
+    const argsArr = reassembled.map(tc => JSON.parse(tc.function.arguments));
+    expect(argsArr[0]).toEqual({ url: 'https://daily.example/news' });
+    expect(argsArr[1]).toEqual({ url: 'https://ap.example/article' });
+    // No metadata leakage in output.
+    for (const args of argsArr) {
+      expect(args).not.toHaveProperty('_intent');
+      expect(args).not.toHaveProperty('_displayName');
+    }
+    // ids preserved correctly per call.
+    expect(reassembled[0]?.id).toBe('call_00_Yp3Y');
+    expect(reassembled[1]?.id).toBe('call_01_Zg1a');
+  });
+
+  it('handles standard OpenAI streaming (id-once + arg-deltas at same index)', async () => {
+    // Vanilla OpenAI shape: first chunk has id+name+empty-args, subsequent
+    // chunks have only arg-deltas at the same index. Must still produce one
+    // consolidated tool_call.
+    const sse = [
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_std","type":"function","function":{"name":"ls","arguments":""}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"_in"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"tent\\":\\"x\\",\\"path\\":\\"/tmp\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"finish_reason":"tool_calls"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+
+    const out = await runThroughProcessor(createOpenAiSseStrippingStream(), sse);
+    const reassembled = reassembleToolCalls(out);
+
+    expect(reassembled).toHaveLength(1);
+    expect(reassembled[0]?.id).toBe('call_std');
+    expect(reassembled[0]?.function.name).toBe('ls');
+    expect(JSON.parse(reassembled[0]!.function.arguments)).toEqual({ path: '/tmp' });
+  });
+
+  it('does not leak empty-id tool_calls into output for any DeepSeek phase-2 shape', async () => {
+    // Stress test: phase-1 chunks for 3 parallel calls, phase-2 chunks at
+    // NEW indices interleaved. Output must contain ZERO tool_call entries
+    // with empty id.
+    const sse = [
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"read","arguments":"{\\"_intent\\":\\"a\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function","function":{"name":"ls","arguments":"{\\"_intent\\":\\"b\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"id":"call_c","type":"function","function":{"name":"grep","arguments":"{\\"_intent\\":\\"c\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":3,"id":"","function":{"name":"","arguments":"{\\"path\\":\\"/a\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":4,"id":"","function":{"name":"","arguments":"{\\"path\\":\\"/b\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":5,"id":"","function":{"name":"","arguments":"{\\"pattern\\":\\"foo\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"finish_reason":"tool_calls"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+
+    const out = await runThroughProcessor(createOpenAiSseStrippingStream(), sse);
+    const reassembled = reassembleToolCalls(out);
+
+    expect(reassembled).toHaveLength(3);
+    expect(reassembled.map(tc => tc.id)).toEqual(['call_a', 'call_b', 'call_c']);
+    expect(reassembled.map(tc => tc.function.name)).toEqual(['read', 'ls', 'grep']);
+    expect(JSON.parse(reassembled[0]!.function.arguments)).toEqual({ path: '/a' });
+    expect(JSON.parse(reassembled[1]!.function.arguments)).toEqual({ path: '/b' });
+    expect(JSON.parse(reassembled[2]!.function.arguments)).toEqual({ pattern: 'foo' });
   });
 });
