@@ -81,6 +81,19 @@ export function handleComplete(
     })
   }
 
+  // Clear isQueued from any user messages once the turn completes. Pi's steer
+  // path never emits a 'processing' status update to clear it (the message is
+  // injected mid-stream and absorbed into the current response), so this is
+  // the natural place to drop the indicator. Claude's queued path has already
+  // cleared via the 'processing' status update before this fires; this is
+  // a safe no-op for that case.
+  const hasQueuedUserBubbles = updatedMessages.some(m => m.role === 'user' && m.isQueued)
+  if (hasQueuedUserBubbles) {
+    updatedMessages = updatedMessages.map(m =>
+      m.role === 'user' && m.isQueued ? { ...m, isQueued: false } : m
+    )
+  }
+
   return {
     state: {
       session: {
@@ -525,12 +538,22 @@ export function handleUserMessage(
       return { state, effects: [] }
     }
 
-    // Update existing message - remove isPending, add isQueued if status is 'queued'
+    // Update existing message — clear isPending, set isQueued based on status.
+    //
+    // - 'queued'     → isQueued = true  (Claude path: backend queued for re-send)
+    // - 'processing' → isQueued = false (queued message is now actually running)
+    // - 'accepted'   → isQueued = false (Pi steer path: agent has the message)
+    //
+    // We deliberately do NOT swap `m.id` to the backend's canonical id here.
+    // ChatDisplay's `getTurnKey` keys user-message bubbles by id, and a swap
+    // would unmount/remount the UserMessageBubble — wiping its local timer
+    // state and dropping the queued chip mid-flight. The canonical backend
+    // id is irrelevant to subsequent events: they all use
+    // `event.optimisticMessageId` for routing (see the findIndex above).
     updatedMessages = session.messages.map((m, i) => {
       if (i === existingIndex) {
         return {
           ...m,
-          id: message.id,  // Use backend's ID as canonical
           isPending: false,
           isQueued: status === 'queued',
         }

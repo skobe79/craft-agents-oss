@@ -11,7 +11,7 @@
  * - Pending/queued states (Electron only)
  */
 
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Clock } from 'lucide-react'
 import type { StoredAttachment, ContentBadge } from '@craft-agent/core'
 import { normalizePath } from '@craft-agent/core/utils'
@@ -323,6 +323,12 @@ export interface UserMessageBubbleProps {
   compactMode?: boolean
 }
 
+/** Minimum visible duration of the "Queued" chip. Both backends ack
+ * mid-stream sends within ~50–150ms, which would otherwise make the chip
+ * flash too briefly to register. Hold it long enough for the user to
+ * actually read it. */
+const QUEUED_MIN_VISIBLE_MS = 2500
+
 export function UserMessageBubble({
   content,
   className,
@@ -336,6 +342,54 @@ export function UserMessageBubble({
 }: UserMessageBubbleProps) {
   const { t } = useTranslation()
   const hasAttachments = attachments && attachments.length > 0
+
+  // Show the queued chip while `isQueued` is true AND for at least
+  // QUEUED_MIN_VISIBLE_MS after it first became true — even if the backend
+  // acks in <150ms. Pure UI state; `isQueued` remains the persisted source
+  // of truth.
+  const [showQueued, setShowQueued] = useState(isQueued ?? false)
+  const queuedShownAtRef = useRef<number | null>(isQueued ? Date.now() : null)
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (clearTimerRef.current) clearTimeout(clearTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (clearTimerRef.current) {
+      clearTimeout(clearTimerRef.current)
+      clearTimerRef.current = null
+    }
+
+    if (isQueued) {
+      setShowQueued(true)
+      if (queuedShownAtRef.current === null) {
+        queuedShownAtRef.current = Date.now()
+      }
+      return
+    }
+
+    // isQueued flipped to false. Keep the chip up for the remainder of
+    // the minimum visible window, then clear.
+    if (queuedShownAtRef.current === null) return
+
+    const elapsed = Date.now() - queuedShownAtRef.current
+    const remaining = Math.max(0, QUEUED_MIN_VISIBLE_MS - elapsed)
+
+    if (remaining === 0) {
+      setShowQueued(false)
+      queuedShownAtRef.current = null
+      return
+    }
+
+    clearTimerRef.current = setTimeout(() => {
+      setShowQueued(false)
+      queuedShownAtRef.current = null
+      clearTimerRef.current = null
+    }, remaining)
+  }, [isQueued])
 
   // Separate edit_request badges (rendered above bubble) from other badges (rendered inline)
   const editRequestBadges = badges?.filter(isEditRequestBadge) ?? []
@@ -426,7 +480,11 @@ export function UserMessageBubble({
         </div>
       )}
 
-      {/* Text content bubble */}
+      {/* Text content bubble. Queued messages render an inline header chip
+          inside the bubble (Clock icon + 'Queued' italic) instead of a
+          separate pill below — keeps the chat to one bubble per message
+          while the chip and pulsing icon make the waiting state obvious
+          (#616 follow-up). */}
       <div
         className={cn(
           "max-w-[80%] bg-user-message-bubble rounded-[16px] break-words min-w-0 select-text [&_p]:m-0",
@@ -434,6 +492,16 @@ export function UserMessageBubble({
           isPending && "animate-shimmer"
         )}
       >
+        {showQueued && (
+          <div
+            className="flex items-center gap-1.5 text-foreground/55 mb-1.5"
+            role="status"
+            aria-live="polite"
+          >
+            <Clock className="h-3 w-3 animate-pulse" aria-hidden="true" />
+            <span className="text-[11px] italic">{t('chat.queuedBadge')}</span>
+          </div>
+        )}
         {hasInlineBadges
           ? renderContentWithBadges(displayContent, inlineBadges, onUrlClick, onFileClick)
           : (
@@ -448,20 +516,6 @@ export function UserMessageBubble({
           )
         }
       </div>
-
-      {/* Queued indicator — stays visible until the backend replays this
-          message. Bug #616: previously rendered as a subtle "queued" pill that
-          users frequently missed, leading to a "silent drop" perception. */}
-      {isQueued && (
-        <span
-          className="inline-flex items-center gap-1.5 text-[11px] text-foreground/70 bg-foreground/[0.07] px-2.5 py-1 rounded-full"
-          role="status"
-          aria-live="polite"
-        >
-          <Clock className="h-3 w-3" aria-hidden="true" />
-          {t('chat.queuedBadge')}
-        </span>
-      )}
     </div>
   )
 }
