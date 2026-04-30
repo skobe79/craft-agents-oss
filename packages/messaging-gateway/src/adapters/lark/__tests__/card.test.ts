@@ -17,6 +17,16 @@ import type { InlineButton } from '../../../types'
 describe('buildLarkCard', () => {
   const messageId = 'msg-abc-123'
 
+  it('wraps elements under `body` (schema 2.0 envelope)', () => {
+    // Regression guard: top-level `elements` is rejected with code 200621
+    // ("unknown property, property: elements") on Lark schema 2.0 — the
+    // payload must nest elements under `body`. This test locks the wrapper.
+    const card = buildLarkCard('hi', [{ id: 'a', label: 'A' }], { messageId })
+    expect(card.body).toBeTruthy()
+    expect(Array.isArray(card.body.elements)).toBe(true)
+    expect((card as unknown as { elements?: unknown }).elements).toBeUndefined()
+  })
+
   it('produces schema 2.0 with text body + action row', () => {
     const buttons: InlineButton[] = [
       { id: 'accept', label: 'Accept' },
@@ -24,12 +34,12 @@ describe('buildLarkCard', () => {
     ]
     const card = buildLarkCard('Plan ready. Approve?', buttons, { messageId })
     expect(card.schema).toBe('2.0')
-    expect(card.elements.length).toBe(2)
-    expect(card.elements[0]!.tag).toBe('div')
-    expect(card.elements[1]!.tag).toBe('action')
+    expect(card.body.elements.length).toBe(2)
+    expect(card.body.elements[0]!.tag).toBe('div')
+    expect(card.body.elements[1]!.tag).toBe('action')
 
-    if (card.elements[1]!.tag === 'action') {
-      const actions = card.elements[1]!.actions
+    if (card.body.elements[1]!.tag === 'action') {
+      const actions = card.body.elements[1]!.actions
       expect(actions.length).toBe(2)
       expect(actions[0]!.text.content).toBe('Accept')
       expect(actions[0]!.value.buttonId).toBe('accept')
@@ -44,8 +54,8 @@ describe('buildLarkCard', () => {
     const longLabel = 'a'.repeat(LARK_MAX_LABEL_LENGTH + 5)
     const buttons: InlineButton[] = [{ id: 'x', label: longLabel }]
     const card = buildLarkCard('hi', buttons, { messageId })
-    if (card.elements[1]!.tag === 'action') {
-      const truncated = card.elements[1]!.actions[0]!.text.content
+    if (card.body.elements[1]!.tag === 'action') {
+      const truncated = card.body.elements[1]!.actions[0]!.text.content
       expect(truncated.length).toBe(LARK_MAX_LABEL_LENGTH)
       // Last char becomes the ellipsis
       expect(truncated.endsWith('…')).toBe(true)
@@ -58,25 +68,26 @@ describe('buildLarkCard', () => {
       label: `Btn ${i}`,
     }))
     const card = buildLarkCard('hi', buttons, { messageId })
-    if (card.elements[1]!.tag === 'action') {
-      expect(card.elements[1]!.actions.length).toBe(LARK_MAX_BUTTONS)
+    if (card.body.elements[1]!.tag === 'action') {
+      expect(card.body.elements[1]!.actions.length).toBe(LARK_MAX_BUTTONS)
     }
   })
 
   it('forwards button.data into the value payload when set', () => {
     const buttons: InlineButton[] = [{ id: 'x', label: 'X', data: 'extra-payload' }]
     const card = buildLarkCard('hi', buttons, { messageId })
-    if (card.elements[1]!.tag === 'action') {
-      expect(card.elements[1]!.actions[0]!.value.data).toBe('extra-payload')
+    if (card.body.elements[1]!.tag === 'action') {
+      expect(card.body.elements[1]!.actions[0]!.value.data).toBe('extra-payload')
     }
   })
 })
 
 describe('buildClearedCard', () => {
-  it('drops the action row, keeps only the text body', () => {
+  it('drops the action row, keeps only the text body, still under body', () => {
     const card = buildClearedCard('Done.')
-    expect(card.elements.length).toBe(1)
-    expect(card.elements[0]!.tag).toBe('div')
+    expect(card.body.elements.length).toBe(1)
+    expect(card.body.elements[0]!.tag).toBe('div')
+    expect((card as unknown as { elements?: unknown }).elements).toBeUndefined()
   })
 })
 

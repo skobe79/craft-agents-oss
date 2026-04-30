@@ -17,21 +17,29 @@ import type { InlineButton } from '../../types'
 const MAX_BUTTONS = 10
 const MAX_LABEL_LENGTH = 30
 
+/**
+ * Lark schema 2.0 envelope. Note that schema 2.0 nests `elements` under
+ * `body` — the legacy schema 1.0 shape (top-level `elements`) gets rejected
+ * with code 200621 ("unknown property, property: elements").
+ */
 export interface LarkCardSchema {
   schema: '2.0'
   config: { wide_screen_mode: boolean }
-  elements: Array<
-    | { tag: 'div'; text: { tag: 'plain_text'; content: string } }
-    | {
-        tag: 'action'
-        actions: Array<{
-          tag: 'button'
-          text: { tag: 'plain_text'; content: string }
-          type: 'primary' | 'default'
-          value: { buttonId: string; messageId: string; data?: string }
-        }>
-      }
-  >
+  body: {
+    direction?: 'vertical' | 'horizontal'
+    elements: Array<
+      | { tag: 'div'; text: { tag: 'plain_text'; content: string } }
+      | {
+          tag: 'action'
+          actions: Array<{
+            tag: 'button'
+            text: { tag: 'plain_text'; content: string }
+            type: 'primary' | 'default'
+            value: { buttonId: string; messageId: string; data?: string }
+          }>
+        }
+    >
+  }
 }
 
 export interface BuildCardOptions {
@@ -49,23 +57,25 @@ export function buildLarkCard(
   return {
     schema: '2.0',
     config: { wide_screen_mode: true },
-    elements: [
-      { tag: 'div', text: { tag: 'plain_text', content: text } },
-      {
-        tag: 'action',
-        actions: capped.map((btn, idx) => ({
-          tag: 'button' as const,
-          text: { tag: 'plain_text' as const, content: truncateLabel(btn.label) },
-          // First button is "primary" (visually emphasised) — matches Telegram's first-button-styled convention.
-          type: idx === 0 ? ('primary' as const) : ('default' as const),
-          value: {
-            buttonId: btn.id,
-            messageId: opts.messageId,
-            ...(btn.data !== undefined ? { data: btn.data } : {}),
-          },
-        })),
-      },
-    ],
+    body: {
+      elements: [
+        { tag: 'div', text: { tag: 'plain_text', content: text } },
+        {
+          tag: 'action',
+          actions: capped.map((btn, idx) => ({
+            tag: 'button' as const,
+            text: { tag: 'plain_text' as const, content: truncateLabel(btn.label) },
+            // First button is "primary" (visually emphasised) — matches Telegram's first-button-styled convention.
+            type: idx === 0 ? ('primary' as const) : ('default' as const),
+            value: {
+              buttonId: btn.id,
+              messageId: opts.messageId,
+              ...(btn.data !== undefined ? { data: btn.data } : {}),
+            },
+          })),
+        },
+      ],
+    },
   }
 }
 
@@ -82,7 +92,9 @@ export function buildClearedCard(text: string): LarkCardSchema {
   return {
     schema: '2.0',
     config: { wide_screen_mode: true },
-    elements: [{ tag: 'div', text: { tag: 'plain_text', content: text } }],
+    body: {
+      elements: [{ tag: 'div', text: { tag: 'plain_text', content: text } }],
+    },
   }
 }
 

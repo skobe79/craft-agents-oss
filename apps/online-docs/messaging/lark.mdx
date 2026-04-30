@@ -165,5 +165,6 @@ Limits enforced by the adapter:
 - **"Connection failed during Test"** — if the App Secret was regenerated in the Open Platform, copy the new value. If you switched the app's tenant, the old credentials are revoked.
 - **"Bot received my DM but ignores my group message"** — bot needs the `im:message.group_at_msg` scope, AND the message must @mention the bot.
 - **"Cards arrive but button presses don't reach the agent"** — confirm the app is **published** (or the tenant is in dev-mode). Cards from a draft app can render but card-action callbacks won't fire.
+- **"`lark_send_card_failed` with `code: 230099` and `unknown property, property: elements`"** — happens when something downstream emits a schema-1.0 card payload under a `schema: '2.0'` envelope. The fix is to wrap the card body under `body: { elements: [...] }` (already in place; this note exists for anyone forking the adapter).
 - **"Can't send files larger than ~20 MB"** — that's the adapter's hard cap. Compress or split before sending.
 - **Logs**: `~/.craft-agent/logs/messaging-gateway.log` — search for `component:"lark-adapter"` or `event:"lark_*"`.

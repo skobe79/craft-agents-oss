@@ -404,15 +404,56 @@ export class LarkAdapter implements PlatformAdapter {
     //    enough — the press handler can look up the binding from chat_id alone
     //    if needed, but storing the id keeps gated routing simple.
     const placeholderCard = buildLarkCard(text, buttons, { messageId: 'pending' })
-    const result = await this.client.im.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: channelId,
-        msg_type: 'interactive',
-        content: JSON.stringify(placeholderCard),
-      },
-    })
-    const messageId = result?.data?.message_id ?? ''
+    const cardJson = JSON.stringify(placeholderCard)
+
+    // Wrap the API call so any payload-shape / scope / quota issues surface
+    // in our logs with a structured `lark_send_card_failed` event instead of
+    // bubbling up unannotated through the renderer's outer catch. We also
+    // post a plain-text fallback so the user always sees *something* in the
+    // chat when the rich card path breaks, then re-throw so the renderer
+    // can record the failure.
+    let messageId = ''
+    try {
+      const result = await this.client.im.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: channelId,
+          msg_type: 'interactive',
+          content: cardJson,
+        },
+      })
+      messageId = result?.data?.message_id ?? ''
+      this.log.info('[lark] sent card', {
+        event: 'lark_send_card_ok',
+        chatId: channelId,
+        messageId,
+        buttonCount: Math.min(buttons.length, LARK_MAX_BUTTONS),
+      })
+    } catch (err: unknown) {
+      const errObj = (err ?? {}) as { code?: unknown; msg?: unknown; message?: unknown }
+      this.log.error('[lark] failed to send card', {
+        event: 'lark_send_card_failed',
+        chatId: channelId,
+        code: typeof errObj.code === 'number' ? errObj.code : undefined,
+        larkMsg: typeof errObj.msg === 'string' ? errObj.msg : undefined,
+        error: err instanceof Error ? err.message : String(err),
+        payloadSize: cardJson.length,
+        buttonCount: buttons.length,
+      })
+      // Best-effort plain-text fallback so the user knows something happened.
+      // Failures here are non-fatal — we still re-throw the original card error.
+      try {
+        await this.sendText(
+          channelId,
+          `${text}\n\n(Open the desktop app to respond — the in-chat buttons couldn't be sent.)`,
+          _opts,
+        )
+      } catch {
+        // Swallowed — the renderer's outer handler will see the original throw.
+      }
+      throw err
+    }
+
     if (messageId) {
       this.sentMsgTypes.set(messageId, 'interactive')
       // Patch with the real message_id baked into each button's value so card

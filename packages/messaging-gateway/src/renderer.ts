@@ -519,10 +519,13 @@ Approve in the desktop app to continue.`,
       return
     }
 
-    if (binding.platform !== 'telegram') return
+    // Telegram + Lark both support inline buttons through the same
+    // `sendButtons` contract; either gets the rich plan card. Anything else
+    // is treated like WhatsApp above and gated out earlier.
+    if (binding.platform !== 'telegram' && binding.platform !== 'lark') return
 
     // Token registry is optional for backwards compatibility; without it we
-    // degrade to the generic pointer so Telegram still sees *something*.
+    // degrade to the generic pointer so the bot still sees *something*.
     if (!this.planTokens) {
       await adapter.sendText(
         binding.channelId,
