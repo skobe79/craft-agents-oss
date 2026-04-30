@@ -18,9 +18,14 @@ const MAX_BUTTONS = 10
 const MAX_LABEL_LENGTH = 30
 
 /**
- * Lark schema 2.0 envelope. Note that schema 2.0 nests `elements` under
- * `body` — the legacy schema 1.0 shape (top-level `elements`) gets rejected
- * with code 200621 ("unknown property, property: elements").
+ * Lark schema 2.0 envelope. Two shape changes vs the legacy 1.0 cards:
+ *  - elements live under `body`, not at the top level (rejected with code
+ *    200621 — "unknown property, property: elements").
+ *  - the `tag: 'action'` wrapper around buttons is gone; buttons are direct
+ *    `body.elements` children (rejected with code 200861 — "unsupported
+ *    tag action; cards of schema V2 no longer support this capability").
+ *  - button click payloads use `behaviors: [{ type: 'callback', value }]`
+ *    instead of the bare `value` field schema 1.0 used.
  */
 export interface LarkCardSchema {
   schema: '2.0'
@@ -30,11 +35,11 @@ export interface LarkCardSchema {
     elements: Array<
       | { tag: 'div'; text: { tag: 'plain_text'; content: string } }
       | {
-          tag: 'action'
-          actions: Array<{
-            tag: 'button'
-            text: { tag: 'plain_text'; content: string }
-            type: 'primary' | 'default'
+          tag: 'button'
+          text: { tag: 'plain_text'; content: string }
+          type: 'primary' | 'default'
+          behaviors: Array<{
+            type: 'callback'
             value: { buttonId: string; messageId: string; data?: string }
           }>
         }
@@ -60,20 +65,24 @@ export function buildLarkCard(
     body: {
       elements: [
         { tag: 'div', text: { tag: 'plain_text', content: text } },
-        {
-          tag: 'action',
-          actions: capped.map((btn, idx) => ({
-            tag: 'button' as const,
-            text: { tag: 'plain_text' as const, content: truncateLabel(btn.label) },
-            // First button is "primary" (visually emphasised) — matches Telegram's first-button-styled convention.
-            type: idx === 0 ? ('primary' as const) : ('default' as const),
-            value: {
-              buttonId: btn.id,
-              messageId: opts.messageId,
-              ...(btn.data !== undefined ? { data: btn.data } : {}),
+        // Schema 2.0: buttons sit directly inside `body.elements` (no `action`
+        // wrapper) and the click payload moves into `behaviors[].value`.
+        ...capped.map((btn, idx) => ({
+          tag: 'button' as const,
+          text: { tag: 'plain_text' as const, content: truncateLabel(btn.label) },
+          // First button is "primary" (visually emphasised) — matches Telegram's first-button-styled convention.
+          type: idx === 0 ? ('primary' as const) : ('default' as const),
+          behaviors: [
+            {
+              type: 'callback' as const,
+              value: {
+                buttonId: btn.id,
+                messageId: opts.messageId,
+                ...(btn.data !== undefined ? { data: btn.data } : {}),
+              },
             },
-          })),
-        },
+          ],
+        })),
       ],
     },
   }

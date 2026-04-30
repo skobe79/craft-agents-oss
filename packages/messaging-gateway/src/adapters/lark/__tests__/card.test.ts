@@ -27,26 +27,40 @@ describe('buildLarkCard', () => {
     expect((card as unknown as { elements?: unknown }).elements).toBeUndefined()
   })
 
-  it('produces schema 2.0 with text body + action row', () => {
+  it('produces schema 2.0 with text body + button elements (no `action` wrapper)', () => {
     const buttons: InlineButton[] = [
       { id: 'accept', label: 'Accept' },
       { id: 'reject', label: 'Reject' },
     ]
     const card = buildLarkCard('Plan ready. Approve?', buttons, { messageId })
     expect(card.schema).toBe('2.0')
-    expect(card.body.elements.length).toBe(2)
+    // 1 text element + N button elements (no `action` wrapper in 2.0)
+    expect(card.body.elements.length).toBe(3)
     expect(card.body.elements[0]!.tag).toBe('div')
-    expect(card.body.elements[1]!.tag).toBe('action')
+    expect(card.body.elements[1]!.tag).toBe('button')
+    expect(card.body.elements[2]!.tag).toBe('button')
 
-    if (card.body.elements[1]!.tag === 'action') {
-      const actions = card.body.elements[1]!.actions
-      expect(actions.length).toBe(2)
-      expect(actions[0]!.text.content).toBe('Accept')
-      expect(actions[0]!.value.buttonId).toBe('accept')
-      expect(actions[0]!.value.messageId).toBe(messageId)
-      // First button gets primary visual treatment
-      expect(actions[0]!.type).toBe('primary')
-      expect(actions[1]!.type).toBe('default')
+    const first = card.body.elements[1]!
+    if (first.tag === 'button') {
+      expect(first.text.content).toBe('Accept')
+      expect(first.type).toBe('primary')
+      expect(first.behaviors[0]!.type).toBe('callback')
+      expect(first.behaviors[0]!.value.buttonId).toBe('accept')
+      expect(first.behaviors[0]!.value.messageId).toBe(messageId)
+    }
+    const second = card.body.elements[2]!
+    if (second.tag === 'button') {
+      expect(second.type).toBe('default')
+    }
+  })
+
+  it('rejects the legacy `action` wrapper at the type level (schema-V2 regression guard)', () => {
+    // Lark rejects `tag: 'action'` under schema 2.0 with code 200861. The
+    // type system enforces this — `body.elements` only allows `div` and
+    // `button` tags, never `action`.
+    const card = buildLarkCard('hi', [{ id: 'a', label: 'A' }], { messageId })
+    for (const el of card.body.elements) {
+      expect(el.tag).not.toBe('action')
     }
   })
 
@@ -54,11 +68,10 @@ describe('buildLarkCard', () => {
     const longLabel = 'a'.repeat(LARK_MAX_LABEL_LENGTH + 5)
     const buttons: InlineButton[] = [{ id: 'x', label: longLabel }]
     const card = buildLarkCard('hi', buttons, { messageId })
-    if (card.body.elements[1]!.tag === 'action') {
-      const truncated = card.body.elements[1]!.actions[0]!.text.content
-      expect(truncated.length).toBe(LARK_MAX_LABEL_LENGTH)
-      // Last char becomes the ellipsis
-      expect(truncated.endsWith('…')).toBe(true)
+    const btn = card.body.elements[1]!
+    if (btn.tag === 'button') {
+      expect(btn.text.content.length).toBe(LARK_MAX_LABEL_LENGTH)
+      expect(btn.text.content.endsWith('…')).toBe(true)
     }
   })
 
@@ -68,16 +81,16 @@ describe('buildLarkCard', () => {
       label: `Btn ${i}`,
     }))
     const card = buildLarkCard('hi', buttons, { messageId })
-    if (card.body.elements[1]!.tag === 'action') {
-      expect(card.body.elements[1]!.actions.length).toBe(LARK_MAX_BUTTONS)
-    }
+    // 1 text element + LARK_MAX_BUTTONS button elements
+    expect(card.body.elements.length).toBe(1 + LARK_MAX_BUTTONS)
   })
 
-  it('forwards button.data into the value payload when set', () => {
+  it('forwards button.data into the behaviors[].value payload when set', () => {
     const buttons: InlineButton[] = [{ id: 'x', label: 'X', data: 'extra-payload' }]
     const card = buildLarkCard('hi', buttons, { messageId })
-    if (card.body.elements[1]!.tag === 'action') {
-      expect(card.body.elements[1]!.actions[0]!.value.data).toBe('extra-payload')
+    const btn = card.body.elements[1]!
+    if (btn.tag === 'button') {
+      expect(btn.behaviors[0]!.value.data).toBe('extra-payload')
     }
   })
 })
