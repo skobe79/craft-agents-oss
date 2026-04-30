@@ -430,14 +430,38 @@ export class LarkAdapter implements PlatformAdapter {
         buttonCount: Math.min(buttons.length, LARK_MAX_BUTTONS),
       })
     } catch (err: unknown) {
-      const errObj = (err ?? {}) as { code?: unknown; msg?: unknown; message?: unknown }
+      // The SDK wraps every error in axios's `AxiosError`. The actual
+      // Lark-side reason (code + msg) lives at `err.response.data`, NOT at
+      // the top level — extract it so the log line is actually useful.
+      const errObj = (err ?? {}) as {
+        code?: unknown
+        msg?: unknown
+        message?: unknown
+        response?: { status?: unknown; data?: unknown }
+      }
+      const responseData = (errObj.response?.data ?? null) as
+        | { code?: unknown; msg?: unknown; error?: unknown }
+        | null
       this.log.error('[lark] failed to send card', {
         event: 'lark_send_card_failed',
         chatId: channelId,
-        code: typeof errObj.code === 'number' ? errObj.code : undefined,
-        larkMsg: typeof errObj.msg === 'string' ? errObj.msg : undefined,
+        httpStatus: typeof errObj.response?.status === 'number' ? errObj.response.status : undefined,
+        larkCode:
+          typeof responseData?.code === 'number'
+            ? responseData.code
+            : typeof errObj.code === 'number'
+              ? errObj.code
+              : undefined,
+        larkMsg:
+          typeof responseData?.msg === 'string'
+            ? responseData.msg
+            : typeof errObj.msg === 'string'
+              ? errObj.msg
+              : undefined,
+        larkError: responseData?.error,
         error: err instanceof Error ? err.message : String(err),
         payloadSize: cardJson.length,
+        payloadPreview: cardJson.slice(0, 500),
         buttonCount: buttons.length,
       })
       // Best-effort plain-text fallback so the user knows something happened.
