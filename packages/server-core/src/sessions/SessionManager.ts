@@ -168,6 +168,11 @@ const MAX_ADMIN_REMEMBER_MINUTES = 60
 const MAX_ANNOTATIONS_PER_MESSAGE = 200
 const MAX_ANNOTATION_JSON_BYTES = 32 * 1024
 
+// Window during which fs.watch metadata-revert events from our own atomic write
+// are ignored, so the watcher does not roll back the in-memory mutation we
+// just persisted. See onSessionMetadataChange.
+const METADATA_WRITE_GUARD_MS = 5000
+
 /**
  * Text sent to the session when a plan is approved from outside the desktop
  * UI (e.g. Telegram button). Mirrors the English `plan.approved` i18n key
@@ -1678,20 +1683,88 @@ export class SessionManager implements ISessionManager {
     }
   }
 
-  // Persist a session to disk (async with debouncing)
+  // Suppress fs.watch metadata-revert events for the window in which our own
+  // atomic write completes. See onSessionMetadataChange.
+  private setMetadataWriteGuard(managed: ManagedSession): void {
+    managed._metadataWriteGuardUntil = Date.now() + METADATA_WRITE_GUARD_MS
+  }
+
+  /**
+   * Persist a session to disk (async, with debouncing in the persistence queue).
+   *
+   * Cold-session path: if messages haven't been lazy-loaded yet, hydrate them
+   * synchronously from the JSONL first — otherwise the snapshot we enqueue
+   * would write `messages: []` over the real messages on disk. Hydration
+   * deliberately does NOT touch persistent metadata fields (name, labels,
+   * sessionStatus, llmConnection, ...) because the caller may have just
+   * mutated them; the in-memory mutation must win over what's on disk.
+   * `loadStoredSession` is synchronous (sync fs reads), so the entire path
+   * stays sync — no microtask race window between the load and the enqueue.
+   */
   private persistSession(managed: ManagedSession): void {
+    if (!managed.messagesLoaded) {
+      this.hydrateMessagesForColdPersist(managed)
+    }
+    this.enqueuePersist(managed)
+  }
+
+  // Cold-persist hydration. Mirrors the messages/queue-recovery half of
+  // loadMessagesFromDisk but skips the metadata field syncs. Sets
+  // messagesLoaded=true so subsequent persistSession calls take the fast path.
+  // Subsequent ensureMessagesLoaded calls also short-circuit, which is fine —
+  // queue recovery has already run here.
+  private hydrateMessagesForColdPersist(managed: ManagedSession): void {
+    sessionLog.debug(`Cold-load triggered for persistSession on ${managed.id}`)
+    const stored = loadStoredSession(managed.workspace.rootPath, managed.id)
+    if (stored) {
+      managed.messages = (stored.messages || []).map(storedToMessage)
+      managed.tokenUsage = stored.tokenUsage
+      // Deferred-load fields (intentionally undefined after startup, see
+      // loadSessionsFromDisk). Populate from disk only if not already set in
+      // memory — a caller may have mutated them via setSessionSources etc.
+      if (managed.enabledSourceSlugs === undefined) managed.enabledSourceSlugs = stored.enabledSourceSlugs
+      if (managed.lastReadMessageId === undefined) managed.lastReadMessageId = stored.lastReadMessageId
+      if (managed.hasUnread === undefined) managed.hasUnread = stored.hasUnread
+      if (managed.sharedUrl === undefined) managed.sharedUrl = stored.sharedUrl
+      if (managed.sharedId === undefined) managed.sharedId = stored.sharedId
+      if (managed.transferredSessionSummary === undefined) managed.transferredSessionSummary = stored.transferredSessionSummary
+      if (managed.transferredSessionSummaryApplied === undefined) managed.transferredSessionSummaryApplied = stored.transferredSessionSummaryApplied
+
+      // Queue recovery: find orphaned queued messages from crash/restart and re-queue them.
+      const orphanedQueued = managed.messages.filter(m =>
+        m.role === 'user' && m.isQueued === true
+      )
+      if (orphanedQueued.length > 0) {
+        sessionLog.info(`Recovering ${orphanedQueued.length} queued message(s) for session ${managed.id}`)
+        for (const msg of orphanedQueued) {
+          managed.messageQueue.push({
+            message: msg.content,
+            messageId: msg.id,
+            attachments: undefined,
+            storedAttachments: msg.attachments,
+            options: undefined,
+          })
+        }
+        if (!managed.isProcessing && managed.messageQueue.length > 0) {
+          setImmediate(() => {
+            this.processNextQueuedMessage(managed.id)
+          })
+        }
+      }
+      sessionLog.debug(`Cold-hydrated ${managed.messages.length} messages for session ${managed.id}`)
+    }
+    managed.messagesLoaded = true
+  }
+
+  // Build the StoredSession snapshot and hand it to the persistence queue.
+  // Caller must ensure `managed.messagesLoaded` is true.
+  private enqueuePersist(managed: ManagedSession): void {
     try {
       // Filter out transient status messages (progress indicators like "Compacting...")
       // Error messages are now persisted with rich fields for diagnostics
       const persistableMessages = managed.messages.filter(m =>
         m.role !== 'status'
       )
-
-      // If messages haven't been loaded yet (e.g., branched session not yet opened),
-      // skip persistence to avoid overwriting JSONL messages with empty array
-      if (!managed.messagesLoaded) {
-        return
-      }
 
       const storedSession: StoredSession = {
         ...pickSessionFields(managed),
@@ -1709,12 +1782,14 @@ export class SessionManager implements ISessionManager {
     }
   }
 
-  // Flush a specific session immediately (call on session close/switch)
+  // Flush a specific session immediately (call on session close/switch).
+  // Cold-persist hydration is synchronous, so by the time we reach here the
+  // queue already has an entry whenever persistSession was just called.
   async flushSession(sessionId: string): Promise<void> {
     await sessionPersistenceQueue.flush(sessionId)
   }
 
-  // Flush all pending sessions (call on app quit)
+  // Flush all pending sessions (call on app quit).
   async flushAllSessions(): Promise<void> {
     await sessionPersistenceQueue.flushAll()
   }
@@ -3483,8 +3558,8 @@ export class SessionManager implements ISessionManager {
 
       // Wire up session self-management tools (set_session_labels, set_session_status, etc.)
       mergeSessionScopedToolCallbacks(managed.id, {
-        setSessionLabelsFn: (sessionId: string | undefined, labels: string[]) => {
-          this.setSessionLabels(sessionId ?? managed.id, labels)
+        setSessionLabelsFn: async (sessionId: string | undefined, labels: string[]) => {
+          await this.setSessionLabels(sessionId ?? managed.id, labels)
         },
         setSessionStatusFn: async (sessionId: string | undefined, status: string) => {
           await this.setSessionStatus(sessionId ?? managed.id, status as SessionStatus)
@@ -3800,8 +3875,7 @@ export class SessionManager implements ISessionManager {
     const managed = this.sessions.get(sessionId)
     if (managed) {
       managed.sessionStatus = sessionStatus
-      // Guard: suppress external metadata revert from fs.watch during atomic write
-      managed._metadataWriteGuardUntil = Date.now() + 5000
+      this.setMetadataWriteGuard(managed)
       // Persist in-memory state directly to avoid race with pending queue writes
       this.persistSession(managed)
       await this.flushSession(managed.id)
@@ -6012,20 +6086,20 @@ export class SessionManager implements ISessionManager {
    * Set labels for a session (additive tags, many-per-session).
    * Labels are IDs referencing workspace labels/config.json.
    */
-  setSessionLabels(sessionId: string, labels: string[]): void {
+  async setSessionLabels(sessionId: string, labels: string[]): Promise<void> {
     const managed = this.sessions.get(sessionId)
     if (managed) {
       managed.labels = labels
-      // Guard: suppress external metadata revert from fs.watch during atomic write
-      managed._metadataWriteGuardUntil = Date.now() + 5000
+      this.setMetadataWriteGuard(managed)
 
       this.sendEvent({
         type: 'labels_changed',
         sessionId: managed.id,
         labels: managed.labels,
       }, managed.workspace.id)
-      // Persist to disk
+      // Persist in-memory state directly to avoid race with pending queue writes
       this.persistSession(managed)
+      await this.flushSession(managed.id)
       // Workaround: Bun's fs.watch({ recursive: true }) on Linux doesn't track
       // directories created after the watcher started.
       // https://github.com/oven-sh/bun/issues/15939
