@@ -25,14 +25,15 @@ import {
   ChevronDown,
   ChevronRight,
   Hash,
+  LockOpen,
   MessageSquare,
+  MessagesSquare,
   MoreHorizontal,
   Plus,
   PowerOff,
   RefreshCcw,
   Settings2,
   Trash2,
-  Users,
 } from 'lucide-react'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -52,6 +53,14 @@ import { TelegramConnectDialog } from '@/components/messaging/TelegramConnectDia
 import { LarkConnectDialog } from '@/components/messaging/LarkConnectDialog'
 import { TelegramSupergroupPairingDialog } from '@/components/messaging/TelegramSupergroupPairingDialog'
 import { WhatsAppConnectDialog } from '@/components/messaging/WhatsAppConnectDialog'
+import {
+  BindingAllowListPopover,
+  TelegramAccessSection,
+  type BindingAccess,
+  type BindingAccessMode,
+  type PlatformAccessMode,
+  type PlatformOwner,
+} from '@/components/messaging/access'
 import { useActiveWorkspace } from '@/context/AppShellContext'
 import { useNavigation } from '@/contexts/NavigationContext'
 import {
@@ -195,6 +204,12 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
   const [supergroup, setSupergroup] = React.useState<{ chatId: string; title: string } | null>(null)
   const [supergroupDialogOpen, setSupergroupDialogOpen] = React.useState(false)
 
+  // Telegram workspace access mode — telegram only. Lifted up so the
+  // dropdown can decide whether to show "Unlock", and TelegramAccessSection
+  // receives it as a controlled prop. Symmetric with `supergroup` state.
+  const [telegramAccessMode, setTelegramAccessMode] =
+    React.useState<PlatformAccessMode>('open')
+
   const refreshSupergroup = React.useCallback(async () => {
     if (platform !== 'telegram') return
     try {
@@ -205,9 +220,32 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
     }
   }, [platform])
 
+  const refreshTelegramAccessMode = React.useCallback(async () => {
+    if (platform !== 'telegram') return
+    try {
+      const mode = await window.electronAPI.getMessagingPlatformAccessMode('telegram')
+      setTelegramAccessMode(mode as PlatformAccessMode)
+    } catch {
+      // silent — default 'open' covers fresh / disconnected state
+    }
+  }, [platform])
+
   React.useEffect(() => {
     refreshSupergroup()
   }, [refreshSupergroup, workspaceId])
+
+  React.useEffect(() => {
+    if (platform !== 'telegram') return
+    void refreshTelegramAccessMode()
+    // Lock-down migrates open bindings → inherit, which fires
+    // onMessagingBindingChanged. Unlock doesn't migrate, but PlatformRow
+    // and TelegramAccessSection both call setTelegramAccessMode after the
+    // API write, so the prop stays in sync without an extra event.
+    const off = window.electronAPI.onMessagingBindingChanged((wsId) => {
+      if (wsId === workspaceId) void refreshTelegramAccessMode()
+    })
+    return () => off()
+  }, [platform, workspaceId, refreshTelegramAccessMode])
 
   const platformBindings = React.useMemo(
     () =>
@@ -249,6 +287,16 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
   const handleReconfigure = () => {
     setReconfigure(true)
     setConnectOpen(true)
+  }
+
+  const handleUnlock = async () => {
+    try {
+      await window.electronAPI.setMessagingPlatformAccessMode('telegram', 'open')
+      toast.success(t('toast.messagingTelegramUnlocked'))
+      setTelegramAccessMode('open')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'))
+    }
   }
 
   const handleDisconnect = async () => {
@@ -318,6 +366,12 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
                       <Settings2 className="h-3.5 w-3.5" />
                       <span>{t('common.reconfigure')}</span>
                     </StyledDropdownMenuItem>
+                    {telegramAccessMode === 'owner-only' && (
+                      <StyledDropdownMenuItem onClick={() => runAfterMenuClose(handleUnlock)}>
+                        <LockOpen className="h-3.5 w-3.5" />
+                        <span>{t('settings.messaging.telegram.unlock')}</span>
+                      </StyledDropdownMenuItem>
+                    )}
                     <StyledDropdownMenuSeparator />
                     <StyledDropdownMenuItem onClick={handleDisconnect} variant="destructive">
                       <PowerOff className="h-3.5 w-3.5" />
@@ -352,27 +406,34 @@ function PlatformRow({ platform, workspaceId }: { platform: Platform; workspaceI
         </div>
 
         {platform === 'telegram' && runtime.connected ? (
-          <TelegramBindingsBody
-            bindings={platformBindings}
-            sessionMetaMap={sessionMetaMap}
-            supergroup={supergroup}
-            onPairSupergroup={() => setSupergroupDialogOpen(true)}
-            onUnpairSupergroup={async () => {
-              try {
-                await window.electronAPI.unbindMessagingSupergroup()
-                toast.success(
-                  t('settings.messaging.telegram.supergroup.disconnected', {
-                    defaultValue: 'Supergroup disconnected',
-                  }),
-                )
-                refreshSupergroup()
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : t('common.error'))
-              }
-            }}
-            onOpenSession={(b) => navigateToSession(b.sessionId)}
-            onUnbind={handleUnbind}
-          />
+          <>
+            <TelegramAccessSection
+              workspaceId={workspaceId}
+              accessMode={telegramAccessMode}
+              onAccessModeChange={setTelegramAccessMode}
+            />
+            <TelegramBindingsBody
+              bindings={platformBindings}
+              sessionMetaMap={sessionMetaMap}
+              supergroup={supergroup}
+              onPairSupergroup={() => setSupergroupDialogOpen(true)}
+              onUnpairSupergroup={async () => {
+                try {
+                  await window.electronAPI.unbindMessagingSupergroup()
+                  toast.success(
+                    t('settings.messaging.telegram.supergroup.disconnected', {
+                      defaultValue: 'Supergroup disconnected',
+                    }),
+                  )
+                  refreshSupergroup()
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : t('common.error'))
+                }
+              }}
+              onOpenSession={(b) => navigateToSession(b.sessionId)}
+              onUnbind={handleUnbind}
+            />
+          </>
         ) : platformBindings.length > 0 ? (
           <>
             <CardSeparator />
@@ -430,6 +491,13 @@ interface TelegramBindingsBodyProps {
   onUnbind: (binding: MessagingBinding) => void
 }
 
+function bindingToAccess(binding: MessagingBinding): BindingAccess {
+  return {
+    mode: binding.accessMode ?? 'open',
+    allowedSenderIds: binding.allowedSenderIds ?? [],
+  }
+}
+
 function TelegramBindingsBody({
   bindings,
   sessionMetaMap,
@@ -439,6 +507,38 @@ function TelegramBindingsBody({
   onOpenSession,
   onUnbind,
 }: TelegramBindingsBodyProps) {
+  const [workspaceOwners, setWorkspaceOwners] = React.useState<PlatformOwner[]>([])
+
+  React.useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const owners = await window.electronAPI.getMessagingPlatformOwners('telegram')
+        if (!cancelled) setWorkspaceOwners(owners)
+      } catch {
+        // Silent — falls back to empty list which BindingAllowListPopover
+        // handles gracefully (shows "no known users" hint).
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [bindings])
+
+  const handleAccessChange = React.useCallback(
+    async (bindingId: string, next: BindingAccess) => {
+      try {
+        await window.electronAPI.setMessagingBindingAccess(bindingId, {
+          mode: next.mode as BindingAccessMode,
+          ...(next.mode === 'allow-list' ? { allowedSenderIds: next.allowedSenderIds } : {}),
+        })
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to update access')
+      }
+    },
+    [],
+  )
   // Telegram bindings split cleanly on `threadId`:
   //   - undefined: DM ("direct session") — at most one per workspace
   //   - number:    topic in the paired supergroup
@@ -456,8 +556,10 @@ function TelegramBindingsBody({
                 key={binding.id}
                 binding={binding}
                 sessionMetaMap={sessionMetaMap}
+                workspaceOwners={workspaceOwners}
                 onOpen={() => onOpenSession(binding)}
                 onUnbind={() => onUnbind(binding)}
+                onAccessChange={(next) => handleAccessChange(binding.id, next)}
               />
             ))}
           </div>
@@ -470,9 +572,11 @@ function TelegramBindingsBody({
           supergroup={supergroup}
           topicBindings={topicBindings}
           sessionMetaMap={sessionMetaMap}
+          workspaceOwners={workspaceOwners}
           onUnpair={onUnpairSupergroup}
           onOpenSession={onOpenSession}
           onUnbindTopic={onUnbind}
+          onAccessChange={handleAccessChange}
         />
       ) : (
         <UnpairedSupergroupRow onPair={onPairSupergroup} />
@@ -484,28 +588,40 @@ function TelegramBindingsBody({
 function DirectSessionRow({
   binding,
   sessionMetaMap,
+  workspaceOwners,
   onOpen,
   onUnbind,
+  onAccessChange,
 }: {
   binding: MessagingBinding
   sessionMetaMap: TelegramBindingsBodyProps['sessionMetaMap']
+  workspaceOwners: PlatformOwner[]
   onOpen: () => void
   onUnbind: () => void
+  onAccessChange: (next: BindingAccess) => void
 }) {
   const { t } = useTranslation()
   const meta = sessionMetaMap.get(binding.sessionId)
   const sessionLabel = meta ? getSessionTitle(meta) : binding.channelName || binding.channelId
+  // Layout convention here matches the Supergroup row: the binding *type*
+  // ("Direct message session") is the primary label, the session name drops
+  // to the subtitle. Keeps Direct and Supergroup rows visually parallel.
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
       <SubRowIcon icon={MessageSquare} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm">{sessionLabel}</div>
-        <div className="mt-0.5 truncate text-xs text-foreground/50">
+        <div className="truncate text-sm">
           {t('settings.messaging.telegram.directSessionSubtitle', {
             defaultValue: 'Direct message session',
           })}
         </div>
+        <div className="mt-0.5 truncate text-xs text-foreground/50">{sessionLabel}</div>
       </div>
+      <BindingAllowListPopover
+        access={bindingToAccess(binding)}
+        workspaceOwners={workspaceOwners}
+        onChange={onAccessChange}
+      />
       <RowActions onOpen={onOpen} onUnbind={onUnbind} />
     </div>
   )
@@ -515,7 +631,7 @@ function UnpairedSupergroupRow({ onPair }: { onPair: () => void }) {
   const { t } = useTranslation()
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
-      <SubRowIcon icon={Users} />
+      <SubRowIcon icon={MessagesSquare} />
       <div className="min-w-0 flex-1">
         <div className="text-sm">
           {t('settings.messaging.telegram.supergroup.label', { defaultValue: 'Supergroup' })}
@@ -538,16 +654,20 @@ function PairedSupergroupSection({
   supergroup,
   topicBindings,
   sessionMetaMap,
+  workspaceOwners,
   onUnpair,
   onOpenSession,
   onUnbindTopic,
+  onAccessChange,
 }: {
   supergroup: { chatId: string; title: string }
   topicBindings: MessagingBinding[]
   sessionMetaMap: TelegramBindingsBodyProps['sessionMetaMap']
+  workspaceOwners: PlatformOwner[]
   onUnpair: () => void
   onOpenSession: (binding: MessagingBinding) => void
   onUnbindTopic: (binding: MessagingBinding) => void
+  onAccessChange: (bindingId: string, next: BindingAccess) => void
 }) {
   const { t } = useTranslation()
   // Default open when there are topics — gives users immediate visibility
@@ -570,7 +690,7 @@ function PairedSupergroupSection({
         onClick={() => setIsExpanded((v) => !v)}
         className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-foreground/[0.02]"
       >
-        <SubRowIcon icon={Users} />
+        <SubRowIcon icon={MessagesSquare} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <div className="truncate text-sm font-medium">{supergroup.title}</div>
@@ -612,8 +732,10 @@ function PairedSupergroupSection({
                       key={binding.id}
                       binding={binding}
                       sessionMetaMap={sessionMetaMap}
+                      workspaceOwners={workspaceOwners}
                       onOpen={() => onOpenSession(binding)}
                       onUnbind={() => onUnbindTopic(binding)}
+                      onAccessChange={(next) => onAccessChange(binding.id, next)}
                     />
                   ))}
                 </div>
@@ -640,13 +762,17 @@ function PairedSupergroupSection({
 function TopicBindingRow({
   binding,
   sessionMetaMap,
+  workspaceOwners,
   onOpen,
   onUnbind,
+  onAccessChange,
 }: {
   binding: MessagingBinding
   sessionMetaMap: TelegramBindingsBodyProps['sessionMetaMap']
+  workspaceOwners: PlatformOwner[]
   onOpen: () => void
   onUnbind: () => void
+  onAccessChange: (next: BindingAccess) => void
 }) {
   const meta = sessionMetaMap.get(binding.sessionId)
   const sessionLabel = meta ? getSessionTitle(meta) : binding.channelName || binding.channelId
@@ -663,6 +789,11 @@ function TopicBindingRow({
           </span>
         </div>
       </div>
+      <BindingAllowListPopover
+        access={bindingToAccess(binding)}
+        workspaceOwners={workspaceOwners}
+        onChange={onAccessChange}
+      />
       <RowActions onOpen={onOpen} onUnbind={onUnbind} />
     </div>
   )
