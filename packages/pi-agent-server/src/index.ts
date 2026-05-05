@@ -117,6 +117,17 @@ interface InitMessage {
   piAuth?: { provider: string; credential: PiCredential };
 }
 
+interface RuntimeConfigUpdateMessage {
+  type: 'update_runtime_config';
+  id: string;
+  model: string;
+  providerType?: string;
+  authType?: string;
+  baseUrl?: string;
+  customEndpoint?: { api: CustomEndpointApi; supportsImages?: boolean };
+  customModels?: Array<string | { id: string; contextWindow?: number; supportsImages?: boolean }>;
+}
+
 /** Messages from main process (stdin) */
 type InboundMessage =
   | InitMessage
@@ -132,6 +143,7 @@ type InboundMessage =
   | { type: 'set_thinking_level'; level: string }
   | { type: 'compact'; id: string; customInstructions?: string }
   | { type: 'set_auto_compaction'; id: string; enabled: boolean }
+  | RuntimeConfigUpdateMessage
   | { type: 'steer'; message: string }
   | { type: 'token_update'; piAuth: { provider: string; credential: PiCredential } }
   | { type: 'shutdown' };
@@ -195,6 +207,13 @@ interface OutboundSetAutoCompactionResult {
   enabled: boolean;
   errorMessage?: string;
 }
+interface OutboundRuntimeConfigUpdateResult {
+  type: 'update_runtime_config_result';
+  id: string;
+  success: boolean;
+  updated: boolean;
+  errorMessage?: string;
+}
 interface OutboundSessionIdUpdate { type: 'session_id_update'; sessionId: string }
 interface OutboundError { type: 'error'; message: string; code?: string }
 
@@ -209,6 +228,7 @@ type OutboundMessage =
   | OutboundEnsureSessionReadyResult
   | OutboundCompactResult
   | OutboundSetAutoCompactionResult
+  | OutboundRuntimeConfigUpdateResult
   | OutboundSessionIdUpdate
   | OutboundError;
 
@@ -1454,6 +1474,61 @@ async function handleSetAutoCompaction(msg: Extract<InboundMessage, { type: 'set
   }
 }
 
+async function handleUpdateRuntimeConfig(msg: RuntimeConfigUpdateMessage): Promise<void> {
+  try {
+    if (!initConfig) {
+      throw new Error('Runtime config update received before init');
+    }
+
+    initConfig = {
+      ...initConfig,
+      model: msg.model,
+      providerType: msg.providerType ?? initConfig.providerType,
+      authType: msg.authType ?? initConfig.authType,
+      baseUrl: msg.baseUrl,
+      customEndpoint: msg.customEndpoint,
+      customModels: msg.customModels,
+    };
+
+    if (piModelRegistry && initConfig.baseUrl?.trim() && initConfig.customEndpoint) {
+      const modelEntries: CustomEndpointModelEntry[] = (initConfig.customModels?.length
+        ? initConfig.customModels
+        : [initConfig.model || 'default']
+      ).map(normalizeCustomEndpointModelEntry);
+
+      customEndpointModelIds = new Set();
+      customModelOverrides.clear();
+      registerCustomEndpointModels(piModelRegistry, initConfig.customEndpoint.api, initConfig.baseUrl.trim(), modelEntries);
+    }
+
+    if (piSession && piModelRegistry) {
+      let piModel = resolvePiModel(piModelRegistry, msg.model, initConfig.piAuth?.provider, shouldPreferCustomEndpoint());
+      if (!piModel && initConfig.baseUrl?.trim() && initConfig.customEndpoint) {
+        const bareId = stripPiPrefix(msg.model);
+        registerCustomEndpointModels(piModelRegistry, initConfig.customEndpoint.api, initConfig.baseUrl.trim(), [{ id: bareId }]);
+        piModel = piModelRegistry.find('custom-endpoint', bareId) ?? undefined;
+        debugLog(`[runtime_config] Dynamically registered custom endpoint model: ${bareId}`);
+      }
+
+      if (!piModel) {
+        throw new Error(`Could not resolve model after runtime update: ${msg.model}`);
+      }
+
+      await piSession.setModel(piModel);
+      setInterceptorApiHints(piModel as { api?: string; provider?: string; baseUrl?: string });
+      debugLog(`[runtime_config] Updated runtime config and active model: ${piModel.provider}/${piModel.id}`);
+    } else {
+      debugLog('[runtime_config] Stored update; no active session/model registry yet');
+    }
+
+    send({ type: 'update_runtime_config_result', id: msg.id, success: true, updated: true });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    debugLog(`[runtime_config] Failed: ${errorMsg}`);
+    send({ type: 'update_runtime_config_result', id: msg.id, success: false, updated: false, errorMessage: errorMsg });
+  }
+}
+
 async function handleSetModel(msg: Extract<InboundMessage, { type: 'set_model' }>): Promise<void> {
   debugLog(`[set_model] Received: ${msg.model}`);
   if (!piSession || !piModelRegistry) {
@@ -1598,6 +1673,10 @@ async function processMessage(msg: InboundMessage): Promise<void> {
 
     case 'set_auto_compaction':
       await handleSetAutoCompaction(msg);
+      break;
+
+    case 'update_runtime_config':
+      await handleUpdateRuntimeConfig(msg);
       break;
 
     case 'steer':

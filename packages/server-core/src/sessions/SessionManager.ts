@@ -94,6 +94,7 @@ import { extractLabelId, resolveSessionLabels } from '@craft-agent/shared/labels
 import { ensureLabelsExist } from '@craft-agent/shared/labels/crud'
 import { loadStatusConfig } from '@craft-agent/shared/statuses/storage'
 import { AutomationSystem, createPromptHistoryEntry, appendAutomationHistoryEntry, type AutomationSystemMetadataSnapshot } from '@craft-agent/shared/automations'
+import { buildBackendRuntimeSignature, filterAttachmentsForModelInput } from './runtime-config'
 
 // Import from server-core domain utilities
 import { sanitizeForTitle, shouldActivateBrowserOverlay, normalizeBrowserToolName, rollbackFailedBranchCreation, releaseBrowserOwnershipOnForcedStop } from '@craft-agent/server-core/domain'
@@ -875,6 +876,8 @@ interface ManagedSession {
   // Per-session env overrides for SDK subprocess (e.g., ANTHROPIC_BASE_URL).
   // Stored on managed session so it persists across agent recreations (auth-retry, etc.)
   envOverrides?: Record<string, string>
+  // Runtime-affecting backend config signature captured when the live agent was created/refreshed.
+  backendRuntimeSignature?: string
   // Whether the previous turn was interrupted (for context injection on next message).
   // Ephemeral — not persisted to disk. Cleared after one-shot injection.
   wasInterrupted?: boolean
@@ -2649,6 +2652,47 @@ export class SessionManager implements ISessionManager {
     return managedToSession(managed, isBranch ? { messages: managed.messages } : undefined)
   }
 
+  private async disposeManagedAgentRuntime(managed: ManagedSession, reason: string): Promise<void> {
+    const sessionId = managed.id
+
+    if (managed.agent) {
+      try {
+        if (managed.agent.disposeForRestart) {
+          await managed.agent.disposeForRestart()
+        } else {
+          managed.agent.dispose()
+        }
+      } catch (error) {
+        sessionLog.warn(`Failed to dispose agent for ${sessionId} during ${reason}: ${error instanceof Error ? error.message : error}`)
+      }
+    }
+
+    if (managed.poolServer) {
+      try {
+        await managed.poolServer.stop()
+      } catch (error) {
+        sessionLog.warn(`Failed to stop pool server for ${sessionId} during ${reason}: ${error instanceof Error ? error.message : error}`)
+      }
+    }
+
+    if (managed.mcpPool) {
+      try {
+        await managed.mcpPool.disconnectAll()
+      } catch (error) {
+        sessionLog.warn(`Failed to disconnect MCP pool for ${sessionId} during ${reason}: ${error instanceof Error ? error.message : error}`)
+      }
+    }
+
+    managed.agent = null
+    managed.poolServer = undefined
+    managed.mcpPool = undefined
+    managed.envOverrides = undefined
+    managed.agentReady = undefined
+    managed.agentReadyResolve = undefined
+    managed.backendRuntimeSignature = undefined
+    unregisterSessionScopedToolCallbacks(sessionId)
+  }
+
   /**
    * Get or create agent for a session (lazy loading)
    * Creates the appropriate backend agent based on LLM connection.
@@ -2660,16 +2704,70 @@ export class SessionManager implements ISessionManager {
    * 4. fallback: no connection configured
    */
   private async getOrCreateAgent(managed: ManagedSession): Promise<AgentInstance> {
+    const workspaceConfig = loadWorkspaceConfig(managed.workspace.rootPath)
+    const backendContext = resolveBackendContext({
+      sessionConnectionSlug: managed.llmConnection,
+      workspaceDefaultConnectionSlug: workspaceConfig?.defaults?.defaultLlmConnection,
+      managedModel: managed.model,
+    })
+    const connection = backendContext.connection
+    const runtimeSignature = buildBackendRuntimeSignature({
+      connection,
+      provider: backendContext.provider,
+      authType: backendContext.authType,
+      resolvedModel: backendContext.resolvedModel,
+    })
+
+    if (managed.agent && !managed.backendRuntimeSignature) {
+      managed.backendRuntimeSignature = runtimeSignature
+    }
+
+    if (managed.agent && managed.backendRuntimeSignature !== runtimeSignature) {
+      if (managed.isProcessing || managed.agent.isProcessing()) {
+        sessionLog.info(`Runtime config changed for ${managed.id}; deferring refresh until session is idle`)
+      } else {
+        let refreshed = false
+        if (managed.agent.updateRuntimeConfig) {
+          try {
+            refreshed = await managed.agent.updateRuntimeConfig({
+              model: backendContext.resolvedModel,
+              providerType: connection?.providerType,
+              authType: backendContext.authType,
+              runtime: connection ? {
+                baseUrl: connection.baseUrl,
+                piAuthProvider: connection.piAuthProvider,
+                customEndpoint: connection.customEndpoint,
+                customModels: connection.models?.map(model => {
+                  if (typeof model === 'string') return model
+                  const supportsImages = typeof model.supportsImages === 'boolean' ? model.supportsImages : undefined
+                  if (model.contextWindow || supportsImages !== undefined) {
+                    return {
+                      id: model.id,
+                      ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+                      ...(supportsImages !== undefined ? { supportsImages } : {}),
+                    }
+                  }
+                  return model.id
+                }),
+              } : undefined,
+            })
+          } catch (error) {
+            sessionLog.warn(`Runtime config in-place refresh failed for ${managed.id}: ${error instanceof Error ? error.message : error}`)
+          }
+        }
+
+        if (refreshed) {
+          managed.backendRuntimeSignature = runtimeSignature
+          sessionLog.info(`Refreshed runtime config for session ${managed.id}`)
+        } else {
+          sessionLog.info(`Recreating backend runtime for session ${managed.id} after config change`)
+          await this.disposeManagedAgentRuntime(managed, 'runtime config refresh')
+        }
+      }
+    }
+
     if (!managed.agent) {
       const end = perf.start('agent.create', { sessionId: managed.id })
-
-      const workspaceConfig = loadWorkspaceConfig(managed.workspace.rootPath)
-      const backendContext = resolveBackendContext({
-        sessionConnectionSlug: managed.llmConnection,
-        workspaceDefaultConnectionSlug: workspaceConfig?.defaults?.defaultLlmConnection,
-        managedModel: managed.model,
-      })
-      const connection = backendContext.connection
 
       // Lock the connection after first resolution
       // This ensures the session always uses the same provider
@@ -3804,6 +3902,7 @@ export class SessionManager implements ISessionManager {
           changedAt: diagnostics.lastChangedAt,
         })
       }
+      managed.backendRuntimeSignature = runtimeSignature
       end()
     }
     return managed.agent
@@ -5282,8 +5381,29 @@ export class SessionManager implements ISessionManager {
         managed.wasInterrupted = false
       }
 
+      const messageBackendContext = resolveBackendContext({
+        sessionConnectionSlug: managed.llmConnection,
+        workspaceDefaultConnectionSlug: loadWorkspaceConfig(workspaceRootPath)?.defaults?.defaultLlmConnection,
+        managedModel: managed.model,
+      })
+      const modelInputAttachments = filterAttachmentsForModelInput(
+        attachments,
+        messageBackendContext.connection,
+        messageBackendContext.resolvedModel,
+      )
+      if (modelInputAttachments.omittedImages.length > 0) {
+        const omittedNames = modelInputAttachments.omittedImages.map(a => a.name).join(', ')
+        sessionLog.info(`Omitting ${modelInputAttachments.omittedImages.length} image attachment(s) from model input for ${messageBackendContext.resolvedModel}: ${omittedNames}`)
+        this.sendEvent({
+          type: 'info',
+          sessionId,
+          message: `Image attachment${modelInputAttachments.omittedImages.length === 1 ? '' : 's'} not sent because image input is disabled for ${messageBackendContext.resolvedModel}.`,
+          level: 'warning',
+        }, managed.workspace.id)
+      }
+
       sendSpan.mark('chat.starting')
-      const chatIterator = agent.chat(effectiveMessage, attachments)
+      const chatIterator = agent.chat(effectiveMessage, modelInputAttachments.attachments)
       sessionLog.info('Got chat iterator, starting iteration...')
 
       for await (const event of chatIterator) {
