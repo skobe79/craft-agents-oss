@@ -80,14 +80,12 @@ import type {
   SourceChangeCallback,
   SourceActivationCallback,
 } from './backend/types.ts';
+import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import {
   isExistingDirectory,
-  pickFirstExistingDirectory,
   extractSdkReportedBinaryPath,
   isSpawnEnoent as detectSpawnEnoent,
-  classifyEnoentCause,
-  probeEnoentPaths,
 } from './spawn-helpers.ts';
 import { IMAGE_LIMITS } from '../utils/files.ts';
 
@@ -489,10 +487,6 @@ export class ClaudeAgent extends BaseAgent {
   private lastStderrOutput: string[] = [];
   /** Pending steer message — injected via additionalContext on next PreToolUse */
   private pendingSteerMessage: string | null = null;
-  // Track the cwd and binary path passed to the SDK so the ENOENT classifier
-  // can disambiguate "binary missing" vs "cwd missing" after spawn failure.
-  private lastResolvedCwd: string = '';
-  private lastResolvedBinaryPath: string | undefined = undefined;
 
   /**
    * Get the session ID for mode operations.
@@ -851,7 +845,7 @@ export class ClaudeAgent extends BaseAgent {
         this.branchFromSdkSessionId &&
         !isExistingDirectory(this.branchFromSdkCwd)
       ) {
-        yield* this.recoverFromStaleBranchFork(userMessage, attachments, 'pre-spawn-stale-cwd');
+        yield* this.recoverFromStaleBranchFork(userMessage, attachments, /* isPreSpawn */ true);
         return;
       }
 
@@ -954,6 +948,11 @@ export class ClaudeAgent extends BaseAgent {
         ? `${model}[1m]`
         : model;
 
+      // Capture the resolved spawn cwd here (rather than via an instance
+      // field) so the catch handler reads the value passed to *this*
+      // chatImpl invocation, not state left over from an earlier call.
+      const resolvedCwd = this.resolveSpawnCwd({ isRetry: _isRetry, sessionId });
+
       const options: Options = {
         ...getDefaultOptions(this.config.envOverrides),
         model: effectiveModel,
@@ -999,9 +998,7 @@ export class ClaudeAgent extends BaseAgent {
         // For fork attempts: use the parent's sdkCwd so the SDK subprocess can find the parent's
         // session file (stored under ~/.claude/projects/{cwd-hash}/). Without this, cross-CWD
         // branches (e.g., worktree ↔ main repo) fail with "No conversation found".
-        // resolveSpawnCwd picks the first existing directory from the candidate list and
-        // records it in lastResolvedCwd for the ENOENT classifier to consult.
-        cwd: this.resolveSpawnCwd({ isRetry: _isRetry, sessionId }),
+        cwd: resolvedCwd,
         includePartialMessages: true,
         // Tools configuration:
         // - Mini agents: minimal set for quick config edits (reduces token count ~70%)
@@ -1340,7 +1337,7 @@ export class ClaudeAgent extends BaseAgent {
       // path, CLI/dev-runtime path from getDefaultOptions, or undefined for SDK
       // auto-discovery via node_modules). Used by the ENOENT classifier to tell
       // "binary missing" apart from "cwd missing" — both surface as ENOENT from spawn().
-      this.lastResolvedBinaryPath = options.pathToClaudeCodeExecutable;
+      const resolvedBinaryPath = options.pathToClaudeCodeExecutable;
 
       // Track whether we're trying to resume a session (for error handling)
       // Also covers branch fork attempts where sessionId is null but branchFromSdkSessionId is set
@@ -1627,7 +1624,7 @@ This is a branched conversation. All prior messages in this conversation are par
             // Branch-fork failure: route through the shared helper so all four
             // fork fields are persisted atomically (sdkSessionId + branchFromSdk*),
             // and the parent conversation summary is injected into the retry.
-            yield* this.recoverFromStaleBranchFork(userMessage, attachments, 'post-failure-empty-response');
+            yield* this.recoverFromStaleBranchFork(userMessage, attachments, /* isPreSpawn */ false);
             return;
           }
           // Regular resume failure (no branch fork): clear the session and retry
@@ -1830,7 +1827,7 @@ This is a branched conversation. All prior messages in this conversation are par
             // Branch-fork failure: route through the shared helper so the
             // four fork fields are persisted atomically (avoids next launch
             // reloading the dead parent and re-failing).
-            yield* this.recoverFromStaleBranchFork(userMessage, attachments, 'post-failure-session-expired');
+            yield* this.recoverFromStaleBranchFork(userMessage, attachments, /* isPreSpawn */ false);
             return;
           }
 
@@ -1851,15 +1848,14 @@ This is a branched conversation. All prior messages in this conversation are par
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // ENOENT classification — runs BEFORE the `if (isProcessError)` gate
+        // ENOENT handling — runs BEFORE the `if (isProcessError)` gate
         // because the SDK throws spawn ENOENT as a `ReferenceError` with
         // message "Claude Code native binary not found at …", which does
         // not contain "process exited with code". Pre-uplift, the
         // detection lived inside `isProcessError` and never fired for the
-        // case we actually care about (binary missing on disk).
+        // case we actually care about.
         // ─────────────────────────────────────────────────────────────────
         const spawnError = sdkError as NodeJS.ErrnoException;
-        const reportedBinaryPath = extractSdkReportedBinaryPath(rawErrorMsg || '');
         const isSpawnEnoent = detectSpawnEnoent({
           errorCode: spawnError.code,
           errorSyscall: spawnError.syscall,
@@ -1867,45 +1863,52 @@ This is a branched conversation. All prior messages in this conversation are par
           stderr: stderrContext,
         });
 
-        let enoentCause: 'binary' | 'cwd' | 'unknown' = 'unknown';
-        let probedBinary: string | undefined;
-        let probedCwd: string | undefined;
-        let binaryExists = false;
-        let cwdExists = false;
         if (isSpawnEnoent) {
+          const reportedBinaryPath = extractSdkReportedBinaryPath(rawErrorMsg || '');
           const { getPathToClaudeCodeExecutable } = await import('./options.ts');
-          probedBinary = reportedBinaryPath || this.lastResolvedBinaryPath || getPathToClaudeCodeExecutable();
-          probedCwd = this.lastResolvedCwd || undefined;
-          ({ binaryExists, cwdExists } = probeEnoentPaths({
-            binaryPath: probedBinary,
-            cwdPath: probedCwd,
-          }));
-          enoentCause = classifyEnoentCause({ binaryExists, cwdExists });
-          debug('[ClaudeAgent] ENOENT classified', {
-            cause: enoentCause,
-            probedBinary,
-            probedCwd,
-            binaryExists,
-            cwdExists,
+          const probedBinary = reportedBinaryPath || resolvedBinaryPath || getPathToClaudeCodeExecutable();
+          const probedCwd = resolvedCwd || undefined;
+          const binaryExists = probedBinary ? existsSync(probedBinary) : false;
+          const cwdExists = probedCwd ? isExistingDirectory(probedCwd) : false;
+
+          debug('[ClaudeAgent] ENOENT detected', {
+            probedBinary, probedCwd, binaryExists, cwdExists,
             reportedBinaryPath,
-            errorCode: spawnError.code,
-            errorSyscall: spawnError.syscall,
+            errorCode: spawnError.code, errorSyscall: spawnError.syscall,
           });
-        }
 
-        // Stale cwd that the pre-spawn guard didn't catch (rare race where
-        // the directory vanished between the check and the spawn). Funnel
-        // into the same branch fallback recovery path.
-        if (isSpawnEnoent && enoentCause === 'cwd' && !_isRetry && this.branchFromSdkSessionId) {
-          yield* this.recoverFromStaleBranchFork(userMessage, attachments, 'post-failure-fork-error');
-          return;
-        }
+          // Stale cwd plus a branch parent → route to recovery (covers the
+          // rare race where the pre-spawn guard didn't catch a cwd that
+          // vanished between check and spawn).
+          if (!cwdExists && !_isRetry && this.branchFromSdkSessionId) {
+            yield* this.recoverFromStaleBranchFork(userMessage, attachments, /* isPreSpawn */ false);
+            return;
+          }
 
-        if (isSpawnEnoent && enoentCause === 'cwd' && _isRetry) {
-          // Retry exhausted: surface a clear, typed error naming the missing path.
+          // First attempt: retry once after 2s. Covers transient causes
+          // (auto-update bundle-swap window, sandbox/quarantine, race)
+          // regardless of which path looks missing.
+          if (!_isRetry) {
+            console.error('[ClaudeAgent] spawn ENOENT, retrying in 2s', {
+              sessionId: this.config.session?.id,
+              probedBinary, probedCwd,
+              errorCode: spawnError.code, errorSyscall: spawnError.syscall,
+              stderr: (stderrContext || '').slice(0, 200),
+            });
+            yield { type: 'info', message: 'Reconnecting after update...' };
+            await new Promise(r => setTimeout(r, 2000));
+            yield* this.chat(userMessage, attachments, { isRetry: true });
+            return;
+          }
+
+          // Retry exhausted: surface a typed error pointed at the more-likely
+          // cause. Cwd missing is more actionable when the binary is fine
+          // (we can recover from a parent summary); otherwise blame the
+          // binary (reinstall is the user's fix).
+          const isCwdCause = !cwdExists && binaryExists;
           yield {
             type: 'typed_error',
-            error: {
+            error: isCwdCause ? {
               code: 'sdk_cwd_missing',
               title: 'Branch source unavailable on this machine',
               message:
@@ -1920,34 +1923,7 @@ This is a branched conversation. All prior messages in this conversation are par
               canRetry: true,
               retryDelayMs: 1000,
               originalError: rawErrorMsg,
-            },
-          };
-          yield { type: 'complete' };
-          return;
-        }
-
-        if (isSpawnEnoent && enoentCause === 'binary') {
-          // Retry once for the auto-update bundle-swap window the original
-          // code targeted. Most binary-missing cases on a healthy install
-          // are transient (rename-then-replace during update).
-          if (!_isRetry) {
-            console.error('[ClaudeAgent] spawn ENOENT (binary cause), retrying in 2s', {
-              sessionId: this.config.session?.id,
-              probedBinary,
-              probedCwd,
-              errorCode: spawnError.code,
-              errorSyscall: spawnError.syscall,
-              stderr: (stderrContext || '').slice(0, 200),
-            });
-            yield { type: 'info', message: 'Reconnecting after update...' };
-            await new Promise(r => setTimeout(r, 2000));
-            yield* this.chat(userMessage, attachments, { isRetry: true });
-            return;
-          }
-          // Retry exhausted: surface a clear, actionable typed_error.
-          yield {
-            type: 'typed_error',
-            error: {
+            } : {
               code: 'sdk_binary_missing',
               title: 'Claude Code binary missing from app bundle',
               message:
@@ -1965,25 +1941,6 @@ This is a branched conversation. All prior messages in this conversation are par
             },
           };
           yield { type: 'complete' };
-          return;
-        }
-
-        if (isSpawnEnoent && enoentCause === 'unknown' && !_isRetry) {
-          // Both paths exist on disk yet spawn still failed with ENOENT.
-          // Likely transient: sandbox/quarantine/race. Keep the existing
-          // 2s-and-retry behavior; if it persists, fall through to the
-          // generic diagnostic path below on retry.
-          console.error('[ClaudeAgent] spawn ENOENT (unknown cause), retrying in 2s', {
-            sessionId: this.config.session?.id,
-            probedBinary,
-            probedCwd,
-            errorCode: spawnError.code,
-            errorSyscall: spawnError.syscall,
-            stderr: (stderrContext || '').slice(0, 200),
-          });
-          yield { type: 'info', message: 'Reconnecting after update...' };
-          await new Promise(r => setTimeout(r, 2000));
-          yield* this.chat(userMessage, attachments, { isRetry: true });
           return;
         }
 
@@ -2073,7 +2030,7 @@ This is a branched conversation. All prior messages in this conversation are par
             // Generic error during a fork attempt: route through the shared
             // helper so all four fork fields are persisted atomically and
             // the parent summary is injected into the retry.
-            yield* this.recoverFromStaleBranchFork(userMessage, attachments, 'post-failure-generic');
+            yield* this.recoverFromStaleBranchFork(userMessage, attachments, /* isPreSpawn */ false);
             return;
           }
 
@@ -2755,16 +2712,13 @@ This is a branched conversation. All prior messages in this conversation are par
   }
 
   /**
-   * Pure path picker: pick the first existing directory among the cwd candidates.
+   * Pick the first existing directory among the cwd candidates.
    *
    * `branchFromSdkCwd` is consulted only on the first attempt of a branched
    * session — pre-spawn detection (in `chat()`) routes stale-branch cases
    * through `recoverFromStaleBranchFork` before this method runs, so the
    * branch candidate here is only relevant in the rare race where the cwd
    * vanishes between the pre-spawn check and the actual spawn.
-   *
-   * Records the chosen path in `this.lastResolvedCwd` for the ENOENT
-   * classifier to consult after spawn failure.
    */
   private resolveSpawnCwd({
     isRetry,
@@ -2779,16 +2733,15 @@ This is a branched conversation. All prior messages in this conversation are par
       sessionId ? getSessionPath(this.workspaceRootPath, sessionId) : null,
       this.workspaceRootPath,
     ];
-    const chosen = pickFirstExistingDirectory(candidates, this.workspaceRootPath);
-    this.lastResolvedCwd = chosen;
-    if (chosen === this.workspaceRootPath && !isExistingDirectory(this.workspaceRootPath)) {
-      // workspaceRootPath itself is missing — pathological, but we have nothing
-      // better to fall back to. Let the SDK surface the spawn failure.
-      debug('[ClaudeAgent] No cwd candidate exists; falling back to workspaceRootPath anyway', {
-        candidates,
-      });
+    for (const c of candidates) {
+      if (isExistingDirectory(c)) return c!;
     }
-    return chosen;
+    // workspaceRootPath itself is missing — pathological, but we have nothing
+    // better to fall back to. Let the SDK surface the spawn failure.
+    debug('[ClaudeAgent] No cwd candidate exists; falling back to workspaceRootPath anyway', {
+      candidates,
+    });
+    return this.workspaceRootPath;
   }
 
   /**
@@ -2796,21 +2749,18 @@ This is a branched conversation. All prior messages in this conversation are par
    * reachable on this machine, or whose SDK fork spawn failed before
    * establishing a child session.
    *
-   * - Clears in-memory fork state.
-   * - Persists the cleared state via `onBranchForkInvalidated` (atomic;
-   *   includes sdkSessionId so a subsequent app launch doesn't reload the
-   *   stale branchFromSdk* fields and re-trigger the failure).
-   * - Injects `generateBranchFallbackContext()` into the user message so the
-   *   model still sees a summary of the parent conversation.
-   * - Re-enters `chat()` with `isRetry=true`.
+   * `isPreSpawn` selects the user-facing status text only — the recovery
+   * mechanics are identical for pre-spawn (cwd missing on disk before the
+   * SDK runs) and post-failure (anything that broke the fork attempt
+   * after spawn).
    */
   private async *recoverFromStaleBranchFork(
     userMessage: string,
     attachments: FileAttachment[] | undefined,
-    reason: 'pre-spawn-stale-cwd' | 'post-failure-fork-error' | 'post-failure-empty-response' | 'post-failure-session-expired' | 'post-failure-generic',
+    isPreSpawn: boolean,
   ): AsyncGenerator<AgentEvent> {
     debug('[ClaudeAgent] Recovering from stale branch fork', {
-      reason,
+      isPreSpawn,
       sessionId: this.config.session?.id,
       parent: this.branchFromSdkSessionId,
       parentCwd: this.branchFromSdkCwd,
@@ -2837,7 +2787,7 @@ This is a branched conversation. All prior messages in this conversation are par
       if (recoveryContext) retryMessage = recoveryContext + userMessage;
     }
 
-    const statusMessage = reason === 'pre-spawn-stale-cwd'
+    const statusMessage = isPreSpawn
       ? 'Branch source unavailable on this machine, restoring context from history...'
       : 'Branch fork failed, restoring context from history...';
     yield { type: 'info', message: statusMessage };

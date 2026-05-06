@@ -2,21 +2,18 @@
  * Tests for the SDK subprocess spawn-cwd guard and ENOENT diagnostics.
  *
  * Covers the helpers in `agent/spawn-helpers.ts` plus the simulated
- * pre-spawn detection / classification routing that lives in
+ * pre-spawn detection / cwd-resolution logic that lives in
  * `claude-agent.ts:chatImpl`.
  */
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, symlinkSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   isExistingDirectory,
-  pickFirstExistingDirectory,
   extractSdkReportedBinaryPath,
   isSpawnEnoent,
-  classifyEnoentCause,
-  probeEnoentPaths,
 } from '../spawn-helpers.ts';
 
 // ============================================================
@@ -61,46 +58,6 @@ describe('isExistingDirectory', () => {
 });
 
 // ============================================================
-// pickFirstExistingDirectory
-// ============================================================
-
-describe('pickFirstExistingDirectory', () => {
-  let tempDir: string;
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'craft-pick-cwd-'));
-  });
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('returns the first existing directory and skips missing candidates', () => {
-    const result = pickFirstExistingDirectory(
-      [null, '/this/does/not/exist', tempDir, '/also/missing'],
-      '/fallback',
-    );
-    expect(result).toBe(tempDir);
-  });
-
-  it('returns the fallback when no candidate exists', () => {
-    const result = pickFirstExistingDirectory(
-      [null, undefined, '/missing-1', '/missing-2'],
-      '/the/fallback',
-    );
-    expect(result).toBe('/the/fallback');
-  });
-
-  it('skips candidates that are files (not directories)', () => {
-    const filePath = join(tempDir, 'a-file.txt');
-    writeFileSync(filePath, 'content');
-    const result = pickFirstExistingDirectory(
-      [filePath, tempDir],
-      '/fallback',
-    );
-    expect(result).toBe(tempDir);
-  });
-});
-
-// ============================================================
 // resolveSpawnCwd (simulated — mirrors claude-agent.ts logic)
 // ============================================================
 
@@ -117,19 +74,12 @@ describe('resolveSpawnCwd (simulated)', () => {
     parentCwd = join(tempDir, 'parent');
     sessionPath = join(tempDir, 'session');
     sdkCwd = join(tempDir, 'sdk-cwd');
-    // Create only the four "real" candidate dirs; tests intentionally remove
-    // whichever they want to simulate as missing.
-    for (const d of [workspaceRoot, parentCwd, sessionPath, sdkCwd]) {
-      mkdtempSync(join(tempDir, ''));
-      writeFileSync(join(tempDir, '.placeholder'), '');
-      try { rmSync(d, { recursive: true, force: true }); } catch { /* noop */ }
-    }
   });
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  // Simulates ClaudeAgent.resolveSpawnCwd. We can't construct a real
+  // Mirrors ClaudeAgent.resolveSpawnCwd. We can't construct a real
   // ClaudeAgent in unit tests (full SDK + config dependency), so we mirror
   // the candidate ordering inline.
   function resolveSpawnCwd({
@@ -155,17 +105,15 @@ describe('resolveSpawnCwd (simulated)', () => {
       sessionId ? sessionPath : null,
       workspaceRootPath,
     ];
-    return pickFirstExistingDirectory(candidates, workspaceRootPath);
-  }
-
-  function mkdir(p: string) {
-    rmSync(p, { recursive: true, force: true });
-    require('node:fs').mkdirSync(p, { recursive: true });
+    for (const c of candidates) {
+      if (isExistingDirectory(c)) return c!;
+    }
+    return workspaceRootPath;
   }
 
   it('returns branchFromSdkCwd when it is an existing directory and not a retry', () => {
-    mkdir(parentCwd);
-    mkdir(workspaceRoot);
+    mkdirSync(parentCwd, { recursive: true });
+    mkdirSync(workspaceRoot, { recursive: true });
     const got = resolveSpawnCwd({
       isRetry: false,
       branchFromSdkSessionId: 'parent-123',
@@ -179,9 +127,9 @@ describe('resolveSpawnCwd (simulated)', () => {
   });
 
   it('does not consult branchFromSdkCwd when isRetry=true', () => {
-    mkdir(parentCwd);
-    mkdir(sdkCwd);
-    mkdir(workspaceRoot);
+    mkdirSync(parentCwd, { recursive: true });
+    mkdirSync(sdkCwd, { recursive: true });
+    mkdirSync(workspaceRoot, { recursive: true });
     const got = resolveSpawnCwd({
       isRetry: true,
       branchFromSdkSessionId: 'parent-123',
@@ -196,8 +144,8 @@ describe('resolveSpawnCwd (simulated)', () => {
 
   it('skips branchFromSdkCwd when missing and falls through to sdkCwd', () => {
     // parentCwd intentionally not created
-    mkdir(sdkCwd);
-    mkdir(workspaceRoot);
+    mkdirSync(sdkCwd, { recursive: true });
+    mkdirSync(workspaceRoot, { recursive: true });
     const got = resolveSpawnCwd({
       isRetry: false,
       branchFromSdkSessionId: 'parent-123',
@@ -211,7 +159,7 @@ describe('resolveSpawnCwd (simulated)', () => {
   });
 
   it('falls through to workspaceRootPath when all earlier candidates are missing', () => {
-    mkdir(workspaceRoot);
+    mkdirSync(workspaceRoot, { recursive: true });
     const got = resolveSpawnCwd({
       isRetry: false,
       branchFromSdkSessionId: null,
@@ -295,54 +243,6 @@ describe('isSpawnEnoent', () => {
     expect(isSpawnEnoent({ errorCode: 'EACCES' })).toBe(false);
     expect(isSpawnEnoent({ rawErrorMsg: 'Connection refused' })).toBe(false);
     expect(isSpawnEnoent({})).toBe(false);
-  });
-});
-
-// ============================================================
-// classifyEnoentCause
-// ============================================================
-
-describe('classifyEnoentCause', () => {
-  it('classifies as cwd when binary exists but cwd does not', () => {
-    expect(classifyEnoentCause({ binaryExists: true, cwdExists: false })).toBe('cwd');
-  });
-
-  it('classifies as binary when cwd exists but binary does not', () => {
-    expect(classifyEnoentCause({ binaryExists: false, cwdExists: true })).toBe('binary');
-  });
-
-  it('classifies as binary when both are missing (more actionable)', () => {
-    expect(classifyEnoentCause({ binaryExists: false, cwdExists: false })).toBe('binary');
-  });
-
-  it('classifies as unknown when both exist (transient/sandbox case)', () => {
-    expect(classifyEnoentCause({ binaryExists: true, cwdExists: true })).toBe('unknown');
-  });
-});
-
-// ============================================================
-// probeEnoentPaths
-// ============================================================
-
-describe('probeEnoentPaths', () => {
-  it('reports both paths via injected predicates', () => {
-    const result = probeEnoentPaths({
-      binaryPath: '/x/claude',
-      cwdPath: '/x/cwd',
-      fsExists: (p) => p === '/x/claude',
-      dirExists: (p) => p === '/x/cwd',
-    });
-    expect(result).toEqual({ binaryExists: true, cwdExists: true });
-  });
-
-  it('reports false when the path is undefined regardless of predicate', () => {
-    const result = probeEnoentPaths({
-      binaryPath: undefined,
-      cwdPath: undefined,
-      fsExists: () => true,
-      dirExists: () => true,
-    });
-    expect(result).toEqual({ binaryExists: false, cwdExists: false });
   });
 });
 
