@@ -119,6 +119,7 @@ function SettingsItemRow({ item, isSelected, isFirst, onSelect }: SettingsItemRo
         </button>
         {/* Action buttons - visible on hover or when menu is open */}
         <div
+          data-touch-reveal="true"
           className={cn(
             'absolute right-2 top-2 transition-opacity z-10',
             menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'

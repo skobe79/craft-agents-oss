@@ -20,13 +20,22 @@ function sanitizePreview(content: string): string {
 }
 
 /**
+ * Display-layer fix for titles whose source title-cased a leading URL scheme
+ * (e.g. "Https://example.com" instead of "https://example.com"). Idempotent —
+ * returns identity when the title doesn't start with a known scheme.
+ */
+function normalizeTitleCasing(title: string): string {
+  return title.replace(/^(https?|mailto|file|ftp):/i, (m) => m.toLowerCase())
+}
+
+/**
  * Get display title for a session.
  * Priority: custom name > first user message > preview (from metadata) > "New chat"
  * Works with both Session (full) and SessionMeta (lightweight)
  */
 export function getSessionTitle(session: SessionLike | SessionMeta): string {
   if (session.name) {
-    return session.name
+    return normalizeTitleCasing(session.name)
   }
 
   // Check loaded messages first (only available on full Session)
@@ -36,7 +45,8 @@ export function getSessionTitle(session: SessionLike | SessionMeta): string {
       const sanitized = sanitizePreview(firstUserMessage.content)
       if (sanitized) {
         const trimmed = sanitized.slice(0, 50)
-        return trimmed.length < sanitized.length ? trimmed + '…' : trimmed
+        const truncated = trimmed.length < sanitized.length ? trimmed + '…' : trimmed
+        return normalizeTitleCasing(truncated)
       }
     }
   }
@@ -46,7 +56,8 @@ export function getSessionTitle(session: SessionLike | SessionMeta): string {
     const sanitized = sanitizePreview(session.preview)
     if (sanitized) {
       const trimmed = sanitized.slice(0, 50)
-      return trimmed.length < sanitized.length ? trimmed + '…' : trimmed
+      const truncated = trimmed.length < sanitized.length ? trimmed + '…' : trimmed
+      return normalizeTitleCasing(truncated)
     }
   }
 
@@ -70,8 +81,20 @@ export function getSessionPreviewText(session: SessionLike | SessionMeta, maxLen
 
   const title = getSessionTitle(session).replace(/…$/, '').trim()
   const normalizedTitle = sanitizePreview(title)
-  if (normalizedTitle && sanitized.toLowerCase() === normalizedTitle.toLowerCase()) {
-    return null
+  if (normalizedTitle) {
+    const sanitizedLower = sanitized.toLowerCase()
+    const titleLower = normalizedTitle.toLowerCase()
+    // Hide preview entirely if it exactly matches the title.
+    if (sanitizedLower === titleLower) {
+      return null
+    }
+    // Strip leading title prefix so "https://… Analyze the article" → "Analyze the article".
+    if (sanitizedLower.startsWith(titleLower)) {
+      const remainder = sanitized.slice(normalizedTitle.length).replace(/^[\s\-–—:|·•]+/, '').trim()
+      if (!remainder) return null
+      const trimmed = remainder.slice(0, maxLength)
+      return trimmed.length < remainder.length ? `${trimmed.trimEnd()}…` : trimmed
+    }
   }
 
   const trimmed = sanitized.slice(0, maxLength)
