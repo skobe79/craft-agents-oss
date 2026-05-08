@@ -100,8 +100,8 @@ jobs:
       - name: Tag version as latest
         run: |
           docker buildx imagetools create \
-            ghcr.io/lukilabs/craft-agents-server:${{ needs.promote.outputs.version }} \
-            -t ghcr.io/lukilabs/craft-agents-server:latest
+            ghcr.io/craft-ai-agents/craft-agents-server:${{ needs.promote.outputs.version }} \
+            -t ghcr.io/craft-ai-agents/craft-agents-server:latest
 
   # Sync allowed source files to the public OSS repository
   oss-sync:
