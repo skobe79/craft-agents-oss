@@ -137,10 +137,11 @@ export function PanelStackContainer({
                 'bg-background shadow-middle',
               )}
               style={{
+                // Compact mode runs flush to the viewport floor — no rounded bottom.
                 borderTopLeftRadius: RADIUS_INNER,
-                borderBottomLeftRadius: !hasSidebar ? RADIUS_EDGE : RADIUS_INNER,
+                borderBottomLeftRadius: 0,
                 borderTopRightRadius: RADIUS_INNER,
-                borderBottomRightRadius: RADIUS_INNER,
+                borderBottomRightRadius: 0,
               }}
             >
               {navigatorSlot}

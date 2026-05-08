@@ -72,6 +72,7 @@ import {
 import { SessionList, type ChatGroupingMode } from "./SessionList"
 import { MainContentPanel } from "./MainContentPanel"
 import { PanelStackContainer } from "./PanelStackContainer"
+import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
 import { LeftSidebar } from "./LeftSidebar"
 import { useSession } from "@/hooks/useSession"
@@ -2204,7 +2205,13 @@ function AppShellContent({
       <div
         ref={shellRef}
         className="flex items-stretch relative"
-        style={{ height: '100%', paddingRight: PANEL_EDGE_INSET, paddingBottom: PANEL_EDGE_INSET, paddingLeft: 0, gap: PANEL_GAP }}
+        style={{
+          height: '100%',
+          paddingRight: isAutoCompact ? 0 : PANEL_EDGE_INSET,
+          paddingBottom: isAutoCompact ? 0 : PANEL_EDGE_INSET,
+          paddingLeft: 0,
+          gap: PANEL_GAP,
+        }}
       >
         <PanelStackContainer
           sidebarSlot={
@@ -2521,6 +2528,22 @@ function AppShellContent({
                       Shows user-added filters (removable) and pinned filters (non-removable, derived from route).
                       Pinned filters: state views pin a status, label views pin a label, flagged pins the flag. */}
                   {isSessionsNavigation(navState) && (
+                    isAutoCompact ? (
+                      <CompactSessionListFilter
+                        listFilter={listFilter}
+                        setListFilter={setListFilter}
+                        labelFilter={labelFilter}
+                        setLabelFilter={setLabelFilter}
+                        pinnedFilters={pinnedFilters}
+                        effectiveSessionStatuses={effectiveSessionStatuses}
+                        displayLabelConfigs={displayLabelConfigs}
+                        labelConfigs={labelConfigs}
+                        chatGroupingMode={chatGroupingMode}
+                        setChatGroupingMode={setChatGroupingMode}
+                        isStateSubView={isStateSubView}
+                        onOpenSearch={() => setSearchActive(true)}
+                      />
+                    ) : (
                     <DropdownMenu onOpenChange={(open) => { if (!open) { setFilterDropdownQuery(''); setFilterAltHeld(false) } }}>
                       <DropdownMenuTrigger asChild>
                         <HeaderIconButton
@@ -3083,6 +3106,7 @@ function AppShellContent({
                         )}
                       </StyledDropdownMenuContent>
                     </DropdownMenu>
+                    )
                   )}
                   {/* Add Source button (only for sources mode) - uses filter-aware edit config */}
                   {isSourcesNavigation(navState) && activeWorkspace && (
