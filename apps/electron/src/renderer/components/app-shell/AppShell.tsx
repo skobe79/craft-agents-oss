@@ -3254,8 +3254,10 @@ function AppShellContent({
                 />
               </>
             )}
-            {/* Mobile/compact-only FAB for starting a new chat (only on sessions view) */}
-            {isAutoCompact && isSessionsNavigation(navState) && (
+            {/* Mobile/compact-only FAB for starting a new chat — only on the
+                session list itself, not when a chat is open (it would overlap
+                the chat input). */}
+            {isAutoCompact && isSessionsNavigation(navState) && !navState.details && (
               <FabNewChat onClick={() => handleNewChat()} />
             )}
             </div>
