@@ -13,6 +13,11 @@
  * `CompactWorkspaceSwitcher`, `CompactPermissionModeSelector`) and also
  * follows the iOS-style drill-in behaviour established by `MobileAppMenu`.
  *
+ * Side-effect handlers (share / refresh title / copy path / share submenu /
+ * label toggle with optimistic state) come from `useSessionMenuActions`,
+ * shared with the desktop `SessionMenu` so a new session action only has to
+ * be wired through one place.
+ *
  * Leaf actions close the drawer on tap. Label toggles do NOT close the
  * drawer so the user can apply multiple labels in one pass — same UX as
  * the desktop submenu.
@@ -45,10 +50,8 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react'
-import { toast } from 'sonner'
 
 import { cn } from '@/lib/utils'
-import { navigate, routes } from '@/lib/navigate'
 import {
   Drawer,
   DrawerTrigger,
@@ -61,7 +64,6 @@ import {
   createLabelMenuItems,
   type LabelMenuItem,
 } from '@/components/ui/label-menu-utils'
-import { extractLabelId } from '@craft-agent/shared/labels'
 import type { LabelConfig } from '@craft-agent/shared/labels'
 import {
   getStateColor,
@@ -74,6 +76,7 @@ import type { SessionMeta } from '@/atoms/sessions'
 import { getSessionStatus, hasUnreadMeta, hasMessagesMeta } from '@/utils/session'
 import { getFileManagerName } from '@/lib/platform'
 import { useMessagingConnect, type MessagingPlatform } from '@/components/messaging/MessagingSessionMenuItem'
+import { useSessionMenuActions } from '@/hooks/useSessionMenuActions'
 
 type View = 'root' | 'status' | 'labels' | 'share' | 'messaging'
 
@@ -143,7 +146,6 @@ export function CompactSessionMenu({
     setView('root')
   }, [item.id])
 
-  const sessionId = item.id
   const isFlagged = item.isFlagged ?? false
   const isArchived = item.isArchived ?? false
   const sharedUrl = item.sharedUrl
@@ -152,122 +154,28 @@ export function CompactSessionMenu({
   const _hasMessages = hasMessagesMeta(item)
   const _hasUnread = hasUnreadMeta(item)
 
-  const appliedLabelIds = React.useMemo(
-    () => new Set(sessionLabels.map(extractLabelId)),
-    [sessionLabels],
-  )
+  const actions = useSessionMenuActions({ item, onLabelsChange })
 
   const flatLabelItems = React.useMemo(
     (): LabelMenuItem[] => createLabelMenuItems(labels),
     [labels],
   )
 
-  const handleLabelToggle = React.useCallback((labelId: string) => {
-    if (!onLabelsChange) return
-    const isApplied = appliedLabelIds.has(labelId)
-    if (isApplied) {
-      onLabelsChange(sessionLabels.filter(entry => extractLabelId(entry) !== labelId))
-    } else {
-      onLabelsChange([...sessionLabels, labelId])
-    }
-  }, [sessionLabels, appliedLabelIds, onLabelsChange])
+  // Wrap a callback so it also closes the drawer. Async callbacks fire
+  // their work in the background — the drawer doesn't need to stay open
+  // for the request to complete.
+  const closeAfter = React.useCallback(
+    <T extends (...args: never[]) => void | Promise<void>>(fn?: T) => {
+      if (!fn) return undefined
+      return ((...args: Parameters<T>) => {
+        void fn(...args)
+        setOpen(false)
+      }) as T
+    },
+    [],
+  )
 
-  // Wrap a leaf-action callback so it also closes the drawer. Using a tiny
-  // helper instead of repeating `() => { fn(); setOpen(false) }` keeps the
-  // root pane readable with ~14 rows.
-  const closeAfter = React.useCallback(<T extends (...args: never[]) => void>(fn?: T) => {
-    if (!fn) return undefined
-    return ((...args: Parameters<T>) => {
-      fn(...args)
-      setOpen(false)
-    }) as T
-  }, [])
-
-  // Async handlers run their work after the drawer closes — the drawer
-  // doesn't need to stay open for the request to complete.
-  const handleShare = async () => {
-    setOpen(false)
-    const result = await window.electronAPI.sessionCommand(sessionId, { type: 'shareToViewer' }) as { success: boolean; url?: string; error?: string } | undefined
-    if (result?.success && result.url) {
-      await navigator.clipboard.writeText(result.url)
-      toast.success(t('toast.linkCopied'), {
-        description: result.url,
-        action: {
-          label: t('common.open'),
-          onClick: () => window.electronAPI.openUrl(result.url!),
-        },
-      })
-    } else {
-      toast.error(t('toast.failedToShare'), { description: result?.error || t('toast.unknownError') })
-    }
-  }
-
-  const handleShowInFinder = () => {
-    setOpen(false)
-    window.electronAPI.sessionCommand(sessionId, { type: 'showInFinder' })
-  }
-
-  const handleCopyPath = async () => {
-    setOpen(false)
-    const result = await window.electronAPI.sessionCommand(sessionId, { type: 'copyPath' }) as { success: boolean; path?: string } | undefined
-    if (result?.success && result.path) {
-      await navigator.clipboard.writeText(result.path)
-      toast.success(t('toast.pathCopied'))
-    }
-  }
-
-  const handleRefreshTitle = async () => {
-    setOpen(false)
-    const result = await window.electronAPI.sessionCommand(sessionId, { type: 'refreshTitle' }) as { success: boolean; title?: string; error?: string } | undefined
-    if (result?.success) {
-      toast.success(t('toast.titleRefreshed'), { description: result.title })
-    } else {
-      toast.error(t('toast.failedToRefreshTitle'), { description: result?.error || t('toast.unknownError') })
-    }
-  }
-
-  const handleOpenInNewPanel = () => {
-    setOpen(false)
-    navigate(routes.view.allSessions(sessionId), { newPanel: true })
-  }
-
-  // Share submenu handlers (only relevant when sharedUrl exists)
-  const handleOpenInBrowser = () => {
-    if (!sharedUrl) return
-    setOpen(false)
-    window.electronAPI.openUrl(sharedUrl)
-  }
-
-  const handleCopyLink = async () => {
-    if (!sharedUrl) return
-    setOpen(false)
-    await navigator.clipboard.writeText(sharedUrl)
-    toast.success(t('toast.linkCopied'))
-  }
-
-  const handleUpdateShare = async () => {
-    setOpen(false)
-    const result = await window.electronAPI.sessionCommand(sessionId, { type: 'updateShare' })
-    if (result && 'success' in result && result.success) {
-      toast.success(t('chat.shareUpdated'))
-    } else {
-      const errorMsg = result && 'error' in result ? result.error : undefined
-      toast.error(t('chat.failedToUpdateShare'), { description: errorMsg })
-    }
-  }
-
-  const handleRevokeShare = async () => {
-    setOpen(false)
-    const result = await window.electronAPI.sessionCommand(sessionId, { type: 'revokeShare' })
-    if (result && 'success' in result && result.success) {
-      toast.success(t('chat.sharingStopped'))
-    } else {
-      const errorMsg = result && 'error' in result ? result.error : undefined
-      toast.error(t('chat.failedToStopSharing'), { description: errorMsg })
-    }
-  }
-
-  const connectMessaging = useMessagingConnect({ sessionId })
+  const connectMessaging = useMessagingConnect({ sessionId: item.id })
   const handleConnectMessaging = (platform: MessagingPlatform) => {
     setOpen(false)
     void connectMessaging(platform)
@@ -352,7 +260,7 @@ export function CompactSessionMenu({
               hasMessages={_hasMessages}
               hasUnread={_hasUnread}
               hasRemoteWorkspaces={hasRemoteWorkspaces}
-              onShare={handleShare}
+              onShare={closeAfter(actions.share)}
               onOpenShareSub={() => setView('share')}
               onSendToWorkspace={closeAfter(onSendToWorkspace)}
               onOpenMessagingSub={() => setView('messaging')}
@@ -364,11 +272,11 @@ export function CompactSessionMenu({
               onUnarchive={closeAfter(onUnarchive)}
               onMarkUnread={closeAfter(onMarkUnread)}
               onRename={closeAfter(onRename)}
-              onRefreshTitle={handleRefreshTitle}
-              onOpenInNewPanel={handleOpenInNewPanel}
+              onRefreshTitle={closeAfter(actions.refreshTitle)}
+              onOpenInNewPanel={closeAfter(actions.openInNewPanel)}
               onOpenInNewWindow={closeAfter(onOpenInNewWindow)}
-              onShowInFinder={handleShowInFinder}
-              onCopyPath={handleCopyPath}
+              onShowInFinder={closeAfter(actions.showInFinder)}
+              onCopyPath={closeAfter(actions.copyPath)}
               onDelete={closeAfter(onDelete)}
             />
           )}
@@ -387,17 +295,17 @@ export function CompactSessionMenu({
           {view === 'labels' && (
             <LabelsPane
               items={flatLabelItems}
-              appliedLabelIds={appliedLabelIds}
-              onToggle={handleLabelToggle}
+              appliedLabelIds={actions.appliedLabelIds}
+              onToggle={actions.toggleLabel}
             />
           )}
 
           {view === 'share' && sharedUrl && (
             <SharePane
-              onOpenInBrowser={handleOpenInBrowser}
-              onCopyLink={handleCopyLink}
-              onUpdateShare={handleUpdateShare}
-              onRevokeShare={handleRevokeShare}
+              onOpenInBrowser={closeAfter(actions.openSharedInBrowser)!}
+              onCopyLink={closeAfter(actions.copySharedLink)!}
+              onUpdateShare={closeAfter(actions.updateShare)!}
+              onRevokeShare={closeAfter(actions.revokeShare)!}
             />
           )}
 
@@ -425,7 +333,7 @@ interface RootPaneProps {
   hasMessages: boolean
   hasUnread: boolean
   hasRemoteWorkspaces?: boolean
-  onShare: () => void
+  onShare?: () => void
   onOpenShareSub: () => void
   onSendToWorkspace?: () => void
   onOpenMessagingSub: () => void
@@ -437,11 +345,11 @@ interface RootPaneProps {
   onUnarchive?: () => void
   onMarkUnread?: () => void
   onRename?: () => void
-  onRefreshTitle: () => void
-  onOpenInNewPanel: () => void
+  onRefreshTitle?: () => void
+  onOpenInNewPanel?: () => void
   onOpenInNewWindow?: () => void
-  onShowInFinder: () => void
-  onCopyPath: () => void
+  onShowInFinder?: () => void
+  onCopyPath?: () => void
   onDelete?: () => void
 }
 
