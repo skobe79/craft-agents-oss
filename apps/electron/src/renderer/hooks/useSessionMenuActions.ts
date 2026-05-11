@@ -11,11 +11,14 @@
  * (`onLabelsChange` → IPC → server → `labels_changed` event → atom → re-render)
  * is asynchronous, so a fast second tap that derived from the prop's stale
  * `item.labels` would compute against an out-of-date snapshot and could
- * overwrite the first tap's update. The hook keeps a local optimistic copy,
- * uses a functional setter so chained taps compound correctly, and refuses to
- * sync the prop back into local state until the server has acknowledged the
- * latest local change (tracked via `lastSentKeyRef`) — avoids a brief
- * checkmark-flash without needing a full request-tracking layer.
+ * overwrite the first tap's update. The hook keeps a local optimistic copy
+ * mirrored in a `useRef` so toggles read the latest value synchronously
+ * (without going through React's update queue, which would be impure under
+ * Strict Mode and could double-fire `onLabelsChange`). Prop sync only runs
+ * when the server has acknowledged our latest local change (tracked via
+ * `lastSentKeyRef`) — avoids a brief checkmark-flash without needing a full
+ * request-tracking layer. State is hard-reset when `item.id` changes so
+ * pending optimistic state from a previous session can't leak into a new one.
  *
  * Pure label-mutation logic lives in `@craft-agent/shared/labels`
  * (`toggleLabelInList`) and is unit-tested there.
@@ -70,11 +73,28 @@ export function useSessionMenuActions({
   const sharedUrl = item.sharedUrl
   const propLabels = item.labels
 
-  const [optimisticLabels, setOptimisticLabels] = React.useState<string[]>(
-    () => propLabels ?? [],
-  )
+  const [optimisticLabels, setOptimisticLabels] = React.useState<string[]>(() => propLabels ?? [])
+  // Mirror of `optimisticLabels` so toggles can read the latest value
+  // synchronously without going through React's update queue. Reading from
+  // a state-updater callback would be impure (Strict Mode can invoke updaters
+  // twice in dev), which would double-fire onLabelsChange.
+  const optimisticLabelsRef = React.useRef<string[]>(propLabels ?? [])
   const propKey = React.useMemo(() => joinLabelKey(propLabels), [propLabels])
   const lastSentKeyRef = React.useRef<string | null>(null)
+
+  // Hard-reset on session change so optimistic state from a previous session
+  // cannot leak into a new one (e.g. user toggles `bug` on session A, navigates
+  // to B before the IPC ACK — without this reset, lastSentKeyRef would block
+  // the prop sync and B would briefly render A's labels).
+  React.useEffect(() => {
+    const next = propLabels ?? []
+    optimisticLabelsRef.current = next
+    lastSentKeyRef.current = null
+    setOptimisticLabels(next)
+    // Intentionally only depending on sessionId — propLabels changes within
+    // the same session are handled by the prop-sync effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
 
   React.useEffect(() => {
     // Sync from prop only when the server has caught up to (or surpassed)
@@ -82,7 +102,9 @@ export function useSessionMenuActions({
     // erase a queued local toggle. lastSentKeyRef === null means we have
     // no pending local changes, so the prop is authoritative.
     if (lastSentKeyRef.current === null || lastSentKeyRef.current === propKey) {
-      setOptimisticLabels(propLabels ?? [])
+      const next = propLabels ?? []
+      optimisticLabelsRef.current = next
+      setOptimisticLabels(next)
       lastSentKeyRef.current = null
     }
   }, [propKey, propLabels])
@@ -94,12 +116,15 @@ export function useSessionMenuActions({
 
   const toggleLabel = React.useCallback((labelId: string) => {
     if (!onLabelsChange) return
-    setOptimisticLabels(prev => {
-      const next = toggleLabelInList(prev, labelId)
-      lastSentKeyRef.current = joinLabelKey(next)
-      onLabelsChange(next)
-      return next
-    })
+    // Read the canonical latest value from the ref, mutate refs, fire the
+    // callback, and only THEN call setState. All side effects happen outside
+    // any state-updater callback so they fire exactly once per user tap
+    // even under Strict Mode's double-render checks.
+    const next = toggleLabelInList(optimisticLabelsRef.current, labelId)
+    optimisticLabelsRef.current = next
+    lastSentKeyRef.current = joinLabelKey(next)
+    setOptimisticLabels(next)
+    onLabelsChange(next)
   }, [onLabelsChange])
 
   const share = React.useCallback(async () => {
