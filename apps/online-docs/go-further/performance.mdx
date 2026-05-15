@@ -112,7 +112,7 @@ If Craft Agents still shows **Get RTK**, the `rtk` binary is either missing, bel
   <Tab title="Windows">
     Download the Windows zip from the [RTK releases page](https://github.com/rtk-ai/rtk/releases), extract `rtk.exe`, and copy it to a directory on the **Windows** PATH.
 
-    The no-admin, no-environment-edit option is:
+    The no-admin, no-environment-edit option is to use the per-user `WindowsApps` folder. It is normally already on the Windows PATH, so it avoids administrator rights and global system folders:
 
     ```powershell
     Copy-Item "C:\Users\<you>\bin\rtk.exe" "$env:LOCALAPPDATA\Microsoft\WindowsApps\rtk.exe" -Force
