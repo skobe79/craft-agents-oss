@@ -240,6 +240,7 @@
   "chat.sourcesTooltip": "Fuentes",
   "chat.stopResponse": "Detener respuesta",
   "chat.stopTask": "Detener tarea",
+  "chat.tapToType": "Toca para escribir",
   "chat.taskTypeAgent": "Tarea",
   "chat.taskTypeShell": "Shell",
   "chat.title": "Título",

@@ -240,6 +240,7 @@
   "chat.sourcesTooltip": "数据源",
   "chat.stopResponse": "停止回复",
   "chat.stopTask": "停止任务",
+  "chat.tapToType": "点击输入",
   "chat.taskTypeAgent": "任务",
   "chat.taskTypeShell": "Shell",
   "chat.title": "标题",

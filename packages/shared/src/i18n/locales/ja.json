@@ -240,6 +240,7 @@
   "chat.sourcesTooltip": "ソース",
   "chat.stopResponse": "応答を停止",
   "chat.stopTask": "タスクを停止",
+  "chat.tapToType": "タップして入力",
   "chat.taskTypeAgent": "タスク",
   "chat.taskTypeShell": "Shell",
   "chat.title": "タイトル",

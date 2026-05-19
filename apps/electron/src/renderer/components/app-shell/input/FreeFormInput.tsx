@@ -9,6 +9,7 @@ import {
   Check,
   DatabaseZap,
   ChevronDown,
+  ChevronUp,
   AlertCircle,
   Image as ImageIcon,
   X,
@@ -241,6 +242,14 @@ export interface FreeFormInputProps {
   onConnectionChange?: (connectionSlug: string) => void
   /** When true, the session's locked connection has been removed */
   connectionUnavailable?: boolean
+  /**
+   * True when the input is collapsed because the agent is processing in
+   * compact mode and the user hasn't expanded it yet. Owned by
+   * `InputContainer`; toggle back via `onRequestExpand`.
+   */
+  isCollapsedInCompact?: boolean
+  /** Callback fired when the user clicks or hovers the collapsed-input strip. */
+  onRequestExpand?: () => void
 }
 
 /**
@@ -298,6 +307,8 @@ export function FreeFormInput({
   currentConnection,
   onConnectionChange,
   connectionUnavailable = false,
+  isCollapsedInCompact = false,
+  onRequestExpand,
 }: FreeFormInputProps) {
   const { t } = useTranslation()
 
@@ -1039,16 +1050,17 @@ export function FreeFormInput({
     return () => observer.disconnect()
   }, [onHeightChange])
 
-  // In compact mode, immediately report collapsed height when processing state changes
-  // This ensures smooth animation timing when input collapses/expands
+  // In compact mode, immediately report collapsed height when the input is
+  // collapsed during processing. This ensures smooth animation timing.
+  // When the user expands (or processing ends), the ResizeObserver takes
+  // over and reports the actual rendered height.
   React.useEffect(() => {
-    if (!onHeightChange || !compactMode) return
-    if (isProcessing) {
+    if (!onHeightChange) return
+    if (isCollapsedInCompact) {
       // Collapsed state - only bottom bar visible (~44px)
       onHeightChange(44)
     }
-    // When not processing, ResizeObserver will report the full height
-  }, [compactMode, isProcessing, onHeightChange])
+  }, [isCollapsedInCompact, onHeightChange])
 
   // Check if running in Electron environment (has electronAPI)
   const hasElectronAPI = typeof window !== 'undefined' && !!window.electronAPI
@@ -1718,8 +1730,9 @@ export function FreeFormInput({
         </AnimatePresence>
 
         {/* Rich Text Input with inline mention badges */}
-        {/* In compact mode, hide input while processing (collapses to just bottom bar) */}
-        {!(compactMode && isProcessing) && (
+        {/* In compact mode, hide input while the agent is processing — until the
+            user clicks / hovers the collapsed bar to expand it back. */}
+        {!isCollapsedInCompact && (
         <RichTextInput
           ref={richInputRef}
           value={input}
@@ -1991,8 +2004,22 @@ export function FreeFormInput({
           </div>
           )}
 
-          {/* Spacer */}
-          <div className="flex-1" />
+          {/* Spacer — doubles as a tap / hover target while the input is
+              collapsed during processing in compact mode, so the user can
+              type a follow-up without waiting for the agent to finish. */}
+          {isCollapsedInCompact ? (
+            <button
+              type="button"
+              onClick={onRequestExpand}
+              onMouseEnter={onRequestExpand}
+              aria-label={t('chat.tapToType')}
+              className="flex-1 h-7 mx-1 flex items-center justify-center text-foreground/30 hover:text-foreground/60 transition-colors cursor-pointer rounded-[6px] hover:bg-foreground/5 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+          ) : (
+            <div className="flex-1" />
+          )}
 
           {/* Right side: Model + Send - never shrink so they're always visible */}
           <div className="flex items-center shrink-0">
