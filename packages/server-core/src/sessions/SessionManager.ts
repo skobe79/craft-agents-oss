@@ -911,6 +911,17 @@ interface ManagedSession {
    * Capped at PI_SDK_MESSAGE_ID_CACHE_LIMIT to bound memory in long sessions.
    */
   piSdkMessageToCraftMessage?: Map<string, string>
+  // Source-activation auto-retry (craft-agents-oss#804). When a source activates
+  // mid-turn, we re-send the original message with a "[<slug> activated]" suffix
+  // after a short delay. The pending slot lets `sendMessage` dedup a duplicate
+  // RPC from a legacy renderer that still ships the client-side auto_retry.
+  autoRetryTimer?: ReturnType<typeof setTimeout>
+  autoRetryPending?: {
+    content: string
+    deadlineMs: number
+    /** True after the first matching sendMessage consumes the slot; later matches drop. */
+    committed: boolean
+  }
 }
 
 const PI_SDK_MESSAGE_ID_CACHE_LIMIT = 256
@@ -2682,6 +2693,12 @@ export class SessionManager implements ISessionManager {
             workspaceRootPath,
             sessionId: storedSession.id,
             deleteFromRuntimeSessions: (id) => {
+              const m = this.sessions.get(id)
+              if (m?.autoRetryTimer) {
+                clearTimeout(m.autoRetryTimer)
+                m.autoRetryTimer = undefined
+              }
+              if (m) m.autoRetryPending = undefined
               this.sessions.delete(id)
             },
             deleteStoredSession,
@@ -3984,10 +4001,10 @@ export class SessionManager implements ISessionManager {
           // Claude SDK freezes mcpServers at query() start; Pi only picks up new proxy
           // tool defs on the next handlePrompt (`toolsChanged` flag in pi-agent-server).
           // Mark a pending restart on the agent — ClaudeAgent/PiAgent consume it after
-          // the next tool_result, yield source_activated, and forceAbort. The renderer's
-          // auto_retry effect then resends the original user message with a
-          // "[{slug} activated]" suffix — landing in a fresh turn with tools live.
-          // Same machinery as the tool-call-error auto-retry path.
+          // the next tool_result, yield source_activated, and forceAbort. The
+          // `source_activated` handler in this class then schedules a server-side
+          // resend of the original user message with a "[{slug} activated]" suffix —
+          // landing in a fresh turn with tools live (craft-agents-oss#804).
           const userMessage = managed.agent?.getCurrentTurnUserMessage?.() ?? ''
           if (userMessage) {
             managed.agent?.setPendingSourceActivationRestart({ sourceSlug, userMessage })
@@ -5179,6 +5196,13 @@ export class SessionManager implements ISessionManager {
       })
     }
 
+    // Cancel any pending source-activation auto-retry timer (craft-agents-oss#804).
+    if (managed.autoRetryTimer) {
+      clearTimeout(managed.autoRetryTimer)
+      managed.autoRetryTimer = undefined
+    }
+    managed.autoRetryPending = undefined
+
     this.sessions.delete(sessionId)
 
     // Clean up session metadata in AutomationSystem (prevents memory leak)
@@ -5218,6 +5242,28 @@ export class SessionManager implements ISessionManager {
     const managed = this.sessions.get(sessionId)
     if (!managed) {
       throw new Error(`Session ${sessionId} not found`)
+    }
+
+    // Source-activation auto-retry dedup (craft-agents-oss#804). When the server
+    // has just scheduled or committed a "[<slug> activated]" retry, drop a matching
+    // duplicate that arrives from a legacy renderer still running the client-side
+    // auto_retry. The first matching caller wins (server timer or legacy RPC,
+    // whichever arrives first), subsequent matching calls within the deadline drop.
+    const pending = managed.autoRetryPending
+    if (pending && message === pending.content) {
+      if (Date.now() < pending.deadlineMs) {
+        if (pending.committed) {
+          sessionLog.info(`sendMessage: dropped duplicate source-activation retry for ${sessionId}`)
+          return
+        }
+        pending.committed = true
+        // fall through — first caller proceeds normally
+      } else {
+        // Stale slot — clear it. Don't drop this call (same content, but window expired).
+        managed.autoRetryPending = undefined
+      }
+    } else if (pending && Date.now() >= pending.deadlineMs) {
+      managed.autoRetryPending = undefined
     }
 
     // Clear any pending plan execution state when a new user message is sent.
@@ -7101,16 +7147,58 @@ export class SessionManager implements ISessionManager {
         }, workspaceId)
         break
 
-      case 'source_activated':
-        // A source was auto-activated mid-turn, forward to renderer for auto-retry
-        sessionLog.info(`Source "${event.sourceSlug}" activated, notifying renderer for auto-retry`)
+      case 'source_activated': {
+        // A source was auto-activated mid-turn. The server schedules a re-send of the
+        // original message with a "[<slug> activated]" suffix so headless deployments
+        // (WebUI, docker server) chain activations the same way the renderer used to.
+        // The renderer still receives the event to render activation feedback, but no
+        // longer fires its own auto_retry (see processor.ts).
+        sessionLog.info(`Source "${event.sourceSlug}" activated for session ${sessionId}, scheduling auto-retry`)
+
         this.sendEvent({
           type: 'source_activated',
           sessionId,
           sourceSlug: event.sourceSlug,
           originalMessage: event.originalMessage,
         }, workspaceId)
+
+        if (!managed) break
+
+        const messageWithSuffix = `${event.originalMessage}\n\n[${event.sourceSlug} activated]`
+        const messageCountAtSchedule = managed.messages.length
+
+        // Stash the retry payload so a duplicate sendMessage from a legacy renderer
+        // (mixed-version rollout: new server + v0.9.5 Electron client) gets deduped.
+        // 2s window covers WS latency tail on flaky mobile / proxy links.
+        managed.autoRetryPending = {
+          content: messageWithSuffix,
+          deadlineMs: Date.now() + 2000,
+          committed: false,
+        }
+
+        if (managed.autoRetryTimer) clearTimeout(managed.autoRetryTimer)
+        managed.autoRetryTimer = setTimeout(() => {
+          const current = this.sessions.get(sessionId)
+          if (!current) return
+          current.autoRetryTimer = undefined
+
+          // If a user follow-up arrived in the 100ms window, skip — they preempted us.
+          if (current.messages.length > messageCountAtSchedule) {
+            sessionLog.info(`Auto-retry skipped for ${sessionId}: follow-up message arrived first`)
+            current.autoRetryPending = undefined
+            return
+          }
+
+          // Note: do NOT clear autoRetryPending here — sendMessage() needs to see it
+          // so a legacy renderer's duplicate RPC arriving ~50ms later gets dropped.
+          // The pending slot is cleared by the deadline check in sendMessage, by the
+          // next matching sendMessage that drops as a duplicate, or by session deletion.
+          this.sendMessage(sessionId, messageWithSuffix).catch(err => {
+            sessionLog.error(`Auto-retry sendMessage failed for ${sessionId}:`, err)
+          })
+        }, 100)
         break
+      }
 
       case 'complete':
         // Complete event from CraftAgent - accumulate usage from this turn
