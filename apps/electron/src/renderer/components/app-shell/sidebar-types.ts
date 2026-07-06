@@ -19,6 +19,7 @@ export type SidebarMode =
   | { type: 'sessions'; filter: SessionFilter }
   | { type: 'sources' }
   | { type: 'settings'; subpage: SettingsSubpage | null }
+  | { type: 'agent'; agentId: string }
 
 /**
  * Type guard to check if mode is sessions mode
@@ -42,10 +43,18 @@ export const isSettingsMode = (
 ): mode is { type: 'settings'; subpage: SettingsSubpage | null } => mode.type === 'settings'
 
 /**
+ * Type guard to check if mode is agent mode
+ */
+export const isAgentMode = (
+  mode: SidebarMode
+): mode is { type: 'agent'; agentId: string } => mode.type === 'agent'
+
+/**
  * Get a persistence key for localStorage
  * Used to save/restore the last selected sidebar mode
  */
 export const getSidebarModeKey = (mode: SidebarMode): string => {
+  if (mode.type === 'agent') return `agent:${mode.agentId}`
   if (mode.type === 'sources') return 'sources'
   if (mode.type === 'settings') {
     return mode.subpage === null ? 'settings' : `settings:${mode.subpage}`
@@ -72,6 +81,10 @@ export const parseSidebarModeKey = (key: string): SidebarMode | null => {
     if (['app', 'appearance', 'workspace', 'permissions', 'labels', 'shortcuts', 'preferences'].includes(subpage)) {
       return { type: 'settings', subpage }
     }
+  }
+  if (key.startsWith('agent:')) {
+    const agentId = key.slice(6)
+    if (agentId) return { type: 'agent', agentId }
   }
   if (key === 'settings') return { type: 'settings', subpage: null }
   return null

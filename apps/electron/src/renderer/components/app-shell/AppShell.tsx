@@ -551,6 +551,16 @@ function AppShellContent({
     return isFocusedMode || storage.get(storage.KEYS.focusModeEnabled, false)
   })
 
+  const [isNavigatorManuallyHidden, setIsNavigatorManuallyHidden] = React.useState<boolean | null>(() => {
+    return storage.get(storage.KEYS.navigatorHidden, null)
+  })
+
+  useEffect(() => {
+    if (isNavigatorManuallyHidden !== null) {
+      storage.set(storage.KEYS.navigatorHidden, isNavigatorManuallyHidden)
+    }
+  }, [isNavigatorManuallyHidden])
+
   // Auto-compact mode: shell width below mobile threshold hides sidebar/navigator
   // and switches to single-panel mode. Works in both webui (narrow viewport) and
   // desktop (narrow window or small screen).
@@ -590,6 +600,15 @@ function AppShellContent({
   // UNIFIED NAVIGATION STATE - single source of truth from NavigationContext
   // Derived from focused panel's route — all panels are peers
   const navState = useNavigationState()
+
+  const handleToggleNavigator = useCallback(() => {
+    setIsNavigatorManuallyHidden(prev => {
+      const currentlyHidden = prev !== null ? prev : isAgentsNavigation(navState);
+      const next = !currentlyHidden;
+      storage.set(storage.KEYS.navigatorHidden, next);
+      return next;
+    });
+  }, [navState]);
 
   const store = useStore()
   const panelStack = useAtomValue(panelStackAtom)
@@ -2214,6 +2233,8 @@ function AppShellContent({
           canGoForward={canGoForward}
           onToggleSidebar={handleToggleSidebar}
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
+          onToggleNavigator={handleToggleNavigator}
+          isNavigatorHidden={isNavigatorManuallyHidden !== null ? isNavigatorManuallyHidden : isAgentsNavigation(navState)}
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
           isCompact={isAutoCompact}
@@ -3305,7 +3326,7 @@ function AppShellContent({
             )}
             </div>
           }
-          navigatorWidth={isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || isAgentsNavigation(navState) ? 0 : sessionListWidth)}
+          navigatorWidth={isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || (isNavigatorManuallyHidden !== null ? isNavigatorManuallyHidden : isAgentsNavigation(navState)) ? 0 : sessionListWidth)}
           isSidebarAndNavigatorHidden={effectiveSidebarAndNavigatorHidden}
           isRightSidebarVisible={false}
           isCompact={isAutoCompact}

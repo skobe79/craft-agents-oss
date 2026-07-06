@@ -59,6 +59,8 @@ interface TopBarProps {
   onAddBrowserPanel: () => void
   /** When true, hides controls that don't apply in compact/mobile layout */
   isCompact?: boolean
+  onToggleNavigator?: () => void
+  isNavigatorHidden?: boolean
 }
 
 export function TopBar({
@@ -84,6 +86,8 @@ export function TopBar({
   onAddSessionPanel,
   onAddBrowserPanel,
   isCompact,
+  onToggleNavigator,
+  isNavigatorHidden,
 }: TopBarProps) {
   const { t } = useTranslation()
   const [maxVisibleBrowserBadges, setMaxVisibleBrowserBadges] = useState(3)
@@ -146,14 +150,26 @@ export function TopBar({
       >
         <div className="flex items-center gap-0.5">
         {!isCompact && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <TopBarButton onClick={onToggleSidebar} aria-label={t("menu.toggleSidebar")}>
-              <PanelLeftRounded className="h-[18px] w-[18px] text-foreground/70" />
-            </TopBarButton>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{t("menu.toggleSidebar")}</TooltipContent>
-        </Tooltip>
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <TopBarButton onClick={onToggleSidebar} aria-label={t("menu.toggleSidebar")}>
+                <PanelLeftRounded className="h-[18px] w-[18px] text-foreground/70" />
+              </TopBarButton>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t("menu.toggleSidebar")}</TooltipContent>
+          </Tooltip>
+          {onToggleNavigator && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TopBarButton onClick={onToggleNavigator} aria-label={t("menu.toggleNavigator", "Toggle Session List")}>
+                  <Icons.Sidebar className="h-[18px] w-[18px] text-foreground/70" strokeWidth={1.5} />
+                </TopBarButton>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t("menu.toggleNavigator", "Toggle Session List")}</TooltipContent>
+            </Tooltip>
+          )}
+        </>
         )}
 
         <AppMenu
