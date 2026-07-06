@@ -157,11 +157,11 @@ export default function AppearanceSettingsPage() {
   }, [])
 
   const [agentRingBrightness, setAgentRingBrightness] = useState(() =>
-    storage.get('agentRingBrightness', 100)
+    storage.get(storage.KEYS.agentRingBrightness, 100)
   )
   const handleAgentRingBrightnessChange = useCallback((brightness: number) => {
     setAgentRingBrightness(brightness)
-    storage.set('agentRingBrightness', brightness)
+    storage.set(storage.KEYS.agentRingBrightness, brightness)
     document.documentElement.style.setProperty('--agent-ring-brightness', String(brightness / 100))
   }, [])
 

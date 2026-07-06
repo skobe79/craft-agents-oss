@@ -4,7 +4,7 @@ import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import SettingsNavigator from '@/pages/settings/SettingsNavigator'
 import { getSettingsPageComponent } from '@/pages/settings/settings-pages'
 import type { SettingsSubpage } from '../../../shared/settings-registry'
-import { storage } from '@/lib/local-storage'
+import * as storage from '@/lib/local-storage'
 
 interface SettingsModalProps {
   open: boolean
@@ -27,7 +27,7 @@ export function SettingsModal({ open, onOpenChange, defaultSubpage = 'app' }: Se
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent 
-        className="max-w-[1000px] w-[90vw] h-[85vh] p-0 flex overflow-hidden bg-background border-border shadow-modal-small"
+        className="max-w-[1200px] w-[95vw] h-[90vh] p-0 flex overflow-hidden bg-background border-border shadow-modal-large"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <VisuallyHidden>
@@ -36,7 +36,7 @@ export function SettingsModal({ open, onOpenChange, defaultSubpage = 'app' }: Se
 
         <div className="flex w-full h-full">
           {/* Sidebar */}
-          <div className="w-[240px] flex-shrink-0 border-r border-border/5 bg-background-elevated overflow-y-auto">
+          <div className="w-[280px] flex-shrink-0 border-r border-border/5 bg-background-elevated overflow-y-auto">
             <div className="p-4 pt-6">
               <h2 className="text-xs font-semibold mb-2 px-4 text-muted-foreground uppercase tracking-wider">Settings</h2>
               <SettingsNavigator
