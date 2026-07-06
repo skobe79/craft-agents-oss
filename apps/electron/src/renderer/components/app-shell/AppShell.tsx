@@ -115,15 +115,16 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
   isAutomationsNavigation,
-  isCookedBookNavigation,
   type NavigationState,
 } from "@/contexts/NavigationContext"
+import { isCookedBookNavigation } from "../../../shared/types"
 import type { SettingsSubpage } from "../../../shared/types"
 import { SourcesListPanel } from "./SourcesListPanel"
 import { SkillsListPanel } from "./SkillsListPanel"
 import { AutomationsListPanel } from "../automations/AutomationsListPanel"
 import { AutomationSettingsOverlay } from '../settings/AutomationSettingsOverlay'
 import CookedBookPage from '../../pages/settings/CookedBookPage'
+import { HardwareMonitorWidget } from './HardwareMonitorWidget'
 import { APP_EVENTS, AGENT_EVENTS, type AutomationFilterKind, AUTOMATION_TYPE_TO_FILTER_KIND } from "../automations/types"
 import { useAutomations } from "@/hooks/useAutomations"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -2199,6 +2200,10 @@ function AppShellContent({
     })
   }, [sessionFilter, labelCounts, activeWorkspace?.id, handleLabelClick, isExpanded, toggleExpanded, openConfigureLabels, handleAddLabel, handleDeleteLabel])
 
+  if (isCookedBookNavigation(navState)) {
+    return <CookedBookPage />
+  }
+
   return (
     <AppShellProvider value={appShellContextValue}>
         {/* === TOP BAR === */}
@@ -2509,8 +2514,13 @@ function AppShellContent({
                 />
                 </div>
                 
+                {/* Hardware Monitor Widget */}
+                <div className="px-2 mt-auto">
+                  <HardwareMonitorWidget />
+                </div>
+
                 {/* Bottom User Menu (ARCHole) */}
-                <div className="shrink-0 p-2 mt-auto">
+                <div className="shrink-0 p-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button className="flex w-full items-center gap-2 rounded-md p-2 hover:bg-foreground/[0.05] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring text-left">

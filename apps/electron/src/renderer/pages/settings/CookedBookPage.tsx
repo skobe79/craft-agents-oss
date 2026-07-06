@@ -108,7 +108,6 @@ export default function CookedBookPage() {
     <div className="flex h-full flex-col min-h-0 bg-background text-foreground">
       <PanelHeader
         title="Llama.cpp CookedBook"
-        icon={<BookOpen className="h-4 w-4" />}
       />
 
       <ScrollArea className="flex-1">
