@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Image as ImageIcon,
 } from 'lucide-react'
@@ -74,6 +75,8 @@ export function CompactModelSelector({
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
   const [expandedConnection, setExpandedConnection] = React.useState<string | null>(null)
+  const [subViewConnection, setSubViewConnection] = React.useState<string | null>(null)
+  const [search, setSearch] = React.useState('')
 
   const appShellCtx = useOptionalAppShellContext()
   const llmConnections = appShellCtx?.llmConnections ?? []
@@ -113,6 +116,16 @@ export function CompactModelSelector({
     return effectiveConnectionDetails.models || ANTHROPIC_MODELS
   }, [effectiveConnectionDetails, connectionUnavailable])
 
+  const filteredModels = React.useMemo(() => {
+    if (!search.trim()) return availableModels
+    const lowerSearch = search.toLowerCase()
+    return availableModels.filter(m => {
+      const id = typeof m === 'string' ? m : m.id
+      const name = typeof m === 'string' ? id : (m.name ?? id)
+      return name.toLowerCase().includes(lowerSearch) || id.toLowerCase().includes(lowerSearch)
+    })
+  }, [availableModels, search])
+
   const currentModelDisplayName = React.useMemo(() => {
     const modelToDisplay = connectionDefaultModel ?? currentModel
     const model = availableModels.find(m =>
@@ -142,7 +155,11 @@ export function CompactModelSelector({
 
   // Reset accordion state when the drawer closes so re-open shows top-level switcher.
   React.useEffect(() => {
-    if (!open) setExpandedConnection(null)
+    if (!open) {
+      setExpandedConnection(null)
+      setSubViewConnection(null)
+      setSearch('')
+    }
   }, [open])
 
   const handlePickFlatModel = React.useCallback(
@@ -234,164 +251,215 @@ export function CompactModelSelector({
               onToggleVision={toggleVision}
             />
           ) : pickerMode === 'switcher' ? (
-            connectionsByProvider.map(([providerName, connections]) => (
-              <React.Fragment key={providerName}>
-                <div className="px-3 pt-3 pb-1 text-xs font-medium text-foreground/60 uppercase tracking-wide select-none">
-                  {providerName}
+            subViewConnection ? (() => {
+              const conn = llmConnections.find(c => c.slug === subViewConnection)
+              if (!conn) return null
+              const isCurrentConnection = effectiveConnection === conn.slug
+              const models = conn.models || ANTHROPIC_MODELS
+              const filteredConnModels = search.trim() ? models.filter(m => {
+                const id = typeof m === 'string' ? m : m.id
+                const name = typeof m === 'string' ? id : (m.name ?? id)
+                return name.toLowerCase().includes(search.toLowerCase()) || id.toLowerCase().includes(search.toLowerCase())
+              }) : models
+              const showVision = isCompatProvider(conn.providerType)
+              return (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 px-1 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubViewConnection(null)
+                        setSearch('')
+                      }}
+                      className="p-1 hover:bg-foreground/5 rounded"
+                    >
+                      <ChevronLeft className="h-4 w-4 opacity-70" />
+                    </button>
+                    <div className="text-sm font-medium">{conn.name}</div>
+                  </div>
+                  <div className="px-2 pb-2">
+                    <input
+                      type="text"
+                      placeholder={t('common.search', 'Search models...')}
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      className="w-full px-3 py-1.5 text-sm bg-foreground/5 rounded-md outline-none focus:ring-1 ring-foreground/20"
+                      autoFocus
+                    />
+                  </div>
+                  {filteredConnModels.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-foreground/50">
+                      {t('common.noResults', 'No models found')}
+                    </div>
+                  ) : (
+                    filteredConnModels.map(model => {
+                      const modelId = typeof model === 'string' ? model : model.id
+                      const modelName = typeof model === 'string'
+                        ? stripPiPrefixForDisplay(getModelShortName(model))
+                        : (model.name ?? stripPiPrefixForDisplay(model.id))
+                      const isSelectedModel = isCurrentConnection && currentModel === modelId
+                      const visionOn = showVision && modelSupportsImages(conn, modelId)
+                      return (
+                        <DrawerClose asChild key={modelId}>
+                          <button
+                            type="button"
+                            onClick={() => handlePickSwitcherModel(conn.slug, modelId)}
+                            className={cn(
+                              'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
+                              isSelectedModel ? 'bg-foreground/5' : 'hover:bg-foreground/5',
+                            )}
+                          >
+                            <span className="text-sm font-medium truncate">{modelName}</span>
+                            <div className="flex items-center gap-1 ml-3 shrink-0">
+                              {showVision && (
+                                <VisionToggle
+                                  visionOn={visionOn}
+                                  onToggle={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    toggleVision(conn.slug, modelId, !visionOn)
+                                  }}
+                                />
+                              )}
+                              {isSelectedModel && (
+                                <Check className="h-3 w-3 text-foreground/60" />
+                              )}
+                            </div>
+                          </button>
+                        </DrawerClose>
+                      )
+                    })
+                  )}
                 </div>
-                {connections.map(conn => {
-                  const isCurrentConnection = effectiveConnection === conn.slug
-                  const isAuthenticated = conn.isAuthenticated
-                  const isExpanded = expandedConnection === conn.slug
+              )
+            })() : (
+              connectionsByProvider.map(([providerName, connections]) => (
+                <React.Fragment key={providerName}>
+                  <div className="px-3 pt-3 pb-1 text-xs font-medium text-foreground/60 uppercase tracking-wide select-none">
+                    {providerName}
+                  </div>
+                  {connections.map(conn => {
+                    const isCurrentConnection = effectiveConnection === conn.slug
+                    const isAuthenticated = conn.isAuthenticated
+                    return (
+                      <React.Fragment key={conn.slug}>
+                        <button
+                          type="button"
+                          disabled={!isAuthenticated}
+                          onClick={() => {
+                            setSubViewConnection(conn.slug)
+                            setSearch('')
+                          }}
+                          className={cn(
+                            'flex items-center gap-2 w-full px-3 py-2 rounded-lg text-left transition-colors',
+                            !isAuthenticated && 'opacity-50 cursor-not-allowed',
+                            isAuthenticated && 'hover:bg-foreground/5',
+                            isCurrentConnection && 'bg-foreground/5',
+                          )}
+                        >
+                          <ConnectionIcon connection={conn} size={14} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{conn.name}</div>
+                            {!isAuthenticated && (
+                              <div className="text-xs text-muted-foreground">
+                                {t('settings.ai.notAuthenticated')}
+                              </div>
+                            )}
+                          </div>
+                          {isCurrentConnection && (
+                            <Check className="h-3 w-3 text-foreground/60 shrink-0" />
+                          )}
+                          {isAuthenticated && (
+                            <ChevronRight className="h-3 w-3 opacity-60 shrink-0 transition-transform" />
+                          )}
+                        </button>
+                      </React.Fragment>
+                    )
+                  })}
+                </React.Fragment>
+              ))
+            )
+          ) : (
+            // 'flat' — list models of the active connection
+            <div className="flex flex-col gap-1">
+              <div className="px-2 pb-2 pt-1">
+                <input
+                  type="text"
+                  placeholder={t('common.search', 'Search models...')}
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm bg-foreground/5 rounded-md outline-none focus:ring-1 ring-foreground/20"
+                  autoFocus
+                />
+              </div>
+              {filteredModels.length === 0 ? (
+                <div className="py-4 text-center text-xs text-foreground/50">
+                  {t('common.noResults', 'No models found')}
+                </div>
+              ) : (
+                filteredModels.map(model => {
+                  const modelId = typeof model === 'string' ? model : model.id
+                  const modelName = typeof model === 'string'
+                    ? stripPiPrefixForDisplay(getModelShortName(model))
+                    : (model.name ?? stripPiPrefixForDisplay(model.id))
+                  const isSelected = currentModel === modelId
+                  const descriptionKey =
+                    typeof model !== 'string' && 'descriptionKey' in model
+                      ? (model.descriptionKey as string)
+                      : undefined
+                  const description = descriptionKey
+                    ? t(descriptionKey)
+                    : (typeof model !== 'string' && 'description' in model
+                        ? (model.description as string)
+                        : '')
+                  const showVision =
+                    !!effectiveConnectionDetails &&
+                    isCompatProvider(effectiveConnectionDetails.providerType)
+                  const visionOn =
+                    showVision && modelSupportsImages(effectiveConnectionDetails!, modelId)
                   return (
-                    <React.Fragment key={conn.slug}>
+                    <DrawerClose asChild key={modelId}>
                       <button
                         type="button"
-                        disabled={!isAuthenticated}
-                        onClick={() =>
-                          setExpandedConnection(prev => (prev === conn.slug ? null : conn.slug))
-                        }
+                        onClick={() => handlePickFlatModel(modelId)}
                         className={cn(
-                          'flex items-center gap-2 w-full px-3 py-2 rounded-lg text-left transition-colors',
-                          !isAuthenticated && 'opacity-50 cursor-not-allowed',
-                          isAuthenticated && 'hover:bg-foreground/5',
-                          isCurrentConnection && !isExpanded && 'bg-foreground/5',
+                          'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
+                          isSelected ? 'bg-foreground/5' : 'hover:bg-foreground/5',
                         )}
                       >
-                        <ConnectionIcon connection={conn} size={14} />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">{conn.name}</div>
-                          {!isAuthenticated && (
-                            <div className="text-xs text-muted-foreground">
-                              {t('settings.ai.notAuthenticated')}
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">{modelName}</div>
+                          {description && (
+                            <div className="text-xs text-foreground/50 truncate">
+                              {description}
                             </div>
                           )}
                         </div>
-                        {isCurrentConnection && (
-                          <Check className="h-3 w-3 text-foreground/60 shrink-0" />
-                        )}
-                        {isAuthenticated && (
-                          <ChevronRight
-                            className={cn(
-                              'h-3 w-3 opacity-60 shrink-0 transition-transform',
-                              isExpanded && 'rotate-90',
-                            )}
-                          />
-                        )}
+                        <div className="flex items-center gap-1 ml-3 shrink-0">
+                          {showVision && effectiveConnectionDetails && (
+                            <VisionToggle
+                              visionOn={visionOn}
+                              onToggle={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                toggleVision(
+                                  effectiveConnectionDetails.slug,
+                                  modelId,
+                                  !visionOn,
+                                )
+                              }}
+                            />
+                          )}
+                          {isSelected && (
+                            <Check className="h-3 w-3 text-foreground/60" />
+                          )}
+                        </div>
                       </button>
-                      {isAuthenticated && isExpanded && (
-                        <div className="pl-6 flex flex-col gap-0.5">
-                          {(conn.models || ANTHROPIC_MODELS).map(model => {
-                            const modelId = typeof model === 'string' ? model : model.id
-                            const modelName = typeof model === 'string'
-                              ? stripPiPrefixForDisplay(getModelShortName(model))
-                              : (model.name ?? stripPiPrefixForDisplay(model.id))
-                            const isSelectedModel =
-                              isCurrentConnection && currentModel === modelId
-                            const showVision = isCompatProvider(conn.providerType)
-                            const visionOn = showVision && modelSupportsImages(conn, modelId)
-                            return (
-                              <DrawerClose asChild key={modelId}>
-                                <button
-                                  type="button"
-                                  onClick={() => handlePickSwitcherModel(conn.slug, modelId)}
-                                  className={cn(
-                                    'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
-                                    isSelectedModel
-                                      ? 'bg-foreground/5'
-                                      : 'hover:bg-foreground/5',
-                                  )}
-                                >
-                                  <span className="text-sm font-medium truncate">{modelName}</span>
-                                  <div className="flex items-center gap-1 ml-3 shrink-0">
-                                    {showVision && (
-                                      <VisionToggle
-                                        visionOn={visionOn}
-                                        onToggle={(e) => {
-                                          e.preventDefault()
-                                          e.stopPropagation()
-                                          toggleVision(conn.slug, modelId, !visionOn)
-                                        }}
-                                      />
-                                    )}
-                                    {isSelectedModel && (
-                                      <Check className="h-3 w-3 text-foreground/60" />
-                                    )}
-                                  </div>
-                                </button>
-                              </DrawerClose>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </React.Fragment>
+                    </DrawerClose>
                   )
-                })}
-              </React.Fragment>
-            ))
-          ) : (
-            // 'flat' — list models of the active connection
-            availableModels.map(model => {
-              const modelId = typeof model === 'string' ? model : model.id
-              const modelName = typeof model === 'string'
-                ? stripPiPrefixForDisplay(getModelShortName(model))
-                : (model.name ?? stripPiPrefixForDisplay(model.id))
-              const isSelected = currentModel === modelId
-              const descriptionKey =
-                typeof model !== 'string' && 'descriptionKey' in model
-                  ? (model.descriptionKey as string)
-                  : undefined
-              const description = descriptionKey
-                ? t(descriptionKey)
-                : (typeof model !== 'string' && 'description' in model
-                    ? (model.description as string)
-                    : '')
-              const showVision =
-                !!effectiveConnectionDetails &&
-                isCompatProvider(effectiveConnectionDetails.providerType)
-              const visionOn =
-                showVision && modelSupportsImages(effectiveConnectionDetails!, modelId)
-              return (
-                <DrawerClose asChild key={modelId}>
-                  <button
-                    type="button"
-                    onClick={() => handlePickFlatModel(modelId)}
-                    className={cn(
-                      'flex items-center justify-between w-full px-3 py-2 rounded-lg text-left transition-colors',
-                      isSelected ? 'bg-foreground/5' : 'hover:bg-foreground/5',
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{modelName}</div>
-                      {description && (
-                        <div className="text-xs text-foreground/50 truncate">
-                          {description}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 ml-3 shrink-0">
-                      {showVision && effectiveConnectionDetails && (
-                        <VisionToggle
-                          visionOn={visionOn}
-                          onToggle={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            toggleVision(
-                              effectiveConnectionDetails.slug,
-                              modelId,
-                              !visionOn,
-                            )
-                          }}
-                        />
-                      )}
-                      {isSelected && (
-                        <Check className="h-3 w-3 text-foreground/60" />
-                      )}
-                    </div>
-                  </button>
-                </DrawerClose>
-              )
-            })
+                })
+              )}
+            </div>
           )}
 
           {/* === Thinking section === */}

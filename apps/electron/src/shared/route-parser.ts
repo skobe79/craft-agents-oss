@@ -35,7 +35,7 @@ export interface ParsedRoute {
 // Compound Route Types (new format)
 // =============================================================================
 
-export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'automations' | 'settings'
+export type NavigatorType = 'sessions' | 'sources' | 'skills' | 'automations' | 'settings' | 'agents'
 
 export interface ParsedCompoundRoute {
   /** The navigator type */
@@ -61,7 +61,7 @@ export interface ParsedCompoundRoute {
  * Known prefixes that indicate a compound route
  */
 const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'sources', 'skills', 'automations', 'settings'
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'sources', 'skills', 'automations', 'settings', 'agents'
 ]
 
 /**
@@ -197,6 +197,21 @@ export function parseCompoundRoute(route: string): ParsedCompoundRoute | null {
     return null
   }
 
+  // Agents navigator
+  if (first === 'agents') {
+    if (segments.length === 1) {
+      return { navigator: 'agents', details: null }
+    }
+    // agents/agent/{agentId}
+    if (segments[1] === 'agent' && segments[2]) {
+      return {
+        navigator: 'agents',
+        details: { type: 'agent', id: segments[2] },
+      }
+    }
+    return null
+  }
+
   // Sessions navigator (allSessions, flagged, state)
   let sessionFilter: SessionFilter
   let detailsStartIndex: number
@@ -287,6 +302,11 @@ export function buildCompoundRoute(parsed: ParsedCompoundRoute): string {
     }
     if (!parsed.details) return base
     return `${base}/automation/${parsed.details.id}`
+  }
+
+  if (parsed.navigator === 'agents') {
+    if (!parsed.details) return 'agents'
+    return `agents/agent/${parsed.details.id}`
   }
 
   // Sessions navigator
@@ -410,6 +430,14 @@ function convertCompoundToViewRoute(compound: ParsedCompoundRoute): ParsedRoute 
       return { type: 'view', name: 'automations', params: {} }
     }
     return { type: 'view', name: 'automation-info', id: compound.details.id, params: {} }
+  }
+
+  // Agents
+  if (compound.navigator === 'agents') {
+    if (!compound.details) {
+      return { type: 'view', name: 'agents', params: {} }
+    }
+    return { type: 'view', name: 'agent-info', id: compound.details.id, params: {} }
   }
 
   // Sessions
@@ -544,6 +572,17 @@ function convertCompoundToNavigationState(compound: ParsedCompoundRoute): Naviga
       navigator: 'automations',
       filter: compound.automationFilter,
       details: { type: 'automation', automationId: compound.details.id },
+    }
+  }
+
+  // Agents
+  if (compound.navigator === 'agents') {
+    if (!compound.details) {
+      return { navigator: 'agents', details: null }
+    }
+    return {
+      navigator: 'agents',
+      details: { type: 'agent', agentId: compound.details.id },
     }
   }
 
@@ -729,6 +768,13 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
       navigator: 'automations',
       automationFilter: state.filter ?? undefined,
       details: state.details ? { type: 'automation', id: state.details.automationId } : null,
+    }
+  }
+
+  if (state.navigator === 'agents') {
+    return {
+      navigator: 'agents',
+      details: state.details ? { type: 'agent', id: state.details.agentId } : null,
     }
   }
 

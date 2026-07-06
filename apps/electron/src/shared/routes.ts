@@ -182,6 +182,12 @@ export const routes = {
       subpage
         ? `settings/${subpage}` as const
         : 'settings' as const,
+
+    /** Agents view (agents navigator). Pass an agent ID for a specific agent detail. */
+    agent: (agentId?: string) => {
+      if (!agentId) return 'agents' as const
+      return `agents/agent/${agentId}` as const
+    },
   },
 } as const
 

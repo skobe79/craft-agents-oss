@@ -571,6 +571,19 @@ export function FreeFormInput({
   const [isFocused, setIsFocused] = React.useState(false)
   const [inputMaxHeight, setInputMaxHeight] = React.useState(540)
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false)
+  const [modelSearch, setModelSearch] = React.useState('')
+  // Reset search when dropdown closes
+  React.useEffect(() => { if (!modelDropdownOpen) setModelSearch('') }, [modelDropdownOpen])
+  // Filtered models for flat mode
+  const filteredModels = React.useMemo(() => {
+    if (!modelSearch.trim()) return availableModels
+    const q = modelSearch.toLowerCase()
+    return availableModels.filter(m => {
+      const id = typeof m === 'string' ? m : m.id
+      const name = typeof m === 'string' ? id : (m.name ?? id)
+      return name.toLowerCase().includes(q) || id.toLowerCase().includes(q)
+    })
+  }, [availableModels, modelSearch])
 
   // Input settings (loaded from config)
   const [autoCapitalisation, setAutoCapitalisation] = React.useState(true)
@@ -2163,8 +2176,37 @@ export function FreeFormInput({
                           </StyledDropdownMenuSubTrigger>
                           {isAuthenticated && (
                             <StyledDropdownMenuSubContent className="min-w-[220px]">
-                              {/* Show models for this connection - use provider-specific models as fallback */}
-                              {(conn.models || ANTHROPIC_MODELS).map((model) => {
+                              {/* Search input inside sub-menu */}
+                              {(conn.models || ANTHROPIC_MODELS).length > 8 && (
+                                <div className="px-2 py-1.5 sticky top-0 bg-background z-10" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                                  <input
+                                    type="text"
+                                    placeholder={t('common.search', 'Search...')}
+                                    value={modelSearch}
+                                    onChange={e => { e.preventDefault(); setModelSearch(e.target.value) }}
+                                    onKeyDown={e => e.stopPropagation()}
+                                    className="w-full px-2 py-1 text-sm bg-foreground/5 rounded-md outline-none focus:ring-1 ring-foreground/20"
+                                  />
+                                </div>
+                              )}
+                              {/* Show models for this connection, filtered by search */}
+                              {(() => {
+                                const allConnModels = conn.models || ANTHROPIC_MODELS
+                                const filteredConnModels = modelSearch.trim()
+                                  ? allConnModels.filter(m => {
+                                      const mid = typeof m === 'string' ? m : m.id
+                                      const mname = typeof m === 'string' ? mid : (m.name ?? mid)
+                                      return mname.toLowerCase().includes(modelSearch.toLowerCase()) || mid.toLowerCase().includes(modelSearch.toLowerCase())
+                                    })
+                                  : allConnModels
+                                if (filteredConnModels.length === 0) {
+                                  return (
+                                    <div className="py-4 text-center text-xs text-muted-foreground">
+                                      {t('common.noResults', 'No models found')}
+                                    </div>
+                                  )
+                                }
+                                return filteredConnModels.map((model) => {
                                 const modelId = typeof model === 'string' ? model : model.id
                                 const modelName = typeof model === 'string'
                                   ? stripPiPrefixForDisplay(getModelShortName(model))
@@ -2229,7 +2271,8 @@ export function FreeFormInput({
                                     </div>
                                   </StyledDropdownMenuItem>
                                 )
-                              })}
+                              })
+                              })()}
                             </StyledDropdownMenuSubContent>
                           )}
                         </DropdownMenuSub>
@@ -2252,8 +2295,26 @@ export function FreeFormInput({
                       <StyledDropdownMenuSeparator className="my-1" />
                     </>
                   )}
-                  {/* Model options based on effective connection's provider type */}
-                  {availableModels.map((model) => {
+                  {/* Search input — filter models by name */}
+                  {availableModels.length > 8 && (
+                    <div className="px-2 py-1.5 sticky top-0 bg-background z-10">
+                      <input
+                        type="text"
+                        placeholder={t('common.search', 'Search models...')}
+                        value={modelSearch}
+                        onChange={e => { e.preventDefault(); setModelSearch(e.target.value) }}
+                        onKeyDown={e => e.stopPropagation()}
+                        className="w-full px-2 py-1 text-sm bg-foreground/5 rounded-md outline-none focus:ring-1 ring-foreground/20"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                  {filteredModels.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-muted-foreground">
+                      {t('common.noResults', 'No models found')}
+                    </div>
+                  ) : (
+                  filteredModels.map((model) => {
                     const modelId = typeof model === 'string' ? model : model.id
                     const modelName = typeof model === 'string'
                       ? stripPiPrefixForDisplay(getModelShortName(model))
@@ -2319,7 +2380,8 @@ export function FreeFormInput({
                         </div>
                       </StyledDropdownMenuItem>
                     )
-                  })}
+                  })
+                  )}
                 </>
               )}
 

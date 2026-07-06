@@ -854,12 +854,22 @@ export interface AutomationsNavigationState {
 /**
  * Unified navigation state
  */
+/**
+ * Agents navigation state (Agentz sidebar)
+ */
+export interface AgentsNavigationState {
+  navigator: 'agents'
+  details: { type: 'agent'; agentId: string } | null
+  rightSidebar?: RightSidebarPanel
+}
+
 export type NavigationState =
   | SessionsNavigationState
   | SourcesNavigationState
   | SettingsNavigationState
   | SkillsNavigationState
   | AutomationsNavigationState
+  | AgentsNavigationState
 
 export const isSessionsNavigation = (
   state: NavigationState
@@ -881,6 +891,10 @@ export const isAutomationsNavigation = (
   state: NavigationState
 ): state is AutomationsNavigationState => state.navigator === 'automations'
 
+export const isAgentsNavigation = (
+  state: NavigationState
+): state is AgentsNavigationState => state.navigator === 'agents'
+
 export const DEFAULT_NAVIGATION_STATE: NavigationState = {
   navigator: 'sessions',
   filter: { kind: 'allSessions' },
@@ -888,6 +902,12 @@ export const DEFAULT_NAVIGATION_STATE: NavigationState = {
 }
 
 export const getNavigationStateKey = (state: NavigationState): string => {
+  if (state.navigator === 'agents') {
+    if (state.details?.type === 'agent') {
+      return `agents/agent/${state.details.agentId}`
+    }
+    return 'agents'
+  }
   if (state.navigator === 'sources') {
     if (state.details) {
       return `sources/source/${state.details.sourceSlug}`
@@ -924,6 +944,16 @@ export const getNavigationStateKey = (state: NavigationState): string => {
 }
 
 export const parseNavigationStateKey = (key: string): NavigationState | null => {
+  // Handle agents
+  if (key === 'agents') return { navigator: 'agents', details: null }
+  if (key.startsWith('agents/agent/')) {
+    const agentId = key.slice(13)
+    if (agentId) {
+      return { navigator: 'agents', details: { type: 'agent', agentId } }
+    }
+    return { navigator: 'agents', details: null }
+  }
+
   // Handle sources
   if (key === 'sources') return { navigator: 'sources', details: null }
   if (key.startsWith('sources/source/')) {
