@@ -890,12 +890,7 @@ export const DEFAULT_NAVIGATION_STATE: NavigationState = {
 }
 
 export const getNavigationStateKey = (state: NavigationState): string => {
-  if (state.navigator === 'agents') {
-    if (state.details?.type === 'agent') {
-      return `agents/agent/${state.details.agentId}`
-    }
-    return 'agents'
-  }
+
   if (state.navigator === 'sources') {
     if (state.details) {
       return `sources/source/${state.details.sourceSlug}`
