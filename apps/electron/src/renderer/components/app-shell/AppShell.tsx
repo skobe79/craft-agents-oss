@@ -2575,7 +2575,7 @@ function AppShellContent({
                         </div>
                       </div>
                       <StyledDropdownMenuSeparator />
-                      <StyledDropdownMenuItem onClick={handleSettingsClick}>
+                      <StyledDropdownMenuItem onClick={() => handleSettingsClick()}>
                         <Settings className="w-4 h-4 mr-2 text-muted-foreground" />
                         Settings
                       </StyledDropdownMenuItem>
