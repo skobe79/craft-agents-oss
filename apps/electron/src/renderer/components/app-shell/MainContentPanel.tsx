@@ -45,6 +45,7 @@ import type { ExecutionEntry } from '../automations/types'
 import { automationsAtom } from '@/atoms/automations'
 import { SendResourceToWorkspaceDialog, type SendResourceType } from './SendResourceToWorkspaceDialog'
 import { getAgentById } from './agents'
+import { AgentRing } from './AgentRing'
 
 export interface MainContentPanelProps {
   /** Whether both sidebar and navigator are hidden (focus mode / CMD+.) */
@@ -400,13 +401,23 @@ export function MainContentPanel({
     const agentId = navState.details?.agentId
     const agent = agentId ? getAgentById(agentId) : undefined
 
+    // Check if any session using this agent's connection is actively processing
+    const isAgentProcessing = agent?.connectionSlug
+      ? Array.from(sessionMetaMap.values()).some(
+          (m) => m.isProcessing && m.llmConnection === agent.connectionSlug
+        )
+      : false
+
     return wrapWithStoplight(
       <Panel variant="grow" className={className}>
         <div className="flex flex-col h-full">
           {agent ? (
             <div className="flex flex-col h-full">
               <div className="px-4 py-3 border-b border-foreground/10 flex items-center gap-2">
-                <agent.icon className="h-5 w-5" />
+                <span className="relative flex items-center justify-center h-5 w-5">
+                  <AgentRing active={isAgentProcessing} size={20} className="absolute inset-0" />
+                  <agent.icon className="h-3 w-3" />
+                </span>
                 <div>
                   <div className="text-sm font-medium">{agent.title}</div>
                   <div className="text-xs text-muted-foreground">{agent.description}</div>

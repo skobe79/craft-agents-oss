@@ -80,6 +80,7 @@ export function ChatInputZone({
         <ActiveOptionBadges
           permissionMode={permissionMode}
           onPermissionModeChange={onPermissionModeChange}
+          isProcessing={inputProps.isProcessing}
           tasks={tasks}
           sessionId={sessionId}
           sessionFolderPath={sessionFolderPath}

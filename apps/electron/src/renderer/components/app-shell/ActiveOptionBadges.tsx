@@ -75,6 +75,8 @@ export interface ActiveOptionBadgesProps {
   currentSessionStatus?: string
   /** Callback when state changes */
   onSessionStatusChange?: (stateId: string) => void
+  /** Whether the AI is currently processing (drives AgentRing) */
+  isProcessing?: boolean
   /** Additional CSS classes */
   className?: string
 }
@@ -85,6 +87,8 @@ interface ResolvedLabelEntry {
   rawValue?: string
   index: number
 }
+
+import { AgentRing } from './AgentRing'
 
 export function ActiveOptionBadges({
   permissionMode = 'ask',
@@ -103,6 +107,7 @@ export function ActiveOptionBadges({
   sessionStatuses = [],
   currentSessionStatus,
   onSessionStatusChange,
+  isProcessing = false,
   className,
 }: ActiveOptionBadgesProps) {
   // Resolve session label entries to their config objects + parsed values.
@@ -148,6 +153,8 @@ export function ActiveOptionBadges({
     <div className={cn("flex items-start gap-2 mb-2 px-px pt-px pb-0.5", className)}>
       {/* Left side: mode → state → labels stack */}
       <div className="flex items-start gap-2 min-w-0 flex-1">
+        {/* AgentRing — always visible, pulses + spins when processing */}
+        <AgentRing active={isProcessing} size={20} className="shrink-0 mt-0.5 mr-2" />
         {/* Permission Mode Badge */}
         {permissionMode && (
           <div className="shrink-0">

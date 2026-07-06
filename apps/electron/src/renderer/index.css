@@ -1470,3 +1470,137 @@ html.dark[data-scenic] .fullscreen-overlay-background {
   min-height: 31px;
   padding: 6px 8px;
 }
+
+
+/* ── AgentRing ─────────────────────────────────────────────────────────
+   Blue glowing ring — pulses + spins when agent is processing,
+   sits as a dim static ring when idle.
+   Like Claude's orange indicator but blue. Sized via --agent-ring-size. */
+.agent-ring {
+  --agent-ring-size: 18px;
+  --agent-ring-color: #378add;
+  --agent-ring-spin: 1.1s;
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--agent-ring-size);
+  height: var(--agent-ring-size);
+  border-radius: 50%;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+/* Base ring border — always visible */
+.agent-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--agent-ring-color) 20%, transparent);
+  box-sizing: border-box;
+}
+
+/* IDLE: slow rotating ring with gentle glow — alive but calm */
+.agent-ring--idle::before {
+  opacity: 0.8;
+  border: 2px solid transparent;
+  background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      color-mix(in srgb, var(--agent-ring-color) 50%, transparent) 120deg,
+      var(--agent-ring-color) 200deg,
+      color-mix(in srgb, var(--agent-ring-color) 50%, transparent) 280deg,
+      transparent 360deg
+    )
+    border-box;
+  -webkit-mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: agent-ring-idle-spin 3s linear infinite;
+}
+
+/* IDLE: soft glow halo */
+.agent-ring--idle::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  box-shadow:
+    0 0 6px 1px color-mix(in srgb, var(--agent-ring-color) 20%, transparent),
+    0 0 12px 3px color-mix(in srgb, var(--agent-ring-color) 10%, transparent);
+  animation: agent-ring-idle-glow 3s ease-in-out infinite;
+}
+
+/* BUSY: glowing animated ring with conic-gradient shine + glow halo */
+.agent-ring--busy::before {
+  border: 2px solid transparent;
+  background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      var(--agent-ring-color) 90deg,
+      color-mix(in srgb, var(--agent-ring-color) 60%, white) 180deg,
+      var(--agent-ring-color) 270deg,
+      transparent 360deg
+    )
+    border-box;
+  -webkit-mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: agent-ring-spin var(--agent-ring-spin) linear infinite;
+  opacity: 1;
+}
+
+/* BUSY: outer glow halo */
+.agent-ring--busy::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  box-shadow:
+    0 0 8px 2px color-mix(in srgb, var(--agent-ring-color) 50%, transparent),
+    0 0 16px 4px color-mix(in srgb, var(--agent-ring-color) 25%, transparent);
+  animation: agent-ring-glow calc(var(--agent-ring-spin) * 1.5) ease-in-out infinite;
+}
+
+/* IDLE: no glow */
+.agent-ring--idle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+@keyframes agent-ring-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes agent-ring-idle-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes agent-ring-idle-glow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+@keyframes agent-ring-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-ring--busy::before,
+  .agent-ring--busy::after,
+  .agent-ring--idle::before,
+  .agent-ring--idle::after {
+    animation: agent-ring-glow 1.8s ease-in-out infinite;
+  }
+  .agent-ring--busy::before {
+    background: none;
+    border: 2px solid var(--agent-ring-color);
+    -webkit-mask: none;
+    mask: none;
+  }
+  .agent-ring--idle::before {
+    background: none;
+    border: 2px solid color-mix(in srgb, var(--agent-ring-color) 55%, transparent);
+    -webkit-mask: none;
+    mask: none;
+  }
+}
