@@ -34,7 +34,7 @@ const MODELS: LlamaModel[] = [
     name: 'Llama-3.1-8B-Instruct',
     creator: 'Meta',
     params: '8B',
-    description: 'Meta\\'s latest 8B model with excellent general reasoning and solid coding capability.',
+    description: "Meta's latest 8B model with excellent general reasoning and solid coding capability.",
     hfLink: 'https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF',
     downloadCommand: 'huggingface-cli download bartowski/Meta-Llama-3.1-8B-Instruct-GGUF Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf --local-dir . --local-dir-use-symlinks False'
   },
