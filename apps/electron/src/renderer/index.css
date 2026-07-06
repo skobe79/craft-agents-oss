@@ -1476,6 +1476,9 @@ html.dark[data-scenic] .fullscreen-overlay-background {
    Blue glowing ring — pulses + spins when agent is processing,
    sits as a dim static ring when idle.
    Like Claude's orange indicator but blue. Sized via --agent-ring-size. */
+.agent-ring-hidden .agent-ring {
+  display: none !important;
+}
 .agent-ring {
   --agent-ring-size: 18px;
   --agent-ring-color: #378add;

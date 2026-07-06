@@ -136,6 +136,32 @@ export default function AppearanceSettingsPage() {
     storage.set(storage.KEYS.showConnectionIcons, checked)
   }, [])
 
+  // Agent Ring settings
+  const [agentRingEnabled, setAgentRingEnabled] = useState(() =>
+    storage.get(storage.KEYS.agentRingEnabled, true)
+  )
+  const handleAgentRingEnabledChange = useCallback((checked: boolean) => {
+    setAgentRingEnabled(checked)
+    storage.set(storage.KEYS.agentRingEnabled, checked)
+    // Toggle the CSS class on the root element
+    document.documentElement.classList.toggle('agent-ring-hidden', !checked)
+  }, [])
+
+  const [agentRingColor, setAgentRingColor] = useState(() =>
+    storage.get(storage.KEYS.agentRingColor, '#378add')
+  )
+  const handleAgentRingColorChange = useCallback((color: string) => {
+    setAgentRingColor(color)
+    storage.set(storage.KEYS.agentRingColor, color)
+    document.documentElement.style.setProperty('--agent-ring-color', color)
+  }, [])
+
+  // Apply ring settings on mount
+  useEffect(() => {
+    document.documentElement.classList.toggle('agent-ring-hidden', !agentRingEnabled)
+    document.documentElement.style.setProperty('--agent-ring-color', agentRingColor)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Rich tool descriptions toggle (persisted in config.json, read by SDK subprocess)
   const [richToolDescriptions, setRichToolDescriptions] = useState(true)
   useEffect(() => {
@@ -368,6 +394,34 @@ export default function AppearanceSettingsPage() {
                     checked={richToolDescriptions}
                     onCheckedChange={handleRichToolDescriptionsChange}
                   />
+                  <SettingsToggle
+                    label="Agent Ring"
+                    description="Blue spinning ring above the input box — rotates when idle, spins + glows when processing."
+                    checked={agentRingEnabled}
+                    onCheckedChange={handleAgentRingEnabledChange}
+                  />
+                  {agentRingEnabled && (
+                    <SettingsRow label="Ring Color">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={agentRingColor}
+                          onChange={(e) => setAgentRingColor(e.target.value)}
+                          className="w-8 h-8 rounded cursor-pointer border border-foreground/20"
+                        />
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {agentRingColor}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleAgentRingColorChange(agentRingColor)}
+                          className="text-xs px-2 py-1 rounded-md bg-foreground/10 hover:bg-foreground/15 transition-colors"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    </SettingsRow>
+                  )}
                 </SettingsCard>
               </SettingsSection>
 

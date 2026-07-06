@@ -52,6 +52,8 @@ export const KEYS = {
 
   // Appearance
   showConnectionIcons: 'show-connection-icons',
+  agentRingEnabled: 'agent-ring-enabled',
+  agentRingColor: 'agent-ring-color',
 
   // What's New
   whatsNewLastSeenVersion: 'whats-new-last-seen-version',
