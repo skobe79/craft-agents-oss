@@ -932,15 +932,7 @@ export const getNavigationStateKey = (state: NavigationState): string => {
 }
 
 export const parseNavigationStateKey = (key: string): NavigationState | null => {
-  // Handle agents
-  if (key === 'agents') return { navigator: 'agents', details: null }
-  if (key.startsWith('agents/agent/')) {
-    const agentId = key.slice(13)
-    if (agentId) {
-      return { navigator: 'agents', details: { type: 'agent', agentId } }
-    }
-    return { navigator: 'agents', details: null }
-  }
+
 
   // Handle sources
   if (key === 'sources') return { navigator: 'sources', details: null }

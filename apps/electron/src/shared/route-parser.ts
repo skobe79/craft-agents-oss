@@ -57,10 +57,9 @@ export interface ParsedCompoundRoute {
 // Compound Route Parsing
 // =============================================================================
 
-/**
- * Known prefixes that indicate a compound route
- */
+const COMPOUND_ROUTE_PREFIXES = [
   'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'sources', 'skills', 'automations', 'settings'
+]
 
 /**
  * Check if a route is a compound route (new format)
