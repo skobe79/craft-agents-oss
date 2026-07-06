@@ -73,7 +73,6 @@ import {
 import { SessionList, type ChatGroupingMode } from "./SessionList"
 import { MainContentPanel } from "./MainContentPanel"
 import { PanelStackContainer } from "./PanelStackContainer"
-import { AGENTZ, getAgentById } from "./agents"
 import { CompactSessionListFilter } from "./CompactSessionListFilter"
 import type { ChatDisplayHandle } from "./ChatDisplay"
 import { LeftSidebar } from "./LeftSidebar"
@@ -115,7 +114,6 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
   isAutomationsNavigation,
-  isAgentsNavigation,
   type NavigationState,
 } from "@/contexts/NavigationContext"
 import type { SettingsSubpage } from "../../../shared/types"
@@ -1297,16 +1295,14 @@ function AppShellContent({
   // This prevents closures from retaining full message arrays
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const setSessionMetaMap = useSetAtom(sessionMetaMapAtom)
-  const isAgentView = isAgentsNavigation(navState) || (effectiveSessionId ? sessionMetaMap.get(effectiveSessionId)?.agentId != null : false)
-
   const handleToggleNavigator = useCallback(() => {
     setIsNavigatorManuallyHidden(prev => {
-      const currentlyHidden = prev !== null ? prev : isAgentView;
+      const currentlyHidden = prev !== null ? prev : false;
       const next = !currentlyHidden;
       storage.set(storage.KEYS.navigatorHidden, next);
       return next;
     });
-  }, [isAgentView]);
+  }, []);
 
   const hasPendingPrompt = React.useCallback((sessionId: string) => {
     return (pendingPermissions.get(sessionId)?.length ?? 0) > 0
@@ -1670,21 +1666,6 @@ function AppShellContent({
     navigate(routes.view.allSessions())
   }, [])
 
-  // Handler for Agentz — clicking an agent navigates to the agents view
-  const handleAgentClick = useCallback((agentId: string) => {
-    if (!activeWorkspaceId) return
-    setSearchActive(false)
-    setSearchQuery('')
-    navigate(
-      routes.action.newSession({ agentId })
-    )
-    setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
-  }, [activeWorkspaceId, focusZone, navigate])
-
-  // Handler for the Agentz header itself — navigates to agents overview
-  const handleAgentzClick = useCallback(() => {
-    navigate(routes.view.agent())
-  }, [])
 
   const handleFlaggedClick = useCallback(() => {
     navigate(routes.view.flagged())
@@ -1975,11 +1956,7 @@ function AppShellContent({
   const unifiedSidebarItems = React.useMemo((): SidebarItem[] => {
     const result: SidebarItem[] = []
 
-    // 0. Agentz section (expandable) with agent children
-    result.push({ id: 'nav:agentz', type: 'nav', action: handleAgentzClick })
-    for (const agent of AGENTZ) {
-      result.push({ id: `nav:agent:${agent.id}`, type: 'nav', action: () => handleAgentClick(agent.id) })
-    }
+
 
     // 1. Sessions section: All Sessions (expandable) with status items, Flagged, Archived as children
     result.push({ id: 'nav:allSessions', type: 'nav', action: handleAllSessionsClick })
@@ -2309,31 +2286,7 @@ function AppShellContent({
                   getItemProps={getSidebarItemProps}
                   focusedItemId={focusedSidebarItemId}
                   links={[
-                    // --- Agentz Section ---
-                    // Agentz: expandable with agent children (Hermes enabled, rest placeholders)
-                    {
-                      id: "nav:agentz",
-                      title: "Agentz",
-                      icon: Bot,
-                      variant: isAgentsNavigation(navState) ? "default" : "ghost",
-                      onClick: handleAgentzClick,
-                      expandable: true,
-                      expanded: isExpanded('nav:agentz'),
-                      onToggle: () => toggleExpanded('nav:agentz'),
-                      items: AGENTZ.map(agent => {
-                        const AgentIcon = agent.icon
-                        const isActive = isAgentsNavigation(navState) && navState.details?.agentId === agent.id
-                        return {
-                          id: `nav:agent:${agent.id}`,
-                          title: agent.title,
-                          icon: <AgentIcon className="h-3.5 w-3.5" />,
-                          variant: (isActive ? "default" : "ghost") as "default" | "ghost",
-                          onClick: agent.enabled ? () => handleAgentClick(agent.id) : undefined,
-                          className: agent.enabled ? undefined : "opacity-40 cursor-not-allowed",
-                          label: agent.enabled ? undefined : "soon",
-                        }
-                      }),
-                    },
+
                     // --- Sessions Section ---
                     // All Sessions: expandable with status children (sortable) + Flagged & Archived as trailing items
                     {

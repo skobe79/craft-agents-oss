@@ -31,7 +31,6 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
   isAutomationsNavigation,
-  isAgentsNavigation,
 } from '@/contexts/NavigationContext'
 import { useSessionSelection, useIsMultiSelectActive, useSelectedIds, useSelectionCount } from '@/hooks/useSession'
 import { sourceSelection, skillSelection, automationSelection } from '@/hooks/useEntitySelection'
@@ -44,7 +43,6 @@ import { AutomationInfoPage } from '../automations/AutomationInfoPage'
 import type { ExecutionEntry } from '../automations/types'
 import { automationsAtom } from '@/atoms/automations'
 import { SendResourceToWorkspaceDialog, type SendResourceType } from './SendResourceToWorkspaceDialog'
-import { getAgentById } from './agents'
 import { AgentRing } from './AgentRing'
 
 export interface MainContentPanelProps {
@@ -383,59 +381,7 @@ export function MainContentPanel({
     )
   }
 
-  // Agents navigator — show agent panel or coming-soon placeholder
-  if (isAgentsNavigation(navState)) {
-    const agentId = navState.details?.agentId
-    const agent = agentId ? getAgentById(agentId) : undefined
 
-    // Check if any session using this agent's connection is actively processing
-    const isAgentProcessing = agent?.connectionSlug
-      ? Array.from(sessionMetaMap.values()).some(
-          (m) => m.isProcessing && m.llmConnection === agent.connectionSlug
-        )
-      : false
-
-    return wrapWithStoplight(
-      <Panel variant="grow" className={className}>
-        <div className="flex flex-col h-full">
-          {agent ? (
-            <div className="flex flex-col h-full">
-              <div className="px-4 py-3 border-b border-foreground/10 flex items-center gap-2">
-                <span className="relative flex items-center justify-center h-5 w-5">
-                  <AgentRing active={isAgentProcessing} size={20} className="absolute inset-0" />
-                  <agent.icon className="h-3 w-3" />
-                </span>
-                <div>
-                  <div className="text-sm font-medium">{agent.title}</div>
-                  <div className="text-xs text-muted-foreground">{agent.description}</div>
-                </div>
-              </div>
-              <div className="flex-1 flex items-center justify-center p-4">
-                {agent.enabled ? (
-                  <div className="text-center max-w-md">
-                    <p className="text-sm text-muted-foreground mb-3">
-                      {agent.title} is enabled. Session integration coming next.
-                    </p>
-                    <p className="text-xs text-muted-foreground/70">
-                      Connection: {agent.connectionSlug ?? 'N/A'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground">{agent.description}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-sm text-muted-foreground">Select an agent from the Agentz sidebar.</p>
-            </div>
-          )}
-        </div>
-      </Panel>
-    )
-  }
 
   // Fallback (should not happen with proper NavigationState)
   return wrapWithStoplight(

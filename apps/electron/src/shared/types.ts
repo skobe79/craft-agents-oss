@@ -854,14 +854,6 @@ export interface AutomationsNavigationState {
 /**
  * Unified navigation state
  */
-/**
- * Agents navigation state (Agentz sidebar)
- */
-export interface AgentsNavigationState {
-  navigator: 'agents'
-  details: { type: 'agent'; agentId: string } | null
-  rightSidebar?: RightSidebarPanel
-}
 
 export type NavigationState =
   | SessionsNavigationState
@@ -869,7 +861,6 @@ export type NavigationState =
   | SettingsNavigationState
   | SkillsNavigationState
   | AutomationsNavigationState
-  | AgentsNavigationState
 
 export const isSessionsNavigation = (
   state: NavigationState
@@ -891,9 +882,6 @@ export const isAutomationsNavigation = (
   state: NavigationState
 ): state is AutomationsNavigationState => state.navigator === 'automations'
 
-export const isAgentsNavigation = (
-  state: NavigationState
-): state is AgentsNavigationState => state.navigator === 'agents'
 
 export const DEFAULT_NAVIGATION_STATE: NavigationState = {
   navigator: 'sessions',
