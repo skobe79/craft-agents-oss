@@ -1479,9 +1479,11 @@ html.dark[data-scenic] .fullscreen-overlay-background {
 .agent-ring-hidden .agent-ring {
   display: none !important;
 }
+:root {
+  --agent-ring-color: #378add;
+}
 .agent-ring {
   --agent-ring-size: 18px;
-  --agent-ring-color: #378add;
   --agent-ring-spin: 1.1s;
   position: relative;
   display: inline-block;
