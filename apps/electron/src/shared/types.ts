@@ -852,6 +852,12 @@ export interface AutomationsNavigationState {
   rightSidebar?: RightSidebarPanel
 }
 
+export interface CookedBookNavigationState {
+  navigator: 'cookedbook'
+  details: null
+  rightSidebar?: RightSidebarPanel
+}
+
 /**
  * Unified navigation state
  */
@@ -862,6 +868,7 @@ export type NavigationState =
   | SettingsNavigationState
   | SkillsNavigationState
   | AutomationsNavigationState
+  | CookedBookNavigationState
 
 export const isSessionsNavigation = (
   state: NavigationState
@@ -882,6 +889,10 @@ export const isSkillsNavigation = (
 export const isAutomationsNavigation = (
   state: NavigationState
 ): state is AutomationsNavigationState => state.navigator === 'automations'
+
+export const isCookedBookNavigation = (
+  state: NavigationState
+): state is CookedBookNavigationState => state.navigator === 'cookedbook'
 
 
 export const DEFAULT_NAVIGATION_STATE: NavigationState = {

@@ -8,8 +8,8 @@ import { SettingsSection } from '@/components/settings'
 import { Download, ExternalLink } from 'lucide-react'
 
 export const meta: DetailsPageMeta = {
-  navigator: 'settings',
-  slug: 'llama-cpp-cookbook',
+  navigator: 'cookedbook',
+  slug: 'cookedbook',
 }
 
 interface LlamaModel {
@@ -64,55 +64,62 @@ const MODELS: LlamaModel[] = [
   }
 ]
 
-export default function LlamaCppCookbookPage() {
-  const { t } = useTranslation()
-
+function ModelCard({ model }: { model: LlamaModel }) {
   return (
-    <div className="flex h-full flex-col bg-background">
-      <PanelHeader title={t('settings.llamaCppCookbook.title')} />
-      <ScrollArea className="flex-1 px-4 py-6 md:px-8">
-        <div className="mx-auto max-w-4xl space-y-8 pb-12">
-          
+    <div className="flex flex-col gap-3 rounded-lg border bg-card p-5 shadow-sm transition-colors hover:border-accent">
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="font-medium text-lg leading-none">{model.name}</h3>
+          <p className="text-sm text-muted-foreground mt-1.5 flex items-center gap-2">
+            <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold">
+              {model.params}
+            </span>
+            by {model.creator}
+          </p>
+        </div>
+        <a
+          href={model.hfLink}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <ExternalLink className="mr-2 h-3.5 w-3.5" />
+          View on HuggingFace
+        </a>
+      </div>
+      
+      <p className="text-sm text-foreground/80">{model.description}</p>
+      
+      <div className="mt-2 rounded-md bg-muted/50 p-3">
+        <div className="mb-2 flex items-center text-xs font-medium text-muted-foreground">
+          <Download className="mr-1.5 h-3.5 w-3.5" />
+          Download via HuggingFace CLI
+        </div>
+        <code className="block select-all rounded border bg-background px-3 py-2 text-xs text-foreground font-mono break-all">
+          {model.downloadCommand}
+        </code>
+      </div>
+    </div>
+  )
+}
+
+export default function CookedBookPage() {
+  return (
+    <div className="flex h-full flex-col min-h-0 bg-background text-foreground">
+      <PanelHeader
+        title="Llama.cpp CookedBook"
+        icon={<BookOpen className="h-4 w-4" />}
+      />
+
+      <ScrollArea className="flex-1">
+        <div className="max-w-4xl mx-auto p-8 pt-6">
           <SettingsSection 
-            title="Llama.cpp Models (GGUF)" 
-            description="A curated list of high-quality GGUF models that you can run locally using llama.cpp or LM Studio. These are quantized to 4-bit (Q4_K_M) for the best balance of speed, RAM usage, and intelligence."
+            title="Local Models CookedBook" 
+            description="A curated list of high-quality GGUF models optimized for local inference with Llama.cpp."
           >
-            <div className="grid gap-4 mt-4">
+            <div className="space-y-6 mt-4">
               {MODELS.map((model) => (
-                <div key={model.name} className="flex flex-col gap-3 rounded-lg border bg-card p-5 shadow-sm transition-colors hover:border-accent">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-medium text-lg leading-none">{model.name}</h3>
-                      <p className="text-sm text-muted-foreground mt-1.5 flex items-center gap-2">
-                        <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold">
-                          {model.params}
-                        </span>
-                        by {model.creator}
-                      </p>
-                    </div>
-                    <a
-                      href={model.hfLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <ExternalLink className="mr-2 h-3.5 w-3.5" />
-                      View on HuggingFace
-                    </a>
-                  </div>
-                  
-                  <p className="text-sm text-foreground/80">{model.description}</p>
-                  
-                  <div className="mt-2 rounded-md bg-muted/50 p-3">
-                    <div className="mb-2 flex items-center text-xs font-medium text-muted-foreground">
-                      <Download className="mr-1.5 h-3.5 w-3.5" />
-                      Download via HuggingFace CLI
-                    </div>
-                    <code className="block select-all rounded border bg-background px-3 py-2 text-xs text-foreground font-mono break-all">
-                      {model.downloadCommand}
-                    </code>
-                  </div>
-                </div>
+                <ModelCard key={model.name} model={model} />
               ))}
             </div>
           </SettingsSection>

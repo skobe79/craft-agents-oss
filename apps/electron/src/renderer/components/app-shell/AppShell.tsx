@@ -23,6 +23,7 @@ import {
   Inbox,
   Globe,
   FolderOpen,
+  BookOpen,
   Cake,
   Calendar,
   Layers,
@@ -114,12 +115,15 @@ import {
   isSettingsNavigation,
   isSkillsNavigation,
   isAutomationsNavigation,
+  isCookedBookNavigation,
   type NavigationState,
 } from "@/contexts/NavigationContext"
 import type { SettingsSubpage } from "../../../shared/types"
 import { SourcesListPanel } from "./SourcesListPanel"
 import { SkillsListPanel } from "./SkillsListPanel"
 import { AutomationsListPanel } from "../automations/AutomationsListPanel"
+import { AutomationSettingsOverlay } from '../settings/AutomationSettingsOverlay'
+import CookedBookPage from '../../pages/settings/CookedBookPage'
 import { APP_EVENTS, AGENT_EVENTS, type AutomationFilterKind, AUTOMATION_TYPE_TO_FILTER_KIND } from "../automations/types"
 import { useAutomations } from "@/hooks/useAutomations"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -2434,6 +2438,13 @@ function AppShellContent({
                             onAddSource: () => openAddSource('local'),
                             sourceType: 'local',
                           },
+                        },
+                        {
+                          id: "nav:sources:cookedbook",
+                          title: "CookedBook",
+                          icon: BookOpen,
+                          variant: "ghost",
+                          onClick: () => window.electronAPI.openUrl('archagentz://cookedbook?window=focused'),
                         },
                       ],
                     },

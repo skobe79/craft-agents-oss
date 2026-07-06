@@ -151,6 +151,9 @@ export const routes = {
         ? `sources/local/source/${sourceSlug}` as const
         : 'sources/local' as const,
 
+    /** CookedBook standalone view */
+    cookedbook: () => 'cookedbook' as const,
+
     /** Skills view (skills navigator). Pass a slug string for a local skill detail view. */
     skills: (skillSlug?: string) => {
       if (!skillSlug) return 'skills' as const
