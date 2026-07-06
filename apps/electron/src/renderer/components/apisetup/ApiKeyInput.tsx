@@ -292,7 +292,7 @@ export function ApiKeyInput({
     setModelError(null)
     // Pre-fill recommended model for Ollama; clear for all others
     // (Default provider presets hide the field entirely, others default to provider model IDs when empty)
-    if (preset.key === 'ollama') {
+    if (preset.key === 'ollama-local' || preset.key === 'ollama-cloud') {
       setConnectionDefaultModel('qwen3-coder')
     } else if (preset.key === 'openrouter' || preset.key === 'vercel-ai-gateway') {
       setConnectionDefaultModel(providerType === 'openai' ? COMPAT_OPENAI_DEFAULTS : COMPAT_ANTHROPIC_DEFAULTS)
@@ -323,7 +323,7 @@ export function ApiKeyInput({
     setLastNonCustomPreset(nextPresetState.lastNonCustomPreset)
     setModelError(null)
     if (!connectionDefaultModel.trim()) {
-      if (presetKey === 'ollama') {
+      if (presetKey === 'ollama-local' || presetKey === 'ollama-cloud') {
         setConnectionDefaultModel('qwen3-coder')
       } else if (presetKey === 'manifest') {
         setConnectionDefaultModel('auto')

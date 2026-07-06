@@ -96,73 +96,79 @@ export function registerSystemCoreHandlers(server: RpcServer, deps: HandlerDeps)
 
   // Get hardware system specs (CPU, GPU, RAM, VRAM)
   server.handle(RPC_CHANNELS.system.GET_SPECS, async () => {
-    const cpuInfo = cpus()
-    const cpu = cpuInfo.length > 0 ? cpuInfo[0].model : 'Unknown CPU'
-    const ramGb = Math.round(totalmem() / (1024 * 1024 * 1024))
+    try {
+      const cpuInfo = cpus()
+      const cpu = cpuInfo.length > 0 ? cpuInfo[0].model : 'Unknown CPU'
+      const ramGb = Math.round(totalmem() / (1024 * 1024 * 1024))
 
-    let gpu = 'Unknown GPU'
-    let vramMb = 0
+      let gpu = 'Unknown GPU'
+      let vramMb = 0
 
-    // Detect GPU and VRAM on Windows
-    if (process.platform === 'win32') {
-      try {
-        // Try nvidia-smi first (very accurate for NVIDIA GPUs)
-        const nvidiaSmi = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-        const [name, totalMem] = nvidiaSmi.split(',').map(s => s.trim())
-        if (name && totalMem) {
-          gpu = name
-          vramMb = parseInt(totalMem, 10)
-        }
-      } catch {
-        // Fallback: Query WMI/CIM for video controllers
+      // Detect GPU and VRAM on Windows
+      if (process.platform === 'win32') {
+        const env = { ...process.env, PATH: `${process.env.PATH || ''};C:\\Program Files\\NVIDIA Corporation\\NVSMI;C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0` }
         try {
-          const wmiQuery = execSync('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json"', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-          if (wmiQuery.trim()) {
-            const parsed = JSON.parse(wmiQuery)
-            const controllers = Array.isArray(parsed) ? parsed : [parsed]
-            // Find the one with highest RAM or first non-empty
-            const active = controllers.find(c => c.AdapterRAM) || controllers[0]
-            if (active) {
-              gpu = active.Name || gpu
-              if (active.AdapterRAM) {
-                const bytes = Math.abs(parseInt(active.AdapterRAM, 10))
-                if (bytes > 0) {
-                  vramMb = Math.round(bytes / (1024 * 1024))
+          // Try nvidia-smi first (very accurate for NVIDIA GPUs)
+          const nvidiaSmi = execSync('nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env })
+          const [name, totalMem] = nvidiaSmi.split(',').map(s => s.trim())
+          if (name && totalMem) {
+            gpu = name
+            vramMb = parseInt(totalMem, 10)
+          }
+        } catch {
+          // Fallback: Query WMI/CIM for video controllers
+          try {
+            const wmiQuery = execSync('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json"', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env })
+            if (wmiQuery.trim()) {
+              const parsed = JSON.parse(wmiQuery)
+              const controllers = Array.isArray(parsed) ? parsed : [parsed]
+              // Find the one with highest RAM or first non-empty
+              const active = controllers.find(c => c.AdapterRAM) || controllers[0]
+              if (active) {
+                gpu = active.Name || gpu
+                if (active.AdapterRAM) {
+                  const bytes = Math.abs(parseInt(active.AdapterRAM, 10))
+                  if (bytes > 0) {
+                    vramMb = Math.round(bytes / (1024 * 1024))
+                  }
                 }
               }
             }
+          } catch (e) {
+            // ignore fallback errors
           }
-        } catch (e) {
-          // ignore fallback errors
         }
+      } else if (process.platform === 'darwin') {
+        // macOS fallback
+        try {
+          const sysProfiler = execSync('system_profiler SPDisplaysDataType', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+          const chipsetMatch = sysProfiler.match(/Chipset Model:\s*(.+)/)
+          const vramMatch = sysProfiler.match(/VRAM \(Total\):\s*(.+)/)
+          if (chipsetMatch) gpu = chipsetMatch[1].trim()
+          if (vramMatch) {
+            const vramStr = vramMatch[1].trim()
+            if (vramStr.includes('GB')) {
+              vramMb = parseInt(vramStr, 10) * 1024
+            } else {
+              vramMb = parseInt(vramStr, 10)
+            }
+          }
+        } catch {}
+      } else {
+        // Linux fallback
+        try {
+          const lspci = execSync('lspci | grep -i vga', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+          if (lspci.trim()) {
+            gpu = lspci.split(':').pop()?.trim() || gpu
+          }
+        } catch {}
       }
-    } else if (process.platform === 'darwin') {
-      // macOS fallback
-      try {
-        const sysProfiler = execSync('system_profiler SPDisplaysDataType', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-        const chipsetMatch = sysProfiler.match(/Chipset Model:\s*(.+)/)
-        const vramMatch = sysProfiler.match(/VRAM \(Total\):\s*(.+)/)
-        if (chipsetMatch) gpu = chipsetMatch[1].trim()
-        if (vramMatch) {
-          const vramStr = vramMatch[1].trim()
-          if (vramStr.includes('GB')) {
-            vramMb = parseInt(vramStr, 10) * 1024
-          } else {
-            vramMb = parseInt(vramStr, 10)
-          }
-        }
-      } catch {}
-    } else {
-      // Linux fallback
-      try {
-        const lspci = execSync('lspci | grep -i vga', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-        if (lspci.trim()) {
-          gpu = lspci.split(':').pop()?.trim() || gpu
-        }
-      } catch {}
-    }
 
-    return { cpu, ramGb, gpu, vramMb }
+      return { cpu, ramGb, gpu, vramMb }
+    } catch (e) {
+      deps.platform.logger.error('Failed to get system specs:', e)
+      throw e
+    }
   })
 
   // Release notes
