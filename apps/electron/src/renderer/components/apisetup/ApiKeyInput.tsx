@@ -113,6 +113,10 @@ const ANTHROPIC_PRESETS: Preset[] = [
   { key: 'kimi-coding', label: 'Kimi (Coding)', url: 'https://api.kimi.com/coding', placeholder: 'sk-kimi-...' },
   { key: 'vercel-ai-gateway', label: 'Vercel AI Gateway', url: 'https://ai-gateway.vercel.sh', placeholder: 'Paste your key here...' },
   { key: 'manifest', label: 'Manifest', url: 'https://app.manifest.build/v1', placeholder: 'mnfst_...' },
+  { key: 'ollama-local', label: 'Ollama (Local)', url: 'http://localhost:11434/v1', placeholder: 'Leave blank for local Ollama' },
+  { key: 'ollama-cloud', label: 'Ollama (Cloud)', url: 'https://', placeholder: 'Paste your cloud Ollama key here...' },
+  { key: 'lm-studio', label: 'LM Studio', url: 'http://localhost:1234/v1', placeholder: 'Leave blank for local LM Studio' },
+  { key: 'llama-cpp', label: 'llama.cpp', url: 'http://localhost:8080/v1', placeholder: 'Leave blank for local llama.cpp' },
   { key: 'custom', label: 'Custom', url: '', placeholder: 'Paste your key here...' },
 ]
 
@@ -121,7 +125,9 @@ const ANTHROPIC_PRESETS: Preset[] = [
  * OpenAI-compatible protocol. They behave like 'custom' on submit (customEndpoint
  * gets pinned to openai-completions) but stay branded in the dropdown.
  */
-const OPENAI_COMPAT_CUSTOM_URL_PRESETS: ReadonlySet<string> = new Set(['manifest'])
+const OPENAI_COMPAT_CUSTOM_URL_PRESETS: ReadonlySet<string> = new Set([
+  'manifest', 'ollama-local', 'ollama-cloud', 'lm-studio', 'llama-cpp'
+])
 
 // OpenAI provider presets - for Codex backend
 // Only direct OpenAI is supported; 3PP providers (OpenRouter, Vercel, Ollama) should be
