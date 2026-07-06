@@ -1436,5 +1436,7 @@
   "workspace.selectWorkspaceDesc": "Choose a workspace on this server, or create a new one.",
   "workspace.selectWorkspacePlaceholder": "Select a workspace...",
   "workspace.serverAuthToken": "Server authentication token",
-  "workspace.underDefaultFolder": "under .arch-agentz folder"
+  "workspace.underDefaultFolder": "under .arch-agentz folder",
+  "settings.llamaCppCookbook.title": "Llama.cpp Models",
+  "settings.llamaCppCookbook.description": "Download local GGUF models for Llama.cpp"
 }
