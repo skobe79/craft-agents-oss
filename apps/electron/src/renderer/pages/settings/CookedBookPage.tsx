@@ -2,15 +2,8 @@ import { useTranslation } from 'react-i18next'
 import { PanelHeader } from '@/components/app-shell/PanelHeader'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { HeaderMenu } from '@/components/ui/HeaderMenu'
-import { routes } from '@/lib/navigate'
-import type { DetailsPageMeta } from '@/lib/navigation-registry'
 import { SettingsSection } from '@/components/settings'
-import { Download, ExternalLink } from 'lucide-react'
-
-export const meta: DetailsPageMeta = {
-  navigator: 'cookedbook',
-  slug: 'cookedbook',
-}
+import { Download, ExternalLink, BookOpen } from 'lucide-react'
 
 interface LlamaModel {
   name: string

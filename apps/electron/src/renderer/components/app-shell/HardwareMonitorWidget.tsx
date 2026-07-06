@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { Cpu, Activity } from 'lucide-react'
-import type { SystemSpecs } from '../../../shared/types'
+
+interface SystemSpecs {
+  cpu: string
+  ramGb: number
+  gpu: string
+  vramMb: number
+}
 
 export function HardwareMonitorWidget() {
   const [specs, setSpecs] = useState<SystemSpecs | null>(null)
@@ -19,16 +25,10 @@ export function HardwareMonitorWidget() {
   
   if (!specs) return null
   
-  // Try to parse out the GPU name cleanly
-  const gpuName = specs.gpu.name || 'Unknown GPU'
-  const cpuName = specs.cpu.model || 'Unknown CPU'
+  // Try to parse out the GPU/CPU name cleanly
+  const gpuName = specs.gpu || 'Unknown GPU'
+  const cpuName = specs.cpu || 'Unknown CPU'
   
-  // Format RAM nicely
-  const totalRamGb = Math.round(specs.memory.total / (1024 * 1024 * 1024))
-  const freeRamGb = Math.round(specs.memory.free / (1024 * 1024 * 1024))
-  const usedRamGb = totalRamGb - freeRamGb
-  const ramPercent = Math.round((usedRamGb / totalRamGb) * 100)
-
   return (
     <div className="flex flex-col gap-2 rounded-md border bg-card/50 p-3 shadow-sm mx-1 mb-2">
       <div className="flex items-center justify-between">
@@ -51,16 +51,15 @@ export function HardwareMonitorWidget() {
         
         <div className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">RAM</span>
-          <span className="font-medium">{usedRamGb}GB / {totalRamGb}GB</span>
+          <span className="font-medium">{specs.ramGb}GB</span>
         </div>
         
-        {/* Memory progress bar */}
-        <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden mt-0.5">
-          <div 
-            className="h-full bg-primary" 
-            style={{ width: `${ramPercent}%` }}
-          />
-        </div>
+        {specs.vramMb > 0 && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">VRAM</span>
+            <span className="font-medium">{Math.round(specs.vramMb / 1024)}GB</span>
+          </div>
+        )}
       </div>
     </div>
   )

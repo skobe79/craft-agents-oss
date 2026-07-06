@@ -122,7 +122,6 @@ import type { SettingsSubpage } from "../../../shared/types"
 import { SourcesListPanel } from "./SourcesListPanel"
 import { SkillsListPanel } from "./SkillsListPanel"
 import { AutomationsListPanel } from "../automations/AutomationsListPanel"
-import { AutomationSettingsOverlay } from '../settings/AutomationSettingsOverlay'
 import CookedBookPage from '../../pages/settings/CookedBookPage'
 import { HardwareMonitorWidget } from './HardwareMonitorWidget'
 import { APP_EVENTS, AGENT_EVENTS, type AutomationFilterKind, AUTOMATION_TYPE_TO_FILTER_KIND } from "../automations/types"

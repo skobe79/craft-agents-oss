@@ -925,6 +925,9 @@ export const getNavigationStateKey = (state: NavigationState): string => {
     if (state.subpage === null) return 'settings'
     return `settings:${state.subpage}`
   }
+  if (state.navigator === 'cookedbook') {
+    return 'cookedbook'
+  }
   // Chats
   const f = state.filter
   let base: string
