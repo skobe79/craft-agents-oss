@@ -27,7 +27,7 @@ export function SettingsModal({ open, onOpenChange, defaultSubpage = 'app' }: Se
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent 
-        className="max-w-[1200px] w-[95vw] h-[90vh] p-0 flex overflow-hidden bg-background border-border shadow-modal-large"
+        className="!max-w-[1200px] w-[95vw] h-[90vh] p-0 flex overflow-hidden bg-background border-border shadow-modal-large"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <VisuallyHidden>
