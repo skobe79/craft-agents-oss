@@ -1493,6 +1493,7 @@ html.dark[data-scenic] .fullscreen-overlay-background {
   border-radius: 50%;
   vertical-align: middle;
   pointer-events: none;
+  opacity: var(--agent-ring-brightness, 1);
 }
 
 /* Base ring border — always visible */

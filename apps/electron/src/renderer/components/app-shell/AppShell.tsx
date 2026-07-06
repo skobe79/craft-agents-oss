@@ -2540,33 +2540,60 @@ function AppShellContent({
                         },
                       ],
                     },
-                    // --- Separator ---
-                    { id: "separator:skills-settings", type: "separator" },
-                    // --- Settings ---
-                    {
-                      id: "nav:settings",
-                      title: t("sidebar.settings"),
-                      icon: Settings,
-                      variant: isSettingsNavigation(navState) ? "default" : "ghost",
-                      onClick: () => handleSettingsClick(),
-                    },
-                    // --- What's New ---
-                    {
-                      id: "nav:whats-new",
-                      title: t("sidebar.whatsNew"),
-                      icon: hasUnseenReleaseNotes ? (
-                        <span className="relative">
-                          <Cake className="h-3.5 w-3.5" />
-                          <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent" />
-                        </span>
-                      ) : Cake,
-                      variant: "ghost" as const,
-                      onClick: handleWhatsNewClick,
-                    },
+                    // Items below have been moved to the bottom permanent menu
                   ]}
                 />
-                {/* Agent Tree: Hierarchical list of agents */}
-                {/* Agents section removed */}
+                </div>
+                
+                {/* Bottom User Menu (ARCHole) */}
+                <div className="shrink-0 p-2 mt-auto">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="flex w-full items-center gap-2 rounded-md p-2 hover:bg-foreground/[0.05] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring text-left">
+                        <img 
+                          src="/assets/archole-logo.png" 
+                          alt="ARCHole Logo" 
+                          className="w-6 h-6 rounded-md shadow-minimal bg-black object-cover" 
+                        />
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <span className="text-[13px] font-medium leading-tight truncate">Skobe</span>
+                          <span className="text-[11px] text-muted-foreground leading-tight truncate">Free Plan</span>
+                        </div>
+                        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <StyledDropdownMenuContent className="w-[240px]" align="start" side="top" sideOffset={8}>
+                      <div className="px-2 py-1.5 flex items-center gap-2">
+                        <img 
+                          src="/assets/archole-logo.png" 
+                          alt="ARCHole Logo" 
+                          className="w-8 h-8 rounded-md shadow-minimal bg-black object-cover" 
+                        />
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[13px] font-medium leading-tight truncate">Skobe</span>
+                          <span className="text-[11px] text-muted-foreground leading-tight truncate">Free Plan</span>
+                        </div>
+                      </div>
+                      <StyledDropdownMenuSeparator />
+                      <StyledDropdownMenuItem onClick={handleSettingsClick}>
+                        <Settings className="w-4 h-4 mr-2 text-muted-foreground" />
+                        Settings
+                      </StyledDropdownMenuItem>
+                      <StyledDropdownMenuItem onClick={handleWhatsNewClick}>
+                        <Cake className="w-4 h-4 mr-2 text-muted-foreground" />
+                        What's New
+                      </StyledDropdownMenuItem>
+                      <StyledDropdownMenuItem>
+                        <Layers className="w-4 h-4 mr-2 text-muted-foreground" />
+                        Get Apps & Extensions
+                      </StyledDropdownMenuItem>
+                      <StyledDropdownMenuSeparator />
+                      <StyledDropdownMenuItem>
+                        <Zap className="w-4 h-4 mr-2 text-muted-foreground" />
+                        Upgrade Settings
+                      </StyledDropdownMenuItem>
+                    </StyledDropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
 

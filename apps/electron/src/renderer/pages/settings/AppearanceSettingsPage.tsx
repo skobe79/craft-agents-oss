@@ -156,10 +156,20 @@ export default function AppearanceSettingsPage() {
     document.documentElement.style.setProperty('--agent-ring-color', color)
   }, [])
 
+  const [agentRingBrightness, setAgentRingBrightness] = useState(() =>
+    storage.get('agentRingBrightness', 100)
+  )
+  const handleAgentRingBrightnessChange = useCallback((brightness: number) => {
+    setAgentRingBrightness(brightness)
+    storage.set('agentRingBrightness', brightness)
+    document.documentElement.style.setProperty('--agent-ring-brightness', String(brightness / 100))
+  }, [])
+
   // Apply ring settings on mount
   useEffect(() => {
     document.documentElement.classList.toggle('agent-ring-hidden', !agentRingEnabled)
     document.documentElement.style.setProperty('--agent-ring-color', agentRingColor)
+    document.documentElement.style.setProperty('--agent-ring-brightness', String(agentRingBrightness / 100))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Rich tool descriptions toggle (persisted in config.json, read by SDK subprocess)
@@ -401,26 +411,43 @@ export default function AppearanceSettingsPage() {
                     onCheckedChange={handleAgentRingEnabledChange}
                   />
                   {agentRingEnabled && (
-                    <SettingsRow label="Ring Color">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={agentRingColor}
-                          onChange={(e) => setAgentRingColor(e.target.value)}
-                          className="w-8 h-8 rounded cursor-pointer border border-foreground/20"
-                        />
-                        <span className="text-xs text-muted-foreground font-mono">
-                          {agentRingColor}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleAgentRingColorChange(agentRingColor)}
-                          className="text-xs px-2 py-1 rounded-md bg-foreground/10 hover:bg-foreground/15 transition-colors"
-                        >
-                          Apply
-                        </button>
-                      </div>
-                    </SettingsRow>
+                    <>
+                      <SettingsRow label="Ring Color">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={agentRingColor}
+                            onChange={(e) => setAgentRingColor(e.target.value)}
+                            className="w-8 h-8 rounded cursor-pointer border border-foreground/20"
+                          />
+                          <span className="text-xs text-muted-foreground font-mono">
+                            {agentRingColor}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleAgentRingColorChange(agentRingColor)}
+                            className="text-xs px-2 py-1 rounded-md bg-foreground/10 hover:bg-foreground/15 transition-colors"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </SettingsRow>
+                      <SettingsRow label="Ring Brightness">
+                        <div className="flex items-center gap-4 w-full max-w-[200px]">
+                          <input
+                            type="range"
+                            min="0"
+                            max="200"
+                            value={agentRingBrightness}
+                            onChange={(e) => handleAgentRingBrightnessChange(Number(e.target.value))}
+                            className="flex-1 cursor-pointer"
+                          />
+                          <span className="text-xs text-muted-foreground w-8 text-right">
+                            {agentRingBrightness}%
+                          </span>
+                        </div>
+                      </SettingsRow>
+                    </>
                   )}
                 </SettingsCard>
               </SettingsSection>
