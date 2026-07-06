@@ -32,6 +32,7 @@ import {
   Bot,
   Info,
   MailOpen,
+  PanelLeftClose,
 } from "lucide-react"
 // SessionStatusIcons no longer used - icons come from dynamic sessionStatuses
 import { SourceAvatar } from "@/components/ui/source-avatar"
@@ -600,15 +601,6 @@ function AppShellContent({
   // UNIFIED NAVIGATION STATE - single source of truth from NavigationContext
   // Derived from focused panel's route — all panels are peers
   const navState = useNavigationState()
-
-  const handleToggleNavigator = useCallback(() => {
-    setIsNavigatorManuallyHidden(prev => {
-      const currentlyHidden = prev !== null ? prev : isAgentsNavigation(navState);
-      const next = !currentlyHidden;
-      storage.set(storage.KEYS.navigatorHidden, next);
-      return next;
-    });
-  }, [navState]);
 
   const store = useStore()
   const panelStack = useAtomValue(panelStackAtom)
@@ -1304,6 +1296,16 @@ function AppShellContent({
   // This prevents closures from retaining full message arrays
   const sessionMetaMap = useAtomValue(sessionMetaMapAtom)
   const setSessionMetaMap = useSetAtom(sessionMetaMapAtom)
+  const isAgentView = isAgentsNavigation(navState) || (effectiveSessionId ? sessionMetaMap.get(effectiveSessionId)?.agentId != null : false)
+
+  const handleToggleNavigator = useCallback(() => {
+    setIsNavigatorManuallyHidden(prev => {
+      const currentlyHidden = prev !== null ? prev : isAgentView;
+      const next = !currentlyHidden;
+      storage.set(storage.KEYS.navigatorHidden, next);
+      return next;
+    });
+  }, [isAgentView]);
 
   const hasPendingPrompt = React.useCallback((sessionId: string) => {
     return (pendingPermissions.get(sessionId)?.length ?? 0) > 0
@@ -2240,7 +2242,7 @@ function AppShellContent({
           onToggleSidebar={handleToggleSidebar}
           onToggleFocusMode={() => setIsSidebarAndNavigatorHidden(prev => !prev)}
           onToggleNavigator={handleToggleNavigator}
-          isNavigatorHidden={isNavigatorManuallyHidden !== null ? isNavigatorManuallyHidden : isAgentsNavigation(navState)}
+          isNavigatorHidden={isNavigatorManuallyHidden !== null ? isNavigatorManuallyHidden : isAgentView}
           onAddSessionPanel={() => handleNewChat(true)}
           onAddBrowserPanel={() => { void handleNewBrowserWindow() }}
           isCompact={isAutoCompact}
@@ -3330,9 +3332,26 @@ function AppShellContent({
             {isAutoCompact && isSessionsNavigation(navState) && !navState.details && (
               <FabNewChat onClick={() => handleNewChat()} />
             )}
+            {/* Middle panel footer toggle */}
+            {!isAutoCompact && (
+              <div className="mt-auto border-t border-border/50 p-2 flex justify-center">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button 
+                      className="w-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md py-1.5 transition-colors text-sm font-medium" 
+                      onClick={handleToggleNavigator}
+                    >
+                      <PanelLeftClose className="h-4 w-4 mr-2" />
+                      Hide Panel
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">Toggle Middle Panel</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
             </div>
           }
-          navigatorWidth={isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || (isNavigatorManuallyHidden !== null ? isNavigatorManuallyHidden : isAgentsNavigation(navState)) ? 0 : sessionListWidth)}
+          navigatorWidth={isAutoCompact ? sessionListWidth : (effectiveSidebarAndNavigatorHidden || (isNavigatorManuallyHidden !== null ? isNavigatorManuallyHidden : isAgentView) ? 0 : sessionListWidth)}
           isSidebarAndNavigatorHidden={effectiveSidebarAndNavigatorHidden}
           isRightSidebarVisible={false}
           isCompact={isAutoCompact}
