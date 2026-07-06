@@ -69,16 +69,7 @@ export default function LlamaCppCookbookPage() {
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <PanelHeader
-        title={t('settings.llamaCppCookbook.title')}
-        description={t('settings.llamaCppCookbook.description')}
-        border
-        actions={
-          <HeaderMenu
-            items={[{ id: 'close', label: t('common.close'), onSelect: () => routes.home() }]}
-          />
-        }
-      />
+      <PanelHeader title={t('settings.llamaCppCookbook.title')} />
       <ScrollArea className="flex-1 px-4 py-6 md:px-8">
         <div className="mx-auto max-w-4xl space-y-8 pb-12">
           
