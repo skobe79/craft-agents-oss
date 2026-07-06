@@ -233,6 +233,7 @@ export interface ElectronAPI {
 
   // Server info (REMOTE_ELIGIBLE — returns data from whichever server owns the workspace)
   getServerHomeDir(): Promise<string>
+  getSystemSpecs(): Promise<{ cpu: string; ramGb: number; gpu: string; vramMb: number }>
 
   // Server mode configuration
   getServerConfig(): Promise<import('@arch-agentz/shared/config/server-config').ServerConfig>
