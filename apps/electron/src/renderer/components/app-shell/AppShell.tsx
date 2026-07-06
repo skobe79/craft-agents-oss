@@ -130,7 +130,7 @@ import { FabNewChat } from "./FabNewChat"
 import { SendToWorkspaceDialog } from "./SendToWorkspaceDialog"
 import { MessagingDialogHost } from "@/components/messaging/MessagingDialogHost"
 import { EditPopover, getEditConfig, type EditContextKey } from "@/components/ui/EditPopover"
-import SettingsNavigator from "@/pages/settings/SettingsNavigator"
+import { SettingsModal } from "./SettingsModal"
 import {
   PANEL_GAP,
   PANEL_EDGE_INSET,
@@ -574,6 +574,7 @@ function AppShellContent({
 
   // What's New overlay
   const [showWhatsNew, setShowWhatsNew] = React.useState(false)
+  const [showSettingsModal, setShowSettingsModal] = React.useState(false)
   const [releaseNotesContent, setReleaseNotesContent] = React.useState('')
   const [hasUnseenReleaseNotes, setHasUnseenReleaseNotes] = React.useState(false)
 
@@ -1755,10 +1756,9 @@ function AppShellContent({
     navigate(routes.view.automationsAgentic())
   }, [])
 
-  // Handler for settings view. With no arg → bare `settings` route (navigator-only
-  // in compact mode, App fallback on desktop). With an arg → `settings/<subpage>`.
-  const handleSettingsClick = useCallback((subpage?: SettingsSubpage) => {
-    navigate(routes.view.settings(subpage))
+  // Handler for settings view. Opens the settings modal overlay.
+  const handleSettingsClick = useCallback(() => {
+    setShowSettingsModal(true)
   }, [])
 
   // Handler for What's New overlay
@@ -2583,12 +2583,14 @@ function AppShellContent({
                         <Cake className="w-4 h-4 mr-2 text-muted-foreground" />
                         What's New
                       </StyledDropdownMenuItem>
-                      <StyledDropdownMenuItem>
+                      <StyledDropdownMenuItem onClick={() => {
+                        window.electronAPI.openUrl('https://docs.craftagents.com/extensions') // Placeholder link
+                      }}>
                         <Layers className="w-4 h-4 mr-2 text-muted-foreground" />
                         Get Apps & Extensions
                       </StyledDropdownMenuItem>
                       <StyledDropdownMenuSeparator />
-                      <StyledDropdownMenuItem>
+                      <StyledDropdownMenuItem onClick={() => setShowSettingsModal(true)}>
                         <Zap className="w-4 h-4 mr-2 text-muted-foreground" />
                         Upgrade Settings
                       </StyledDropdownMenuItem>
@@ -3289,13 +3291,7 @@ function AppShellContent({
                 workspaceRootPath={activeWorkspace?.rootPath}
               />
             )}
-            {isSettingsNavigation(navState) && (
-              /* Settings Navigator */
-              <SettingsNavigator
-                selectedSubpage={navState.subpage}
-                onSelectSubpage={(subpage) => handleSettingsClick(subpage)}
-              />
-            )}
+
             {isSessionsNavigation(navState) && (
               /* Sessions List */
               <>
@@ -3675,6 +3671,11 @@ function AppShellContent({
       {/* Messaging dialogs (pairing-code + WA connect) — driven by messagingDialogAtom.
           Mounted here so they survive context-menu / dropdown close. */}
       <MessagingDialogHost />
+
+      <SettingsModal 
+        open={showSettingsModal} 
+        onOpenChange={setShowSettingsModal} 
+      />
 
     </AppShellProvider>
   )
