@@ -20,6 +20,7 @@ import type { Session, Message } from '../../shared/types'
 export interface SessionMeta {
   id: string
   name?: string
+  agentId?: string
   /** Preview of first user message (for title fallback) */
   preview?: string
   workspaceId: string

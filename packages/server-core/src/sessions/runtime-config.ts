@@ -1,6 +1,6 @@
-import type { AgentProvider, LlmAuthType } from '@craft-agent/shared/agent/backend'
-import { isCompatProvider, modelSupportsImages, type LlmConnection } from '@craft-agent/shared/config'
-import type { FileAttachment } from '@craft-agent/shared/protocol'
+import type { AgentProvider, LlmAuthType } from '@arch-agentz/shared/agent/backend'
+import { isCompatProvider, modelSupportsImages, type LlmConnection } from '@arch-agentz/shared/config'
+import type { FileAttachment } from '@arch-agentz/shared/protocol'
 
 export interface BackendRuntimeSignatureInput {
   connection: LlmConnection | null

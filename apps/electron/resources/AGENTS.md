@@ -1,6 +1,6 @@
 # Bundled Resources
 
-This folder contains assets that are bundled with the Electron app and synced to the user's `~/.craft-agent/` directory on every launch.
+This folder contains assets that are bundled with the Electron app and synced to the user's `~/.arch-agentz/` directory on every launch.
 
 ## How It Works
 
@@ -13,12 +13,12 @@ This folder contains assets that are bundled with the Electron app and synced to
 
 | Folder/File | Synced To | Sync Behavior |
 |-------------|-----------|---------------|
-| `docs/` | `~/.craft-agent/docs/` | Always overwrite on launch |
-| `themes/` | `~/.craft-agent/themes/` | Always overwrite on launch |
-| `permissions/` | `~/.craft-agent/permissions/` | Always overwrite on launch |
-| `tool-icons/` | `~/.craft-agent/tool-icons/` | Always overwrite on launch |
-| `release-notes/` | `~/.craft-agent/release-notes/` | Always overwrite on launch |
-| `config-defaults.json` | `~/.craft-agent/config-defaults.json` | Always overwrite on launch |
+| `docs/` | `~/.arch-agentz/docs/` | Always overwrite on launch |
+| `themes/` | `~/.arch-agentz/themes/` | Always overwrite on launch |
+| `permissions/` | `~/.arch-agentz/permissions/` | Always overwrite on launch |
+| `tool-icons/` | `~/.arch-agentz/tool-icons/` | Always overwrite on launch |
+| `release-notes/` | `~/.arch-agentz/release-notes/` | Always overwrite on launch |
+| `config-defaults.json` | `~/.arch-agentz/config-defaults.json` | Always overwrite on launch |
 
 ## Why Sync on Every Launch?
 

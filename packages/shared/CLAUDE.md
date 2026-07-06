@@ -1,4 +1,4 @@
-# CLAUDE.md — `@craft-agent/shared`
+# CLAUDE.md — `@arch-agentz/shared`
 
 ## Purpose
 Core business logic package for Craft Agent:
@@ -38,7 +38,7 @@ cd packages/shared && bun run tsc --noEmit
 - Remote workspace handoff summaries are injected as one-shot hidden context on the destination session's first turn.
 - WebUI source OAuth uses a stable relay redirect URI (`https://agents.craft.do/auth/callback`); the deployment-specific callback target is carried in a relay-owned outer `state` envelope and unwrapped by the router worker.
 - Automations matching is unified through canonical matcher adapters in `src/automations/utils.ts` (`matcherMatches*`). Avoid direct primitive-only matcher checks in feature code so condition gating stays consistent across app and agent events.
-- Automation matchers may declare an optional `telegramTopic?: string` to route spawned sessions into a Telegram forum topic in the workspace's paired supergroup. The field is plumbed through `PendingPrompt` and `ExecutePromptAutomationInput`; runtime resolution and topic creation live in `@craft-agent/messaging-gateway`'s `TopicRegistry` and `MessagingGatewayRegistry.bindAutomationSession`. SessionManager picks up the resolution via the optional `setAutomationBinder` hook installed by the messaging-gateway bootstrap.
+- Automation matchers may declare an optional `telegramTopic?: string` to route spawned sessions into a Telegram forum topic in the workspace's paired supergroup. The field is plumbed through `PendingPrompt` and `ExecutePromptAutomationInput`; runtime resolution and topic creation live in `@arch-agentz/messaging-gateway`'s `TopicRegistry` and `MessagingGatewayRegistry.bindAutomationSession`. SessionManager picks up the resolution via the optional `setAutomationBinder` hook installed by the messaging-gateway bootstrap.
 - The OpenAI Chat Completions strip stream (`unified-network-interceptor.ts:createOpenAiSseStrippingStream`) emits **one consolidated SSE event per logical tool call** with `id + name + cleanArgs` together — never split across init + args-only deltas. Some downstream SDKs (Pi SDK) treat args-only deltas as new tool_calls instead of merging by index, which produces duplicate empty-id entries on parallel-tool turns from DeepSeek and other relays. `sanitizeOpenAiHistoryInPlace` recovers sessions whose history was persisted by the pre-fix split-emit version.
 - `LlmConnection.midStreamBehavior` controls whether mid-stream user sends try to steer the in-flight turn or hold for the next turn. Default is per-`providerType` via `defaultMidStreamBehavior()` (anthropic→`'queue'`, pi/pi_compat→`'steer'`). **Read everywhere via `resolveMidStreamBehavior(connection)`** — never branch on `providerType` directly for this decision; legacy connections without the field rely on the resolver's fallback. New connections persist the explicit default at `createBuiltInConnection` time so the Settings → AI submenu shows a checkmark on first load. The decision is made in `SessionManager.sendMessage`'s mid-stream branch only — backend code (`claude-agent.ts`, `pi-agent.ts`) is unchanged: `'queue'` mode skips `agent.redirect()` entirely and lets the current turn finish before replay.
 - The network interceptor (`unified-network-interceptor.ts`) is currently **Pi-only**: it preloads into the Pi subprocess via Bun `--preload`. The Claude SDK no longer runs under Bun (since 0.2.113 it spawns a per-platform native `claude` binary), so `--preload` is not available there. Features that used to live in the interceptor for Claude (rich tool intent, fast-mode override, MalformedBodyError validation, etc.) are Phase-2 work — they'll need to move to SDK hooks or a local proxy. In dev / monorepo runs, the Pi interceptor still preloads from the .ts source so changes propagate without a rebuild; packaged builds use `apps/electron/dist/interceptor.cjs`. See `agent/backend/internal/runtime-resolver.ts:resolveInterceptorBundlePath`.
@@ -101,7 +101,7 @@ Keys use **flat dot-notation** with a category prefix:
 
 1. **Never call `i18n.t()` at module level** — store `labelKey` strings and resolve in components/functions.
 2. **Use i18next pluralization** (`_one`/`_other`), never manual `count === 1 ?` logic.
-3. **Keep brand names in English**: Craft, Craft Agents, Agents, Workspace, Claude, Anthropic, OpenAI, MCP, API, SDK.
+3. **Keep brand names in English**: Craft, ARCH Agentz OS, Agents, Workspace, Claude, Anthropic, OpenAI, MCP, API, SDK.
 4. **Include `...` in the translation value** if the UI needs an ellipsis — don't append it in JSX.
 5. **Use `<Trans>` component** for translations containing HTML tags (e.g. `<strong>`).
 6. **Use `i18n.resolvedLanguage`** (not `i18n.language`) when comparing against supported language codes.
@@ -144,7 +144,7 @@ When resolving locale merge conflicts, run `bun run validate:ci` and trust the r
 The main-process i18n instance has **no detection plugin** (no `localStorage` in Node) and would otherwise reset to `fallbackLng: 'en'` on every restart. To keep main + renderer in sync across launches:
 
 - **Renderer** uses `i18next-browser-languagedetector` → `localStorage` (`i18nextLng`). Survives restart.
-- **Main** hydrates on startup from `preferences.uiLanguage` in `~/.craft-agent/preferences.json`. Maintained only by the `i18n:changeLanguage` IPC handler in `apps/electron/src/main/index.ts`.
+- **Main** hydrates on startup from `preferences.uiLanguage` in `~/.arch-agentz/preferences.json`. Maintained only by the `i18n:changeLanguage` IPC handler in `apps/electron/src/main/index.ts`.
 - **Renderer → main sync** happens on every Appearance change AND once at renderer startup (so a freshly-installed app immediately learns the persisted language).
 - The IPC handler validates the incoming code against `SUPPORTED_LANGUAGE_CODES` and `setPersistedUiLanguage()` no-ops if the value is unchanged — startup pushes don't churn the file or the config watcher.
 

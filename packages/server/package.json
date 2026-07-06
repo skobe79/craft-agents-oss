@@ -1,5 +1,5 @@
 {
-  "name": "@craft-agent/server",
+  "name": "@arch-agentz/server",
   "version": "0.10.5",
   "description": "Standalone headless Craft Agent server (Bun runtime)",
   "type": "module",
@@ -25,10 +25,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@craft-agent/core": "workspace:*",
-    "@craft-agent/messaging-gateway": "workspace:*",
-    "@craft-agent/server-core": "workspace:*",
-    "@craft-agent/shared": "workspace:*"
+    "@arch-agentz/core": "workspace:*",
+    "@arch-agentz/messaging-gateway": "workspace:*",
+    "@arch-agentz/server-core": "workspace:*",
+    "@arch-agentz/shared": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.2",

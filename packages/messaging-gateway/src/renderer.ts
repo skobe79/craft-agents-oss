@@ -52,7 +52,7 @@ export interface SessionEvent {
   [key: string]: unknown
 }
 
-/** PermissionRequest shape from @craft-agent/core. */
+/** PermissionRequest shape from @arch-agentz/core. */
 interface PermissionRequest {
   requestId: string
   toolName: string

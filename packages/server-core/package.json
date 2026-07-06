@@ -1,5 +1,5 @@
 {
-  "name": "@craft-agent/server-core",
+  "name": "@arch-agentz/server-core",
   "version": "0.10.5",
   "license": "Apache-2.0",
   "description": "Reusable headless server infrastructure for Craft Agent",
@@ -24,8 +24,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@craft-agent/core": "workspace:*",
-    "@craft-agent/shared": "workspace:*",
+    "@arch-agentz/core": "workspace:*",
+    "@arch-agentz/shared": "workspace:*",
     "jose": "^6.0.0",
     "ws": "^8.19.0",
     "sharp": "0.34.5",

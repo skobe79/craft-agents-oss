@@ -1,4 +1,4 @@
-# @craft-agent/core
+# @arch-agentz/core
 
 Shared TypeScript types and utilities for Craft Agent applications.
 
@@ -6,14 +6,14 @@ Shared TypeScript types and utilities for Craft Agent applications.
 
 ```bash
 # In a workspace package
-bun add @craft-agent/core
+bun add @arch-agentz/core
 ```
 
 Or add to `package.json`:
 ```json
 {
   "dependencies": {
-    "@craft-agent/core": "workspace:*"
+    "@arch-agentz/core": "workspace:*"
   }
 }
 ```
@@ -28,10 +28,10 @@ import type {
   Message,
   TokenUsage,
   AgentEvent,
-} from '@craft-agent/core';
+} from '@arch-agentz/core';
 
 // Import utilities
-import { generateMessageId, debug } from '@craft-agent/core';
+import { generateMessageId, debug } from '@arch-agentz/core';
 ```
 
 ## Exported Types

@@ -1,1 +1,1 @@
-export { WsRpcServer, type WsRpcServerOptions } from '@craft-agent/server-core/transport'
+export { WsRpcServer, type WsRpcServerOptions } from '@arch-agentz/server-core/transport'

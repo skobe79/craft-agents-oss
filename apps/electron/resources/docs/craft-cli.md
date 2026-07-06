@@ -1,17 +1,17 @@
 # Craft Agent CLI Guide
 
-`craft-agent` is the preferred interface for managing workspace config domains such as labels, sources, skills, and automations.
+`arch-agentz` is the preferred interface for managing workspace config domains such as labels, sources, skills, and automations.
 
 ## Usage
 
 ```bash
-craft-agent <entity> <action> [args] [--flags] [--json '<json>'] [--stdin]
+arch-agentz <entity> <action> [args] [--flags] [--json '<json>'] [--stdin]
 ```
 
 ### Global flags
-- `craft-agent --help`
-- `craft-agent --version`
-- `craft-agent --discover`
+- `arch-agentz --help`
+- `arch-agentz --version`
+- `arch-agentz --discover`
 
 ### Input modes
 - Flat flags for simple values
@@ -26,33 +26,33 @@ craft-agent <entity> <action> [args] [--flags] [--json '<json>'] [--stdin]
 Manage workspace labels stored under `labels/`.
 
 ### Commands
-- `craft-agent label list`
-- `craft-agent label get <id>`
-- `craft-agent label create --name "<name>" [--color "<color>"] [--parent-id <id|root>] [--value-type string|number|date]`
-- `craft-agent label update <id> [--name "<name>"] [--color "<color>"] [--value-type string|number|date|none] [--clear-value-type]`
-- `craft-agent label delete <id>`
-- `craft-agent label move <id> --parent <id|root>`
-- `craft-agent label reorder [--parent <id|root>] <ordered-id-1> <ordered-id-2> ...`
-- `craft-agent label auto-rule-list <id>`
-- `craft-agent label auto-rule-add <id> --pattern "<regex>" [--flags "gi"] [--value-template "$1"] [--description "..."]`
-- `craft-agent label auto-rule-remove <id> --index <n>`
-- `craft-agent label auto-rule-clear <id>`
-- `craft-agent label auto-rule-validate <id>`
+- `arch-agentz label list`
+- `arch-agentz label get <id>`
+- `arch-agentz label create --name "<name>" [--color "<color>"] [--parent-id <id|root>] [--value-type string|number|date]`
+- `arch-agentz label update <id> [--name "<name>"] [--color "<color>"] [--value-type string|number|date|none] [--clear-value-type]`
+- `arch-agentz label delete <id>`
+- `arch-agentz label move <id> --parent <id|root>`
+- `arch-agentz label reorder [--parent <id|root>] <ordered-id-1> <ordered-id-2> ...`
+- `arch-agentz label auto-rule-list <id>`
+- `arch-agentz label auto-rule-add <id> --pattern "<regex>" [--flags "gi"] [--value-template "$1"] [--description "..."]`
+- `arch-agentz label auto-rule-remove <id> --index <n>`
+- `arch-agentz label auto-rule-clear <id>`
+- `arch-agentz label auto-rule-validate <id>`
 
 ### Examples
 
 ```bash
-craft-agent label list
-craft-agent label get bug
-craft-agent label create --name "Bug" --color "accent"
-craft-agent label create --name "Priority" --value-type number
-craft-agent label update bug --json '{"name":"Bug Report","color":"destructive"}'
-craft-agent label update priority --value-type none
-craft-agent label move bug --parent root
-craft-agent label reorder --parent root development content bug
-craft-agent label auto-rule-add linear-issue --pattern "\\b([A-Z]{2,5}-\\d+)\\b" --value-template "$1"
-craft-agent label auto-rule-list linear-issue
-craft-agent label auto-rule-validate linear-issue
+arch-agentz label list
+arch-agentz label get bug
+arch-agentz label create --name "Bug" --color "accent"
+arch-agentz label create --name "Priority" --value-type number
+arch-agentz label update bug --json '{"name":"Bug Report","color":"destructive"}'
+arch-agentz label update priority --value-type none
+arch-agentz label move bug --parent root
+arch-agentz label reorder --parent root development content bug
+arch-agentz label auto-rule-add linear-issue --pattern "\\b([A-Z]{2,5}-\\d+)\\b" --value-template "$1"
+arch-agentz label auto-rule-list linear-issue
+arch-agentz label auto-rule-validate linear-issue
 ```
 
 ### Notes
@@ -69,16 +69,16 @@ craft-agent label auto-rule-validate linear-issue
 Manage workspace sources stored under `sources/{slug}/`.
 
 ### Commands
-- `craft-agent source list [--include-builtins true|false]`
-- `craft-agent source get <slug>`
-- `craft-agent source create` (see flags below)
-- `craft-agent source update <slug> --json '{...}'`
-- `craft-agent source delete <slug>`
-- `craft-agent source validate <slug>`
-- `craft-agent source test <slug>`
-- `craft-agent source init-guide <slug> [--template generic|mcp|api|local]`
-- `craft-agent source init-permissions <slug> [--mode read-only]`
-- `craft-agent source auth-help <slug>`
+- `arch-agentz source list [--include-builtins true|false]`
+- `arch-agentz source get <slug>`
+- `arch-agentz source create` (see flags below)
+- `arch-agentz source update <slug> --json '{...}'`
+- `arch-agentz source delete <slug>`
+- `arch-agentz source validate <slug>`
+- `arch-agentz source test <slug>`
+- `arch-agentz source init-guide <slug> [--template generic|mcp|api|local]`
+- `arch-agentz source init-permissions <slug> [--mode read-only]`
+- `arch-agentz source auth-help <slug>`
 
 ### Flags for `source create`
 
@@ -102,22 +102,22 @@ Manage workspace sources stored under `sources/{slug}/`.
 ### Examples
 
 ```bash
-craft-agent source list
-craft-agent source get linear
+arch-agentz source list
+arch-agentz source get linear
 # MCP source with flat flags
-craft-agent source create --name "Linear" --provider "linear" --type mcp --url "https://mcp.linear.app/sse" --auth-type oauth
+arch-agentz source create --name "Linear" --provider "linear" --type mcp --url "https://mcp.linear.app/sse" --auth-type oauth
 # MCP source with --json for nested config
-craft-agent source create --name "Linear" --provider "linear" --type mcp --json '{"mcp":{"transport":"http","url":"https://mcp.linear.app/sse","authType":"oauth"}}'
+arch-agentz source create --name "Linear" --provider "linear" --type mcp --json '{"mcp":{"transport":"http","url":"https://mcp.linear.app/sse","authType":"oauth"}}'
 # API source
-craft-agent source create --name "Exa" --provider "exa" --type api --base-url "https://api.exa.ai/" --auth-type header
+arch-agentz source create --name "Exa" --provider "exa" --type api --base-url "https://api.exa.ai/" --auth-type header
 # Local source
-craft-agent source create --name "Docs Folder" --provider "filesystem" --type local --path "~/Documents"
-craft-agent source update linear --json '{"enabled":false}'
-craft-agent source validate linear
-craft-agent source test linear
-craft-agent source init-guide linear --template mcp
-craft-agent source init-permissions linear --mode read-only
-craft-agent source auth-help linear
+arch-agentz source create --name "Docs Folder" --provider "filesystem" --type local --path "~/Documents"
+arch-agentz source update linear --json '{"enabled":false}'
+arch-agentz source validate linear
+arch-agentz source test linear
+arch-agentz source init-guide linear --template mcp
+arch-agentz source init-permissions linear --mode read-only
+arch-agentz source auth-help linear
 ```
 
 ### Notes
@@ -136,13 +136,13 @@ craft-agent source auth-help linear
 Manage workspace skills stored under `skills/{slug}/SKILL.md`.
 
 ### Commands
-- `craft-agent skill list [--workspace-only] [--project-root <path>]`
-- `craft-agent skill get <slug> [--project-root <path>]`
-- `craft-agent skill where <slug> [--project-root <path>]`
-- `craft-agent skill create` (see flags below)
-- `craft-agent skill update <slug> --json '{...}' [--project-root <path>]`
-- `craft-agent skill delete <slug>`
-- `craft-agent skill validate <slug> [--source workspace|project|global] [--project-root <path>]`
+- `arch-agentz skill list [--workspace-only] [--project-root <path>]`
+- `arch-agentz skill get <slug> [--project-root <path>]`
+- `arch-agentz skill where <slug> [--project-root <path>]`
+- `arch-agentz skill create` (see flags below)
+- `arch-agentz skill update <slug> --json '{...}' [--project-root <path>]`
+- `arch-agentz skill delete <slug>`
+- `arch-agentz skill validate <slug> [--source workspace|project|global] [--project-root <path>]`
 
 ### Flags for `skill create`
 
@@ -160,15 +160,15 @@ Manage workspace skills stored under `skills/{slug}/SKILL.md`.
 ### Examples
 
 ```bash
-craft-agent skill list
-craft-agent skill list --workspace-only
-craft-agent skill where commit-helper
-craft-agent skill create --name "Commit Helper" --description "Generate conventional commits" --slug commit-helper
-craft-agent skill create --name "Code Review" --description "Review PRs" --globs "*.ts,*.tsx" --always-allow "Bash" --required-sources "github"
-craft-agent skill update commit-helper --json '{"requiredSources":["github"],"body":"Use concise, imperative commit messages."}'
-craft-agent skill validate commit-helper
-craft-agent skill validate commit-helper --source global
-craft-agent skill delete commit-helper
+arch-agentz skill list
+arch-agentz skill list --workspace-only
+arch-agentz skill where commit-helper
+arch-agentz skill create --name "Commit Helper" --description "Generate conventional commits" --slug commit-helper
+arch-agentz skill create --name "Code Review" --description "Review PRs" --globs "*.ts,*.tsx" --always-allow "Bash" --required-sources "github"
+arch-agentz skill update commit-helper --json '{"requiredSources":["github"],"body":"Use concise, imperative commit messages."}'
+arch-agentz skill validate commit-helper
+arch-agentz skill validate commit-helper --source global
+arch-agentz skill delete commit-helper
 ```
 
 ### Notes
@@ -185,19 +185,19 @@ craft-agent skill delete commit-helper
 Manage workspace automations stored in `automations.json`.
 
 ### Commands
-- `craft-agent automation list`
-- `craft-agent automation get <id>`
-- `craft-agent automation create` (see flags below)
-- `craft-agent automation update <id>` (same flags as create, all optional)
-- `craft-agent automation delete <id>`
-- `craft-agent automation enable <id>`
-- `craft-agent automation disable <id>`
-- `craft-agent automation duplicate <id>`
-- `craft-agent automation history [<id>] [--limit <n>]`
-- `craft-agent automation last-executed <id>`
-- `craft-agent automation test <id> [--match "..."]`
-- `craft-agent automation lint`
-- `craft-agent automation validate`
+- `arch-agentz automation list`
+- `arch-agentz automation get <id>`
+- `arch-agentz automation create` (see flags below)
+- `arch-agentz automation update <id>` (same flags as create, all optional)
+- `arch-agentz automation delete <id>`
+- `arch-agentz automation enable <id>`
+- `arch-agentz automation disable <id>`
+- `arch-agentz automation duplicate <id>`
+- `arch-agentz automation history [<id>] [--limit <n>]`
+- `arch-agentz automation last-executed <id>`
+- `arch-agentz automation test <id> [--match "..."]`
+- `arch-agentz automation lint`
+- `arch-agentz automation validate`
 
 ### Flags for `automation create` / `update`
 
@@ -218,23 +218,23 @@ Manage workspace automations stored in `automations.json`.
 ### Examples
 
 ```bash
-craft-agent automation list
-craft-agent automation validate
+arch-agentz automation list
+arch-agentz automation validate
 # Simple prompt automation with flat flags
-craft-agent automation create --event UserPromptSubmit --prompt "Summarize this prompt"
+arch-agentz automation create --event UserPromptSubmit --prompt "Summarize this prompt"
 # Scheduled automation with flat flags
-craft-agent automation create --event SchedulerTick --cron "0 9 * * 1-5" --timezone "Europe/Budapest" --prompt "Give me a morning briefing" --labels "Scheduled" --permission-mode safe
+arch-agentz automation create --event SchedulerTick --cron "0 9 * * 1-5" --timezone "Europe/Budapest" --prompt "Give me a morning briefing" --labels "Scheduled" --permission-mode safe
 # Complex automation with --json
-craft-agent automation create --event SchedulerTick --json '{"cron":"0 9 * * 1-5","actions":[{"type":"prompt","prompt":"Daily summary"}]}'
-craft-agent automation update abc123 --name "Morning Report" --prompt "Updated prompt"
-craft-agent automation update abc123 --enabled false
-craft-agent automation enable abc123
-craft-agent automation duplicate abc123
-craft-agent automation history abc123 --limit 10
-craft-agent automation last-executed abc123
-craft-agent automation test abc123 --match "UserPromptSubmit"
-craft-agent automation lint
-craft-agent automation delete abc123
+arch-agentz automation create --event SchedulerTick --json '{"cron":"0 9 * * 1-5","actions":[{"type":"prompt","prompt":"Daily summary"}]}'
+arch-agentz automation update abc123 --name "Morning Report" --prompt "Updated prompt"
+arch-agentz automation update abc123 --enabled false
+arch-agentz automation enable abc123
+arch-agentz automation duplicate abc123
+arch-agentz automation history abc123 --limit 10
+arch-agentz automation last-executed abc123
+arch-agentz automation test abc123 --match "UserPromptSubmit"
+arch-agentz automation lint
+arch-agentz automation delete abc123
 ```
 
 ### Notes
@@ -253,16 +253,16 @@ craft-agent automation delete abc123
 Manage Explore mode permissions stored in `permissions.json` (workspace-level and per-source).
 
 ### Commands
-- `craft-agent permission list`
-- `craft-agent permission get [--source <slug>]`
-- `craft-agent permission set [--source <slug>] --json '{...}'`
-- `craft-agent permission add-mcp-pattern "<pattern>" [--comment "..."] [--source <slug>]`
-- `craft-agent permission add-api-endpoint --method GET|POST|... --path "<regex>" [--comment "..."] [--source <slug>]`
-- `craft-agent permission add-bash-pattern "<pattern>" [--comment "..."] [--source <slug>]`
-- `craft-agent permission add-write-path "<glob>" [--source <slug>]`
-- `craft-agent permission remove <index> --type mcp|api|bash|write-path|blocked [--source <slug>]`
-- `craft-agent permission validate [--source <slug>]`
-- `craft-agent permission reset [--source <slug>]`
+- `arch-agentz permission list`
+- `arch-agentz permission get [--source <slug>]`
+- `arch-agentz permission set [--source <slug>] --json '{...}'`
+- `arch-agentz permission add-mcp-pattern "<pattern>" [--comment "..."] [--source <slug>]`
+- `arch-agentz permission add-api-endpoint --method GET|POST|... --path "<regex>" [--comment "..."] [--source <slug>]`
+- `arch-agentz permission add-bash-pattern "<pattern>" [--comment "..."] [--source <slug>]`
+- `arch-agentz permission add-write-path "<glob>" [--source <slug>]`
+- `arch-agentz permission remove <index> --type mcp|api|bash|write-path|blocked [--source <slug>]`
+- `arch-agentz permission validate [--source <slug>]`
+- `arch-agentz permission reset [--source <slug>]`
 
 ### Scope
 
@@ -273,31 +273,31 @@ With `--source <slug>`: operates on that source's `permissions.json` (auto-scope
 
 ```bash
 # List all permissions files (workspace + sources)
-craft-agent permission list
+arch-agentz permission list
 # Get workspace permissions
-craft-agent permission get
+arch-agentz permission get
 # Get source-specific permissions
-craft-agent permission get --source linear
+arch-agentz permission get --source linear
 # Add read-only MCP patterns for a source
-craft-agent permission add-mcp-pattern "list" --comment "List operations" --source linear
-craft-agent permission add-mcp-pattern "get" --comment "Get operations" --source linear
-craft-agent permission add-mcp-pattern "search" --comment "Search operations" --source linear
+arch-agentz permission add-mcp-pattern "list" --comment "List operations" --source linear
+arch-agentz permission add-mcp-pattern "get" --comment "Get operations" --source linear
+arch-agentz permission add-mcp-pattern "search" --comment "Search operations" --source linear
 # Add API endpoint rules
-craft-agent permission add-api-endpoint --method GET --path ".*" --comment "All GET requests" --source stripe
+arch-agentz permission add-api-endpoint --method GET --path ".*" --comment "All GET requests" --source stripe
 # Add bash patterns
-craft-agent permission add-bash-pattern "^ls\\s" --comment "Allow ls"
+arch-agentz permission add-bash-pattern "^ls\\s" --comment "Allow ls"
 # Add write path globs
-craft-agent permission add-write-path "/tmp/**"
+arch-agentz permission add-write-path "/tmp/**"
 # Remove a rule by index and type
-craft-agent permission remove 1 --type mcp --source linear
+arch-agentz permission remove 1 --type mcp --source linear
 # Replace entire config
-craft-agent permission set --source github --json '{"allowedMcpPatterns":[{"pattern":"list","comment":"List ops"}]}'
+arch-agentz permission set --source github --json '{"allowedMcpPatterns":[{"pattern":"list","comment":"List ops"}]}'
 # Validate all permissions
-craft-agent permission validate
+arch-agentz permission validate
 # Validate source-specific
-craft-agent permission validate --source linear
+arch-agentz permission validate --source linear
 # Delete permissions file (revert to defaults)
-craft-agent permission reset --source linear
+arch-agentz permission reset --source linear
 ```
 
 ### Notes
@@ -315,54 +315,54 @@ craft-agent permission reset --source linear
 Manage app-level and workspace-level theme settings.
 
 ### Commands
-- `craft-agent theme get`
-- `craft-agent theme validate [--preset <id>]`
-- `craft-agent theme list-presets`
-- `craft-agent theme get-preset <id>`
-- `craft-agent theme set-color-theme <id>`
-- `craft-agent theme set-workspace-color-theme <id|default>`
-- `craft-agent theme set-override --json '{...}'`
-- `craft-agent theme reset-override`
+- `arch-agentz theme get`
+- `arch-agentz theme validate [--preset <id>]`
+- `arch-agentz theme list-presets`
+- `arch-agentz theme get-preset <id>`
+- `arch-agentz theme set-color-theme <id>`
+- `arch-agentz theme set-workspace-color-theme <id|default>`
+- `arch-agentz theme set-override --json '{...}'`
+- `arch-agentz theme reset-override`
 
 ### Examples
 
 ```bash
 # Inspect current theme state
-craft-agent theme get
+arch-agentz theme get
 
 # Validate app override file
-craft-agent theme validate
+arch-agentz theme validate
 
 # Validate one preset file
-craft-agent theme validate --preset nord
+arch-agentz theme validate --preset nord
 
 # List available presets
-craft-agent theme list-presets
+arch-agentz theme list-presets
 
 # Inspect a specific preset
-craft-agent theme get-preset dracula
+arch-agentz theme get-preset dracula
 
 # Set app default preset
-craft-agent theme set-color-theme nord
+arch-agentz theme set-color-theme nord
 
 # Set workspace override
-craft-agent theme set-workspace-color-theme dracula
+arch-agentz theme set-workspace-color-theme dracula
 
 # Clear workspace override (inherit app default)
-craft-agent theme set-workspace-color-theme default
+arch-agentz theme set-workspace-color-theme default
 
 # Replace app-level theme.json override
-craft-agent theme set-override --json '{"accent":"oklch(0.62 0.21 293)","dark":{"accent":"oklch(0.68 0.21 293)"}}'
+arch-agentz theme set-override --json '{"accent":"oklch(0.62 0.21 293)","dark":{"accent":"oklch(0.68 0.21 293)"}}'
 
 # Remove app-level override file
-craft-agent theme reset-override
+arch-agentz theme reset-override
 ```
 
 ### Notes
 - `set-color-theme` and `set-workspace-color-theme` require an existing preset ID (`default` is always valid).
 - `set-override` validates `theme.json` shape before writing.
 - Workspace override is stored in `workspace/config.json` under `defaults.colorTheme`.
-- App override is stored in `~/.craft-agent/theme.json`.
+- App override is stored in `~/.arch-agentz/theme.json`.
 <!-- cli:theme:end -->
 
 ---

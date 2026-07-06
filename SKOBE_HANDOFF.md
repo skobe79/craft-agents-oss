@@ -1,4 +1,4 @@
-# Craft Agents — Model Picker Feature Handoff
+# ARCH Agentz OS — Model Picker Feature Handoff
 
 ## Context
 User: skobe (skobeponga@gmail.com)
@@ -9,8 +9,8 @@ Goal: Make the local model list less overwhelming by adding per-provider sub-pag
 
 ## What's been done
 
-### 1. Craft Agents config fixes (already applied to live install)
-- `C:\Users\skobe\.craft-agent\config.json`
+### 1. ARCH Agentz OS config fixes (already applied to live install)
+- `C:\Users\skobe\.arch-agentz\config.json`
 - Ollama baseUrl fixed: `http://localhost:11434` → `http://localhost:11434/v1` (was 404ing)
 - HuggingFace endpoint updated to `https://router.huggingface.co/v1`
 - GitHub Models endpoint updated to `https://models.github.ai/inference`
@@ -19,12 +19,12 @@ Goal: Make the local model list less overwhelming by adding per-provider sub-pag
 - Telegram owner ID set to `7157540441` in messaging config
 
 ### 2. Source repo cloned
-- Repo: `github.com/lukilabs/craft-agents-oss` (Apache 2.0)
-- Cloned to: `D:\dev\craft-agents-oss`
+- Repo: `github.com/lukilabs/arch-agentzs-oss` (Apache 2.0)
+- Cloned to: `D:\dev\arch-agentzs-oss`
 - Version: 0.10.5
 
 ### 3. Root cause of the wide model list identified
-File: `D:\dev\craft-agents-oss\apps\electron\src\renderer\components\app-shell\input\picker-mode.ts`
+File: `D:\dev\arch-agentzs-oss\apps\electron\src\renderer\components\app-shell\input\picker-mode.ts`
 
 The picker has 4 modes: `unavailable`, `switcher`, `locked-single`, `flat`
 
@@ -34,7 +34,7 @@ The picker has 4 modes: `unavailable`, `switcher`, `locked-single`, `flat`
 The user hits `flat` mode every time because they're already in a conversation.
 
 ### 4. The UI component
-File: `D:\dev\craft-agents-oss\apps\electron\src\renderer\components\app-shell\input\CompactModelSelector.tsx`
+File: `D:\dev\arch-agentzs-oss\apps\electron\src\renderer\components\app-shell\input\CompactModelSelector.tsx`
 521 lines, React + Tailwind + Radix Drawer, well-structured.
 
 ---
@@ -90,13 +90,13 @@ Add a second state: `subViewConnection: string | null`. When a provider row is c
 
 ## Build & test commands
 ```bash
-cd D:\dev\craft-agents-oss
+cd D:\dev\arch-agentzs-oss
 bun install
 bun run electron:start   # dev build with hot reload
 ```
 
 The installed app lives at:
-`C:\Users\skobe\AppData\Local\Programs\@craft-agentelectron\`
+`C:\Users\skobe\AppData\Local\Programs\@arch-agentzelectron\`
 
 Once happy with changes, build with:
 ```bash
@@ -115,9 +115,9 @@ bun run electron:build
 
 ## Backups
 All config changes have backups at:
-- `C:\Users\skobe\.craft-agent\config.json.bak-claude-2026-07-06`
-- `C:\Users\skobe\.craft-agent\config.json.bak-claude-dedupe-2026-07-06`
-- `C:\Users\skobe\.craft-agent\config.json.bak-claude-64k-2026-07-06`
+- `C:\Users\skobe\.arch-agentz\config.json.bak-claude-2026-07-06`
+- `C:\Users\skobe\.arch-agentz\config.json.bak-claude-dedupe-2026-07-06`
+- `C:\Users\skobe\.arch-agentz\config.json.bak-claude-64k-2026-07-06`
 
 ---
 

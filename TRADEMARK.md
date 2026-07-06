@@ -1,21 +1,21 @@
 # Trademark Policy
 
-This trademark policy governs the use of the "Craft" and "Craft Agents" names, logos, and branding in connection with the Craft Agents open source project.
+This trademark policy governs the use of the "Craft" and "ARCH Agentz OS" names, logos, and branding in connection with the ARCH Agentz OS open source project.
 
 ## Trademarks
 
 The following are trademarks of Craft Docs Ltd.:
 
 - **Craft** (word mark)
-- **Craft Agents** (word mark)
+- **ARCH Agentz OS** (word mark)
 - The Craft logo and icon
-- The Craft Agents logo and icon
+- The ARCH Agentz OS logo and icon
 
 ## What You Can Do
 
 ### Use the Code Freely
 
-The Craft Agents source code is licensed under the Apache License 2.0. You are free to:
+The ARCH Agentz OS source code is licensed under the Apache License 2.0. You are free to:
 
 - Use, modify, and distribute the code
 - Create derivative works
@@ -25,14 +25,14 @@ The Craft Agents source code is licensed under the Apache License 2.0. You are f
 
 You may make accurate, factual statements about your relationship to the project:
 
-- "Based on Craft Agents"
-- "Built with Craft Agents technology"
-- "Compatible with Craft Agents"
-- "Fork of Craft Agents"
+- "Based on ARCH Agentz OS"
+- "Built with ARCH Agentz OS technology"
+- "Compatible with ARCH Agentz OS"
+- "Fork of ARCH Agentz OS"
 
 ### Contribute to the Project
 
-Contributors to the official Craft Agents repository may use the trademarks when discussing their contributions.
+Contributors to the official ARCH Agentz OS repository may use the trademarks when discussing their contributions.
 
 ## What You Cannot Do
 
@@ -42,14 +42,14 @@ If you create a fork or derivative work, you **must**:
 
 - Choose a different name that does not include "Craft"
 - Remove or replace all Craft logos and icons
-- Update the bundle identifier (e.g., `com.lukilabs.craft-agent`) to your own
+- Update the bundle identifier (e.g., `com.lukilabs.arch-agentz`) to your own
 - Remove references to `craft.do` domains unless connecting to official Craft services
 
 ### Imply Official Endorsement
 
 You may not:
 
-- Use "Craft" or "Craft Agents" as your product name
+- Use "Craft" or "ARCH Agentz OS" as your product name
 - Use the Craft logo as your application icon
 - Suggest that your fork is the official version
 - Imply that Craft Docs Ltd. or Craft endorses your product
@@ -59,8 +59,8 @@ You may not:
 You may not use the trademarks in any way that:
 
 - Suggests your product is created by or affiliated with Craft Docs Ltd.
-- Could cause confusion between your product and the official Craft Agents
-- Disparages Craft Docs Ltd. or the Craft Agents project
+- Could cause confusion between your product and the official ARCH Agentz OS
+- Disparages Craft Docs Ltd. or the ARCH Agentz OS project
 
 ## Branding Locations
 
@@ -76,15 +76,15 @@ For those creating forks, the following files contain branding that should be up
 
 ### Acceptable
 
-- "MyAgent - based on Craft Agents"
-- "This project is a fork of Craft Agents"
-- "Compatible with the Craft Agents ecosystem"
+- "MyAgent - based on ARCH Agentz OS"
+- "This project is a fork of ARCH Agentz OS"
+- "Compatible with the ARCH Agentz OS ecosystem"
 
 ### Not Acceptable
 
-- "Craft Agents Pro"
+- "ARCH Agentz OS Pro"
 - "Craft Agent for Linux"
-- "Better Craft Agents"
+- "Better ARCH Agentz OS"
 - Using the Craft logo for your fork
 
 ## Questions

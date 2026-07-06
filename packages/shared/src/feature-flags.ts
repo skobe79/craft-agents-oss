@@ -24,7 +24,7 @@ function parseBooleanEnv(value: string | undefined): boolean | undefined {
  */
 export function isDevRuntime(): boolean {
   const nodeEnv = (getEnv('NODE_ENV') || '').toLowerCase();
-  return nodeEnv === 'development' || nodeEnv === 'dev' || getEnv('CRAFT_DEBUG') === '1';
+  return nodeEnv === 'development' || nodeEnv === 'dev' || getEnv('ARCH_DEBUG') === '1';
 }
 
 /**
@@ -32,18 +32,18 @@ export function isDevRuntime(): boolean {
  * Explicit env override has precedence over dev-runtime defaults.
  */
 export function isDeveloperFeedbackEnabled(): boolean {
-  const override = parseBooleanEnv(getEnv('CRAFT_FEATURE_DEVELOPER_FEEDBACK'));
+  const override = parseBooleanEnv(getEnv('ARCH_FEATURE_DEVELOPER_FEEDBACK'));
   if (override !== undefined) return override;
   return isDevRuntime();
 }
 
 /**
- * Runtime-evaluated check for craft-agents-cli integration.
+ * Runtime-evaluated check for arch-agentzs-cli integration.
  *
- * Defaults to disabled. Override with CRAFT_FEATURE_CRAFT_AGENTS_CLI=1|0.
+ * Defaults to disabled. Override with ARCH_FEATURE_ARCH_AGENTS_CLI=1|0.
  */
 export function isCraftAgentsCliEnabled(): boolean {
-  const override = parseBooleanEnv(getEnv('CRAFT_FEATURE_CRAFT_AGENTS_CLI'));
+  const override = parseBooleanEnv(getEnv('ARCH_FEATURE_ARCH_AGENTS_CLI'));
   if (override !== undefined) return override;
   return false;
 }
@@ -51,10 +51,10 @@ export function isCraftAgentsCliEnabled(): boolean {
 /**
  * Runtime-evaluated check for embedded server settings page.
  *
- * Defaults to disabled. Override with CRAFT_FEATURE_EMBEDDED_SERVER=1|0.
+ * Defaults to disabled. Override with ARCH_FEATURE_EMBEDDED_SERVER=1|0.
  */
 export function isEmbeddedServerEnabled(): boolean {
-  const override = parseBooleanEnv(getEnv('CRAFT_FEATURE_EMBEDDED_SERVER'));
+  const override = parseBooleanEnv(getEnv('ARCH_FEATURE_EMBEDDED_SERVER'));
   if (override !== undefined) return override;
   return false;
 }
@@ -66,15 +66,15 @@ export const FEATURE_FLAGS = {
    * Enable agent developer feedback tool.
    *
    * Defaults to enabled in explicit development runtimes; disabled otherwise.
-   * Override with CRAFT_FEATURE_DEVELOPER_FEEDBACK=1|0.
+   * Override with ARCH_FEATURE_DEVELOPER_FEEDBACK=1|0.
    */
   get developerFeedback(): boolean {
     return isDeveloperFeedbackEnabled();
   },
   /**
-   * Enable craft-agent CLI guidance and guardrails.
+   * Enable arch-agentz CLI guidance and guardrails.
    *
-   * Defaults to disabled. Override with CRAFT_FEATURE_CRAFT_AGENTS_CLI=1|0.
+   * Defaults to disabled. Override with ARCH_FEATURE_ARCH_AGENTS_CLI=1|0.
    */
   get craftAgentsCli(): boolean {
     return isCraftAgentsCliEnabled();
@@ -82,7 +82,7 @@ export const FEATURE_FLAGS = {
   /**
    * Enable embedded server settings page.
    *
-   * Defaults to disabled. Override with CRAFT_FEATURE_EMBEDDED_SERVER=1|0.
+   * Defaults to disabled. Override with ARCH_FEATURE_EMBEDDED_SERVER=1|0.
    */
   get embeddedServer(): boolean {
     return isEmbeddedServerEnabled();

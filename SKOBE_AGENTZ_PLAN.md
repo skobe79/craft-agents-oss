@@ -1,8 +1,8 @@
-# Craft Agents — "Agentz" Sidebar Feature — Build Plan
+# ARCH Agentz OS — "Agentz" Sidebar Feature — Build Plan
 
 Date: 2026-07-06
 Author: Claude (Fable session) for skobe
-Repo: D:\dev\craft-agents-oss (Apache 2.0)
+Repo: D:\dev\arch-agentzs-oss (Apache 2.0)
 
 ---
 
@@ -151,7 +151,7 @@ File: find the locale JSON (search `"sidebar.allSessions"` → same file).
 
 ### Step 7 — Typecheck, test, run
 ```bash
-cd D:\dev\craft-agents-oss
+cd D:\dev\arch-agentzs-oss
 bun install
 bun run typecheck          # or: bunx tsc --noEmit
 bun test                   # picker-mode etc. — make sure nothing regressed
@@ -165,7 +165,7 @@ bun run electron:start     # dev build, hot reload — verify visually
 ```bash
 bun run electron:build
 ```
-Installed app: `C:\Users\skobe\AppData\Local\Programs\@craft-agentelectron\`
+Installed app: `C:\Users\skobe\AppData\Local\Programs\@arch-agentzelectron\`
 
 ---
 

@@ -16,7 +16,7 @@ import { homedir } from 'os';
 import { existsSync, realpathSync } from 'fs';
 import { debug } from '../utils/debug.ts';
 import { dirname, isAbsolute, relative, resolve } from 'path';
-import { getSessionSafeAllowedToolNames } from '@craft-agent/session-tools-core';
+import { getSessionSafeAllowedToolNames } from '@arch-agentz/session-tools-core';
 import { FEATURE_FLAGS } from '../feature-flags.ts';
 import { isBrowserToolNameOrAlias } from './browser-tool-names.ts';
 import type { PermissionsContext, MergedPermissionsConfig } from './permissions-config.ts';
@@ -1701,12 +1701,12 @@ export function getPathHint(targetPath: string, plansFolderPath: string, dataFol
   }
 
   // Case: Writing to workspace root instead of session
-  if (normalizedTarget.includes('/.craft-agent/workspaces/') && !normalizedTarget.includes('/sessions/')) {
+  if (normalizedTarget.includes('/.arch-agentz/workspaces/') && !normalizedTarget.includes('/sessions/')) {
     return 'Hint: Write to the session plans or data folder, not the workspace root.';
   }
 
-  // Case: Writing outside .craft-agent entirely
-  if (!normalizedTarget.includes('/.craft-agent/')) {
+  // Case: Writing outside .arch-agentz entirely
+  if (!normalizedTarget.includes('/.arch-agentz/')) {
     return 'Hint: Files must be written to the session plans or data folder. Use plansFolderPath or dataFolderPath from <session_state>.';
   }
 
@@ -2005,7 +2005,7 @@ export function shouldAllowToolInMode(
   // Handle MCP tools - allow read-only, block write operations
   if (toolName.startsWith('mcp__')) {
     // Always allow documentation tools (read-only, always available)
-    if (toolName.startsWith('mcp__craft-agents-docs__')) {
+    if (toolName.startsWith('mcp__arch-agentzs-docs__')) {
       return { allowed: true };
     }
 

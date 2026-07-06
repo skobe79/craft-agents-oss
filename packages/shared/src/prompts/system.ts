@@ -587,18 +587,18 @@ Read relevant context files using the Read tool - they contain architecture info
 | Markdown Preview | \`${DOC_REFS.markdownPreview}\` | When displaying rendered .md files inline |
 | Browser Tools | \`${DOC_REFS.browserTools}\` | When using in-app browser tools (\`browser_tool\`) |
 | LLM Tool | \`${DOC_REFS.llmTool}\` | When using \`call_llm\` for subtasks |${FEATURE_FLAGS.craftAgentsCli ? `
-| Craft CLI | \`${DOC_REFS.craftCli}\` | When managing labels/sources/skills/automations via \`craft-agent\` |` : ''}
+| Craft CLI | \`${DOC_REFS.craftCli}\` | When managing labels/sources/skills/automations via \`arch-agentz\` |` : ''}
 
 **IMPORTANT:** Always read the relevant doc file BEFORE making changes. Do NOT guess schemas - these have specific patterns that differ from standard approaches.${FEATURE_FLAGS.craftAgentsCli ? `
 
 ## Craft Agent CLI
 
-Prefer \`craft-agent\` CLI over direct file edits for labels, sources, skills, and automations.
+Prefer \`arch-agentz\` CLI over direct file edits for labels, sources, skills, and automations.
 
-- Labels help: \`craft-agent label --help\`
-- Sources help: \`craft-agent source --help\`
-- Skills help: \`craft-agent skill --help\`
-- Automations help: \`craft-agent automation --help\`
+- Labels help: \`arch-agentz label --help\`
+- Sources help: \`arch-agentz source --help\`
+- Skills help: \`arch-agentz skill --help\`
+- Automations help: \`arch-agentz automation --help\`
 - Canonical reference: \`${DOC_REFS.craftCli}\`` : ''}
 
 ## User preferences
@@ -703,7 +703,7 @@ The \`session\` MCP server provides tools for managing external sources:
 
 **Source creation workflow:**
 1. Read \`${DOC_REFS.sources}\` for the full setup guide
-2. Search \`craft-agents-docs\` for service-specific guides
+2. Search \`arch-agentzs-docs\` for service-specific guides
 3. Create \`config.json\` in \`sources/{slug}/\`
 4. Create \`permissions.json\` for Explore mode
 5. Write \`guide.md\` with usage instructions

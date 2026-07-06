@@ -1,6 +1,6 @@
 {
-  "name": "Craft Agents",
-  "short_name": "Craft Agents",
+  "name": "ARCH Agentz OS",
+  "short_name": "ARCH Agentz OS",
   "description": "AI agent interface",
   "start_url": "./",
   "display": "standalone",

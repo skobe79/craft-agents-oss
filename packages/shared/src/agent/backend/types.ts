@@ -12,7 +12,7 @@
  * - AsyncGenerator for streaming: Consistent with existing CraftAgent API
  */
 
-import type { AgentEvent } from '@craft-agent/core/types';
+import type { AgentEvent } from '@arch-agentz/core/types';
 import type { FileAttachment } from '../../utils/files.ts';
 import type { ThinkingLevel } from '../thinking-levels.ts';
 import type { PermissionMode } from '../mode-manager.ts';
@@ -531,7 +531,7 @@ export interface AgentBackend {
    * event loop after the next tool_result, which yields `source_activated`
    * and `forceAbort`s the turn. SessionManager's `source_activated` handler
    * then schedules the server-side resend with a "[{slug} activated]" suffix
-   * (craft-agents-oss#804). Set by SessionManager after a successful mid-turn
+   * (arch-agentzs-oss#804). Set by SessionManager after a successful mid-turn
    * activation (source_test auto-enable).
    */
   setPendingSourceActivationRestart(pending: { sourceSlug: string; userMessage: string }): void;

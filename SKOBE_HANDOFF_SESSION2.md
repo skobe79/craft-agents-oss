@@ -1,15 +1,15 @@
-# SKOBE HANDOFF — Craft Agents session
+# SKOBE HANDOFF — ARCH Agentz OS session
 _Written 2026-07-06 ~20:15 UTC. Pick up here after the daily-limit break._
 
 ## TL;DR of where we are
-Everything is working. Craft Agents **dev build** is running, Agentz panel restored, all
+Everything is working. ARCH Agentz OS **dev build** is running, Agentz panel restored, all
 providers wired. Only loose end: 2 local git commits not yet pushed to GitHub (needs `gh auth login`).
 
 ---
 
 ## What got done this session
 
-### 1. config.json cleanup (`C:\Users\skobe\.craft-agent\config.json`)
+### 1. config.json cleanup (`C:\Users\skobe\.arch-agentz\config.json`)
 - Removed 3 dead WORMGPT model entries.
 - Fixed 3 stale `-64k` refs, reran `make64k.ps1` — all 64k variants now exist, refs point at them.
 - JSON validates. Backup: `config.json.bak-claude-cleanup-2026-07-06`.
@@ -33,11 +33,11 @@ providers wired. Only loose end: 2 local git commits not yet pushed to GitHub (n
 
 ### 4. THE BIG ONE — "agents vanished" mystery, SOLVED
 - The Agentz panel (Hermes/Claude/OpenClaw/Odysseus/Pi) is **hardcoded** in the dev branch at
-  `D:\dev\craft-agents-oss\apps\electron\src\renderer\components\app-shell\agents.ts`.
+  `D:\dev\arch-agentzs-oss\apps\electron\src\renderer\components\app-shell\agents.ts`.
   Only Hermes is `enabled:true`; the other 4 are `enabled:false` "coming soon" placeholders.
 - It is NOT a feature of the installed 0.10.5 release. Nothing was ever deleted.
 - Root cause of "vanish": user had been running the DEV build (agents visible), then launched the
-  INSTALLED app (`C:\Users\skobe\AppData\Local\Programs\@craft-agentelectron`, v0.10.5, no Agentz).
+  INSTALLED app (`C:\Users\skobe\AppData\Local\Programs\@arch-agentzelectron`, v0.10.5, no Agentz).
 - Fixed a real Windows bug in `scripts/electron-dev.ts`: it resolved electron via the
   `node_modules/.bin/electron` shim, which on Windows produced a broken `dist\dist\electron.exe\n`
   path (trailing newline + doubled dir) -> ENOENT. Changed ELECTRON_BIN to point straight at
@@ -46,22 +46,22 @@ providers wired. Only loose end: 2 local git commits not yet pushed to GitHub (n
 ---
 
 ## Current running state
-- Craft Agents DEV build is RUNNING (launched via `bun run electron:dev` from `D:\dev\craft-agents-oss`,
+- ARCH Agentz OS DEV build is RUNNING (launched via `bun run electron:dev` from `D:\dev\arch-agentzs-oss`,
   logs at `%TEMP%\craft-dev.log` / `.err.log`). Electron up, scheduler ticking, no errors.
 - To relaunch if needed: `%TEMP%\relaunch.ps1` (kills old, restarts dev build).
 - Installed 0.10.5 app is CLOSED (don't run both — they share config).
 
-## Git state (`D:\dev\craft-agents-oss`)
+## Git state (`D:\dev\arch-agentzs-oss`)
 - Branch `main`, **2 commits ahead of origin**, working tree clean:
   - `d76daadf` fix: resolve electron binary directly on Windows dev script
   - `c3ce6bec` feat: model picker search + Agentz sidebar
-- `origin` = https://github.com/lukilabs/craft-agents-oss.git (UPSTREAM — no push access).
+- `origin` = https://github.com/lukilabs/arch-agentzs-oss.git (UPSTREAM — no push access).
 
 ---
 
 ## OUTSTANDING / next steps
 1. **Push commits to GitHub backup** — BLOCKED on `gh auth login` (user not logged in).
-   After login: `gh repo fork lukilabs/craft-agents-oss --remote` then `git push fork main`.
+   After login: `gh repo fork lukilabs/arch-agentzs-oss --remote` then `git push fork main`.
 2. **Paste Ollama Cloud API key** into Craft UI (regenerate first at ollama.com/settings).
 3. Optional: commit is done, but nothing pushed anywhere off-machine yet.
 
@@ -99,8 +99,8 @@ User wanted a small blue circular ring that spins + glows when busy. Built it:
 ### IMPORTANT OPERATIONAL NOTE — "Agentz keeps vanishing"
 Root cause each time: the DEV Electron WINDOW dies (during file edits / relaunch races), leaving
 the bun dev-server running. When user reopens they may hit the installed 0.10.5 app (no Agentz) OR
-just see the dead dev window. THE DEV WINDOW PROCESS IS NAMED `electron`, NOT `Craft Agents`
-(that name is only the packaged/installed build). So check `Get-Process electron`, not 'Craft Agents'.
+just see the dead dev window. THE DEV WINDOW PROCESS IS NAMED `electron`, NOT `ARCH Agentz OS`
+(that name is only the packaged/installed build). So check `Get-Process electron`, not 'ARCH Agentz OS'.
 
 ### CLEAN RESTART PROCEDURE (use this, the old relaunch.ps1 was unreliable):
 `%TEMP%\fullrestart.ps1` — kills electron + bun, waits, restarts `bun run electron:dev`.

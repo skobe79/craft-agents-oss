@@ -1,4 +1,4 @@
-# @craft-agent/server-core
+# @arch-agentz/server-core
 
 Reusable WS/headless server infrastructure extracted from `apps/electron`.
 

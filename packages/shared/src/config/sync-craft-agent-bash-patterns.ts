@@ -16,7 +16,7 @@ interface PermissionsConfig {
 }
 
 function isCraftAgentPattern(entry: AllowedBashEntry): boolean {
-  return typeof entry.pattern === 'string' && entry.pattern.startsWith('^craft-agent\\s')
+  return typeof entry.pattern === 'string' && entry.pattern.startsWith('^arch-agentz\\s')
 }
 
 function syncCraftAgentPatterns(config: PermissionsConfig): PermissionsConfig {
@@ -48,7 +48,7 @@ function main() {
   const nextConfig = syncCraftAgentPatterns(config)
 
   writeFileSync(targetPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf-8')
-  process.stdout.write(`Synced craft-agent bash patterns in ${targetPath}\n`)
+  process.stdout.write(`Synced arch-agentz bash patterns in ${targetPath}\n`)
 }
 
 if (import.meta.main) {

@@ -1,6 +1,6 @@
-# Craft Agents Electron App
+# ARCH Agentz OS Electron App
 
-The primary desktop interface for Craft Agents, built with Electron + React. Provides a multi-session inbox with chat interface for interacting with Claude via Craft workspaces.
+The primary desktop interface for ARCH Agentz OS, built with Electron + React. Provides a multi-session inbox with chat interface for interacting with Claude via Craft workspaces.
 
 ## Quick Start
 
@@ -240,14 +240,14 @@ navigate(routes.sidebar.flagged())        // Show flagged
 
 ### Deep Links
 
-External apps can navigate using `craftagents://` URLs:
+External apps can navigate using `archagentz://` URLs:
 
 ```
-craftagents://settings
-craftagents://allSessions/session/session123
-craftagents://sources/source/github
-craftagents://action/new-chat
-craftagents://workspace/{id}/allSessions/session/abc123
+archagentz://settings
+archagentz://allSessions/session/session123
+archagentz://sources/source/github
+archagentz://action/new-chat
+archagentz://workspace/{id}/allSessions/session/abc123
 ```
 
 See `CLAUDE.md` for complete route reference.

@@ -1,5 +1,5 @@
 {
-  "name": "@craft-agent/webui",
+  "name": "@arch-agentz/webui",
   "version": "0.10.5",
   "license": "Apache-2.0",
   "private": true,
@@ -11,8 +11,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@craft-agent/shared": "workspace:*",
-    "@craft-agent/ui": "workspace:*",
+    "@arch-agentz/shared": "workspace:*",
+    "@arch-agentz/ui": "workspace:*",
     "i18next": "^26.0.3",
     "i18next-browser-languagedetector": "^8.2.1",
     "jotai": "^2.16.0",

@@ -5,15 +5,15 @@ import { getCraftAgentReadOnlyBashPatterns } from '../src/config/cli-domains.ts'
 
 type AllowedBashEntry = { pattern: string; comment?: string }
 
-describe('permissions craft-agent allowlist sync', () => {
-  it('keeps default.json craft-agent read-only rules aligned with shared CLI domain policy', () => {
+describe('permissions arch-agentz allowlist sync', () => {
+  it('keeps default.json arch-agentz read-only rules aligned with shared CLI domain policy', () => {
     const permissionsPath = resolve(import.meta.dir, '../../../apps/electron/resources/permissions/default.json')
     const permissions = JSON.parse(readFileSync(permissionsPath, 'utf-8')) as {
       allowedBashPatterns?: AllowedBashEntry[]
     }
 
     const actual = (permissions.allowedBashPatterns ?? [])
-      .filter(entry => typeof entry.pattern === 'string' && entry.pattern.startsWith('^craft-agent\\s'))
+      .filter(entry => typeof entry.pattern === 'string' && entry.pattern.startsWith('^arch-agentz\\s'))
       .map(entry => ({ pattern: entry.pattern, comment: entry.comment ?? '' }))
       .sort((a, b) => a.pattern.localeCompare(b.pattern))
 

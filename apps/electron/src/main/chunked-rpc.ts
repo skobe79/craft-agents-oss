@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
+import { RPC_CHANNELS } from '@arch-agentz/shared/protocol'
 import type { WsRpcClient } from '../transport/client'
 
 /**

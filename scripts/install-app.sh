@@ -3,7 +3,7 @@
 set -e
 
 VERSIONS_URL="https://agents.craft.do/electron"
-DOWNLOAD_DIR="$HOME/.craft-agent/downloads"
+DOWNLOAD_DIR="$HOME/.arch-agentz/downloads"
 
 # Colors for output
 RED='\033[0;31m'
@@ -142,7 +142,7 @@ esac
 # Set platform-specific variables
 if [ "$OS_TYPE" = "darwin" ]; then
     platform="darwin-${arch}"
-    APP_NAME="Craft Agents.app"
+    APP_NAME="ARCH Agentz OS.app"
     INSTALL_DIR="/Applications"
     ext="zip"
     yml_file="latest-mac.yml"
@@ -241,23 +241,23 @@ if [ "$OS_TYPE" = "darwin" ]; then
     zip_path="$installer_path"
 
     # Quit the app if it's running (use bundle ID for reliability)
-    APP_BUNDLE_ID="com.lukilabs.craft-agent"
-    if pgrep -x "Craft Agents" >/dev/null 2>&1; then
-        info "Quitting Craft Agents..."
+    APP_BUNDLE_ID="com.lukilabs.arch-agentz"
+    if pgrep -x "ARCH Agentz OS" >/dev/null 2>&1; then
+        info "Quitting ARCH Agentz OS..."
         osascript -e "tell application id \"$APP_BUNDLE_ID\" to quit" 2>/dev/null || true
         # Wait for app to quit (max 5 seconds) - POSIX compatible loop
         i=0
         while [ $i -lt 10 ]; do
-            if ! pgrep -x "Craft Agents" >/dev/null 2>&1; then
+            if ! pgrep -x "ARCH Agentz OS" >/dev/null 2>&1; then
                 break
             fi
             sleep 0.5
             i=$((i + 1))
         done
         # Force kill if still running
-        if pgrep -x "Craft Agents" >/dev/null 2>&1; then
+        if pgrep -x "ARCH Agentz OS" >/dev/null 2>&1; then
             warn "App didn't quit gracefully. Force quitting (unsaved data may be lost)..."
-            pkill -9 -x "Craft Agents" 2>/dev/null || true
+            pkill -9 -x "ARCH Agentz OS" 2>/dev/null || true
             # Wait longer for macOS to release file handles
             sleep 3
         fi
@@ -304,10 +304,10 @@ if [ "$OS_TYPE" = "darwin" ]; then
     echo ""
     success "Installation complete!"
     echo ""
-    printf "%b\n" "  Craft Agents has been installed to ${BOLD}$INSTALL_DIR/$APP_NAME${NC}"
+    printf "%b\n" "  ARCH Agentz OS has been installed to ${BOLD}$INSTALL_DIR/$APP_NAME${NC}"
     echo ""
     printf "%b\n" "  You can launch it from ${BOLD}Applications${NC} or by running:"
-    printf "%b\n" "    ${BOLD}open -a 'Craft Agents'${NC}"
+    printf "%b\n" "    ${BOLD}open -a 'ARCH Agentz OS'${NC}"
     echo ""
 
 else
@@ -315,13 +315,13 @@ else
     appimage_path="$installer_path"
 
     # New paths
-    APP_DIR="$HOME/.craft-agent/app"
-    WRAPPER_PATH="$INSTALL_DIR/craft-agents"
+    APP_DIR="$HOME/.arch-agentz/app"
+    WRAPPER_PATH="$INSTALL_DIR/arch-agentzs"
     APPIMAGE_INSTALL_PATH="$APP_DIR/Craft-Agents-x64.AppImage"
 
     # Kill the app if it's running
     if pgrep -f "Craft-Agent.*AppImage" >/dev/null 2>&1; then
-        info "Stopping Craft Agents..."
+        info "Stopping ARCH Agentz OS..."
         pkill -f "Craft-Agent.*AppImage" 2>/dev/null || true
         sleep 2
     fi
@@ -344,9 +344,9 @@ else
 #!/bin/bash
 # Craft Agent launcher - handles Linux-specific AppImage issues
 
-APPIMAGE_PATH="$HOME/.craft-agent/app/Craft-Agents-x64.AppImage"
-ELECTRON_CACHE="$HOME/.config/@craft-agent"
-ELECTRON_CACHE_ALT="$HOME/.cache/@craft-agent"
+APPIMAGE_PATH="$HOME/.arch-agentz/app/Craft-Agents-x64.AppImage"
+ELECTRON_CACHE="$HOME/.config/@arch-agentz"
+ELECTRON_CACHE_ALT="$HOME/.cache/@arch-agentz"
 
 # Verify AppImage exists
 if [ ! -f "$APPIMAGE_PATH" ]; then
@@ -389,7 +389,7 @@ WRAPPER_EOF
     printf "%b\n" "  AppImage: ${BOLD}$APPIMAGE_INSTALL_PATH${NC}"
     printf "%b\n" "  Launcher: ${BOLD}$WRAPPER_PATH${NC}"
     echo ""
-    printf "%b\n" "  Run with: ${BOLD}craft-agents${NC}"
+    printf "%b\n" "  Run with: ${BOLD}arch-agentzs${NC}"
     echo ""
     printf "%b\n" "  Add to PATH if needed:"
     printf "%b\n" "    ${BOLD}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc${NC}"

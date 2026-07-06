@@ -2,13 +2,13 @@
 
 Labels are additive tags that can be applied to sessions. Unlike statuses (which are exclusive — one per session), labels are multi-select (many per session). They support hierarchical organization via nested JSON trees.
 
-> **CLI-first workflow (recommended):** Use `craft-agent label ...` commands instead of editing JSON directly.
-> - `craft-agent label --help`
+> **CLI-first workflow (recommended):** Use `arch-agentz label ...` commands instead of editing JSON directly.
+> - `arch-agentz label --help`
 > - Canonical command reference: [craft-cli.md](./craft-cli.md)
 
 ## Storage Locations
 
-- Config: `~/.craft-agent/workspaces/{id}/labels/config.json`
+- Config: `~/.arch-agentz/workspaces/{id}/labels/config.json`
 
 ## No Defaults (Regular Labels)
 
@@ -140,16 +140,16 @@ The optional `valueType` in config is a hint only — the parser always infers f
 
 ## Adding Labels
 
-Prefer `craft-agent` commands:
+Prefer `arch-agentz` commands:
 
 ```bash
-craft-agent label create --name "Bug" --color "destructive"
-craft-agent label create --name "Priority" --color "accent" --value-type number
-craft-agent label create --name "Due Date" --color "info" --value-type date
-craft-agent label create --name "Docs" --color "info" --value-type link
-craft-agent label create --name "Project" --color "foreground/60"
-craft-agent label create --name "Alpha" --color "info" --parent-id project
-craft-agent label create --name "Beta" --color "success" --parent-id project
+arch-agentz label create --name "Bug" --color "destructive"
+arch-agentz label create --name "Priority" --color "accent" --value-type number
+arch-agentz label create --name "Due Date" --color "info" --value-type date
+arch-agentz label create --name "Docs" --color "info" --value-type link
+arch-agentz label create --name "Project" --color "foreground/60"
+arch-agentz label create --name "Alpha" --color "info" --parent-id project
+arch-agentz label create --name "Beta" --color "success" --parent-id project
 ```
 
 Use direct JSON edits only for bulk/manual operations where CLI is not sufficient.

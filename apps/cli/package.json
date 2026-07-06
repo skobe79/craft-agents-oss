@@ -1,5 +1,5 @@
 {
-  "name": "@craft-agent/cli",
+  "name": "@arch-agentz/cli",
   "version": "0.10.5",
   "license": "Apache-2.0",
   "description": "Terminal client for Craft Agent server",
@@ -14,8 +14,8 @@
     "test": "bun test src/"
   },
   "dependencies": {
-    "@craft-agent/shared": "workspace:*",
-    "@craft-agent/server-core": "workspace:*"
+    "@arch-agentz/shared": "workspace:*",
+    "@arch-agentz/server-core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.2",

@@ -3,13 +3,13 @@
  *
  * Handles workspace setup and configuration persistence.
  */
-import { getAuthState, getSetupNeeds } from '@craft-agent/shared/auth'
-import { getCredentialManager } from '@craft-agent/shared/credentials'
-import { setSetupDeferred } from '@craft-agent/shared/config'
-import { prepareClaudeOAuth, exchangeClaudeCode, hasValidOAuthState, clearOAuthState, prepareMcpOAuth } from '@craft-agent/shared/auth'
-import { validateMcpConnection } from '@craft-agent/shared/mcp'
-import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
-import type { RpcServer } from '@craft-agent/server-core/transport'
+import { getAuthState, getSetupNeeds } from '@arch-agentz/shared/auth'
+import { getCredentialManager } from '@arch-agentz/shared/credentials'
+import { setSetupDeferred } from '@arch-agentz/shared/config'
+import { prepareClaudeOAuth, exchangeClaudeCode, hasValidOAuthState, clearOAuthState, prepareMcpOAuth } from '@arch-agentz/shared/auth'
+import { validateMcpConnection } from '@arch-agentz/shared/mcp'
+import { RPC_CHANNELS } from '@arch-agentz/shared/protocol'
+import type { RpcServer } from '@arch-agentz/server-core/transport'
 import type { HandlerDeps } from '../handler-deps'
 
 // ============================================

@@ -15,7 +15,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
-import type { AgentEvent } from '@craft-agent/core/types';
+import type { AgentEvent } from '@arch-agentz/core/types';
 import type { FileAttachment } from '../utils/files.ts';
 import { getProxyEnvVars } from '../config/proxy-env.ts';
 
@@ -71,7 +71,7 @@ import {
   SESSION_BACKEND_TOOL_NAMES,
   SESSION_TOOL_REGISTRY,
   type ToolResult as SessionToolResult,
-} from '@craft-agent/session-tools-core';
+} from '@arch-agentz/session-tools-core';
 import { createClaudeContext, type SessionToolContext } from './claude-context.ts';
 import { getPermissionModeDiagnostics } from './mode-manager.ts';
 
@@ -155,7 +155,7 @@ function mapBrowserToolErrorCode(code: string): string | null {
  * planning heuristics, config watching, usage tracking).
  */
 export class PiAgent extends BaseAgent {
-  protected backendName = 'Craft Agents Backend';
+  protected backendName = 'ARCH Agentz OS Backend';
 
   // ============================================================
   // Subprocess State
@@ -194,7 +194,7 @@ export class PiAgent extends BaseAgent {
     this.subprocessErrorRepeatCount = 0;
   }
 
-  // Ring buffer of recent subprocess stderr. Always on (independent of CRAFT_DEBUG)
+  // Ring buffer of recent subprocess stderr. Always on (independent of ARCH_DEBUG)
   // so that connection-test and other failures can surface what the subprocess
   // actually said, instead of a bare "timed out" with no context.
   private stderrBuffer: string[] = [];
@@ -457,9 +457,9 @@ export class PiAgent extends BaseAgent {
         ...this.config.envOverrides,
         ...awsEnv,
         // Pass session dir for cross-process toolMetadataStore
-        ...(sessionDir ? { CRAFT_SESSION_DIR: sessionDir } : {}),
+        ...(sessionDir ? { ARCH_SESSION_DIR: sessionDir } : {}),
         // Propagate debug mode
-        CRAFT_DEBUG: (process.argv.includes('--debug') || process.env.CRAFT_DEBUG === '1') ? '1' : '0',
+        ARCH_DEBUG: (process.argv.includes('--debug') || process.env.ARCH_DEBUG === '1') ? '1' : '0',
       },
     });
 
@@ -477,7 +477,7 @@ export class PiAgent extends BaseAgent {
 
     // Always capture stderr into a bounded ring buffer so callers (e.g. the
     // connection-test timeout path in factory.ts) can surface it on failure.
-    // Keep the CRAFT_DEBUG-gated log for interactive dev work.
+    // Keep the ARCH_DEBUG-gated log for interactive dev work.
     child.stderr?.on('data', (data: Buffer) => {
       const text = data.toString();
       this.recordStderr(text);
@@ -1469,7 +1469,7 @@ export class PiAgent extends BaseAgent {
 
   /**
    * Execute a session-scoped tool by name.
-   * Uses the canonical registry from @craft-agent/session-tools-core.
+   * Uses the canonical registry from @arch-agentz/session-tools-core.
    */
   private async executeSessionTool(
     toolName: string,
@@ -1998,7 +1998,7 @@ export class PiAgent extends BaseAgent {
         this.config.workspace.rootPath,
         this.config.session?.workingDirectory,
         this.config.systemPromptPreset,
-        'Craft Agents Backend', // backendName
+        'ARCH Agentz OS Backend', // backendName
         getCoAuthorPreference() // respect user's includeCoAuthoredBy preference (#576)
       );
 

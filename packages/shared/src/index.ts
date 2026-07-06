@@ -1,17 +1,17 @@
 /**
- * @craft-agent/shared
+ * @arch-agentz/shared
  *
  * Shared business logic for Craft Agent.
  * Used by the Electron app.
  *
  * Import specific modules via subpath exports:
- *   import { CraftAgent } from '@craft-agent/shared/agent';
- *   import { loadStoredConfig } from '@craft-agent/shared/config';
- *   import { getCredentialManager } from '@craft-agent/shared/credentials';
- *   import { CraftMcpClient } from '@craft-agent/shared/mcp';
- *   import { debug } from '@craft-agent/shared/utils';
- *   import { loadSource, createSource, getSourceCredentialManager } from '@craft-agent/shared/sources';
- *   import { createWorkspace, loadWorkspace } from '@craft-agent/shared/workspaces';
+ *   import { CraftAgent } from '@arch-agentz/shared/agent';
+ *   import { loadStoredConfig } from '@arch-agentz/shared/config';
+ *   import { getCredentialManager } from '@arch-agentz/shared/credentials';
+ *   import { CraftMcpClient } from '@arch-agentz/shared/mcp';
+ *   import { debug } from '@arch-agentz/shared/utils';
+ *   import { loadSource, createSource, getSourceCredentialManager } from '@arch-agentz/shared/sources';
+ *   import { createWorkspace, loadWorkspace } from '@arch-agentz/shared/workspaces';
  *
  * Available modules:
  *   - agent: CraftAgent SDK wrapper, plan tools

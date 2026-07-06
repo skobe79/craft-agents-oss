@@ -15,9 +15,9 @@
  *   await handle.dispose()                                            // on shutdown
  */
 
-import type { PushTarget } from '@craft-agent/shared/protocol'
-import type { CredentialManager } from '@craft-agent/shared/credentials'
-import type { ISessionManager } from '@craft-agent/server-core/handlers'
+import type { PushTarget } from '@arch-agentz/shared/protocol'
+import type { CredentialManager } from '@arch-agentz/shared/credentials'
+import type { ISessionManager } from '@arch-agentz/server-core/handlers'
 
 import { MessagingGatewayRegistry } from './registry'
 import { createFanOutSink, type EventSinkFn } from './event-fanout'

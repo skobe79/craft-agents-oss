@@ -29,24 +29,24 @@ const CONFIG_FILE_PATTERNS: { pattern: RegExp; type: ConfigFileType }[] = [
 /**
  * Craft Agent specific config files that have known schemas.
  */
-const CRAFT_AGENT_CONFIG_PATTERNS = [
+const ARCH_AGENT_CONFIG_PATTERNS = [
   // Main config
-  /\.craft-agent\/config\.json$/,
+  /\.arch-agentz\/config\.json$/,
   // Preferences
-  /\.craft-agent\/preferences\.json$/,
+  /\.arch-agentz\/preferences\.json$/,
   // Source configs
-  /\.craft-agent\/workspaces\/[^/]+\/sources\/[^/]+\/config\.json$/,
+  /\.arch-agentz\/workspaces\/[^/]+\/sources\/[^/]+\/config\.json$/,
   // Permissions
-  /\.craft-agent\/workspaces\/[^/]+\/permissions\.json$/,
-  /\.craft-agent\/permissions\/[^/]+\.json$/,
+  /\.arch-agentz\/workspaces\/[^/]+\/permissions\.json$/,
+  /\.arch-agentz\/permissions\/[^/]+\.json$/,
   // Theme
-  /\.craft-agent\/workspaces\/[^/]+\/theme\.json$/,
+  /\.arch-agentz\/workspaces\/[^/]+\/theme\.json$/,
   // Statuses
-  /\.craft-agent\/workspaces\/[^/]+\/statuses\/config\.json$/,
+  /\.arch-agentz\/workspaces\/[^/]+\/statuses\/config\.json$/,
   // Labels
-  /\.craft-agent\/workspaces\/[^/]+\/labels\.json$/,
+  /\.arch-agentz\/workspaces\/[^/]+\/labels\.json$/,
   // Tool icons
-  /\.craft-agent\/tool-icons\/tool-icons\.json$/,
+  /\.arch-agentz\/tool-icons\/tool-icons\.json$/,
 ];
 
 /**
@@ -107,7 +107,7 @@ export class ConfigValidator {
     const normalizedPath = process.platform === 'win32'
       ? filePath.replace(/\\/g, '/').toLowerCase()
       : filePath.replace(/\\/g, '/');
-    return CRAFT_AGENT_CONFIG_PATTERNS.some((pattern) => pattern.test(normalizedPath));
+    return ARCH_AGENT_CONFIG_PATTERNS.some((pattern) => pattern.test(normalizedPath));
   }
 
   // ============================================================

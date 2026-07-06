@@ -35,7 +35,7 @@ export async function handleConfigValidate(
   args: ConfigValidateArgs
 ): Promise<ToolResult> {
   const { target, sourceSlug } = args;
-  const craftAgentRoot = join(homedir(), '.craft-agent');
+  const craftAgentRoot = join(homedir(), '.arch-agentz');
 
   // If full validators available (Claude), use them
   if (ctx.validators) {

@@ -9,7 +9,7 @@
  * Claude / Codex / Copilot backends.
  */
 
-import type { AgentEvent as CraftAgentEvent } from '@craft-agent/core/types';
+import type { AgentEvent as CraftAgentEvent } from '@arch-agentz/core/types';
 import type {
   AgentEvent as PiAgentEvent,
 } from '@earendil-works/pi-agent-core';
@@ -222,7 +222,7 @@ export class PiEventAdapter extends BaseEventAdapter {
     // The subprocess emits this immediately after each `message_end` to deliver
     // the correct `sdkTurnAnchor` (the leaf id AFTER the SDK has appended the
     // assistant entry). We forward it through as-is — SessionManager correlates
-    // it to a Craft assistant message via `sdkMessageId`. See craft-agents-oss#782.
+    // it to a Craft assistant message via `sdkMessageId`. See arch-agentzs-oss#782.
     if ((event as { type?: string }).type === 'pi_turn_anchor') {
       const e = event as unknown as { sdkMessageId?: string; sdkTurnAnchor?: string };
       if (e.sdkMessageId && e.sdkTurnAnchor) {

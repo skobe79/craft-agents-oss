@@ -1,10 +1,10 @@
-# SKOBE HANDOFF — Craft Agents Session 4
+# SKOBE HANDOFF — ARCH Agentz OS Session 4
 
 Written 2026-07-06 ~21:30 UTC. Pick up here next time.
 
 ## TL;DR
 
-AgentRing feature is **complete and pushed to GitHub**. Blue spinning ring sits above the input box, always visible, rotates + glows idle, spins faster + brighter when processing. Appearance settings (toggle + color picker) work. All 5 commits pushed to skobe79/craft-agents-oss fork. gh auth login done (skobe79). User heading to Fable 5.
+AgentRing feature is **complete and pushed to GitHub**. Blue spinning ring sits above the input box, always visible, rotates + glows idle, spins faster + brighter when processing. Appearance settings (toggle + color picker) work. All 5 commits pushed to skobe79/arch-agentzs-oss fork. gh auth login done (skobe79). User heading to Fable 5.
 
 ## What got done this session
 
@@ -51,7 +51,7 @@ In **Settings → Appearance → Interface**:
 ### 3. GitHub Auth + Push — DONE
 
 - `gh auth login` completed — logged in as **skobe79**
-- Forked `lukilabs/craft-agents-oss` → `https://github.com/skobe79/craft-agents-oss`
+- Forked `lukilabs/arch-agentzs-oss` → `https://github.com/skobe79/arch-agentzs-oss`
 - Added as remote `fork` (origin = upstream lukilabs, fork = skobe79's)
 - All commits pushed to fork
 
@@ -61,7 +61,7 @@ In **Settings → Appearance → Interface**:
 - Multiple clean restarts via `%TEMP%\fullrestart.ps1`
 - Each restart: kill electron → clear lock → relaunch → wait 45-50s → verify
 
-## Git State (D:\dev\craft-agents-oss)
+## Git State (D:\dev\arch-agentzs-oss)
 
 Branch `main`, **5 commits ahead of origin** (upstream), all pushed to fork:
 
@@ -74,8 +74,8 @@ Branch `main`, **5 commits ahead of origin** (upstream), all pushed to fork:
 | `c3ce6bec` | feat: model picker search + Agentz sidebar |
 
 **Remotes:**
-- `origin` = https://github.com/lukilabs/craft-agents-oss.git (UPSTREAM — no push access)
-- `fork` = https://github.com/skobe79/craft-agents-oss.git (YOUR FORK — push here)
+- `origin` = https://github.com/lukilabs/arch-agentzs-oss.git (UPSTREAM — no push access)
+- `fork` = https://github.com/skobe79/arch-agentzs-oss.git (YOUR FORK — push here)
 
 **Working tree clean.**
 
@@ -122,6 +122,6 @@ Branch `main`, **5 commits ahead of origin** (upstream), all pushed to fork:
 ## Lessons learned this session
 
 1. **CSS variable override gotcha:** Setting a CSS var on a specific element overrides the same var set on document root. Always put defaults on `:root` if you want JS to override them.
-2. **Dev build vs installed app:** The "Agentz vanished" mystery is ALWAYS the installed 0.10.5 app running instead of the dev build. Check `Get-Process` for process name "Craft Agents" (installed) vs "electron" (dev).
+2. **Dev build vs installed app:** The "Agentz vanished" mystery is ALWAYS the installed 0.10.5 app running instead of the dev build. Check `Get-Process` for process name "ARCH Agentz OS" (installed) vs "electron" (dev).
 3. **gh auth login --web** needs to run in background with notify_on_complete — the device code expires if you run it in foreground with a timeout.
 4. **User wants to see Claude's actual UI before building clones of it.** Don't guess — find screenshots or videos first.

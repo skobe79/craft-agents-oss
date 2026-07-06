@@ -1,7 +1,7 @@
-# CLAUDE.md — `@craft-agent/core`
+# CLAUDE.md — `@arch-agentz/core`
 
 ## Purpose
-`@craft-agent/core` is the shared **type layer** used across the monorepo.
+`@arch-agentz/core` is the shared **type layer** used across the monorepo.
 
 ## Current scope
 - Type exports for workspaces, sessions, messages, and agent events.

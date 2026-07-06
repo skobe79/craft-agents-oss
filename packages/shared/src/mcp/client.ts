@@ -76,7 +76,7 @@ export class CraftMcpClient {
 
   constructor(config: McpClientConfig) {
     this.client = new Client({
-      name: 'craft-agent',
+      name: 'arch-agentz',
       version: '1.0.0',
     });
 

@@ -30,8 +30,8 @@ import {
 } from '../../config/validators.ts';
 import {
   CLI_DOMAIN_POLICIES,
-  CRAFT_AGENTS_CLI_BASH_GUARD_SCOPE_ENTRIES,
-  CRAFT_AGENTS_CLI_WORKSPACE_SCOPE_ENTRIES,
+  ARCH_AGENTS_CLI_BASH_GUARD_SCOPE_ENTRIES,
+  ARCH_AGENTS_CLI_WORKSPACE_SCOPE_ENTRIES,
   type CliDomainNamespace,
 } from '../../config/cli-domains.ts';
 import { FEATURE_FLAGS } from '../../feature-flags.ts';
@@ -423,7 +423,7 @@ function buildCliDomainBlockMessage(namespace: CliDomainNamespace, context: stri
 
   return [
     `${context}`,
-    `Use \`craft-agent ${namespace} ...\` instead.`,
+    `Use \`arch-agentz ${namespace} ...\` instead.`,
     `Run \`${policy.helpCommand}\` for the full ${noun} command reference.`,
     '',
     quickExamplesHeading,
@@ -488,7 +488,7 @@ export function getConfigCliRedirect(
   if (filePath && LABELS_BLOCKED_FILE_TOOLS.has(toolName)) {
     const relativePath = getWorkspaceRelativePath(filePath, workspaceRootPath, workingDirectory)
     if (relativePath) {
-      const labelsScopeMatch = CRAFT_AGENTS_CLI_WORKSPACE_SCOPE_ENTRIES.find(
+      const labelsScopeMatch = ARCH_AGENTS_CLI_WORKSPACE_SCOPE_ENTRIES.find(
         entry => entry.namespace === 'label' && matchesPathScope(relativePath, entry.scope)
       )
       if (labelsScopeMatch) {
@@ -521,7 +521,7 @@ export function getConfigCliRedirect(
 }
 
 /**
- * Block bash commands that operate on guarded config paths unless they use craft-agent commands.
+ * Block bash commands that operate on guarded config paths unless they use arch-agentz commands.
  * Current guarded domains in Bash are declared in shared CLI domain policy.
  */
 export function getConfigDomainBashRedirect(
@@ -532,7 +532,7 @@ export function getConfigDomainBashRedirect(
   const command = typeof input.command === 'string' ? input.command.trim() : '';
   if (!command) return null;
 
-  if (/^craft-agent\s+(label|automation|source|skill)\b/.test(command)) {
+  if (/^arch-agentz\s+(label|automation|source|skill)\b/.test(command)) {
     return null;
   }
 
@@ -549,7 +549,7 @@ export function getConfigDomainBashRedirect(
     candidates.push(candidate);
   }
 
-  const bashGuardEntries: Array<{ namespace: CliDomainNamespace; scope: string }> = CRAFT_AGENTS_CLI_BASH_GUARD_SCOPE_ENTRIES
+  const bashGuardEntries: Array<{ namespace: CliDomainNamespace; scope: string }> = ARCH_AGENTS_CLI_BASH_GUARD_SCOPE_ENTRIES
 
   for (const candidate of candidates) {
     const relativePath = getWorkspaceRelativePath(candidate, workspaceRootPath, baseDir);
@@ -663,7 +663,7 @@ export interface PrerequisiteManagerLike {
 }
 
 /** Built-in MCP servers that are always available (not user sources) */
-const BUILT_IN_MCP_SERVERS = new Set(['session', 'craft-agents-docs']);
+const BUILT_IN_MCP_SERVERS = new Set(['session', 'arch-agentzs-docs']);
 
 /** File write tools that require permission in ask mode */
 const FILE_WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
@@ -809,7 +809,7 @@ export function runPreToolUseChecks(ctx: PreToolUseInput): PreToolUseCheckResult
     wasModified = true;
   }
 
-  // 5b. Config-domain Bash guard (block direct labels/automations path operations unless using craft-agent)
+  // 5b. Config-domain Bash guard (block direct labels/automations path operations unless using arch-agentz)
   if (FEATURE_FLAGS.craftAgentsCli && toolName === 'Bash') {
     const configDomainBashRedirect = getConfigDomainBashRedirect(currentInput, workspaceRootPath, workingDirectory);
     if (configDomainBashRedirect) {
