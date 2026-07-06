@@ -20,6 +20,7 @@ export interface Session {
   id: string;                    // Unique identifier (stable, known immediately)
   sdkSessionId?: string;         // SDK session ID (captured after first message)
   workspaceId: string;           // Which workspace this session belongs to
+  agentId?: string;              // Which agent this session is locked to
   name?: string;                 // Optional user-defined name
   createdAt: number;
   lastUsedAt: number;
@@ -46,6 +47,7 @@ export interface StoredSession extends Session {
 export interface SessionMetadata {
   id: string;
   workspaceId: string;
+  agentId?: string;
   name?: string;
   createdAt: number;
   lastUsedAt: number;

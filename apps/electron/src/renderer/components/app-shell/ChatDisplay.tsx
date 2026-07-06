@@ -1487,6 +1487,10 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
     <div ref={zoneRef} className="flex h-full flex-col min-w-0" data-focus-zone="chat">
       {session ? (
         <div className="flex flex-1 flex-col min-h-0 min-w-0 relative">
+          {/* Subtle Agent Background */}
+          {session.agentId && (
+            <div className="absolute inset-0 pointer-events-none z-0 bg-gradient-to-b from-info/10 to-transparent opacity-50" />
+          )}
           {/* Content layer */}
           <div className="flex flex-1 flex-col min-h-0 min-w-0 relative z-10">
           {/* === MESSAGES AREA: Scrollable list of message bubbles === */}
@@ -1583,6 +1587,35 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                     <div className="absolute inset-0 flex flex-col items-center justify-center select-none gap-1 pointer-events-none">
                       <span className="text-sm text-muted-foreground">{t("editPopover.whatToChange")}</span>
                       <span className="text-xs text-muted-foreground/50">{t("editPopover.justDescribe")}</span>
+                    </div>
+                  )}
+                  {/* Agent Empty State (e.g., Hermes) */}
+                  {!compactMode && turns.length === 0 && session?.agentId && (
+                    <div className="flex flex-col items-center justify-center min-h-[50vh] px-4 text-center mt-4">
+                      <div className="w-16 h-16 rounded-2xl bg-info/10 flex items-center justify-center mb-6 shadow-sm ring-1 ring-info/20">
+                        <span className="text-3xl">⚡</span>
+                      </div>
+                      <h2 className="text-2xl font-semibold tracking-tight text-foreground/90 mb-2">
+                        {session.agentId.charAt(0).toUpperCase() + session.agentId.slice(1)} is online and ready
+                      </h2>
+                      <p className="text-muted-foreground max-w-[400px] mb-8 text-sm">
+                        I am your autonomous agent. What would you like to accomplish today?
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
+                        {[
+                          "Analyze my current workspace",
+                          "Debug a recent error",
+                          "Write unit tests for my code",
+                          "Review open pull requests"
+                        ].map((prompt, i) => (
+                          <div
+                            key={i}
+                            className="text-sm border border-border/50 bg-background/50 hover:bg-muted/50 rounded-xl py-3 px-4 text-left transition-colors shadow-sm"
+                          >
+                            <span className="text-foreground/80 font-medium">{prompt}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {!compactMode && hasUnrenderedLoadedMessages && (
@@ -1938,6 +1971,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
               onThinkingLevelChange,
               enabledModes,
               enableCompactModelPicker,
+              hideModelPicker: !!session?.agentId,
               structuredInput,
               onStructuredResponse: handleStructuredResponse,
               inputValue,

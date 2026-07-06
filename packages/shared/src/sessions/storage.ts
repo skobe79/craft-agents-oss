@@ -178,6 +178,7 @@ export async function createSession(
   workspaceRootPath: string,
   options?: {
     name?: string;
+    agentId?: string;
     workingDirectory?: string;
     permissionMode?: SessionConfig['permissionMode'];
     enabledSourceSlugs?: string[];
@@ -206,6 +207,7 @@ export async function createSession(
     id: sessionId,
     workspaceRootPath,
     name: options?.name,
+    agentId: options?.agentId,
     createdAt: now,
     lastUsedAt: now,
     workingDirectory: options?.workingDirectory,

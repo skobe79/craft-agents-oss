@@ -236,6 +236,8 @@ export interface FreeFormInputProps {
    * behavior.
    */
   enableCompactModelPicker?: boolean
+  /** Whether to completely hide the model picker (e.g. for Agent sessions where model is fixed) */
+  hideModelPicker?: boolean
   // Connection selection (hierarchical connection → model selector)
   /** Current LLM connection slug (locked after first message) */
   currentConnection?: string
@@ -305,6 +307,7 @@ export function FreeFormInput({
   onFollowUpIndexClick,
   compactMode = false,
   enableCompactModelPicker = false,
+  hideModelPicker = false,
   currentConnection,
   onConnectionChange,
   connectionUnavailable = false,
@@ -1804,7 +1807,7 @@ export function FreeFormInput({
               onPermissionModeChange={onPermissionModeChange}
             />
           )}
-          {enableCompactModelPicker && (
+          {enableCompactModelPicker && !hideModelPicker && (
             <CompactModelSelector
               currentModel={currentModel}
               currentConnection={currentConnection}
@@ -2041,7 +2044,7 @@ export function FreeFormInput({
           {/* Right side: Model + Send - never shrink so they're always visible */}
           <div className="flex items-center shrink-0">
           {/* 5. Model/Connection Selector - Hidden in compact mode (EditPopover embedding) */}
-          {!compactMode && (
+          {!compactMode && !hideModelPicker && (
           <DropdownMenu open={modelDropdownOpen} onOpenChange={setModelDropdownOpen}>
             <Tooltip>
               <TooltipTrigger asChild>

@@ -105,6 +105,7 @@ export interface Session {
 
 export interface CreateSessionOptions {
   name?: string
+  agentId?: string
   permissionMode?: PermissionMode
   /**
    * Reasoning/thinking level override. When set, takes precedence over workspace

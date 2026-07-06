@@ -1669,8 +1669,14 @@ function AppShellContent({
 
   // Handler for Agentz — clicking an agent navigates to the agents view
   const handleAgentClick = useCallback((agentId: string) => {
-    navigate(routes.view.agent(agentId))
-  }, [])
+    if (!activeWorkspaceId) return
+    setSearchActive(false)
+    setSearchQuery('')
+    navigate(
+      routes.action.newSession({ agentId })
+    )
+    setTimeout(() => focusZone('chat', { intent: 'programmatic' }), 50)
+  }, [activeWorkspaceId, focusZone, navigate])
 
   // Handler for the Agentz header itself — navigates to agents overview
   const handleAgentzClick = useCallback(() => {

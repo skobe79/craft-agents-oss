@@ -2721,6 +2721,7 @@ export class SessionManager implements ISessionManager {
     // Use storage layer to create and persist the session
     const storedSession = await createStoredSession(workspaceRootPath, {
       name: options?.name,
+      agentId: options?.agentId,
       permissionMode: defaultPermissionMode,
       workingDirectory: resolvedWorkingDir,
       hidden: options?.hidden,

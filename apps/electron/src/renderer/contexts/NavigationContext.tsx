@@ -693,6 +693,9 @@ export function NavigationProvider({
           if (parsed.params.systemPrompt) {
             createOptions.systemPromptPreset = parsed.params.systemPrompt as 'default' | 'mini' | string
           }
+          if (parsed.params.agentId) {
+            createOptions.agentId = parsed.params.agentId
+          }
           const session = await onCreateSession(workspaceId, createOptions)
 
           if (parsed.params.name) {
