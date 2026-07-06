@@ -60,9 +60,7 @@ export interface ParsedCompoundRoute {
 /**
  * Known prefixes that indicate a compound route
  */
-const COMPOUND_ROUTE_PREFIXES = [
-  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'sources', 'skills', 'automations', 'settings', 'agents'
-]
+  'allSessions', 'flagged', 'archived', 'state', 'label', 'view', 'sources', 'skills', 'automations', 'settings'
 
 /**
  * Check if a route is a compound route (new format)
@@ -575,16 +573,6 @@ function convertCompoundToNavigationState(compound: ParsedCompoundRoute): Naviga
     }
   }
 
-  // Agents
-  if (compound.navigator === 'agents') {
-    if (!compound.details) {
-      return { navigator: 'agents', details: null }
-    }
-    return {
-      navigator: 'agents',
-      details: { type: 'agent', agentId: compound.details.id },
-    }
-  }
 
   // Sessions
   const filter = compound.sessionFilter || { kind: 'allSessions' as const }
@@ -771,12 +759,6 @@ function navigationStateToCompoundRoute(state: NavigationState): ParsedCompoundR
     }
   }
 
-  if (state.navigator === 'agents') {
-    return {
-      navigator: 'agents',
-      details: state.details ? { type: 'agent', id: state.details.agentId } : null,
-    }
-  }
 
   // Sessions
   return {
