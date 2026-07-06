@@ -35,7 +35,11 @@ const PI_AGENT_SERVER_OUTPUT = join(PI_AGENT_SERVER_DIR, "dist/index.js");
 const IS_WINDOWS = process.platform === "win32";
 const BIN_EXT = IS_WINDOWS ? ".exe" : "";
 const VITE_BIN = join(ROOT_DIR, `node_modules/.bin/vite${BIN_EXT}`);
-const ELECTRON_BIN = join(ROOT_DIR, `node_modules/.bin/electron${BIN_EXT}`);
+// On Windows the node_modules/.bin/electron shim mis-resolves (reads path.txt with a
+// trailing newline and doubles the dist dir), so point straight at the real binary.
+const ELECTRON_BIN = IS_WINDOWS
+  ? join(ROOT_DIR, "node_modules/electron/dist/electron.exe")
+  : join(ROOT_DIR, `node_modules/.bin/electron${BIN_EXT}`);
 
 function resolveBuildPlatform(): Platform {
   if (process.platform === "darwin") return "darwin";
