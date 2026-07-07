@@ -68,7 +68,7 @@ function extractUrlFromDuckDuckGoHref(href: string): string | null {
   const uddgMatch = href.match(/[?&]uddg=([^&]+)/);
   if (uddgMatch) {
     try {
-      return decodeURIComponent(uddgMatch[1]);
+      return uddgMatch[1] ? decodeURIComponent(uddgMatch[1]) : null;
     } catch {
       return null;
     }

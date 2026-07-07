@@ -1,10 +1,11 @@
-import type { AnnotationV1 } from '@arch-agentz/core'
+import type { AnnotationV1 } from '@craft-agent/core'
 import { annotationColorToCss } from './annotation-style-tokens'
 
 export function clearBlockAnnotationMarkers(root: HTMLElement): void {
   const blocks = root.querySelectorAll<HTMLElement>('[data-ca-block-annotated="true"]')
   blocks.forEach((block) => {
     block.removeAttribute('data-ca-block-annotated')
+    // eslint-disable-next-line craft-styles/no-nonstandard-shadows
     block.style.boxShadow = ''
     block.style.backgroundColor = ''
   })
@@ -27,5 +28,6 @@ export function applyBlockAnnotationMarker(root: HTMLElement, annotation: Annota
 
   target.setAttribute('data-ca-block-annotated', 'true')
   target.style.backgroundColor = annotationColorToCss(annotation.style?.color)
+  // eslint-disable-next-line craft-styles/no-nonstandard-shadows
   target.style.boxShadow = 'inset 0 0 0 1px color-mix(in srgb, var(--info) 22%, transparent)'
 }

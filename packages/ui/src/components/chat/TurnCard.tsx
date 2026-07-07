@@ -2,9 +2,9 @@ import * as React from 'react'
 import { useMemo, useEffect, useRef, useCallback, useState } from 'react'
 import i18n from 'i18next'
 import { useTranslation } from 'react-i18next'
-import type { ToolDisplayMeta, AnnotationV1 } from '@arch-agentz/core'
-import { normalizePath, pathStartsWith, stripPathPrefix } from '@arch-agentz/core/utils'
-import { isParentTaskTool } from '@arch-agentz/shared/utils/toolNames'
+import type { ToolDisplayMeta, AnnotationV1 } from '@craft-agent/core'
+import { normalizePath, pathStartsWith, stripPathPrefix } from '@craft-agent/core/utils'
+import { isParentTaskTool } from '@craft-agent/shared/utils/toolNames'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   ChevronRight,
@@ -1481,6 +1481,7 @@ function clearAnnotationMarks(root: HTMLElement): void {
   annotatedInlineCodeNodes.forEach((codeNode) => {
     codeNode.removeAttribute('data-ca-annotation-inline-code')
     codeNode.style.backgroundColor = ''
+    // eslint-disable-next-line craft-styles/no-nonstandard-shadows
     codeNode.style.boxShadow = ''
   })
 

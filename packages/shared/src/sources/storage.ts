@@ -333,7 +333,7 @@ export { isIconUrl } from '../utils/icon.ts';
 
 /**
  * Load complete source with all files
- * @param workspaceRootPath - Absolute path to workspace folder (e.g., ~/.arch-agentz/workspaces/xxx)
+ * @param workspaceRootPath - Absolute path to workspace folder (e.g., ~/.craft-agent/workspaces/xxx)
  * @param sourceSlug - Source folder name
  */
 export function loadSource(workspaceRootPath: string, sourceSlug: string): LoadedSource | null {
@@ -407,13 +407,14 @@ export function isSourceUsable(source: LoadedSource): boolean {
   if (authType === 'none' || authType === undefined) return true;
 
   // Sources requiring auth must be authenticated
+  // eslint-disable-next-line craft-shared/no-inline-source-auth-check
   return source.config.isAuthenticated === true;
 }
 
 /**
  * Get sources by slugs for a workspace.
  * Includes both user-configured sources from disk and builtin sources
- * (like arch-agentzs-docs) that don't have filesystem folders.
+ * (like craft-agents-docs) that don't have filesystem folders.
  */
 export function getSourcesBySlugs(workspaceRootPath: string, slugs: string[]): LoadedSource[] {
   const workspaceId = basename(workspaceRootPath);
@@ -421,8 +422,8 @@ export function getSourcesBySlugs(workspaceRootPath: string, slugs: string[]): L
   for (const slug of slugs) {
     // Check builtin sources first (they don't exist on disk)
     if (isBuiltinSource(slug)) {
-      // Currently only arch-agentzs-docs is a builtin source
-      if (slug === 'arch-agentzs-docs') {
+      // Currently only craft-agents-docs is a builtin source
+      if (slug === 'craft-agents-docs') {
         sources.push(getDocsSource(workspaceId, workspaceRootPath));
       }
       continue;
@@ -438,7 +439,7 @@ export function getSourcesBySlugs(workspaceRootPath: string, slugs: string[]): L
 
 /**
  * Load all sources for a workspace INCLUDING built-in sources.
- * Built-in sources (like arch-agentzs-docs) are always available and merged
+ * Built-in sources (like craft-agents-docs) are always available and merged
  * with user-configured sources from the workspace.
  *
  * Use this when the agent needs visibility into all available sources,
@@ -575,7 +576,7 @@ export async function createSource(
   }
 
   // Create guide.md with skeleton template
-  // (bundled guides removed - agent should search arch-agentzs-docs MCP for service-specific guidance)
+  // (bundled guides removed - agent should search craft-agents-docs MCP for service-specific guidance)
   const guideContent = `# ${input.name}
 
 ## Guidelines
@@ -620,4 +621,3 @@ export function sourceExists(workspaceRootPath: string, sourceSlug: string): boo
 // ============================================================
 
 export { parseGuideMarkdown };
-

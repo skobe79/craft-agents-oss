@@ -312,6 +312,15 @@ function handleText(
   return result(`Content from ${url}:\n\n${truncate(raw)}`);
 }
 
+function getContentType(response: Response): string {
+  // @ts-expect-error — Response.headers typed as possibly undefined due to
+  // conflicting @types/node (undici) + bun global Response declarations.
+  return (response.headers.get('content-type') || '')
+    .toLowerCase()
+    .split(';')[0]
+    .trim();
+}
+
 // ============================================================
 // Factory
 // ============================================================
@@ -345,19 +354,11 @@ export function createWebFetchTool(
     async execute(toolCallId, params) {
       const { url, prompt } = params;
 
-      // SSRF protection: block non-HTTP schemes and private/reserved IPs
+      // SSRF protection + fetch + content extraction all in one try so TS can
+      // track the const response as definitely assigned.
       try {
         await validateUrl(url);
-      } catch (err) {
-        return result(
-          `Refused to fetch ${url}: ${err instanceof Error ? err.message : String(err)}`,
-          true,
-        );
-      }
-
-      let response: Response;
-      try {
-        response = await fetch(url, {
+        const response = (await fetch(url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; CraftAgent/1.0)',
             Accept:
@@ -365,55 +366,52 @@ export function createWebFetchTool(
           },
           redirect: 'follow',
           signal: AbortSignal.timeout(30_000),
-        });
+        })) as Response;
+
+        if (!response.ok) {
+          return result(
+            `Failed to fetch ${url}: HTTP ${response.status} ${response.statusText}`,
+            true,
+          );
+        }
+
+        // Use the final URL after redirects for all output messages
+        const finalUrl = response.url || url;
+
+        const contentType = getContentType(response);
+
+        // Binary content types — stream with size limit
+        if (contentType === 'application/pdf') {
+          const buffer = await readResponseBytes(response, MAX_DOWNLOAD_SIZE);
+          return handlePdf(buffer, finalUrl, saveBinary);
+        }
+
+        if (contentType.startsWith('image/')) {
+          const buffer = await readResponseBytes(response, MAX_DOWNLOAD_SIZE);
+          return handleImage(buffer, finalUrl, contentType, saveBinary);
+        }
+
+        // Text content types — stream with size limit then decode
+        const text = await readResponseText(response, MAX_DOWNLOAD_SIZE);
+
+        if (contentType.includes('html')) {
+          return handleHtml(text, finalUrl, prompt);
+        }
+
+        if (
+          contentType === 'application/json' ||
+          contentType.endsWith('+json')
+        ) {
+          return handleJson(text, finalUrl);
+        }
+
+        return handleText(text, finalUrl);
       } catch (err) {
         return result(
           `Failed to fetch ${url}: ${err instanceof Error ? err.message : String(err)}`,
           true,
         );
       }
-
-      if (!response.ok) {
-        return result(
-          `Failed to fetch ${url}: HTTP ${response.status} ${response.statusText}`,
-          true,
-        );
-      }
-
-      // Use the final URL after redirects for all output messages
-      const finalUrl = response.url || url;
-
-      const contentType = (response.headers.get('content-type') || '')
-        .toLowerCase()
-        .split(';')[0]
-        .trim();
-
-      // Binary content types — stream with size limit
-      if (contentType === 'application/pdf') {
-        const buffer = await readResponseBytes(response, MAX_DOWNLOAD_SIZE);
-        return handlePdf(buffer, finalUrl, saveBinary);
-      }
-
-      if (contentType.startsWith('image/')) {
-        const buffer = await readResponseBytes(response, MAX_DOWNLOAD_SIZE);
-        return handleImage(buffer, finalUrl, contentType, saveBinary);
-      }
-
-      // Text content types — stream with size limit then decode
-      const text = await readResponseText(response, MAX_DOWNLOAD_SIZE);
-
-      if (contentType.includes('html')) {
-        return handleHtml(text, finalUrl, prompt);
-      }
-
-      if (
-        contentType === 'application/json' ||
-        contentType.endsWith('+json')
-      ) {
-        return handleJson(text, finalUrl);
-      }
-
-      return handleText(text, finalUrl);
     },
   };
 }
