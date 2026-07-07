@@ -668,6 +668,9 @@ html[data-font="inter"] {
     -webkit-mask:
       linear-gradient(#fff 0 0) content-box,
       linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events: none;
@@ -762,6 +765,9 @@ html[data-scenic] .shadow-strong::before {
     rgba(255, 255, 255, 0.1)
   );
   -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -1124,6 +1130,7 @@ html.dark[data-scenic] .fullscreen-overlay-background {
   display: -webkit-box !important;
   -webkit-box-orient: vertical !important;
   -webkit-line-clamp: 2 !important;
+  line-clamp: 2 !important;
   overflow: hidden !important;
   min-width: 0 !important;
 }
@@ -1519,6 +1526,7 @@ html.dark[data-scenic] .fullscreen-overlay-background {
     )
     border-box;
   -webkit-mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: destination-out;
   mask-composite: exclude;
   animation: agent-ring-idle-spin 3s linear infinite;
@@ -1554,6 +1562,9 @@ html.dark[data-scenic] .fullscreen-overlay-background {
     )
     border-box;
   -webkit-mask: 
+    linear-gradient(#000 0 0) padding-box, 
+    linear-gradient(#000 0 0);
+  mask: 
     linear-gradient(#000 0 0) padding-box, 
     linear-gradient(#000 0 0);
   -webkit-mask-composite: destination-out;
