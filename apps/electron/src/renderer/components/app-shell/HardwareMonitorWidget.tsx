@@ -30,7 +30,7 @@ export function HardwareMonitorWidget() {
   const cpuName = specs.cpu || 'Unknown CPU'
   
   return (
-    <div className="flex flex-col gap-2 rounded-md border bg-card/50 p-3 shadow-sm mx-1 mb-2">
+    <div className="flex flex-col gap-2 rounded-md border bg-card/50 p-3 shadow-minimal mx-1 mb-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Activity className="h-3 w-3" />

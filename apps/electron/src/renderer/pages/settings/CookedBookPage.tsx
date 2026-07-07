@@ -59,7 +59,7 @@ const MODELS: LlamaModel[] = [
 
 function ModelCard({ model }: { model: LlamaModel }) {
   return (
-    <div className="flex flex-col gap-3 rounded-lg border bg-card p-5 shadow-sm transition-colors hover:border-accent">
+    <div className="flex flex-col gap-3 rounded-lg border bg-card p-5 shadow-minimal transition-colors hover:border-accent">
       <div className="flex items-start justify-between">
         <div>
           <h3 className="font-medium text-lg leading-none">{model.name}</h3>
@@ -74,7 +74,7 @@ function ModelCard({ model }: { model: LlamaModel }) {
           href={model.hfLink}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium shadow-minimal transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <ExternalLink className="mr-2 h-3.5 w-3.5" />
           View on HuggingFace

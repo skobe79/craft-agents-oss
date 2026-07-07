@@ -1592,7 +1592,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                   {/* Agent Empty State (e.g., Hermes) */}
                   {!compactMode && turns.length === 0 && session?.agentId && (
                     <div className="flex flex-col items-center justify-center min-h-[50vh] px-4 text-center mt-4">
-                      <div className="w-16 h-16 rounded-2xl bg-info/10 flex items-center justify-center mb-6 shadow-sm ring-1 ring-info/20">
+                      <div className="w-16 h-16 rounded-2xl bg-info/10 flex items-center justify-center mb-6 shadow-minimal ring-1 ring-info/20">
                         <span className="text-3xl">⚡</span>
                       </div>
                       <h2 className="text-2xl font-semibold tracking-tight text-foreground/90 mb-2">
@@ -1610,7 +1610,7 @@ export const ChatDisplay = React.forwardRef<ChatDisplayHandle, ChatDisplayProps>
                         ].map((prompt, i) => (
                           <div
                             key={i}
-                            className="text-sm border border-border/50 bg-background/50 hover:bg-muted/50 rounded-xl py-3 px-4 text-left transition-colors shadow-sm"
+                            className="text-sm border border-border/50 bg-background/50 hover:bg-muted/50 rounded-xl py-3 px-4 text-left transition-colors shadow-minimal"
                           >
                             <span className="text-foreground/80 font-medium">{prompt}</span>
                           </div>
