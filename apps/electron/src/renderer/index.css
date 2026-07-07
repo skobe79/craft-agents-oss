@@ -220,8 +220,8 @@
   --z-sticky: 20;
   --z-titlebar: 40;
   --z-panel: 50;
-  --z-dropdown: 100;
-  --z-tooltip: 150;
+  --z-dropdown: 250;
+  --z-tooltip: 280;
   --z-modal: 200;
   --z-overlay: 300;
   --z-fullscreen: 350;
