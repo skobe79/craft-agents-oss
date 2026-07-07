@@ -852,6 +852,13 @@ export default function AiSettingsPage() {
     apiSetupOnboarding.jumpToCredentials(method)
   }, [apiSetupOnboarding, openApiSetup])
 
+  const handleAddPresetConnection = useCallback((presetKey: string) => {
+    setEditInitialValues({ activePreset: presetKey })
+    openApiSetup()
+    setIsDirectEdit(true)
+    apiSetupOnboarding.jumpToCredentials('anthropic_api_key')
+  }, [apiSetupOnboarding, openApiSetup])
+
   const handleDeleteConnection = useCallback(async (slug: string) => {
     if (!window.electronAPI) return
     try {
