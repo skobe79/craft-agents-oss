@@ -46,7 +46,9 @@ export function AgentRing({
         .filter(Boolean)
         .join(" ")}
       style={style}
-    />
+    >
+      {active && <span className="agent-ring-inner" />}
+    </span>
   )
 }
 
