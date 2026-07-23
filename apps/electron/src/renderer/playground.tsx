@@ -12,9 +12,8 @@ import { setupI18n } from '@craft-agent/shared/i18n'
 import { initReactI18next } from 'react-i18next'
 import { ThemeProvider } from './context/ThemeContext'
 import { Toaster } from './components/ui/sonner'
-import { PlaygroundApp } from './playground/PlaygroundApp'
-import { EscapeInterruptProvider } from './context/EscapeInterruptContext'
 import { PlaygroundAppShellProvider } from './playground/PlaygroundAppShellProvider'
+import { LayoutShell } from './shell'
 import './index.css'
 
 // Initialize i18n before any React rendering. `useTranslation()` reads from
@@ -25,13 +24,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <JotaiProvider>
       <ThemeProvider>
-        <EscapeInterruptProvider>
-          <PlaygroundAppShellProvider>
-            <PlaygroundApp />
-            <Toaster />
-          </PlaygroundAppShellProvider>
-        </EscapeInterruptProvider>
+        <PlaygroundAppShellProvider>
+          <LayoutShell />
+          <Toaster />
+        </PlaygroundAppShellProvider>
       </ThemeProvider>
     </JotaiProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 )
