@@ -170,3 +170,16 @@
   height: 100%;
   opacity: 0.7;
 }
+
+.layout-command-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+.layout-command-view > .command-panel {
+  flex: 1;
+  min-height: 240px;
+}

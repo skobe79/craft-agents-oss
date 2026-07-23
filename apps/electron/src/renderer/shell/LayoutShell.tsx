@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { MemoryPanel } from '../panels/memory'
 import { RunsPanel } from '../panels/runs'
+import { CommandPanel } from '../panels/command'
 import { HomeHero } from '../home'
 import './LayoutShell.css'
 
@@ -186,7 +187,10 @@ function LayoutShell({
           ) : activeView === 'runs' ? (
             <RunsPanel />
           ) : activeView === 'command' ? (
-            <HomeHero />
+            <div className="layout-command-view">
+              <HomeHero />
+              <CommandPanel />
+            </div>
           ) : (
             children ?? (
               <div className="layout-placeholder">

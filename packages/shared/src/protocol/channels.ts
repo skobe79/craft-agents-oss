@@ -356,6 +356,10 @@ export const RPC_CHANNELS = {
     BROWSE: 'gitbash:browse',
     SET_PATH: 'gitbash:setPath',
   },
+  archCommand: {
+    RUN: 'archCommand:run',
+    KILL: 'archCommand:kill',
+  },
   browserPane: {
     CREATE: 'browser-pane:create',
     DESTROY: 'browser-pane:destroy',

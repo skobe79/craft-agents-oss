@@ -613,6 +613,14 @@ export interface ElectronAPI {
   browseForGitBash(): Promise<string | null>
   setGitBashPath(path: string): Promise<{ success: boolean; error?: string }>
 
+  // ARCH Command panel
+  runArchCommand(args: {
+    id: string
+    command: string
+    cwd?: string
+  }): Promise<{ code: number | null; output: string; durationMs: number; killed: boolean }>
+  killArchCommand(id: string): Promise<{ success: boolean }>
+
   // Menu actions (from renderer to main)
   menuQuit(): Promise<void>
   menuNewWindow(): Promise<void>

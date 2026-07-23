@@ -1,7 +1,7 @@
 import { resolve } from 'path'
 import { join } from 'path'
 import { homedir } from 'os'
-import { execSync } from 'child_process'
+import { execSync, spawn, type ChildProcess } from 'child_process'
 import { RPC_CHANNELS } from '@craft-agent/shared/protocol'
 import { getGitBashPath, setGitBashPath, clearGitBashPath } from '@craft-agent/shared/config'
 import { classifyExternalUrl, formatBlockedUrlError } from '@craft-agent/shared/utils/url-safety'
@@ -31,6 +31,8 @@ export const CORE_HANDLED_CHANNELS = [
   RPC_CHANNELS.gitbash.CHECK,
   RPC_CHANNELS.gitbash.BROWSE,
   RPC_CHANNELS.gitbash.SET_PATH,
+  RPC_CHANNELS.archCommand.RUN,
+  RPC_CHANNELS.archCommand.KILL,
 ] as const
 
 export const GUI_HANDLED_CHANNELS = [
@@ -65,6 +67,9 @@ export const HANDLED_CHANNELS = [
   ...CORE_HANDLED_CHANNELS,
   ...GUI_HANDLED_CHANNELS,
 ] as const
+
+/** Running ARCH Command panel processes, keyed by caller-supplied run id */
+const archCommandProcs = new Map<string, ChildProcess>()
 
 export function registerSystemCoreHandlers(server: RpcServer, deps: HandlerDeps): void {
   const windowManager = deps.windowManager
@@ -194,6 +199,54 @@ export function registerSystemCoreHandlers(server: RpcServer, deps: HandlerDeps)
 
     setGitBashPath(validation.path)
     process.env.CLAUDE_CODE_GIT_BASH_PATH = validation.path
+    return { success: true }
+  })
+
+  // ARCH Command panel: run a shell command and return its output.
+  // Processes are tracked by caller-supplied id so they can be killed.
+  server.handle(
+    RPC_CHANNELS.archCommand.RUN,
+    async (_ctx, args: { id: string; command: string; cwd?: string }) => {
+      const { id, command, cwd } = args
+      const startedAt = Date.now()
+      return await new Promise<{
+        code: number | null
+        output: string
+        durationMs: number
+        killed: boolean
+      }>((resolvePromise) => {
+        const child = spawn(command, [], {
+          shell: true,
+          cwd: cwd || homedir(),
+          env: process.env,
+          windowsHide: true,
+        })
+        archCommandProcs.set(id, child)
+        let output = ''
+        const cap = 200_000
+        const append = (chunk: Buffer) => {
+          if (output.length < cap) output += chunk.toString('utf8')
+        }
+        child.stdout?.on('data', append)
+        child.stderr?.on('data', append)
+        const finish = (code: number | null) => {
+          const killed = child.killed
+          archCommandProcs.delete(id)
+          resolvePromise({ code, output: output.slice(0, cap), durationMs: Date.now() - startedAt, killed })
+        }
+        child.on('close', finish)
+        child.on('error', (err) => {
+          output += `\n${err.message}`
+          finish(-1)
+        })
+      })
+    },
+  )
+
+  server.handle(RPC_CHANNELS.archCommand.KILL, async (_ctx, id: string) => {
+    const child = archCommandProcs.get(id)
+    if (!child) return { success: false }
+    child.kill('SIGTERM')
     return { success: true }
   })
 

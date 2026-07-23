@@ -18,40 +18,52 @@ export function CommandPanel({ onRunCommand }: CommandPanelProps) {
     outputRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [history])
 
-  const handleRun = () => {
+  const handleRun = async () => {
     const trimmed = command.trim()
     if (!trimmed || isRunning) return
 
     const id = `cmd-${Date.now()}`
     setHistory((prev) => [...prev, { id, command: trimmed, status: 'running' }])
     setIsRunning(true)
+    setCommand('')
     onRunCommand?.(trimmed)
 
-    setTimeout(() => {
+    try {
+      const result = await window.electronAPI.runArchCommand({ id, command: trimmed })
+      const ok = result.code === 0 && !result.killed
+      const suffix = result.killed
+        ? '✗ Stopped by user'
+        : ok
+          ? `✓ Exit 0 · ${(result.durationMs / 1000).toFixed(1)}s`
+          : `✗ Exit ${result.code ?? '?'} · ${(result.durationMs / 1000).toFixed(1)}s`
       setHistory((prev) =>
         prev.map((item) =>
           item.id === id
             ? {
                 ...item,
-                status: 'success',
-                output: `Executed: ${trimmed}\n✓ Completed successfully`,
+                status: ok ? 'success' : 'error',
+                output: [result.output.trimEnd(), suffix].filter(Boolean).join('\n'),
               }
             : item,
         ),
       )
+    } catch (err) {
+      setHistory((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? { ...item, status: 'error', output: `✗ ${err instanceof Error ? err.message : String(err)}` }
+            : item,
+        ),
+      )
+    } finally {
       setIsRunning(false)
-      setCommand('')
       inputRef.current?.focus()
-    }, 1500)
+    }
   }
 
   const handleStop = () => {
-    setIsRunning(false)
-    setHistory((prev) =>
-      prev.map((item) =>
-        item.status === 'running' ? { ...item, status: 'error', output: '✗ Stopped by user' } : item,
-      ),
-    )
+    const running = history.find((item) => item.status === 'running')
+    if (running) void window.electronAPI.killArchCommand(running.id)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
