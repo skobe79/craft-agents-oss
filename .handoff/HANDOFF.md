@@ -34,6 +34,7 @@
 - RunsPanel now live: reads `sessionMetaMapAtom` (jotai) — real session runs with status (running/failed/completed/idle), duration, message count, token usage/cost. Sorted running-first. Live-count pill + empty state + spinner CSS.
 - Fixed LayoutShell import (`../panels/runs`), `runs` view routed.
 - Fixed pre-existing typecheck errors: MemoryPanel imports `@craft-agent/shared/memory/types`, mocks cast via unknown, source display uses sessionId, exported MemoryPanelProps/CommandPanelProps. `bun run typecheck` clean.
+- CommandPanel now runs real shell commands: new `archCommand` RPC (RUN/KILL) in `main/handlers/system.ts` using `spawn` (shell:true, 200KB output cap, tracked in a Map by run id for kill). Exposed via channel-map as `runArchCommand`/`killArchCommand` on ElectronAPI. Panel shows exit code, duration, stopped-by-user; Stop button kills the live process. CommandPanel rendered under HomeHero on the `command` view.
 
 ## Next step
-- Connect CommandPanel to a real command backend, then continue panel coverage (7 remaining panels in LayoutShell).
+- Continue panel coverage: Projects panel next (route in LayoutShell, back it with `packages/shared/src/projects`), then media-lab / integrations / security / search / settings.
