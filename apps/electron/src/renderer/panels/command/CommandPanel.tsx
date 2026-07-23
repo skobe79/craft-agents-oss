@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Send, Square, Terminal, ChevronRight, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 
-type CommandPanelProps = {
+export type CommandPanelProps = {
   onRunCommand?: (command: string) => void
 }
 

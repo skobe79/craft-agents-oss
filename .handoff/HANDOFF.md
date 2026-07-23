@@ -30,5 +30,10 @@
 - Polish auth, permissions, and project scoping UI.
 - Add desktop shortcuts and first-run setup.
 
+## Session 2026-07-24
+- RunsPanel now live: reads `sessionMetaMapAtom` (jotai) — real session runs with status (running/failed/completed/idle), duration, message count, token usage/cost. Sorted running-first. Live-count pill + empty state + spinner CSS.
+- Fixed LayoutShell import (`../panels/runs`), `runs` view routed.
+- Fixed pre-existing typecheck errors: MemoryPanel imports `@craft-agent/shared/memory/types`, mocks cast via unknown, source display uses sessionId, exported MemoryPanelProps/CommandPanelProps. `bun run typecheck` clean.
+
 ## Next step
-- Wire RunsPanel into a live run backend, then continue panel coverage.
+- Connect CommandPanel to a real command backend, then continue panel coverage (7 remaining panels in LayoutShell).

@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react'
 import { Brain, Search, Plus, Filter, Network, FileText, Tag, Calendar, Link2, MoreHorizontal } from 'lucide-react'
-import type { AnyMemory } from '../../../../shared/src/memory/types'
+import type { AnyMemory } from '@craft-agent/shared/memory/types'
 import { MemoryGraph } from './MemoryGraph'
 
-type MemoryPanelProps = {
+export type MemoryPanelProps = {
   memories?: AnyMemory[]
   onSelectMemory?: (memory: AnyMemory) => void
   onAddMemory?: () => void
@@ -28,7 +28,7 @@ const MOCK_MEMORIES: AnyMemory[] = [
     supersededById: undefined,
     supersedesIds: [],
     expiry: { expiresAt: undefined, ttlDays: undefined, archiveOnSupersede: false },
-  } as AnyMemory,
+  } as unknown as AnyMemory,
   {
     id: 'mem-2',
     class: 'episodic',
@@ -46,7 +46,7 @@ const MOCK_MEMORIES: AnyMemory[] = [
     supersededById: undefined,
     supersedesIds: [],
     expiry: { expiresAt: undefined, ttlDays: undefined, archiveOnSupersede: false },
-  } as AnyMemory,
+  } as unknown as AnyMemory,
   {
     id: 'mem-3',
     class: 'procedural',
@@ -64,7 +64,7 @@ const MOCK_MEMORIES: AnyMemory[] = [
     supersededById: undefined,
     supersedesIds: [],
     expiry: { expiresAt: undefined, ttlDays: undefined, archiveOnSupersede: false },
-  } as AnyMemory,
+  } as unknown as AnyMemory,
 ]
 
 export function MemoryPanel({
@@ -194,7 +194,7 @@ export function MemoryPanel({
       <div className="memory-panel__main">
         {viewMode === 'graph' ? (
           <div className="memory-panel__graph">
-            <MemoryGraph memories={memories} selectedId={selectedMemoryId} onSelect={onSelectMemory} />
+            <MemoryGraph memories={memories} selectedId={selectedIdFinal} onSelect={onSelectMemory} />
           </div>
         ) : selected ? (
           <div className="memory-panel__detail">
@@ -229,7 +229,7 @@ export function MemoryPanel({
               </div>
               <div className="memory-panel__detail-source">
                 <Link2 size={14} />
-                <span>{selected.source?.type ?? 'unknown'}</span>
+                <span>{selected.source?.sessionId ? `session ${selected.source.sessionId}` : 'unknown'}</span>
               </div>
             </div>
           </div>
