@@ -23,6 +23,7 @@ import { ProjectsPanel } from '../panels/projects'
 import { IntegrationsPanel } from '../panels/integrations'
 import { SearchPanel } from '../panels/search'
 import { SecurityPanel } from '../panels/security'
+import { SettingsPanel } from '../panels/settings'
 import { HomeHero } from '../home'
 import './LayoutShell.css'
 
@@ -198,6 +199,8 @@ function LayoutShell({
             <SearchPanel />
           ) : activeView === 'security' ? (
             <SecurityPanel />
+          ) : activeView === 'settings' ? (
+            <SettingsPanel />
           ) : activeView === 'command' ? (
             <div className="layout-command-view">
               <HomeHero />
