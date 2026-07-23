@@ -41,10 +41,14 @@
 - SearchPanel: debounced (250ms) `searchSessionContent(workspaceId, query, searchId)`; seq guard drops out-of-order responses; results grouped by session with titles from `sessionMetaMapAtom`, line numbers, match highlighting, show-more per group.
 - SecurityPanel: `getCredentialHealth()` store status + issues, permission-mode exposure across live sessions (safe/ask/allow-all with counts, warns on Execute-mode sessions), and unauthenticated/failed enabled integrations.
 
+- SettingsPanel: real settings RPCs — default thinking level (`get/setDefaultThinkingLevel`), keep-awake (`get/setKeepAwakeWhileRunning`), network proxy (`get/setNetworkProxySettings`, fields commit on blur), remote server status (`getServerStatus`) with insecure/needs-restart warnings. Optimistic updates roll back on failure; "Saving…/Saved" indicator.
+- MediaLabPanel: scans the 40 most recent sessions via `getSessionFiles`, walks the nested `SessionFile` tree, classifies by extension into image/video/audio/doc. Kind filter chips with counts, image thumbnails via `file://`, click opens with `openFile`. Per-session failures are swallowed so one bad session can't blank the grid.
+
 ## Panel status
-- Live-backed: Command, Runs, Memory, Projects, Integrations, Search, Security.
-- Remaining: Media Lab, Settings.
+- ALL 9 panels live-backed and routed: Command, Runs, Memory, Projects, Integrations, Search, Security, Settings, Media Lab.
+- `bun run typecheck` clean.
 
 ## Next step
-- Media Lab panel (no obvious existing backend — check `packages/shared/src/resources` / artifacts storage first; may need a new RPC like archCommand).
-- Settings panel: back with existing settings handlers in `apps/electron/src/main/handlers/settings.ts`.
+- Manual QA pass: `bun dev` in `apps/electron`, click every nav item, verify against real workspace data.
+- Then the remaining original todos: real graph data model with edges/weights (MemoryGraph still uses mock memories in MemoryPanel), auth/permissions/project-scoping polish, desktop shortcuts + first-run setup.
+- Known shortcuts to revisit: MemoryPanel still renders MOCK_MEMORIES (needs `packages/shared/src/memory/repository.ts` wired through an RPC); MediaLab session scan is capped at 40 and has no pagination.
