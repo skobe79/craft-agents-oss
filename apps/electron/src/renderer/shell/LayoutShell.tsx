@@ -20,6 +20,7 @@ import { MemoryPanel } from '../panels/memory'
 import { RunsPanel } from '../panels/runs'
 import { CommandPanel } from '../panels/command'
 import { ProjectsPanel } from '../panels/projects'
+import { IntegrationsPanel } from '../panels/integrations'
 import { HomeHero } from '../home'
 import './LayoutShell.css'
 
@@ -189,6 +190,8 @@ function LayoutShell({
             <RunsPanel />
           ) : activeView === 'projects' ? (
             <ProjectsPanel />
+          ) : activeView === 'integrations' ? (
+            <IntegrationsPanel />
           ) : activeView === 'command' ? (
             <div className="layout-command-view">
               <HomeHero />
