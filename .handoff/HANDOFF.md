@@ -36,5 +36,15 @@
 - Fixed pre-existing typecheck errors: MemoryPanel imports `@craft-agent/shared/memory/types`, mocks cast via unknown, source display uses sessionId, exported MemoryPanelProps/CommandPanelProps. `bun run typecheck` clean.
 - CommandPanel now runs real shell commands: new `archCommand` RPC (RUN/KILL) in `main/handlers/system.ts` using `spawn` (shell:true, 200KB output cap, tracked in a Map by run id for kill). Exposed via channel-map as `runArchCommand`/`killArchCommand` on ElectronAPI. Panel shows exit code, duration, stopped-by-user; Stop button kills the live process. CommandPanel rendered under HomeHero on the `command` view.
 
+- ProjectsPanel: card grid from `projectsAtom`; per-project session count / running count / last activity derived from `sessionMetaMapAtom`; search, archived toggle, per-project accent color.
+- IntegrationsPanel: from `sourcesAtom` (built-ins filtered out); status chips with counts (connected / needs_auth / failed / untested / local_disabled), click-to-filter, search, failure reasons on card. Problems sort first.
+- SearchPanel: debounced (250ms) `searchSessionContent(workspaceId, query, searchId)`; seq guard drops out-of-order responses; results grouped by session with titles from `sessionMetaMapAtom`, line numbers, match highlighting, show-more per group.
+- SecurityPanel: `getCredentialHealth()` store status + issues, permission-mode exposure across live sessions (safe/ask/allow-all with counts, warns on Execute-mode sessions), and unauthenticated/failed enabled integrations.
+
+## Panel status
+- Live-backed: Command, Runs, Memory, Projects, Integrations, Search, Security.
+- Remaining: Media Lab, Settings.
+
 ## Next step
-- Continue panel coverage: Projects panel next (route in LayoutShell, back it with `packages/shared/src/projects`), then media-lab / integrations / security / search / settings.
+- Media Lab panel (no obvious existing backend — check `packages/shared/src/resources` / artifacts storage first; may need a new RPC like archCommand).
+- Settings panel: back with existing settings handlers in `apps/electron/src/main/handlers/settings.ts`.
