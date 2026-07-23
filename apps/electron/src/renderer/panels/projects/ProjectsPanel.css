@@ -1,0 +1,208 @@
+.projects-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.projects-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--panel-border, #293044);
+}
+
+.projects-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.projects-panel__title h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.projects-panel__count {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-secondary, #a7afc0);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.projects-panel__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.projects-panel__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border, #293044);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary, #a7afc0);
+}
+
+.projects-panel__search input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  width: 180px;
+}
+
+.projects-panel__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border, #293044);
+  background: transparent;
+  color: var(--text-secondary, #a7afc0);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.projects-panel__toggle.is-active {
+  color: #8c42ff;
+  border-color: rgba(140, 66, 255, 0.5);
+  background: rgba(140, 66, 255, 0.12);
+}
+
+.projects-panel__grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  padding: 20px;
+  align-content: start;
+}
+
+.projects-panel__empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 64px 16px;
+  color: var(--text-muted, #6b7085);
+}
+
+.projects-panel__empty p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.projects-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 16px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border, #293044);
+  background: rgba(255, 255, 255, 0.02);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.projects-card:hover {
+  border-color: rgba(115, 240, 74, 0.4);
+  transform: translateY(-1px);
+}
+
+.projects-card.is-selected {
+  border-color: #8c42ff;
+  background: rgba(140, 66, 255, 0.08);
+}
+
+.projects-card.is-archived {
+  opacity: 0.55;
+}
+
+.projects-card__accent {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #73f04a 0%, var(--project-accent, #8c42ff) 100%);
+}
+
+.projects-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.projects-card__header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.projects-card__live {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #73f04a;
+  background: rgba(115, 240, 74, 0.12);
+  border: 1px solid rgba(115, 240, 74, 0.35);
+  white-space: nowrap;
+}
+
+.projects-card__desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary, #a7afc0);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.projects-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text-muted, #6b7085);
+}
+
+.projects-card__meta span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.projects-card__path {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted, #6b7085);
+  font-family: var(--mono-font, 'JetBrains Mono', monospace);
+}
+
+.projects-card__path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
