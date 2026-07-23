@@ -24,6 +24,7 @@ import { IntegrationsPanel } from '../panels/integrations'
 import { SearchPanel } from '../panels/search'
 import { SecurityPanel } from '../panels/security'
 import { SettingsPanel } from '../panels/settings'
+import { MediaLabPanel } from '../panels/media-lab'
 import { HomeHero } from '../home'
 import './LayoutShell.css'
 
@@ -201,6 +202,8 @@ function LayoutShell({
             <SecurityPanel />
           ) : activeView === 'settings' ? (
             <SettingsPanel />
+          ) : activeView === 'media-lab' ? (
+            <MediaLabPanel />
           ) : activeView === 'command' ? (
             <div className="layout-command-view">
               <HomeHero />
