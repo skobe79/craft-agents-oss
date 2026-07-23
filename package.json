@@ -1,8 +1,8 @@
 {
-  "name": "craft-agent",
+  "name": "archstudio",
   "version": "0.11.2",
   "license": "Apache-2.0",
-  "description": "Claude Code-like agent for Craft documents",
+  "description": "ARCHstudio AI Agent",
   "type": "module",
   "private": true,
   "trustedDependencies": [

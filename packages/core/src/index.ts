@@ -10,6 +10,7 @@
 
 // Re-export all types
 export * from './types/index.ts';
+export * from './owner/types.ts';
 
 // Re-export utilities
 export * from './utils/index.ts';

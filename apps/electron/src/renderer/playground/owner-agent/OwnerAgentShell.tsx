@@ -41,10 +41,27 @@ const destinations = [
 
 function OwnerMark() {
   return (
-    <svg aria-hidden="true" className="oa-mark" viewBox="0 0 32 32">
-      <path d="M6 8.5 16 3l10 5.5v15L16 29 6 23.5z" />
-      <path d="m11 11 5-3 5 3v10l-5 3-5-3z" />
-      <path d="M16 8v16M11 11l10 10M21 11 11 21" />
+    <svg aria-hidden="true" className="oa-mark" viewBox="0 0 32 32" fill="none">
+      <defs>
+        <linearGradient id="oa-green-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#C0FE3E" />
+          <stop offset="100%" stopColor="#1E5C13" />
+        </linearGradient>
+        <linearGradient id="oa-purple-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#A855F7" />
+          <stop offset="100%" stopColor="#4C1D95" />
+        </linearGradient>
+      </defs>
+      {/* Left half of Ring */}
+      <path d="M 16 3 A 11 11 0 0 0 16 25" stroke="url(#oa-green-grad)" strokeWidth="2.2" strokeLinecap="round" />
+      {/* Right half of Ring */}
+      <path d="M 16 3 A 11 11 0 0 1 16 25" stroke="url(#oa-purple-grad)" strokeWidth="2.2" strokeLinecap="round" />
+      {/* Left leg of 'A' */}
+      <path d="M 16 7 L 10 20.5 L 13.5 20.5 L 16 15 Z" fill="url(#oa-green-grad)" />
+      {/* Right leg of 'A' */}
+      <path d="M 16 7 L 22 20.5 L 18.5 20.5 L 16 15 Z" fill="url(#oa-purple-grad)" />
+      {/* Floating Center Rhombus */}
+      <path d="M 16 17 L 17.5 19 L 16 20.5 L 14.5 19 Z" fill="url(#oa-purple-grad)" />
     </svg>
   )
 }
@@ -120,7 +137,7 @@ function ActiveRun({ state }: { state: 'streaming' | 'tool-running' }) {
         <div className="oa-agent-heading">
           <OwnerMark />
           <div>
-            <strong>Owner Agent</strong>
+            <strong>ARCHstudio</strong>
             <span>Working in authorised repository scope</span>
           </div>
           <time>04:58</time>
@@ -223,7 +240,7 @@ export function OwnerAgentShell({ state = 'streaming', compact = false }: OwnerA
   return (
     <section className={`oa-shell${compact ? ' oa-shell--compact' : ''}`} data-state={state}>
       <nav aria-label="Owner Agent navigation" className="oa-rail">
-        <div className="oa-brand" title="Owner Agent">
+        <div className="oa-brand" title="ARCHstudio">
           <OwnerMark />
         </div>
 
@@ -333,7 +350,7 @@ export function OwnerAgentShell({ state = 'streaming', compact = false }: OwnerA
 
         <footer className="oa-composer-wrap">
           <div className="oa-composer">
-            <textarea aria-label="Command message" placeholder="Give Owner Agent a command…" rows={2} />
+            <textarea aria-label="Command message" placeholder="Give ARCHstudio a command…" rows={2} />
             <div className="oa-composer-actions">
               <div>
                 <button className="oa-composer-button" type="button"><Paperclip aria-hidden="true" size={16} />Attach</button>
