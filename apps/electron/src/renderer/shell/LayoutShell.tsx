@@ -16,6 +16,7 @@ import {
   Moon,
   Monitor,
 } from 'lucide-react'
+import { MemoryPanel } from '../panels/memory'
 import './LayoutShell.css'
 
 export type ShellView =
@@ -178,10 +179,14 @@ function LayoutShell({
         </header>
 
         <main className="layout-content" role="main">
-          {children ?? (
-            <div className="layout-placeholder">
-              <p>Select a view to get started.</p>
-            </div>
+          {activeView === 'memory' ? (
+            <MemoryPanel />
+          ) : (
+            children ?? (
+              <div className="layout-placeholder">
+                <p>Select a view to get started.</p>
+              </div>
+            )
           )}
         </main>
       </div>

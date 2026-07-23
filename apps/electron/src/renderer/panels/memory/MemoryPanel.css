@@ -1,0 +1,316 @@
+/* Memory Panel
+   - Split view: sidebar list + main detail/graph
+   - Uses shell accent color tokens where possible
+*/
+
+.memory-panel {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.memory-panel__sidebar {
+  width: 320px;
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-muted);
+}
+
+.memory-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.memory-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-accent);
+}
+
+.memory-panel__title h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.memory-panel__add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.memory-panel__search {
+  position: relative;
+  padding: 12px 16px;
+}
+
+.memory-panel__search-icon {
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-muted);
+  pointer-events: none;
+}
+
+.memory-panel__search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 32px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.memory-panel__filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+  color: var(--color-muted);
+}
+
+.memory-panel__filter-select {
+  flex: 1;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.memory-panel__view-toggle {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.memory-panel__view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  width: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.memory-panel__view-btn--active {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.memory-panel__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.memory-panel__empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.memory-panel__item {
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.memory-panel__item:hover {
+  background: var(--color-surface-hover);
+}
+
+.memory-panel__item--active {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.memory-panel__item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.memory-panel__item-type {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+}
+
+.memory-panel__item-confidence {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.memory-panel__item-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.memory-panel__item-meta,
+.memory-panel__item-date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.memory-panel__item-date {
+  margin-top: 4px;
+}
+
+.memory-panel__main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.memory-panel__graph {
+  flex: 1;
+  padding: 16px;
+}
+
+.memory-panel__graph-placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  color: var(--color-muted);
+}
+
+.memory-panel__placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--color-muted);
+}
+
+.memory-panel__detail {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.memory-panel__detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-panel__detail-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.memory-panel__detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.memory-panel__detail-type,
+.memory-panel__detail-scope {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.memory-panel__detail-confidence {
+  color: var(--color-accent);
+}
+
+.memory-panel__detail-more {
+  height: 32px;
+  width: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.memory-panel__detail-content {
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.memory-panel__detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memory-panel__tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.memory-panel__detail-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.memory-panel__detail-date,
+.memory-panel__detail-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
