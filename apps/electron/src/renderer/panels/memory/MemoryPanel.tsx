@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import { Brain, Search, Plus, Filter, Network, FileText, Tag, Calendar, Link2, MoreHorizontal } from 'lucide-react'
 import type { AnyMemory } from '../../../../shared/src/memory/types'
+import { MemoryGraph } from './MemoryGraph'
 
 type MemoryPanelProps = {
   memories?: AnyMemory[]
@@ -70,11 +71,14 @@ export function MemoryPanel({
   memories = MOCK_MEMORIES,
   onSelectMemory,
   onAddMemory,
-  selectedMemoryId,
+  selectedMemoryId: controlledSelectedId,
 }: MemoryPanelProps) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<string>('all')
   const [viewMode, setViewMode] = useState<'list' | 'graph'>('list')
+  const [selectedId, setSelectedId] = useState<string | undefined>(controlledSelectedId)
+
+  const selectedIdFinal = controlledSelectedId ?? selectedId
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
@@ -89,7 +93,7 @@ export function MemoryPanel({
     })
   }, [memories, search, filter])
 
-  const selected = memories.find((m) => m.id === selectedMemoryId)
+  const selected = memories.find((m) => m.id === selectedIdFinal)
 
   return (
     <div className="memory-panel">
@@ -163,8 +167,11 @@ export function MemoryPanel({
             <button
               key={m.id}
               type="button"
-              className={`memory-panel__item ${selectedMemoryId === m.id ? 'memory-panel__item--active' : ''}`}
-              onClick={() => onSelectMemory?.(m)}
+              className={`memory-panel__item ${selectedIdFinal === m.id ? 'memory-panel__item--active' : ''}`}
+              onClick={() => {
+                setSelectedId(m.id)
+                onSelectMemory?.(m)
+              }}
             >
               <div className="memory-panel__item-header">
                 <span className="memory-panel__item-type">{m.class}</span>
@@ -187,11 +194,7 @@ export function MemoryPanel({
       <div className="memory-panel__main">
         {viewMode === 'graph' ? (
           <div className="memory-panel__graph">
-            <div className="memory-panel__graph-placeholder">
-              <Network size={48} />
-              <p>Knowledge graph visualization</p>
-              <span>Nodes: {memories.length} · Edges: {Math.max(memories.length - 1, 0)}</span>
-            </div>
+            <MemoryGraph memories={memories} selectedId={selectedMemoryId} onSelect={onSelectMemory} />
           </div>
         ) : selected ? (
           <div className="memory-panel__detail">
