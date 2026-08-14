@@ -22,7 +22,7 @@
     "!apps/online-docs"
   ],
   "scripts": {
-    "test": "bun test && for f in $(find . -name '*.isolated.ts' -not -path './node_modules/*'); do bun test \"$f\" || exit 1; done",
+    "test": "bun test packages scripts apps/cli/src apps/electron/src apps/electron/eslint-rules && bun scripts/run-isolated-tests.mjs",
     "typecheck": "bun run typecheck:shared",
     "typecheck:shared": "cd packages/shared && bun run tsc --noEmit",
     "typecheck:staged": "bash scripts/typecheck-staged.sh",
@@ -59,6 +59,8 @@
     "sort-locales": "bun scripts/sort-locales.ts",
     "lint:i18n:sorted": "bun scripts/sort-locales.ts --check",
     "check-test-discovery": "bun scripts/check-test-discovery.ts",
+    "cross-platform-smoke": "bun scripts/cross-platform-smoke.mjs",
+    "cross-platform-smoke:diff": "bun scripts/cross-platform-smoke.mjs --diff",
     "check-build-leaks": "bun scripts/check-build-leaks.ts",
     "check:renderer-node-imports": "bun scripts/check-renderer-node-imports.ts",
     "check:test-count": "bun scripts/check-test-count.ts",
@@ -161,6 +163,7 @@
     "postcss": "^8.5.6",
     "react-devtools-core": "^6.1.1",
     "tailwindcss": "^4.1.18",
+    "tailwindcss-animate": "1.0.7",
     "tar": "^7.5.2",
     "ts-morph": "^28.0.0",
     "typescript": "^5.0.0",

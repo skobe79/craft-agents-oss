@@ -11,6 +11,10 @@ export * from '@archstudio/shared/protocol'
 // re-exports it publicly but does not bring it into this module's scope, so the
 // local annotation below needs an explicit import.
 import type {
+  AudioJobStartResult,
+  AudioJobStatus,
+  AudioProcessRequest,
+  BeatRenderRequest,
   ComfyHealth,
   ComfyJobStatus,
   ComfyJobStatusRequest,
@@ -18,6 +22,7 @@ import type {
   ComfyRunResult,
   ComfyWorkflowList,
   GitFileDiffResult,
+  StemSplitRequest,
 } from '@archstudio/shared/protocol'
 
 // Core types
@@ -351,6 +356,8 @@ export interface ElectronAPI {
 
   // File operations
   readFile(path: string): Promise<string>
+  /** Write UTF-8 content to a file on disk (save-back for editor). */
+  writeFile(path: string, content: string): Promise<{ success: boolean; error?: string }>
   /** Read a file as binary data (Uint8Array) */
   readFileBinary(path: string): Promise<Uint8Array>
   /** Read a file as a data URL (data:{mime};base64,...) for binary preview (images, PDFs) */
@@ -525,11 +532,16 @@ export interface ElectronAPI {
   mediaList(request: MediaListRequest, signal?: AbortSignal): Promise<MediaListPage>
   comfyHealth(): Promise<ComfyHealth>
   comfyStart(): Promise<ComfyHealth>
+  comfyStop(): Promise<ComfyHealth>
   comfyWorkflows(): Promise<ComfyWorkflowList>
   comfyArtifacts(request: MediaListRequest, signal?: AbortSignal): Promise<MediaListPage>
   comfyRun(request: ComfyRunRequest): Promise<ComfyRunResult>
   comfyStatus(request: ComfyJobStatusRequest): Promise<ComfyJobStatus>
   comfyCancel(): Promise<void>
+  audioStemSplit(request: StemSplitRequest): Promise<AudioJobStartResult>
+  audioBeatRender(request: BeatRenderRequest): Promise<AudioJobStartResult>
+  audioProcess(request: AudioProcessRequest): Promise<AudioJobStartResult>
+  audioJobStatus(request: { jobId: string }): Promise<AudioJobStatus>
   getSessionNotes(sessionId: string): Promise<string>
   setSessionNotes(sessionId: string, content: string): Promise<void>
   watchSessionFiles(sessionId: string): Promise<void>

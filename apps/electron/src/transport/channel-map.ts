@@ -91,6 +91,7 @@ export const CHANNEL_MAP = {
   readUserAttachment: invoke(RPC_CHANNELS.file.READ_USER_ATTACHMENT),
   storeAttachment: invoke(RPC_CHANNELS.file.STORE_ATTACHMENT),
   generateThumbnail: invoke(RPC_CHANNELS.file.GENERATE_THUMBNAIL),
+  writeFile: invoke(RPC_CHANNELS.file.WRITE),
 
   // Theme
   getSystemTheme: invoke(RPC_CHANNELS.theme.GET_SYSTEM_PREFERENCE),
@@ -229,11 +230,16 @@ export const CHANNEL_MAP = {
   mediaList: invoke(RPC_CHANNELS.media.LIST),
   comfyHealth: invoke(RPC_CHANNELS.media.COMFY_HEALTH),
   comfyStart: invoke(RPC_CHANNELS.media.COMFY_START),
+  comfyStop: invoke(RPC_CHANNELS.media.COMFY_STOP),
   comfyWorkflows: invoke(RPC_CHANNELS.media.COMFY_WORKFLOWS),
   comfyArtifacts: invoke(RPC_CHANNELS.media.COMFY_ARTIFACTS),
   comfyRun: invoke(RPC_CHANNELS.media.COMFY_RUN),
   comfyStatus: invoke(RPC_CHANNELS.media.COMFY_STATUS),
   comfyCancel: invoke(RPC_CHANNELS.media.COMFY_CANCEL),
+  audioStemSplit: invoke(RPC_CHANNELS.media.STEM_SPLIT),
+  audioBeatRender: invoke(RPC_CHANNELS.media.BEAT_RENDER),
+  audioProcess: invoke(RPC_CHANNELS.media.AUDIO_PROCESS),
+  audioJobStatus: invoke(RPC_CHANNELS.media.AUDIO_JOB_STATUS),
 
   // Sources
   getSources: invoke(RPC_CHANNELS.sources.GET),

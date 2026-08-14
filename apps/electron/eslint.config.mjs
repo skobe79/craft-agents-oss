@@ -17,6 +17,8 @@ import noDirectFileOpen from './eslint-rules/no-direct-file-open.cjs'
 import noInlineSourceAuthCheck from './eslint-rules/no-inline-source-auth-check.cjs'
 import noHardcodedZIndex from './eslint-rules/no-hardcoded-z-index.cjs'
 import noNonstandardShadows from './eslint-rules/no-nonstandard-shadows.cjs'
+import envSanitizerAudit from './eslint-rules/env-sanitizer-audit.cjs'
+import noTeleportingState from './eslint-rules/no-teleporting-state.cjs'
 
 export default [
   // Ignore patterns
@@ -85,6 +87,20 @@ export default [
           'no-nonstandard-shadows': noNonstandardShadows,
         },
       },
+      // Custom child-process env audit — flags Bun.spawn / child_process
+      // calls that leak process.env without sanitizeChildProcessEnv.
+      'archstudio-process': {
+        rules: {
+          'env-sanitizer-audit': envSanitizerAudit,
+        },
+      },
+      // Custom motion audit — flags raw {isOpen && <JSX>} teleporting-state
+      // renders with no AnimatePresence / animate-in / motion.* animation.
+      'archstudio-motion': {
+        rules: {
+          'no-teleporting-state': noTeleportingState,
+        },
+      },
     },
     settings: {
       react: {
@@ -132,6 +148,18 @@ export default [
         ],
         allowInlineNone: true,
       }],
+
+      // Child-process env audit — flag Bun.spawn / spawn / spawnSync /
+      // execFile / exec calls that reference process.env without first
+      // passing through sanitizeChildProcessEnv. Default allow-list is
+      // the central helper; pass `additionalCallNames` via rule options
+      // to track project-local wrappers.
+      'archstudio-process/env-sanitizer-audit': 'error',
+
+      // Teleporting-state audit — raw {isOpen &&}/{expanded &&} conditional
+      // renders must animate their mount (AnimatePresence, animate-in, or
+      // motion.*). See no-teleporting-state.cjs for the full semantics.
+      'archstudio-motion/no-teleporting-state': 'warn',
 
       // Enforce centralized action registry for keyboard shortcuts
       'no-restricted-imports': ['error', {

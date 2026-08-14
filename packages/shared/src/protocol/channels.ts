@@ -102,6 +102,7 @@ export const RPC_CHANNELS = {
     READ_USER_ATTACHMENT: 'file:readUserAttachment',
     STORE_ATTACHMENT: 'file:storeAttachment',
     GENERATE_THUMBNAIL: 'file:generateThumbnail',
+    WRITE: 'file:write',
   },
   fs: {
     SEARCH: 'fs:search',
@@ -470,11 +471,33 @@ export const RPC_CHANNELS = {
     LIST: 'media:list',
     COMFY_HEALTH: 'media:comfy-health',
     COMFY_START: 'media:comfy-start',
+    COMFY_STOP: 'media:comfy-stop',
     COMFY_WORKFLOWS: 'media:comfy-workflows',
     COMFY_ARTIFACTS: 'media:comfy-artifacts',
     COMFY_RUN: 'media:comfy-run',
     COMFY_STATUS: 'media:comfy-status',
     COMFY_CANCEL: 'media:comfy-cancel',
+
+    /**
+     * Start a stem separation job (Demucs). Request: `StemSplitRequest`.
+     * Response: `AudioJobStartResult` with a `jobId` for polling.
+     */
+    STEM_SPLIT: 'media:stem-split',
+    /**
+     * Render a beat pattern to WAV. Request: `BeatRenderRequest`.
+     * Response: `AudioJobStartResult`.
+     */
+    BEAT_RENDER: 'media:beat-render',
+    /**
+     * Process audio (stretch, transpose, trim, normalize, mix). Request:
+     * `AudioProcessRequest`. Response: `AudioJobStartResult`.
+     */
+    AUDIO_PROCESS: 'media:audio-process',
+    /**
+     * Poll any audio job by id. Request: `{ jobId: string }`.
+     * Response: `AudioJobStatus`.
+     */
+    AUDIO_JOB_STATUS: 'media:audio-job-status',
   },
   browserPane: {
     CREATE: 'browser-pane:create',

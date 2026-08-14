@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { VariableSizeGrid, type VariableSizeGrid as VariableSizeGridType } from 'react-window'
-import { Clapperboard, Image, Music, Video, FileText, Loader2, ExternalLink, Sparkles, Wand2, Download, EyeOff, X, CheckSquare, FolderOpen, Power, Cpu, Gauge, Clock3, Layers3, ChevronDown, RotateCcw, PlayCircle, Pause, Volume2, VolumeX, Maximize2, SkipBack } from 'lucide-react'
+import { Clapperboard, Image, Music, Video, FileText, Loader2, ExternalLink, Sparkles, Wand2, Download, EyeOff, X, CheckSquare, FolderOpen, Power, Cpu, Gauge, Clock3, Layers3, ChevronDown, RotateCcw, PlayCircle, Pause, Volume2, VolumeX, Maximize2, SkipBack, Scissors, Drum } from 'lucide-react'
 import type {
   ComfyHealth,
   ComfyJobStatus,
@@ -11,7 +11,12 @@ import type {
   MediaListRequest,
 } from '@archstudio/shared/protocol'
 import { useAppShellContext } from '../../context/AppShellContext'
+import { StemSplitterPanel } from './StemSplitterPanel'
+import { BeatMakerPanel } from './BeatMakerPanel'
+import { RemixTimelinePanel } from './RemixTimelinePanel'
+import { MusicPlayer } from './MusicPlayer'
 import './MediaLabPanel.css'
+import './MusicStudio.css'
 
 const KIND_ICON: Record<MediaKind, typeof Image> = {
   image: Image,
@@ -242,7 +247,7 @@ export function MediaLabPanel() {
   const { onOpenFile } = useAppShellContext()
   const [kindFilter, setKindFilter] = useState<MediaKind | 'all'>('all')
   const [previewVideo, setPreviewVideo] = useState<MediaItem | null>(null)
-  const [creationTab, setCreationTab] = useState<'create' | 'library'>('create')
+  const [creationTab, setCreationTab] = useState<'create' | 'library' | 'stems' | 'beats' | 'remix'>('create')
   const [comfyHealth, setComfyHealth] = useState<ComfyHealth | null>(null)
   const [comfyWorkflows, setComfyWorkflows] = useState<ComfyWorkflowSummary[]>([])
   const [comfyRejectedCount, setComfyRejectedCount] = useState(0)
@@ -254,6 +259,7 @@ export function MediaLabPanel() {
   const [comfyJob, setComfyJob] = useState<ComfyJobStatus | null>(null)
   const [comfySubmitting, setComfySubmitting] = useState(false)
   const [comfyStarting, setComfyStarting] = useState(false)
+  const [comfyStopping, setComfyStopping] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [jobStartedAt, setJobStartedAt] = useState<number | null>(null)
   const [now, setNow] = useState(Date.now())
@@ -427,6 +433,20 @@ export function MediaLabPanel() {
       setComfyStarting(false)
     }
   }, [comfyHealth?.connected, comfyStarting])
+
+  const stopComfyUI = useCallback(async () => {
+    if (comfyStopping || !comfyHealth?.connected) return
+    setComfyStopping(true)
+    setComfyError(null)
+    try {
+      const health = await window.electronAPI.comfyStop()
+      setComfyHealth(health)
+    } catch (stopError) {
+      setComfyError(stopError instanceof Error ? stopError.message : String(stopError))
+    } finally {
+      setComfyStopping(false)
+    }
+  }, [comfyHealth?.connected, comfyStopping])
 
   // ---------- Virtualization plumbing (unchanged from prior refactor) ----------
 
@@ -826,6 +846,7 @@ export function MediaLabPanel() {
     clearSelection()
   }, [items, selectedKeys, itemKey, clearSelection])
 
+  const isAudioStudio = creationKind === 'audio'
   const isLibraryLoading = creationTab === 'library' && initialLoading
 
   return (
@@ -836,9 +857,10 @@ export function MediaLabPanel() {
           <span className="media-console-header__mark"><Clapperboard size={18} /></span>
           <div>
             <h2>Media Lab</h2>
-            <p>ComfyUI production console</p>
+            <p>{isAudioStudio ? 'Music production studio' : 'ComfyUI production console'}</p>
           </div>
         </div>
+        {!isAudioStudio && (
         <div className="media-console-header__signals">
           <div className={`media-signal${comfyHealth?.connected ? ' is-live' : ' is-offline'}`}>
             <span className="media-signal__pulse" />
@@ -861,22 +883,61 @@ export function MediaLabPanel() {
             <div><small>Queue</small><strong>{comfyHealth?.queueRunning ?? 0} active · {comfyHealth?.queuePending ?? 0} waiting</strong></div>
           </div>
         </div>
+        )}
+        {isAudioStudio && (
+        <div className="media-console-header__signals">
+          <div className="media-signal is-live">
+            <span className="media-signal__pulse" />
+            <div><small>Audio engine</small><strong>Python + Demucs</strong></div>
+          </div>
+          <div className="media-signal">
+            <Music size={15} />
+            <div><small>Tracks</small><strong>{recentArtifacts.filter((i) => i.kind === 'audio').length} available</strong></div>
+          </div>
+        </div>
+        )}
         <div className="media-panel__tabs">
-          {!comfyHealth?.connected && (
-            <button type="button" className="media-tab media-tab--service" disabled={comfyStarting} onClick={() => void startComfyUI()}>
-              {comfyStarting ? <Loader2 size={14} className="media-panel__spinner" /> : <Power size={14} />}
-              {comfyStarting ? 'Starting…' : 'Start engine'}
-            </button>
+          {!isAudioStudio && (
+            <>
+            {comfyHealth?.connected ? (
+              <button type="button" className="media-tab media-tab--service is-online" disabled={comfyStopping} onClick={() => void stopComfyUI()}>
+                {comfyStopping ? <Loader2 size={14} className="media-panel__spinner" /> : <Power size={14} />}
+                {comfyStopping ? 'Stopping…' : 'Stop engine'}
+              </button>
+            ) : (
+              <button type="button" className="media-tab media-tab--service" disabled={comfyStarting} onClick={() => void startComfyUI()}>
+                {comfyStarting ? <Loader2 size={14} className="media-panel__spinner" /> : <Power size={14} />}
+                {comfyStarting ? 'Starting…' : 'Start engine'}
+              </button>
+            )}
+            </>
           )}
           <button type="button" className={`media-tab${creationTab === 'create' ? ' is-active' : ''}`} onClick={() => setCreationTab('create')}>
-            <Sparkles size={14} /> Create
+            <Sparkles size={14} /> {isAudioStudio ? 'Player' : 'Create'}
           </button>
           <button type="button" className={`media-tab${creationTab === 'library' ? ' is-active' : ''}`} onClick={() => setCreationTab('library')}>
-            <Video size={14} /> Library
-            {isLibraryLoading ? <Loader2 size={12} className="media-panel__spinner" /> : recentArtifacts.length > 0 && <span>{recentArtifacts.length}</span>}
+            {isAudioStudio ? <Music size={14} /> : <Video size={14} />} Library
+            {isLibraryLoading ? <Loader2 size={12} className="media-panel__spinner" /> : recentArtifacts.length > 0 && <span>{isAudioStudio ? recentArtifacts.filter((i) => i.kind === 'audio').length : recentArtifacts.length}</span>}
           </button>
+          {isAudioStudio && (
+            <>
+              <button type="button" className={`media-tab${creationTab === 'stems' ? ' is-active' : ''}`} onClick={() => setCreationTab('stems')}>
+                <Scissors size={14} /> Stems
+              </button>
+              <button type="button" className={`media-tab${creationTab === 'beats' ? ' is-active' : ''}`} onClick={() => setCreationTab('beats')}>
+                <Drum size={14} /> Beats
+              </button>
+              <button type="button" className={`media-tab${creationTab === 'remix' ? ' is-active' : ''}`} onClick={() => setCreationTab('remix')}>
+                <Layers3 size={14} /> Remix
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      {creationTab === 'stems' && <StemSplitterPanel />}
+      {creationTab === 'beats' && <BeatMakerPanel />}
+      {creationTab === 'remix' && <RemixTimelinePanel />}
 
       {creationTab === 'create' ? (
         <div className="media-studio">
@@ -891,7 +952,7 @@ export function MediaLabPanel() {
                   key={kind}
                   type="button"
                   className={creationKind === kind ? 'is-active' : ''}
-                  onClick={() => setCreationKind(kind)}
+                  onClick={() => { setCreationKind(kind); if (kind === 'audio') setKindFilter('audio') }}
                 >
                   <span className={`media-studio__mode-icon is-${kind}`}><ModeIcon size={18} /></span>
                   <div><strong>{studio.label}</strong><small>{count} workflows</small></div>
@@ -906,6 +967,10 @@ export function MediaLabPanel() {
           </aside>
 
           <main className="media-studio__main">
+            {creationKind === 'audio' ? (
+              <MusicPlayer />
+            ) : (
+            <>
             <section className="media-composer">
               <div className="media-composer__eyebrow">
                 <span>{STUDIO[creationKind].eyebrow} / {workflowProvider(selectedWorkflow).toUpperCase()}</span>
@@ -1036,6 +1101,8 @@ export function MediaLabPanel() {
                 })}
               </div>
             </section>
+            </>
+            )}
           </main>
         </div>
       ) : (
@@ -1046,9 +1113,10 @@ export function MediaLabPanel() {
               className={`media-chip${kindFilter === 'all' ? ' is-active' : ''}`}
               onClick={() => setKindFilter('all')}
             >
-              All <span>{items.length}</span>
+              {isAudioStudio ? 'Audio' : 'All'} <span>{isAudioStudio ? (counts.get('audio') ?? 0) : items.length}</span>
             </button>
             {(['image', 'video', 'audio'] as const)
+              .filter((kind) => !isAudioStudio || kind === 'audio')
               .map((kind) => {
                 const Icon = KIND_ICON[kind]
                 return (

@@ -10,6 +10,7 @@ import type { AutomationEvent, AutomationMatcher, PromptReferences, AgentEvent, 
 import { matchesCron } from './cron-matcher.ts';
 import { sanitizeForShell } from './security.ts';
 import { evaluateConditions } from './conditions.ts';
+import { sanitizeChildProcessEnv } from '../utils/env.ts';
 
 // ============================================================================
 // String Utilities
@@ -208,14 +209,29 @@ export function matcherMatchesSdk(matcher: AutomationMatcher, event: AgentEvent,
 // ============================================================================
 
 /**
- * Get process.env as a clean Record<string, string> with undefined values filtered out.
- * Avoids the unsafe `process.env as Record<string, string>` cast that turns undefined
- * values into the string "undefined".
+ * Get process.env as a clean Record<string, string> filtered for the automations
+ * pipeline. Avoids the unsafe `process.env as Record<string, string>` cast that
+ * turns undefined values into the string "undefined".
+ *
+ * Strips three hostile value classes that can leak into process.env on Windows
+ * and reach downstream prompt/command/webhook actions:
+ *   1. genuinely undefined entries (already filtered by sanitizeChildProcessEnv)
+ *   2. the literal string "undefined" (WSL -> Windows shell imports such as
+ *      ORIGINAL_XDG_CURRENT_DESKTOP — filtered by sanitizeChildProcessEnv)
+ *   3. empty strings (e.g. accidental `ARCHSTUDIO_TOKEN=` assignment bleeds
+ *      into automation hooks; automation commands need a definite presence
+ *      check, not a truthy check that includes "")
+ *
+ * The shared `sanitizeChildProcessEnv` keeps its empty-string carve-out for
+ * non-automation spawn paths (dev/build scripts), where POSIX-style "F= unset"
+ * matters. Automations need the stricter filter; this is the source.
  */
 export function cleanEnv(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined)
-  );
+  const cleaned = sanitizeChildProcessEnv(process.env)
+  for (const key of Object.keys(cleaned)) {
+    if (cleaned[key] === '') delete cleaned[key]
+  }
+  return cleaned
 }
 
 /** Keys skipped when iterating payload fields for env vars */
@@ -301,11 +317,10 @@ export function buildEnvFromPayload(event: AutomationEvent, payload: BaseEventPa
 export function buildWebhookEnv(event: AutomationEvent, payload: BaseEventPayload): Record<string, string> {
   const env = buildBaseEventEnv(event, payload);
 
-  // User-defined webhook secrets: only ARCHSTUDIO_WH_* from process.env
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith('ARCHSTUDIO_WH_') && value !== undefined) {
-      env[key] = value;
-    }
+  // User-defined webhook secrets: only ARCHSTUDIO_WH_* from process.env,
+  // through the shared sanitizer so the literal-"undefined" leak is stripped.
+  for (const [key, value] of Object.entries(sanitizeChildProcessEnv(process.env))) {
+    if (key.startsWith('ARCHSTUDIO_WH_')) env[key] = value
   }
 
   return env;

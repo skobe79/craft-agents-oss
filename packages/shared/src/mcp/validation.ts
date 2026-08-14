@@ -9,6 +9,7 @@
 import { CraftMcpClient } from './client.js';
 import { debug } from '../utils/debug.ts';
 import { normalizeMcpUrl } from '../sources/server-builder.ts';
+import { sanitizeChildProcessEnv } from '../utils/env.ts';
 import type { McpTransport } from '../sources/types.ts';
 
 export interface InvalidProperty {
@@ -360,13 +361,7 @@ export async function validateStdioMcpConnection(
     }
   };
 
-  // Filter out undefined entries from process.env before merging.
-  const processEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) {
-      processEnv[key] = value;
-    }
-  }
+  const processEnv = sanitizeChildProcessEnv(process.env);
 
   const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
@@ -390,7 +385,7 @@ export async function validateStdioMcpConnection(
     transport = new StdioClientTransport({
       command,
       args,
-      env: { ...processEnv, ...env },
+      env: sanitizeChildProcessEnv({ ...processEnv, ...env }),
       stderr: 'pipe',
     });
 
@@ -489,7 +484,19 @@ export async function validateStdioMcpConnection(
     const framingHint =
       'Check that the server speaks newline-delimited JSON-RPC (MCP stdio spec) on stdout, not LSP-style Content-Length framing.';
 
-    if (error.message.includes('ENOENT') || error.message.includes('not found')) {
+    // A failed spawn often surfaces as a generic "Connection closed" from the
+    // MCP SDK, with the real cause (ENOENT) only visible in stderr — e.g.
+    // Windows emits "The system cannot find the file specified.", cmd.exe says
+    // "'x' is not recognized as an internal or external command". Match those
+    // too so the clean "Command not found" diagnostic wins.
+    const spawnFailed =
+      error.message.includes('ENOENT') ||
+      error.message.includes('not found') ||
+      /cannot find the (file|path)|no such file or directory|not recognized as an internal or external command|spawn .* ENOENT/i.test(
+        stderrSnippet
+      );
+
+    if (spawnFailed) {
       errorMessage = `Command not found: "${command}". Install the required dependency and try again.`;
     } else if (error.message.includes('EACCES') || error.message.includes('permission denied')) {
       errorMessage = `Permission denied running "${command}". Check file permissions.`;

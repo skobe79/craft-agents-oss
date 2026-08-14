@@ -155,7 +155,7 @@ const WEB_PREVIEWABLE_EXTENSIONS = new Set([
 ])
 
 /** True when running in web UI (browser) rather than Electron. */
-const isWebMode = window.electronAPI.getRuntimeEnvironment() === 'web'
+const isWebMode = typeof window !== 'undefined' && window.electronAPI?.getRuntimeEnvironment?.() === 'web'
 
 /**
  * Constructs a thumbnail:// protocol URL for a given file path.
@@ -261,10 +261,7 @@ interface FileTreeItemProps {
    *   2. future CSS can dim/accent drilled rows without re-deriving the
    *      decision from props.
    */
-  drilledPaths?: never // removed in the gate-enforcement revision; kept
-  // as `never` so older prop-passes that include this name fail at
-  // typecheck instead of silently no-op'ing.  Safe to delete once
-  // the call-site prop has been cleaned up in the same revision.
+  drilledPaths?: Set<string>
 }
 
 /**
@@ -307,6 +304,12 @@ function FileTreeItem({
     && expandDepth != null
     && shouldGateManualExpand(rootPath, file.path, expandDepth, false).kind === 'gate-forward'
 
+  // Whether the user has drilled this row past the depth cap.  Surfaced as
+  // `data-drilled` (the drill test surface) — drill entry is ephemeral state
+  // owned by the parent, so a row is "drilled" only while its path is in
+  // drilledPaths.
+  const isDrilled = drilledPaths?.has(file.path) ?? false
+
   // Only wrap with hover preview for image-previewable files; non-image
   // files (code, text, JSON, etc.) fall through to the plain icon.
   const fileExt = file.name.split('.').pop()?.toLowerCase() || ''
@@ -347,6 +350,7 @@ function FileTreeItem({
       // and `handleToggleExpand` will refuse the click).  See
       // SessionFilesSection.gate-enforcement.test.tsx.
       data-gated={isGated ? 'true' : undefined}
+      data-drilled={isDrilled ? 'true' : undefined}
       className={cn(
         // Base styles matching LeftSidebar exactly
         // min-w-0 and overflow-hidden required for truncation to work in grid context
@@ -578,7 +582,7 @@ function FileTreeItem({
                         isNested={true}
                         expandDepth={expandDepth}
                         rootPath={rootPath}
-                        drilledPaths={drilledPaths as never}
+                        drilledPaths={drilledPaths}
                       />
                     </motion.div>
                   ))}
@@ -611,9 +615,19 @@ export function SessionFilesSection({ sessionId, className, sessionFolderPath, h
   // effect's dependency-array reference resolves at TS evaluation time.
   // saveExpandedPaths is stable for the lifetime of the sessionId, so
   // putting it first doesn't alter the count-cap effect's behavior.
+  // Drilled rows are deliberately excluded from the persisted set.  Drill
+  // state itself is in-memory only (see the Drill mode block below), so
+  // persisting the expansion it produced would restore a past-cap tree on
+  // the next launch with no drill marker and no gate affordance to clear
+  // it — the depth selector would read N while the tree showed N+1.
+  // Filtering on write keeps every call site honest, including the
+  // count-cap trim.  drilledPathsRef is declared further down; this
+  // callback only ever runs from effects and handlers, long after the
+  // component body has evaluated.
   const saveExpandedPaths = useCallback((paths: Set<string>) => {
     if (sessionId) {
-      storage.set(storage.KEYS.sessionFilesExpandedFolders, Array.from(paths), sessionId)
+      const persistable = Array.from(paths).filter((p) => !drilledPathsRef.current.has(p))
+      storage.set(storage.KEYS.sessionFilesExpandedFolders, persistable, sessionId)
     }
   }, [sessionId])
 
@@ -726,7 +740,8 @@ export function SessionFilesSection({ sessionId, className, sessionFolderPath, h
       setExpandedPaths(new Set())
       setHasSavedExpandedState(false)
     }
-    // Drill markers reset on every session-switch (drill is ephemeral).
+    // Drill markers reset on every session-switch (drill is ephemeral);
+    // the mirror effect clears the ref on the next commit.
     setDrilledPaths(new Set())
   }, [sessionId])
 
@@ -853,7 +868,8 @@ export function SessionFilesSection({ sessionId, className, sessionFolderPath, h
     const isCurrentlyExpanded = expandedPaths.has(path)
 
     // Collapse path — always allowed; users must be able to back out of
-    // an accidental expansion regardless of depth cap.
+    // an accidental expansion regardless of depth cap.  The drill marker
+    // for this row is cleared here so each drill entry is per-instance.
     if (isCurrentlyExpanded) {
       setExpandedPaths((prev) => {
         const next = new Set(prev)
@@ -861,6 +877,14 @@ export function SessionFilesSection({ sessionId, className, sessionFolderPath, h
         saveExpandedPaths(next)
         return next
       })
+      if (drilledPathsRef.current.has(path)) {
+        // Update the ref synchronously (not inside the state updater) so a
+        // re-click in the same render cycle observes the cleared marker.
+        const nextDrilled = new Set(drilledPathsRef.current)
+        nextDrilled.delete(path)
+        drilledPathsRef.current = nextDrilled
+        setDrilledPaths(nextDrilled)
+      }
       return
     }
 
@@ -873,21 +897,35 @@ export function SessionFilesSection({ sessionId, className, sessionFolderPath, h
     )
 
     if (decision.kind === 'gate-forward') {
-      // Hard no-op: the gate is enforced.  The visual affordance on
-      // the row (dimmed chevron + banner tooltip via TooltipContent)
-      // already explains how to bypass; the toast here is a one-shot
-      // reinforcement so the user immediately understands the click
-      // was swallowed, even if they didn't hover for the tooltip.
-      // countCapToastedRef's spam-prevention pattern fits this exact
-      // shape — rapid repeat clicks on the same gated row shouldn't
-      // spam toasts.
-      if (!countCapToastedRef.current) {
-        countCapToastedRef.current = true
-        toast.info(
-          `Capped at ${expandDepth} level${expandDepth !== 1 ? 's' : ''} \u2014 bump the depth selector to drill in.`,
-          { duration: 3_000 },
-        )
+      // Drill mode: expand this one row past the cap and mark it so the
+      // row surfaces a `data-drilled` affordance.  The depth selector
+      // still gates everything else — this is "I can see the cap; let
+      // me past it for this one row" without globally lifting the cap.
+      //
+      // Spam-prevention: rapid clicks within the same render cycle see
+      // the stale expandedPaths closure, so re-clicking a gated row
+      // before React commits would refire the toast.  drilledPathsRef
+      // (mirrored on every commit) makes the second/third click observe
+      // the drill marker and skip the toast — same shape as the
+      // count-cap's countCapToastedRef pattern.
+      if (drilledPathsRef.current.has(path)) {
+        return
       }
+
+      // Update the ref synchronously (not inside the state updater) so rapid
+      // re-clicks in the same render cycle observe the drill marker and skip
+      // the toast.
+      const nextDrilled = new Set(drilledPathsRef.current)
+      nextDrilled.add(path)
+      drilledPathsRef.current = nextDrilled
+      setDrilledPaths(nextDrilled)
+      setExpandedPaths((prev) => {
+        const next = new Set(prev)
+        next.add(path)
+        saveExpandedPaths(next)
+        return next
+      })
+      toast.info('Drilled past depth cap — click again to collapse.', { duration: 3_000 })
       return
     }
 
@@ -899,10 +937,7 @@ export function SessionFilesSection({ sessionId, className, sessionFolderPath, h
     })
   }, [saveExpandedPaths, sessionFolderPath, expandDepth, expandedPaths])
 
-  // Collapse-all — clears expandedPaths.  (The earlier drill-mode
-  // infrastructure that also cleared drilledPaths here has been
-  // removed; see the "Depth-cap enforcement" comment above for the
-  // rationale.)
+  // Collapse-all — clears expandedPaths and all drill markers.
   const handleCollapseAll = useCallback(() => {
     setExpandedPaths(new Set())
     saveExpandedPaths(new Set())
@@ -993,7 +1028,7 @@ export function SessionFilesSection({ sessionId, className, sessionFolderPath, h
                 onRevealInFileManager={handleRevealInFileManager}
                 expandDepth={expandDepth}
                 rootPath={sessionFolderPath}
-                drilledPaths={drilledPaths as never}
+                drilledPaths={drilledPaths}
               />
             ))}
           </nav>
